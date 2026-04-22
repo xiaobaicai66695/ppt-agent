@@ -1,0 +1,20 @@
+output/                 # 匹配任意位置的 output 文件夹
+ppt-agent/output/       # 或者明确指定路径
+**/output/              # 匹配任意层级的 output 文件夹（某些 Git 版本支持）
+
+# 临时脚本（agent 生成的 temp_script.py）
+*temp_script.py
+
+# 后端日志
+backend/*.log
+
+# 前端构建产物（如果有）
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/*
+
+.vscode/
+.env
+.idea/
+*.py
