@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
@@ -442,4 +443,82 @@ func FormatAllSlidesForRequest(slides []Step, workDir string) string {
 	sb.WriteString("- 完成后列出所有生成的文件\n")
 
 	return sb.String()
+}
+
+// CheckpointFileName 是进度 checkpoint 文件名
+const CheckpointFileName = ".slides_checkpoint.json"
+
+// SlidesCheckpoint 存储已完成幻灯片的进度信息
+type SlidesCheckpoint struct {
+	CompletedSlides []int  `json:"completed_slides"` // 已完成的页码列表
+	TotalSlides    int    `json:"total_slides"`    // 总幻灯片数
+	LastUpdated    string `json:"last_updated"`     // 最后更新时间
+}
+
+// SaveCheckpoint 保存进度到 checkpoint 文件
+func SaveCheckpoint(workDir string, completedSlides []int, totalSlides int) error {
+	checkpoint := SlidesCheckpoint{
+		CompletedSlides: completedSlides,
+		TotalSlides:    totalSlides,
+		LastUpdated:    time.Now().Format("2006-01-02 15:04:05"),
+	}
+	data, err := json.Marshal(checkpoint)
+	if err != nil {
+		return err
+	}
+	filePath := filepath.Join(workDir, CheckpointFileName)
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadCheckpoint 从 checkpoint 文件加载进度
+func LoadCheckpoint(workDir string) (*SlidesCheckpoint, error) {
+	filePath := filepath.Join(workDir, CheckpointFileName)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var checkpoint SlidesCheckpoint
+	if err := json.Unmarshal(data, &checkpoint); err != nil {
+		return nil, err
+	}
+	return &checkpoint, nil
+}
+
+// AddCompletedSlide 向 checkpoint 添加一个已完成的幻灯片
+func AddCompletedSlide(workDir string, slideIndex int) error {
+	checkpoint, err := LoadCheckpoint(workDir)
+	if err != nil {
+		return err
+	}
+	if checkpoint == nil {
+		checkpoint = &SlidesCheckpoint{CompletedSlides: []int{}}
+	}
+	for _, idx := range checkpoint.CompletedSlides {
+		if idx == slideIndex {
+			return nil
+		}
+	}
+	checkpoint.CompletedSlides = append(checkpoint.CompletedSlides, slideIndex)
+	checkpoint.LastUpdated = time.Now().Format("2006-01-02 15:04:05")
+	data, err := json.Marshal(checkpoint)
+	if err != nil {
+		return err
+	}
+	filePath := filepath.Join(workDir, CheckpointFileName)
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// GetCompletedCountFromCheckpoint 从 checkpoint 获取已完成数量
+func GetCompletedCountFromCheckpoint(workDir string) (int, error) {
+	checkpoint, err := LoadCheckpoint(workDir)
+	if err != nil {
+		return 0, err
+	}
+	if checkpoint == nil {
+		return 0, nil
+	}
+	return len(checkpoint.CompletedSlides), nil
 }

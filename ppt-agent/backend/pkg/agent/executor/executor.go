@@ -18,6 +18,8 @@ package executor
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
@@ -34,63 +36,63 @@ import (
 )
 
 var executorPrompt = prompt.FromMessages(schema.Jinja2,
-	schema.SystemMessage(`你是一个认真细致的PPT执行代理，每次只生成一页幻灯片。
+	schema.SystemMessage(`你是一个PPT执行代理，每次只生成一页幻灯片。
 
-**【核心原则】任务分割规则（必须严格遵守）：**
-- 你在每一轮对话中，**只能处理一个任务**：即 prompt 中 "当前需要执行的任务" 指定的那一页
-- 绝对不要处理 "给定的计划" 中的其他页面
-- 绝对不要回头重新执行已完成或正在执行的页面
-- 完成当前页后，只需回复"接下来该做第 X 页：{标题}"，不要多于一句话
-
-**【进度追踪】：**
-- "已执行的步骤" 中列出的是已经完成的历史记录，参考它来确认下一页
-- 如果 "已执行的步骤" 显示最后执行的是第 N 页，则下一步是第 N+1 页
-- 如果 "已执行的步骤" 显示最后执行的是第 N 页，但你看到的是第 1 页的描述，**忽略第 1 页**，继续执行第 N+1 页
-
-**【禁止行为】：**
-- 不要因为看到计划中有"第1页"就回头去做第1页
-- 不要因为"已执行的步骤"中有"已完成"字样就误判任务已全部完成
-- 不要输出完整的PPT计划，只输出下一页的标题
+**【执行规则】：**
+- 只处理 "当前需要执行的任务" 中指定的那一页
+- 不要处理计划中的其他页面
+- 不要回头执行已完成的页面
+- 完成当前页后，必须调用 update_progress 工具记录进度，然后回复"接下来该做第 X 页：{标题}"
 
 **【可用工具】：**
-- python3: 执行 Python 代码生成 PPT 文件
-- edit_file: 编辑或创建文件
-- read_file: 读取文件内容
-- bash: 执行 shell 命令
-- search: 搜索互联网获取信息
-- search_image: 搜索图片素材（需审批后才能执行）
+- python3: 生成 PPT 文件（主要工具）
+- update_progress: 每成功生成一页幻灯片后，必须调用此工具记录页码（如 {"slide_index": 1}）
+- edit_file, read_file, bash, search, search_image: 辅助工具
 
 **【visual_designer 使用方式】：**
-- visual_designer 是设计规范参考文档（已注入到本 prompt）
-- 它仅供你参考配色方案、字体规范、布局决策
-- 你不需要、也不应该调用 visual_designer 工具
-- 正确做法：自行参考其规范 → 调用 python3 工具生成 PPT 代码
+- 它是设计规范参考文档（已注入本 prompt）
+- 参考其配色、字体、布局规范
+- 不要调用 visual_designer 工具
 
 **【文件命名规范】：**
-- 每个幻灯片按照 "页码_标题.pptx" 格式命名
-- 所有文件保存在当前任务目录中
+- "页码_标题.pptx" 格式（如 1_标题页.pptx）
 
-**【图片搜索审批流程】：**
-- Y: 确认搜索
-- N: 使用默认占位图
-- E: 编辑搜索词后执行
+**【重要】完成流程**：
+1. 调用 python3 生成 PPT 文件
+2. 调用 update_progress 记录完成的页码
+3. 回复"接下来该做第 X 页：{标题}"
 
 {{ skills }}`), schema.UserMessage(`## 用户需求
 {{ input }}
 
-## 给定的完整计划
+## 完整计划
 {{ plan }}
 
-## 已执行的步骤（历史记录）
+## 已执行步骤
 {{ executed_steps }}
 
-## 当前需要执行的任务（注意：只处理这一页！）
+## 当前任务（只处理这一页！）
 {{ step }}
 
-**【重要】你的输出格式：**
-完成当前页的 PPT 生成后，只需简短回复：
-"接下来该做第 X 页：{标题}"
-不要输出其他内容，不要总结，不要列出计划。`))
+**完成流程**：
+1. 调用 python3 生成 PPT 文件
+2. 调用 update_progress 记录页码
+3. 回复"接下来该做第 X 页：{标题}"`))
+
+func getNextSlideFromDisk(plan *generic.Plan, workDir string) *generic.Step {
+	if plan == nil {
+		return nil
+	}
+	existingFiles := generic.GetExistingStepFiles(workDir)
+	allSlides := plan.GetSlides()
+	for i := range allSlides {
+		slide := &allSlides[i]
+		if _, exists := existingFiles[slide.Index]; !exists {
+			return slide
+		}
+	}
+	return nil
+}
 
 func NewExecutor(ctx context.Context, operator commandline.Operator, skillsContent string) (adk.Agent, error) {
 	cm, err := agentutils.NewToolCallingChatModel(ctx,
@@ -109,6 +111,7 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 	editFileTool := tools.NewEditFileTool(operator)
 	readFileTool := tools.NewReadFileTool(operator)
 	bashTool := tools.NewBashTool(operator)
+	checkpointTool := tools.NewCheckpointTool(operator)
 
 	a, err := planexecute.NewExecutor(ctx, &planexecute.ExecutorConfig{
 		Model: cm,
@@ -121,6 +124,7 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 					bashTool,
 					searchTool,
 					imageSearchTool,
+					checkpointTool,
 				},
 			},
 		},
@@ -134,33 +138,68 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 			// 获取工作目录
 			workDir, _ := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
 
-			// 提取已执行步骤的 JSON 字符串列表
-			var executedStepJSONs []string
-			for _, es := range in.ExecutedSteps {
-				executedStepJSONs = append(executedStepJSONs, es.Step)
-			}
-
-			// 获取真正的剩余步骤
+			// 获取 Plan 对象
 			plan, ok := in.Plan.(*generic.Plan)
 			if !ok {
 				plan = &generic.Plan{}
 			}
-			remainingSlides := plan.GetRemainingSlides(executedStepJSONs)
 
-			// 获取当前批次需要处理的幻灯片
+			// 核心修复：优先使用 filesystem 检查真正的进度
+			// 因为框架的 ExecutedSteps 可能没有正确累积
+			nextSlide := getNextSlideFromDisk(plan, workDir)
+
+			// 如果 filesystem 也找不到剩余幻灯片，尝试用框架的 ExecutedSteps
 			var stepStr string
-			if len(remainingSlides) > 0 {
-				// 逐页处理
-				currentSlide := remainingSlides[0]
-				stepStr = generic.FormatStepForRequest(&currentSlide, workDir)
+			if nextSlide != nil {
+				stepStr = generic.FormatStepForRequest(nextSlide, workDir)
 			} else {
-				stepStr = "[完成] 所有幻灯片都已生成完毕。"
+				// 回退到框架的 ExecutedSteps
+				var executedStepJSONs []string
+				for _, es := range in.ExecutedSteps {
+					executedStepJSONs = append(executedStepJSONs, es.Step)
+				}
+				remainingSlides := plan.GetRemainingSlides(executedStepJSONs)
+				if len(remainingSlides) > 0 {
+					nextSlide = &remainingSlides[0]
+					stepStr = generic.FormatStepForRequest(nextSlide, workDir)
+				} else {
+					stepStr = "[完成] 所有幻灯片都已生成完毕。"
+				}
+			}
+
+			// 格式化已执行步骤（用于 prompt 显示）
+			executedSummary := agentutils.FormatExecutedSteps(in.ExecutedSteps)
+
+			// 如果 filesystem 显示有下一个幻灯片但框架没有，将其追加到 executedSteps 摘要中
+			// 以便 prompt 能看到正确的历史进度
+			if nextSlide != nil {
+				existingFiles := generic.GetExistingStepFiles(workDir)
+				allSlides := plan.GetSlides()
+				for i := range allSlides {
+					slide := &allSlides[i]
+					if _, exists := existingFiles[slide.Index]; exists {
+						// 检查是否已经在 ExecutedSteps 中
+						found := false
+						for _, es := range in.ExecutedSteps {
+							if strings.Contains(es.Step, fmt.Sprintf(`"index":%d`, slide.Index)) ||
+							   strings.Contains(es.Step, fmt.Sprintf(`"index": %d`, slide.Index)) {
+								found = true
+								break
+							}
+						}
+						if !found {
+							// 追加到摘要中
+							executedSummary += fmt.Sprintf("## %d. Step: {\"index\":%d,\"title\":\"%s\"}\n  Result: 已生成文件\n\n",
+								len(in.ExecutedSteps)+1, slide.Index, slide.Title)
+						}
+					}
+				}
 			}
 
 			return executorPrompt.Format(ctx, map[string]any{
 				"input":          agentutils.FormatInput(in.UserInput),
 				"plan":           string(planContent),
-				"executed_steps": agentutils.FormatExecutedSteps(in.ExecutedSteps),
+				"executed_steps": executedSummary,
 				"step":           stepStr,
 				"skills":         skillsContent,
 			})
