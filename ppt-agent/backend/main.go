@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,16 +28,20 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/cloudwego/eino-ext/adk/backend/local"
+	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
 	"github.com/cloudwego/eino/schema"
+	"github.com/coze-dev/cozeloop-go"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/executor"
 	"github.com/cloudwego/ppt-agent/pkg/agent/planner"
 	"github.com/cloudwego/ppt-agent/pkg/agent/replanner"
+	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/human"
 )
 
@@ -47,11 +52,25 @@ func main() {
 		return
 	}
 
-	// 自动加载当前目录下的 .env 文件（WSL/Windows 都通用）
 	envPath := filepath.Join(pwd, ".env")
 	_ = godotenv.Load(envPath)
 
 	ctx := context.Background()
+
+	// 设置 Callback（可观测性）
+	// 1. 注册日志追踪 Handler
+	logHandler := callback.NewLogHandler()
+	callbacks.AppendGlobalHandlers(logHandler)
+	fmt.Println("[Callback] 日志追踪 Handler 已注册")
+
+	startTime := time.Now()
+
+	// 2. 设置 CozeLoop 追踪（可选，需要配置环境变量）
+	cozeLoopClient := setupCozeLoop(ctx)
+	if cozeLoopClient != nil {
+		callbacks.AppendGlobalHandlers(clc.NewLoopHandler(cozeLoopClient))
+		fmt.Println("[Callback] CozeLoop Handler 已注册")
+	}
 
 	interactive := os.Getenv("INTERACTIVE") != "false"
 
@@ -142,7 +161,7 @@ func main() {
 		Planner:       planAgent,
 		Executor:      executeAgent,
 		Replanner:     replanAgent,
-		MaxIterations: 50,
+		MaxIterations: 100,
 	})
 	if err != nil {
 		fmt.Printf("planexecute.New failed, err: %v\n", err)
@@ -199,6 +218,41 @@ func main() {
 		}
 	}
 
+	// 打印执行摘要
+	elapsed := time.Since(startTime).Round(time.Millisecond)
+	fmt.Printf("\n[Callback] 任务执行完成，总耗时: %v\n", elapsed)
+
+	// 关闭 CozeLoop（如果启用）
+	if cozeLoopClient != nil {
+		fmt.Println("[Callback] 等待 CozeLoop 数据上报...")
+		time.Sleep(5 * time.Second)
+		cozeLoopClient.Close(ctx)
+	}
+
 	fmt.Printf("\n[完成] 所有文件已保存到: %s\n", outputDir)
 	time.Sleep(2 * time.Second)
+}
+
+// setupCozeLoop 设置 CozeLoop 追踪
+// 如果未配置环境变量，返回 nil
+func setupCozeLoop(ctx context.Context) cozeloop.Client {
+	apiToken := os.Getenv("COZELOOP_API_TOKEN")
+	workspaceID := os.Getenv("COZELOOP_WORKSPACE_ID")
+
+	if apiToken == "" || workspaceID == "" {
+		log.Println("[Callback] CozeLoop 未配置 (COZELOOP_API_TOKEN 或 COZELOOP_WORKSPACE_ID 未设置)，跳过")
+		return nil
+	}
+
+	client, err := cozeloop.NewClient(
+		cozeloop.WithAPIToken(apiToken),
+		cozeloop.WithWorkspaceID(workspaceID),
+	)
+	if err != nil {
+		log.Printf("[Callback] CozeLoop 设置失败: %v\n", err)
+		return nil
+	}
+
+	log.Printf("[Callback] CozeLoop 配置成功: workspaceID=%s", workspaceID)
+	return client
 }

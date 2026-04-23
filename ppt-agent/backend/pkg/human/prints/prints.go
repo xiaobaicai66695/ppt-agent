@@ -77,9 +77,6 @@ func Event(event *adk.AgentEvent) {
 		if m := event.Output.MessageOutput.Message; m != nil {
 			if len(m.Content) > 0 {
 				content := m.Content
-				if len(content) > 500 {
-					content = content[:500] + "..."
-				}
 				if m.Role == schema.Tool {
 					fmt.Printf("\n%s[Tool Response]%s\n%s\n", Yellow, Reset, content)
 				} else {
@@ -212,9 +209,6 @@ func ToolCall(toolName string, args string) {
 
 // ToolResponse 打印工具响应
 func ToolResponse(toolName string, response string) {
-	if len(response) > 500 {
-		response = response[:500] + "..."
-	}
 	fmt.Printf("%s[Tool Response]%s %s: %s\n", Yellow, Reset, toolName, response)
 }
 

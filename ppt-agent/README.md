@@ -351,17 +351,14 @@ entryAgent, _ := planexecute.New(ctx, &planexecute.Config{
 ```go
 import "github.com/cloudwego/ppt-agent/pkg/tools/wrapper"
 
-// 创建基础工具
-imageTool := tools.NewImageSearchTool()
+searchTool := tools.NewSearchTool()
 
-// 包装为审批工具
-approvableTool := &wrapper.ImageSearchApprovableTool{
-    InvokableTool: imageTool,
-    UsageScenario:  "PPT配图",
-    FallbackOption: "使用默认占位图",
+approvableTool := &wrapper.SearchApprovableTool{
+    InvokableTool: searchTool,
+    UsageScenario:  "PPT内容搜索",
+    FallbackOption: "使用已有内容",
 }
 
-// 使用包装后的工具创建 Agent
 agent, _ := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
     ToolsConfig: adk.ToolsConfig{
         ToolsNodeConfig: compose.ToolsNodeConfig{

@@ -12,10 +12,6 @@ func NewSearchTool() tool.InvokableTool {
 	return search.NewSearchTool()
 }
 
-func NewImageSearchTool() tool.InvokableTool {
-	return search.NewImageSearchTool()
-}
-
 func NewPPTTool(op commandline.Operator) tool.InvokableTool {
 	return ppt.NewPPTTool(op)
 }

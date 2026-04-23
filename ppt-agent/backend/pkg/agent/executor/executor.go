@@ -36,31 +36,45 @@ import (
 )
 
 var executorPrompt = prompt.FromMessages(schema.Jinja2,
-	schema.SystemMessage(`你是一个PPT执行代理，每次只生成一页幻灯片。
+	schema.SystemMessage(`你是一个PPT执行代理，负责生成幻灯片。
 
 **【执行规则】：**
-- 只处理 "当前需要执行的任务" 中指定的那一页
-- 不要处理计划中的其他页面
-- 不要回头执行已完成的页面
-- 完成当前页后，必须调用 update_progress 工具记录进度，然后回复"接下来该做第 X 页：{标题}"
+- 正常情况下每次处理计划中的一页
+- **同一主题多个小点需详细解释时，应在一个 pptx 文件内生成多页**（大标题不变、副标题/序号体现当前页主题）
+- 内容过长（要点超过6条或几何体内文字溢出）时，**必须分多页**，不要强行压缩
+- 不要处理计划中无关的其他页面
+- 完成当前任务后，必须调用 update_progress 工具记录进度，然后回复"接下来该做第 X 页：{标题}"（多页完成则列出所有页码）
+
+**【内容质量】：**
+- 内容空洞或缺少具体数据时，**可调用 search 工具搜索真实信息**
+- 几何体内嵌文字必须先估算宽度，确保不超出边界
+
+**【搜索规范】（必须严格遵守）：**
+- 每次搜索**只传入一个核心关键词**，不要拼接多个关键词
+- 关键词要求：简洁、精准、长约 2-5 个词
+- 如果需要搜索多个不同主题，**必须分多次调用** search 工具
+- 示例：
+  - 正确：{"query": "深度学习发展历程"}
+  - 错误：{"query": "深度学习 发展历程 里程碑"}
 
 **【可用工具】：**
 - python3: 生成 PPT 文件（主要工具）
-- update_progress: 每成功生成一页幻灯片后，必须调用此工具记录页码（如 {"slide_index": 1}）
-- edit_file, read_file, bash, search, search_image: 辅助工具
+- update_progress: 每成功生成一页幻灯片后，必须调用此工具记录页码（如 {"slide_index": 1}），多页则多次调用
+- edit_file, read_file, bash, search: 辅助工具，search 必要时使用
 
 **【visual_designer 使用方式】：**
 - 它是设计规范参考文档（已注入本 prompt）
 - 参考其配色、字体、布局规范
-- 不要调用 visual_designer 工具
+- 严格遵守其中的"文字溢出防护"和"分页策略"
 
 **【文件命名规范】：**
 - "页码_标题.pptx" 格式（如 1_标题页.pptx）
 
 **【重要】完成流程**：
-1. 调用 python3 生成 PPT 文件
-2. 调用 update_progress 记录完成的页码
-3. 回复"接下来该做第 X 页：{标题}"
+1. 调用 search 搜索内容（如需要）
+2. 调用 python3 生成 PPT 文件（可一次生成多页）
+3. 对每一页调用 update_progress 记录页码
+4. 回复"接下来该做第 X 页：{标题}"
 
 {{ skills }}`), schema.UserMessage(`## 用户需求
 {{ input }}
@@ -71,13 +85,14 @@ var executorPrompt = prompt.FromMessages(schema.Jinja2,
 ## 已执行步骤
 {{ executed_steps }}
 
-## 当前任务（只处理这一页！）
+## 当前任务
 {{ step }}
 
 **完成流程**：
-1. 调用 python3 生成 PPT 文件
-2. 调用 update_progress 记录页码
-3. 回复"接下来该做第 X 页：{标题}"`))
+1. 调用 search 搜索内容（如需要）
+2. 调用 python3 生成 PPT 文件（可一次生成多页）
+3. 对每一页调用 update_progress 记录页码
+4. 回复"接下来该做第 X 页：{标题}"`))
 
 func getNextSlideFromDisk(plan *generic.Plan, workDir string) *generic.Step {
 	if plan == nil {
@@ -106,7 +121,6 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 
 	// 直接配置所有工具，不再使用嵌套子代理
 	searchTool := tools.NewSearchTool()
-	imageSearchTool := tools.NewImageSearchTool()
 	pythonTool := tools.NewPythonRunnerTool(operator)
 	editFileTool := tools.NewEditFileTool(operator)
 	readFileTool := tools.NewReadFileTool(operator)
@@ -123,7 +137,6 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 					readFileTool,
 					bashTool,
 					searchTool,
-					imageSearchTool,
 					checkpointTool,
 				},
 			},
