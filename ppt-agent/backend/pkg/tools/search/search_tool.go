@@ -8,41 +8,46 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/go-shiori/dom"
+	"github.com/markusmobius/go-trafilatura"
+)
+
+var (
+	htmlTagRegex  = regexp.MustCompile(`<[^>]*>`)
+	urlRegex      = regexp.MustCompile(`\(https?://[^\)]+\)|https?://\S+`)
+	unicodeEscRe  = regexp.MustCompile(`\\u0026#34;|\\u0026`)
+	htmlEntityRe  = regexp.MustCompile(`&#34;|&#x22;`)
+	ampEntityRe   = regexp.MustCompile(`&amp;`)
+	extraSpaceRe  = regexp.MustCompile(`\n{3,}`)
 )
 
 const bingAPIURL = "https://cn.bing.com/search"
 
+var bingSearchURL string
+
+func init() {
+	bingSearchURL = bingAPIURL
+}
+
 const (
 	maxConcurrentFetch = 5
-	maxContentLength   = 0
 )
 
 var trustedDomains = []string{
-	"baidu.com",              // 百度
-	"baiduusercontent.com",   // 百度用户内容
-	"zhihu.com",              // 知乎
-	"zhihuusercontent.com",    // 知乎用户内容
-	"csdn.net",               // CSDN
-	"juejin.cn",              // 稀土掘金
-	"jianshu.com",            // 简书
-	"toutiao.com",            // 今日头条
-	"weibo.com",              // 微博
-	"36kr.com",               // 36氪
-	"ithome.com",             // IT之家
-	"oschina.net",            // 开源中国
-	"cloud.tencent.com",      // 腾讯云开发者社区
-	"segmentfault.com",       // 思否
-	"bilibili.com",           // 哔哩哔哩
-	"douban.com",             // 豆瓣
-	"cnblogs.com",            // 博客园
-	"infoq.cn",               // InfoQ
+	"cloud.tencent.com", // 腾讯云开发者社区
+	"xinhuanet.com",     // 新华网
+	"sohu.com",          // 搜狐
+	"aliyun.com",        // 阿里云
+	"baidu.com",         // 百度百科
+	"cnblogs.com",       // 博客园
+	"juejin.cn",         // 稀土掘金
 }
 
 var searchToolInfo = &schema.ToolInfo{
@@ -50,14 +55,14 @@ var searchToolInfo = &schema.ToolInfo{
 	Desc: "搜索互联网获取相关信息，用于PPT内容补充。输入搜索关键词，返回搜索结果列表。\n\n【使用原则】网络搜索开销很大，请遵循以下原则：\n1. 仅在以下情况使用搜索：\n   - 用户明确要求查找最新信息或数据\n   - PPT内容需要具体的数字、日期、统计数据\n   - 需要核实不确定的事实或概念\n   - 缺少必要的关键信息（如专业术语解释、事件时间线等）\n2. 优先使用已有知识：常见概念、通用知识、基础事实无需搜索\n3. 搜索前先思考：是否能从已有信息推断？是否必须联网查询？",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"query": {
-			Type:        "string",
-			Desc:        "搜索关键词（必填）",
-			Required:    true,
+			Type:     "string",
+			Desc:     "搜索关键词（必填）",
+			Required: true,
 		},
 		"reason": {
-			Type:        "string",
-			Desc:        "搜索必要性说明（选填）：简述为什么需要搜索，如'需要2024年最新数据'、'核实某公司财报数据'等。用于帮助判断是否真正需要执行搜索。",
-			Required:    false,
+			Type:     "string",
+			Desc:     "搜索必要性说明（选填）：简述为什么需要搜索，如'需要2024年最新数据'、'核实某公司财报数据'等。用于帮助判断是否真正需要执行搜索。",
+			Required: false,
 		},
 	}),
 }
@@ -74,9 +79,9 @@ type SearchRequest struct {
 }
 
 type SearchResponse struct {
-	Results  []SearchResult `json:"results"`
-	Content  string         `json:"content,omitempty"`
-	Error    string         `json:"error,omitempty"`
+	Results []SearchResult `json:"results"`
+	Content string         `json:"content,omitempty"`
+	Error   string         `json:"error,omitempty"`
 }
 
 type SearchResult struct {
@@ -147,13 +152,7 @@ func (t *searchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		if i < maxConcurrentFetch {
 			combinedContent.WriteString(fmt.Sprintf("[%d] %s\n", i+1, r.URL))
 			if content, ok := contents[r.URL]; ok && content != "" {
-				// 提取正文主体（最长的一段）
-				mainContent := extractMainBody(content)
-				if mainContent != "" {
-					combinedContent.WriteString(fmt.Sprintf("正文:\n%s\n\n", mainContent))
-				} else {
-					combinedContent.WriteString(fmt.Sprintf("内容摘要: %s\n\n", truncateContent(content, 500)))
-				}
+				combinedContent.WriteString(fmt.Sprintf("正文:\n%s\n\n", content))
 			} else {
 				combinedContent.WriteString("（获取内容失败）\n\n")
 			}
@@ -249,246 +248,53 @@ func fetchURL(targetURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	parsedURL, err := url.ParseRequestURI(targetURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to parse URL: %v", err)
 	}
 
-	html := string(body)
-	content := extractTextContent(html)
-
-	if maxContentLength > 0 && len(content) > maxContentLength {
-		content = content[:maxContentLength] + "..."
+	opts := trafilatura.Options{
+		IncludeImages: true,
+		OriginalURL:   parsedURL,
 	}
-	return content, nil
+
+	result, err := trafilatura.Extract(resp.Body, opts)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract content: %v", err)
+	}
+
+	if result == nil || result.ContentText == "" {
+		return "", fmt.Errorf("no content extracted from page")
+	}
+
+	doc := trafilatura.CreateReadableDocument(result)
+	raw := dom.OuterHTML(doc)
+	clean := htmlTagRegex.ReplaceAllString(raw, "")
+	clean = urlRegex.ReplaceAllString(clean, "")
+	clean = unicodeEscRe.ReplaceAllString(clean, `"`)
+	clean = htmlEntityRe.ReplaceAllString(clean, `"`)
+	clean = ampEntityRe.ReplaceAllString(clean, "&")
+	clean = extraSpaceRe.ReplaceAllString(clean, "\n\n")
+	return strings.TrimSpace(clean), nil
 }
 
-func extractTextContent(html string) string {
-	content := html
-
-	// 尝试从 script 标签中提取 JSON 数据（处理知乎等动态渲染页面）
-	jsonText := extractJSONFromScript(html)
-	if jsonText != "" {
-		// 从 JSON 中提取文本内容
-		textFromJSON := extractTextFromJSON(jsonText)
-		if textFromJSON != "" {
-			return textFromJSON
-		}
-	}
-
-	// 标准 HTML 提取流程
-	content = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`).ReplaceAllString(content, "")
-	content = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`).ReplaceAllString(content, "")
-	content = regexp.MustCompile(`<!--[\s\S]*?-->`).ReplaceAllString(content, "")
-	content = regexp.MustCompile(`<br\s*/?>`).ReplaceAllString(content, "\n")
-	content = regexp.MustCompile(`</p>`).ReplaceAllString(content, "\n")
-	content = regexp.MustCompile(`</div>`).ReplaceAllString(content, "\n")
-	content = regexp.MustCompile(`</li>`).ReplaceAllString(content, "\n")
-	content = regexp.MustCompile(`</h[1-6]>`).ReplaceAllString(content, "\n")
-	content = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(content, "")
-	content = strings.ReplaceAll(content, "&nbsp;", " ")
-	content = strings.ReplaceAll(content, "&amp;", "&")
-	content = strings.ReplaceAll(content, "&lt;", "<")
-	content = strings.ReplaceAll(content, "&gt;", ">")
-	content = strings.ReplaceAll(content, "&quot;", "\"")
-	content = strings.ReplaceAll(content, "&#39;", "'")
-	content = strings.ReplaceAll(content, "&#x27;", "'")
-	content = strings.ReplaceAll(content, "&mdash;", "—")
-	content = strings.ReplaceAll(content, "&ndash;", "–")
-	content = regexp.MustCompile(`\n{3,}`).ReplaceAllString(content, "\n\n")
-	content = strings.TrimSpace(content)
-
-	lines := strings.Split(content, "\n")
-	var filteredLines []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if len(line) > 10 {
-			filteredLines = append(filteredLines, line)
-		}
-	}
-	return strings.Join(filteredLines, "\n")
-}
-
-// extractJSONFromScript 从 HTML 中提取 __INITIAL_STATE__ 等 JSON 数据
-func extractJSONFromScript(html string) string {
-	// 尝试多种模式匹配
-	patterns := []string{
-		`window\.__INITIAL_STATE__\s*=\s*({.+})\s*;?\s*</script>`,
-		`window\.__PRELOADED_STATE__\s*=\s*({.+})\s*;?\s*</script>`,
-		`window\.__NUXT__\s*=\s*({.+})\s*;?\s*</script>`,
-	}
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(html)
-		if len(matches) > 1 {
-			// 用括号匹配来正确处理嵌套的 { }
-			jsonStr := extractMatchingBraces(matches[1])
-			if jsonStr != "" {
-				return jsonStr
-			}
-		}
-	}
-	return ""
-}
-
-// extractMatchingBraces 从第一个 { 开始，找到匹配的最后一个 }
-func extractMatchingBraces(s string) string {
-	start := strings.Index(s, "{")
-	if start == -1 {
+// buildSiteFilter 将信任域名列表拼接成 "site:xxx.com OR site:yyy.com OR site:zzz.com" 格式
+func buildSiteFilter() string {
+	if len(trustedDomains) == 0 {
 		return ""
 	}
-	braceCount := 0
-	for i := start; i < len(s); i++ {
-		if s[i] == '{' {
-			braceCount++
-		} else if s[i] == '}' {
-			braceCount--
-			if braceCount == 0 {
-				return s[start : i+1]
-			}
-		}
+	var parts []string
+	for _, d := range trustedDomains {
+		parts = append(parts, "site:"+d)
 	}
-	return ""
-}
-
-// extractTextFromJSON 从 JSON 中提取纯文本内容
-func extractTextFromJSON(jsonStr string) string {
-	// 递归提取 JSON 中的字符串值，优先找长文本
-	var result strings.Builder
-	var extractJSONStrings func(v interface{})
-	extractJSONStrings = func(v interface{}) {
-		switch val := v.(type) {
-		case string:
-			// 跳过短文本
-			if len(val) < 30 {
-				return
-			}
-			// 跳过明显的噪音
-			lower := strings.ToLower(val)
-			noise := []string{"http://", "https://", "function(", "undefined", "null", "window.", "document.", "typeof"}
-			for _, n := range noise {
-				if strings.Contains(lower, n) {
-					return
-				}
-			}
-			// 检查是否是有效的中文正文（包含常见中文字符）
-			chineseCount := 0
-			for _, r := range val {
-				if r >= 0x4e00 && r <= 0x9fff {
-					chineseCount++
-				}
-			}
-			// 至少30%的中文字符
-			if chineseCount > len(val)/3 {
-				result.WriteString(val)
-				result.WriteString("\n")
-			}
-		case map[string]interface{}:
-			for _, child := range val {
-				extractJSONStrings(child)
-			}
-		case []interface{}:
-			for _, child := range val {
-				extractJSONStrings(child)
-			}
-		}
-	}
-
-	// 尝试解析 JSON
-	var data interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
-		extractJSONStrings(data)
-	}
-	return strings.TrimSpace(result.String())
-}
-
-// extractMainBody 返回正文主体：找出所有段落中内容最丰富的若干段
-// 这能有效避免侧边栏、广告等噪音内容
-func extractMainBody(text string) string {
-	if text == "" {
-		return ""
-	}
-
-	// 按换行分割成段落
-	lines := strings.Split(text, "\n")
-
-	// 收集所有有效的正文段落
-	type paragraph struct {
-		text string
-		len  int
-	}
-	var validParagraphs []paragraph
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// 跳过太短的行
-		if len(line) < 50 {
-			continue
-		}
-		// 跳过可能是导航、版权、评论区等噪音
-		lower := strings.ToLower(line)
-		noiseKeywords := []string{"copyright", "版权所有", "沪ICP备", "京ICP备", "声明", "未经授权", "右侧", "评论区", "相关推荐", "热门文章", "广告", "sponsored", "share to", "欢迎来到", "发现问题的"}
-		isNoise := false
-		for _, kw := range noiseKeywords {
-			if strings.Contains(lower, kw) {
-				isNoise = true
-				break
-			}
-		}
-		if isNoise {
-			continue
-		}
-
-		// 优先选择中文内容多的段落
-		chineseCount := 0
-		for _, r := range line {
-			if r >= 0x4e00 && r <= 0x9fff {
-				chineseCount++
-			}
-		}
-		if chineseCount < len(line)/3 && chineseCount < 20 {
-			continue
-		}
-
-		validParagraphs = append(validParagraphs, paragraph{text: line, len: len(line)})
-	}
-
-	// 按长度排序，取最长的几个段落拼接
-	sort.Slice(validParagraphs, func(i, j int) bool {
-		return validParagraphs[i].len > validParagraphs[j].len
-	})
-
-	// 取最长的3个段落
-	var result strings.Builder
-	count := 0
-	for _, p := range validParagraphs {
-		if count >= 3 {
-			break
-		}
-		result.WriteString(p.text)
-		result.WriteString("\n\n")
-		count++
-	}
-
-	return strings.TrimSpace(result.String())
-}
-
-// truncateContent 截断超长内容到指定长度
-func truncateContent(text string, maxLen int) string {
-	if len(text) <= maxLen {
-		return text
-	}
-	// 在句子边界处截断
-	truncated := text[:maxLen]
-	lastSep := strings.LastIndexAny(truncated, "。！？；\n")
-	if lastSep > maxLen/2 {
-		return text[:lastSep+1]
-	}
-	return truncated + "..."
+	return strings.Join(parts, " OR ")
 }
 
 func searchBing(query string) ([]SearchResult, error) {
-	searchURL := bingAPIURL + "?q=" + url.QueryEscape(query) + "&first=0"
+	siteFilter := buildSiteFilter()
+	fullQuery := query + " " + siteFilter
+	fmt.Printf("[DEBUG] 完整搜索词: %s\n", fullQuery)
+	searchURL := bingSearchURL + "?q=" + url.QueryEscape(fullQuery) + "&first=0"
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, _ := http.NewRequest("GET", searchURL, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -501,163 +307,48 @@ func searchBing(query string) ([]SearchResult, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	htmlBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	html := string(body)
-	results := parseBingSearchResults(html)
+	html := string(htmlBytes)
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse HTML: %v", err)
+	}
+
+	var results []SearchResult
+	seen := make(map[string]bool)
+
+	selector := "li.b_algo a.tilk"
+	count := doc.Find(selector).Length()
+	fmt.Printf("[DEBUG searchBing] selector=%s 匹配到 %d 个元素\n", selector, count)
+
+	doc.Find("li.b_algo a.tilk").Each(func(i int, s *goquery.Selection) {
+		href, exists := s.Attr("href")
+		if !exists || href == "" {
+			return
+		}
+		href = strings.TrimSpace(href)
+		if seen[href] {
+			return
+		}
+		if strings.Contains(href, "cn.bing.com") || strings.Contains(href, "bing.com") {
+			return
+		}
+		seen[href] = true
+		fmt.Printf("[DEBUG searchBing] 匹配到 URL: %s\n", href)
+		results = append(results, SearchResult{
+			Title:       "Bing搜索结果",
+			URL:         href,
+			Description: "来自Bing搜索",
+		})
+	})
+
 	if len(results) == 0 {
-		results = parseBingSearchResultsFallback(html)
+		return nil, fmt.Errorf("no results found in Bing search page")
 	}
 	return results, nil
-}
-
-func parseBingSearchResults(html string) []SearchResult {
-	var results []SearchResult
-	olContent := extractOLContent(html)
-	if olContent == "" {
-		return results
-	}
-
-	liMatches := findAllLIWithClass(olContent, "b_algo")
-	for _, liContent := range liMatches {
-		links := extractLinksFromLI(liContent)
-		for _, href := range links {
-			if !isValidURL(href) {
-				continue
-			}
-			results = append(results, SearchResult{
-				Title:       "Bing搜索结果",
-				URL:         href,
-				Description: "来自Bing搜索",
-			})
-			if len(results) >= 10 {
-				return results
-			}
-		}
-	}
-	return results
-}
-
-func extractOLContent(html string) string {
-	pattern := `div[^>]*\sid\s*=\s*["']b_content["'][^>]*>([\s\S]*?)(?:<div[^>]*>[\s\S]*?){0,3}<main[^>]*aria-label\s*=\s*["'][^"']*搜索结果[^"']*["'][^>]*>([\s\S]*?)(?:<div[^>]*>[\s\S]*?){0,3}<ol[^>]*\sid\s*=\s*["']b_results["'][^>]*>`
-	mainMatch := regexp.MustCompile(pattern).FindStringSubmatch(html)
-	if len(mainMatch) >= 2 && mainMatch[1] != "" {
-		olMatch := regexp.MustCompile(`<ol[^>]*\sid\s*=\s*["']b_results["'][^>]*>([\s\S]*?)</ol>`).FindStringSubmatch(mainMatch[1])
-		if len(olMatch) >= 2 {
-			return olMatch[1]
-		}
-		olMatch2 := regexp.MustCompile(`<ol[^>]*id=["']b_results["'][^>]*>([\s\S]*?)</ol>`).FindStringSubmatch(mainMatch[1])
-		if len(olMatch2) >= 2 {
-			return olMatch2[1]
-		}
-	}
-	if len(mainMatch) >= 2 && mainMatch[2] != "" {
-		olMatch := regexp.MustCompile(`<ol[^>]*\sid\s*=\s*["']b_results["'][^>]*>([\s\S]*?)</ol>`).FindStringSubmatch(mainMatch[2])
-		if len(olMatch) >= 2 {
-			return olMatch[1]
-		}
-		olMatch2 := regexp.MustCompile(`<ol[^>]*id=["']b_results["'][^>]*>([\s\S]*?)</ol>`).FindStringSubmatch(mainMatch[2])
-		if len(olMatch2) >= 2 {
-			return olMatch2[1]
-		}
-	}
-	olMatch := regexp.MustCompile(`<ol[^>]*\s*id\s*=\s*["']b_results["'][^>]*>([\s\S]*?)</ol>`).FindStringSubmatch(html)
-	if len(olMatch) >= 2 {
-		return olMatch[1]
-	}
-	return ""
-}
-
-func findAllLIWithClass(content string, className string) []string {
-	var results []string
-	pattern := fmt.Sprintf(`<li[^>]*class\s*=\s*["'][^"']*%s[^"']*["'][^>]*>([\s\S]*?)</li>`, regexp.QuoteMeta(className))
-	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(content, -1)
-	for _, m := range matches {
-		if len(m) >= 2 {
-			results = append(results, m[1])
-		}
-	}
-	return results
-}
-
-func extractLinksFromLI(liContent string) []string {
-	var urls []string
-	links := regexp.MustCompile(`<a[^>]*\s*class\s*=\s*["'][^"']*\btilk\b[^"']*["'][^>]*>`).FindAllString(liContent, -1)
-	for _, link := range links {
-		hrefMatch := regexp.MustCompile(`href\s*=\s*["']([^"']+)["']`).FindStringSubmatch(link)
-		if len(hrefMatch) >= 2 {
-			urls = append(urls, hrefMatch[1])
-		}
-	}
-	return urls
-}
-
-func parseBingSearchResultsFallback(html string) []SearchResult {
-	var results []SearchResult
-	linkPatterns := []string{
-		`<a[^>]*class\s*=\s*["'][^"']*\bh\s+[tl]\b[^"']*["'][^>]*href\s*=\s*["']([^"']+)["'][^>]*>`,
-		`<a[^>]*href\s*=\s*["'](https?://[^"']+)["'][^>]*class\s*=\s*["'][^"']*\btilk\b[^"']*["']`,
-		`<a[^>]*class\s*=\s*["'][^"']*tilt[^"']*["'][^>]*href\s*=\s*["']([^"']+)["']`,
-		`<h[23][^>]*>[\s\S]*?<a[^>]*href\s*=\s*["']([^"']+)["'][^>]*>`,
-		`<a[^>]*href\s*=\s*["'](https?://[^"']{20,})["'][^>]*>`,
-	}
-
-	seen := make(map[string]bool)
-	for _, pattern := range linkPatterns {
-		matches := regexp.MustCompile(pattern).FindAllStringSubmatch(html, -1)
-		for _, m := range matches {
-			if len(m) < 2 {
-				continue
-			}
-			href := m[1]
-			if !isValidURL(href) || seen[href] {
-				continue
-			}
-			if strings.Contains(href, "microsoft.com") && strings.Contains(href, "translator") {
-				continue
-			}
-			if strings.Contains(href, "cn.bing.com") {
-				continue
-			}
-			if strings.HasPrefix(href, "javascript:") {
-				continue
-			}
-			seen[href] = true
-			results = append(results, SearchResult{
-				Title:       "Bing搜索结果",
-				URL:         href,
-				Description: "来自Bing搜索",
-			})
-			if len(results) >= 10 {
-				return results
-			}
-		}
-	}
-	return results
-}
-
-func isValidURL(href string) bool {
-	if href == "" {
-		return false
-	}
-	if strings.HasPrefix(href, "/") && !strings.HasPrefix(href, "//") {
-		return false
-	}
-	if strings.Contains(href, "cn.bing.com") || strings.Contains(href, "bing.com") {
-		return false
-	}
-	parsed, err := url.Parse(href)
-	if err != nil {
-		return false
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "" {
-		return false
-	}
-	if parsed.Host == "" && parsed.Scheme == "" {
-		return false
-	}
-	return true
 }

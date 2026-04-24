@@ -49,26 +49,27 @@ func (m *Manager) RunWithApproval(ctx context.Context, runner *adk.Runner, check
 
 			eventCount++
 
+			lastEvent = event
+
+			// 优先处理 interrupt（即使 event.Err != nil）
+			if event.Action != nil && event.Action.Interrupted != nil {
+				interrupted = true
+				break
+			}
+
+			// fatal error：没有 interrupt 才视为真正的错误
 			if event.Err != nil {
 				prints.Event(event)
 				return event, event.Err
 			}
 
-			lastEvent = event
-
 			// 使用 prints 包打印事件
 			prints.Event(event)
 
-			// 检查中断
-			if event.Action != nil {
-				if event.Action.Interrupted != nil {
-					interrupted = true
-					break
-				}
-				if event.Action.Exit {
-					prints.Summary(event.AgentName, eventCount, true)
-					return lastEvent, nil
-				}
+			// 检查退出
+			if event.Action != nil && event.Action.Exit {
+				prints.Summary(event.AgentName, eventCount, true)
+				return lastEvent, nil
 			}
 
 			// 防止无限循环

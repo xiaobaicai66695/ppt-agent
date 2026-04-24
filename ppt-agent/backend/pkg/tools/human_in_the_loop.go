@@ -49,10 +49,9 @@ type SearchApprovalResult struct {
 func (s *SearchApprovalInfo) String() string {
 	reasonStr := ""
 	if s.Reason != "" {
-		reasonStr = fmt.Sprintf("\n搜索原因: %s", s.Reason)
+		reasonStr = fmt.Sprintf(" | 原因: %s", s.Reason)
 	}
-	return fmt.Sprintf("工具 '%s' 即将使用关键词 '%s' 进行网络搜索%s\n\n请选择操作：\n1. 跳过此次搜索（不调用工具）\n2. 确认该关键词进行搜索\n3. 编辑关键词后再搜索",
-		s.ToolName, s.Query, reasonStr)
+	return fmt.Sprintf("工具 '%s' 即将搜索: %s%s", s.ToolName, s.Query, reasonStr)
 }
 
 type InvokableSearchApprovalTool struct {
@@ -91,47 +90,46 @@ func (i InvokableSearchApprovalTool) InvokableRun(ctx context.Context, arguments
 		}, argumentsInJSON)
 	}
 
+	// 被恢复执行，检查是否是本次中断的恢复目标
 	isResumeTarget, hasData, data := tool.GetResumeContext[*SearchApprovalInfo](ctx)
-	if !isResumeTarget {
-		return "", tool.StatefulInterrupt(ctx, &SearchApprovalInfo{
-			ToolName: toolInfo.Name,
-			Query:    storedArguments,
-		}, storedArguments)
-	}
-	if !hasData || data == nil {
-		return "", fmt.Errorf("工具 '%s' 恢复时缺少审批数据", toolInfo.Name)
-	}
-
-	result := data.Result
-	if result == nil {
-		return "", fmt.Errorf("工具 '%s' 恢复时缺少审批结果", toolInfo.Name)
-	}
-
-	switch result.Option {
-	case 1:
-		return fmt.Sprintf("用户选择跳过搜索。关键词 '%s' 未执行。", query), nil
-	case 3:
-		if result.EditedQuery != nil && *result.EditedQuery != "" {
-			var stored map[string]any
-			if err := json.Unmarshal([]byte(storedArguments), &stored); err != nil {
-				return "", fmt.Errorf("解析存储参数失败: %w", err)
-			}
-			stored["query"] = *result.EditedQuery
-			editedJSON, err := json.Marshal(stored)
-			if err != nil {
-				return "", fmt.Errorf("序列化编辑后参数失败: %w", err)
-			}
-			res, err := i.InvokableTool.InvokableRun(ctx, string(editedJSON), opts...)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("用户编辑了关键词：从 '%s' 修改为 '%s'。搜索结果：%s",
-				query, *result.EditedQuery, res), nil
+	if isResumeTarget && hasData && data != nil {
+		// 是本次中断的直接恢复目标，处理用户的审批结果
+		result := data.Result
+		if result == nil {
+			return "", fmt.Errorf("工具 '%s' 恢复时缺少审批结果", toolInfo.Name)
 		}
-		return "", fmt.Errorf("编辑后的关键词为空")
-	default:
-		return i.InvokableTool.InvokableRun(ctx, storedArguments, opts...)
+
+		switch result.Option {
+		case 1:
+			return fmt.Sprintf("用户选择跳过搜索。关键词 '%s' 未执行。", query), nil
+		case 3:
+			if result.EditedQuery != nil && *result.EditedQuery != "" {
+				var stored map[string]any
+				if err := json.Unmarshal([]byte(storedArguments), &stored); err != nil {
+					return "", fmt.Errorf("解析存储参数失败: %w", err)
+				}
+				stored["query"] = *result.EditedQuery
+				editedJSON, err := json.Marshal(stored)
+				if err != nil {
+					return "", fmt.Errorf("序列化编辑后参数失败: %w", err)
+				}
+				res, err := i.InvokableTool.InvokableRun(ctx, string(editedJSON), opts...)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("用户编辑了关键词：从 '%s' 修改为 '%s'。搜索结果：%s",
+					query, *result.EditedQuery, res), nil
+			}
+			return "", fmt.Errorf("编辑后的关键词为空")
+		default:
+			// Option == 2 或其他：使用原始参数执行搜索
+			return i.InvokableTool.InvokableRun(ctx, storedArguments, opts...)
+		}
 	}
+
+	// 不是本次中断的恢复目标，但曾被中断过（wasInterrupted=true）
+	// 说明是其他节点的恢复目标，让当前节点继续执行原始工具
+	return i.InvokableTool.InvokableRun(ctx, storedArguments, opts...)
 }
 
 func ParseSearchApprovalResult(input string) (*SearchApprovalResult, error) {

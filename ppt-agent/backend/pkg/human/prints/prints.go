@@ -171,8 +171,10 @@ func Event(event *adk.AgentEvent) {
 			fmt.Printf("\n%s[Interrupted]%s\n", Yellow, Reset)
 			for i, ic := range event.Action.Interrupted.InterruptContexts {
 				fmt.Printf("  [%d] ID: %s, Type: %T\n", i, ic.ID, ic.Info)
-				if str, ok := ic.Info.(fmt.Stringer); ok {
-					fmt.Printf("      Info: %s\n", str.String())
+				if !strings.Contains(fmt.Sprintf("%T", ic.Info), "SearchApprovalInfo") {
+					if str, ok := ic.Info.(fmt.Stringer); ok {
+						fmt.Printf("      Info: %s\n", str.String())
+					}
 				}
 			}
 		}
