@@ -120,7 +120,8 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 	}
 
 	// 直接配置所有工具，不再使用嵌套子代理
-	searchTool := tools.NewSearchTool()
+	// 使用 InvokableSearchApprovalTool 包装 searchTool，实现人机交互审批
+	searchTool := &tools.InvokableSearchApprovalTool{InvokableTool: tools.NewSearchTool()}
 	pythonTool := tools.NewPythonRunnerTool(operator)
 	editFileTool := tools.NewEditFileTool(operator)
 	readFileTool := tools.NewReadFileTool(operator)

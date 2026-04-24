@@ -43,6 +43,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent/replanner"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/human"
+	"github.com/cloudwego/ppt-agent/pkg/store"
 )
 
 func main() {
@@ -174,6 +175,7 @@ func main() {
 	r := adk.NewRunner(ctx, adk.RunnerConfig{
 		Agent:           entryAgent,
 		EnableStreaming: true,
+		CheckPointStore: store.NewInMemoryStore(),
 	})
 	fmt.Println("[启动] runner 创建成功")
 
