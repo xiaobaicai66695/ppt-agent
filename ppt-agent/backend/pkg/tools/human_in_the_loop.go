@@ -35,10 +35,10 @@ func init() {
 }
 
 type SearchApprovalInfo struct {
-	ToolName      string                 `json:"tool_name"`
-	Query         string                 `json:"query"`
-	Reason        string                 `json:"reason,omitempty"`
-	Result        *SearchApprovalResult  `json:"result,omitempty"`
+	ToolName string                `json:"tool_name"`
+	Query    string                `json:"query"`
+	Reason   string                `json:"reason,omitempty"`
+	Result   *SearchApprovalResult `json:"result,omitempty"`
 }
 
 type SearchApprovalResult struct {
@@ -92,7 +92,13 @@ func (i InvokableSearchApprovalTool) InvokableRun(ctx context.Context, arguments
 
 	// 被恢复执行，检查是否是本次中断的恢复目标
 	isResumeTarget, hasData, data := tool.GetResumeContext[*SearchApprovalInfo](ctx)
-	if isResumeTarget && hasData && data != nil {
+	if !isResumeTarget {
+		// 不是本次中断的直接恢复目标，但曾被中断过（wasInterrupted=true）
+		// 说明是其他节点的恢复目标，让当前节点继续执行原始工具
+		return i.InvokableTool.InvokableRun(ctx, storedArguments, opts...)
+	}
+
+	if hasData && data != nil {
 		// 是本次中断的直接恢复目标，处理用户的审批结果
 		result := data.Result
 		if result == nil {
@@ -127,9 +133,12 @@ func (i InvokableSearchApprovalTool) InvokableRun(ctx context.Context, arguments
 		}
 	}
 
-	// 不是本次中断的恢复目标，但曾被中断过（wasInterrupted=true）
-	// 说明是其他节点的恢复目标，让当前节点继续执行原始工具
-	return i.InvokableTool.InvokableRun(ctx, storedArguments, opts...)
+	// hasData == false 或 data == nil：应该重新中断
+	return "", tool.StatefulInterrupt(ctx, &SearchApprovalInfo{
+		ToolName: toolInfo.Name,
+		Query:    query,
+		Reason:   reason,
+	}, storedArguments)
 }
 
 func ParseSearchApprovalResult(input string) (*SearchApprovalResult, error) {

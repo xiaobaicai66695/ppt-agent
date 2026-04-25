@@ -1,54 +1,37 @@
 package search
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/go-shiori/dom"
-	"github.com/markusmobius/go-trafilatura"
 )
 
 var (
-	htmlTagRegex  = regexp.MustCompile(`<[^>]*>`)
-	urlRegex      = regexp.MustCompile(`\(https?://[^\)]+\)|https?://\S+`)
-	unicodeEscRe  = regexp.MustCompile(`\\u0026#34;|\\u0026`)
-	htmlEntityRe  = regexp.MustCompile(`&#34;|&#x22;`)
-	ampEntityRe   = regexp.MustCompile(`&amp;`)
-	extraSpaceRe  = regexp.MustCompile(`\n{3,}`)
+	extraSpaceRe = regexp.MustCompile(`\n{3,}`)
+	userAgents   = []string{
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+	}
 )
-
-const bingAPIURL = "https://cn.bing.com/search"
-
-var bingSearchURL string
-
-func init() {
-	bingSearchURL = bingAPIURL
-}
 
 const (
-	maxConcurrentFetch = 5
+	qianfanBaseURL   = "https://qianfan.baidubce.com/v2/ai_search"
+	qianfanAPIKey    = "bce-v3/ALTAK-p1ZPZDWBmMNhVxy2Mcjxy/73faa002a8e7f6b0c0ccf6d0f3fe0450b9924eab"
+	maxSearchResults = 5
 )
-
-var trustedDomains = []string{
-	"cloud.tencent.com", // 腾讯云开发者社区
-	"xinhuanet.com",     // 新华网
-	"sohu.com",          // 搜狐
-	"aliyun.com",        // 阿里云
-	"baidu.com",         // 百度百科
-	"cnblogs.com",       // 博客园
-	"juejin.cn",         // 稀土掘金
-}
 
 var searchToolInfo = &schema.ToolInfo{
 	Name: "search",
@@ -74,10 +57,6 @@ type searchInput struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-type SearchRequest struct {
-	Query string `json:"query"`
-}
-
 type SearchResponse struct {
 	Results []SearchResult `json:"results"`
 	Content string         `json:"content,omitempty"`
@@ -90,11 +69,56 @@ type SearchResult struct {
 	Description string `json:"description"`
 }
 
-type fetchResult struct {
-	URL     string
-	Content string
-	Err     error
+// --- 百度千帆 API 请求/响应结构 ---
+
+type qianfanRequest struct {
+	Messages           []qianfanMessage     `json:"messages"`
+	SearchSource       string               `json:"search_source"`
+	SearchFilter       *qianfanSearchFilter `json:"search_filter,omitempty"`
+	ResourceTypeFilter []qianfanResource    `json:"resource_type_filter"`
 }
+
+type qianfanMessage struct {
+	Content string `json:"content"`
+	Role    string `json:"role"`
+}
+
+type qianfanResource struct {
+	Type string `json:"type"`
+	TopK int    `json:"top_k"`
+}
+
+type qianfanSearchFilter struct {
+	Match *qianfanMatch `json:"match,omitempty"`
+}
+
+type qianfanMatch struct {
+	Site []string `json:"site,omitempty"`
+}
+
+type qianfanResponse struct {
+	RequestID  string       `json:"request_id"`
+	Code       string       `json:"code"`
+	Message    string       `json:"message"`
+	References []qianfanRef `json:"references"`
+}
+
+type qianfanRef struct {
+	ID             int     `json:"id"`
+	URL            string  `json:"url"`
+	Title          string  `json:"title"`
+	Date           string  `json:"date"`
+	Content        string  `json:"content"`
+	Snippet        string  `json:"snippet"`
+	Icon           string  `json:"icon"`
+	WebAnchor      string  `json:"web_anchor"`
+	Type           string  `json:"type"`
+	Website        string  `json:"website"`
+	RerankScore    float64 `json:"rerank_score"`
+	AuthorityScore float64 `json:"authority_score"`
+}
+
+// --- 工具入口 ---
 
 func NewSearchTool() tool.InvokableTool {
 	return &searchTool{}
@@ -120,235 +144,152 @@ func (t *searchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		fmt.Printf("[搜索必要性] 关键词: %s | 原因: 未说明（建议补充）\n", input.Query)
 	}
 
-	results, err := searchBing(input.Query)
+	if qianfanAPIKey == "" {
+		return `{"error": "未配置百度千帆 API Key (Set QianfanAPIKey)"}`, nil
+	}
+
+	refs, err := callQianfanAPI(ctx, input.Query)
 	if err != nil {
 		return fmt.Sprintf(`{"error": "搜索失败: %v"}`, err), nil
 	}
 
-	if len(results) == 0 {
-		return `{"error": "未找到搜索结果，可能页面结构已更新"}`, nil
+	if len(refs) == 0 {
+		return `{"error": "未找到搜索结果"}`, nil
 	}
 
-	filteredResults := filterTrustedResults(results)
-	if len(filteredResults) == 0 {
-		return `{"error": "未找到来自可信网站的搜索结果"}`, nil
-	}
-
-	urls := make([]string, 0)
-	for i, r := range filteredResults {
-		if i >= maxConcurrentFetch {
-			break
-		}
-		urls = append(urls, r.URL)
-	}
-
-	contents := fetchURLsConcurrently(ctx, urls)
-
+	// 构造结果列表
+	results := make([]SearchResult, 0, len(refs))
 	var combinedContent strings.Builder
 	combinedContent.WriteString(fmt.Sprintf("关键词: %s\n\n", input.Query))
 	combinedContent.WriteString("=== 搜索结果 ===\n\n")
 
-	for i, r := range filteredResults {
-		if i < maxConcurrentFetch {
-			combinedContent.WriteString(fmt.Sprintf("[%d] %s\n", i+1, r.URL))
-			if content, ok := contents[r.URL]; ok && content != "" {
-				combinedContent.WriteString(fmt.Sprintf("正文:\n%s\n\n", content))
-			} else {
-				combinedContent.WriteString("（获取内容失败）\n\n")
-			}
-		} else {
-			combinedContent.WriteString(fmt.Sprintf("[%d] %s\n", i+1, r.URL))
+	for i, ref := range refs {
+		results = append(results, SearchResult{
+			Title:       ref.Title,
+			URL:         ref.URL,
+			Description: ref.Website,
+		})
+
+		text := ref.Content
+		if text == "" {
+			text = ref.Snippet
 		}
+		if text == "" {
+			text = "（无正文内容）"
+		}
+
+		combinedContent.WriteString(fmt.Sprintf("[%d] %s (%s)\n", i+1, ref.Title, ref.URL))
+		combinedContent.WriteString(fmt.Sprintf("来源: %s | 日期: %s\n", ref.Website, ref.Date))
+		combinedContent.WriteString(fmt.Sprintf("正文:\n%s\n\n", text))
 	}
 
 	resp := SearchResponse{
-		Results: filteredResults,
+		Results: results,
 		Content: combinedContent.String(),
 	}
 	data, _ := json.Marshal(resp)
 	return string(data), nil
 }
 
-func filterTrustedResults(results []SearchResult) []SearchResult {
-	var filtered []SearchResult
-	for _, r := range results {
-		if isTrustedURL(r.URL) {
-			filtered = append(filtered, r)
-			if len(filtered) >= 5 {
-				break
-			}
-		}
-	}
-	return filtered
-}
+// --- 百度千帆搜索（单次请求，直接解析 JSON 中的文字内容）---
 
-func isTrustedURL(rawURL string) bool {
-	parsed, err := url.Parse(rawURL)
+func callQianfanAPI(ctx context.Context, query string) ([]qianfanRef, error) {
+	reqBody := qianfanRequest{
+		Messages: []qianfanMessage{
+			{Content: query, Role: "user"},
+		},
+		SearchSource: "baidu_search_v2",
+		SearchFilter: &qianfanSearchFilter{
+			Match: &qianfanMatch{
+				Site: []string{
+					"cloud.tencent.com",
+					"cloud.alibabacloud.com",
+					"juejin.cn",
+					"zhihu.com",
+					"csdn.net",
+					"baidu.com",
+					"tencent.com",
+					"aliyun.com",
+					"cnblogs.com",
+				},
+			},
+		},
+		ResourceTypeFilter: []qianfanResource{
+			{Type: "web", TopK: maxSearchResults},
+			{Type: "video", TopK: 0},
+			{Type: "image", TopK: 0},
+			{Type: "aladdin", TopK: 0},
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return false
-	}
-	host := strings.ToLower(parsed.Host)
-	for _, domain := range trustedDomains {
-		if strings.Contains(host, domain) {
-			return true
-		}
-	}
-	return false
-}
-
-func fetchURLsConcurrently(ctx context.Context, urls []string) map[string]string {
-	results := make(chan fetchResult, len(urls))
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, maxConcurrentFetch)
-
-	for _, url := range urls {
-		wg.Add(1)
-		go func(u string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			select {
-			case <-ctx.Done():
-				results <- fetchResult{URL: u, Err: ctx.Err()}
-			default:
-				content, err := fetchURL(u)
-				results <- fetchResult{URL: u, Content: content, Err: err}
-			}
-		}(url)
+		return nil, err
 	}
 
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	contentMap := make(map[string]string)
-	for result := range results {
-		if result.Err == nil && result.Content != "" {
-			contentMap[result.URL] = result.Content
-		}
-	}
-	return contentMap
-}
-
-func fetchURL(targetURL string) (string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", targetURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", qianfanBaseURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	parsedURL, err := url.ParseRequestURI(targetURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse URL: %v", err)
+		return nil, err
 	}
 
-	opts := trafilatura.Options{
-		IncludeImages: true,
-		OriginalURL:   parsedURL,
-	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+qianfanAPIKey)
+	req.Header.Set("User-Agent", userAgents[rand.IntN(len(userAgents))])
 
-	result, err := trafilatura.Extract(resp.Body, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract content: %v", err)
-	}
-
-	if result == nil || result.ContentText == "" {
-		return "", fmt.Errorf("no content extracted from page")
-	}
-
-	doc := trafilatura.CreateReadableDocument(result)
-	raw := dom.OuterHTML(doc)
-	clean := htmlTagRegex.ReplaceAllString(raw, "")
-	clean = urlRegex.ReplaceAllString(clean, "")
-	clean = unicodeEscRe.ReplaceAllString(clean, `"`)
-	clean = htmlEntityRe.ReplaceAllString(clean, `"`)
-	clean = ampEntityRe.ReplaceAllString(clean, "&")
-	clean = extraSpaceRe.ReplaceAllString(clean, "\n\n")
-	return strings.TrimSpace(clean), nil
-}
-
-// buildSiteFilter 将信任域名列表拼接成 "site:xxx.com OR site:yyy.com OR site:zzz.com" 格式
-func buildSiteFilter() string {
-	if len(trustedDomains) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, d := range trustedDomains {
-		parts = append(parts, "site:"+d)
-	}
-	return strings.Join(parts, " OR ")
-}
-
-func searchBing(query string) ([]SearchResult, error) {
-	siteFilter := buildSiteFilter()
-	fullQuery := query + " " + siteFilter
-	fmt.Printf("[DEBUG] 完整搜索词: %s\n", fullQuery)
-	searchURL := bingSearchURL + "?q=" + url.QueryEscape(fullQuery) + "&first=0"
-	client := &http.Client{Timeout: 15 * time.Second}
-	req, _ := http.NewRequest("GET", searchURL, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	htmlBytes, err := io.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return nil, err
 	}
 
-	html := string(htmlBytes)
+	//fmt.Printf("[DEBUG] 百度搜索响应: %s \n", string(respBytes))
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse HTML: %v", err)
+	var qresp qianfanResponse
+	if err := json.Unmarshal(respBytes, &qresp); err != nil {
+		return nil, fmt.Errorf("failed to parse API response: %v | body: %s", err, string(respBytes))
 	}
 
-	var results []SearchResult
-	seen := make(map[string]bool)
-
-	selector := "li.b_algo a.tilk"
-	count := doc.Find(selector).Length()
-	fmt.Printf("[DEBUG searchBing] selector=%s 匹配到 %d 个元素\n", selector, count)
-
-	doc.Find("li.b_algo a.tilk").Each(func(i int, s *goquery.Selection) {
-		href, exists := s.Attr("href")
-		if !exists || href == "" {
-			return
-		}
-		href = strings.TrimSpace(href)
-		if seen[href] {
-			return
-		}
-		if strings.Contains(href, "cn.bing.com") || strings.Contains(href, "bing.com") {
-			return
-		}
-		seen[href] = true
-		fmt.Printf("[DEBUG searchBing] 匹配到 URL: %s\n", href)
-		results = append(results, SearchResult{
-			Title:       "Bing搜索结果",
-			URL:         href,
-			Description: "来自Bing搜索",
-		})
-	})
-
-	if len(results) == 0 {
-		return nil, fmt.Errorf("no results found in Bing search page")
+	if qresp.Code != "" && qresp.Code != "0" {
+		return nil, fmt.Errorf("API error [%s]: %s", qresp.Code, qresp.Message)
 	}
-	return results, nil
+
+	var refs []qianfanRef
+	for _, ref := range qresp.References {
+		if ref.Type == "web" && ref.URL != "" {
+			// 清洗正文文本
+			text := cleanText(ref.Content)
+			if text == "" {
+				text = cleanText(ref.Snippet)
+			}
+			refs = append(refs, qianfanRef{
+				ID:      ref.ID,
+				URL:     ref.URL,
+				Title:   ref.Title,
+				Date:    ref.Date,
+				Content: text,
+				Snippet: cleanText(ref.Snippet),
+				Website: ref.Website,
+				Type:    ref.Type,
+			})
+		}
+	}
+
+	fmt.Printf("[DEBUG] 解析到 %d 条网页结果\n", len(refs))
+	return refs, nil
+}
+
+// cleanText 对从 JSON 中提取的文本做基本清洗
+func cleanText(text string) string {
+	if text == "" {
+		return ""
+	}
+	// 移除多余的连续换行
+	text = extraSpaceRe.ReplaceAllString(text, "\n\n")
+	return strings.TrimSpace(text)
 }
