@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -29,9 +30,17 @@ var (
 
 const (
 	qianfanBaseURL   = "https://qianfan.baidubce.com/v2/ai_search"
-	qianfanAPIKey    = "bce-v3/ALTAK-p1ZPZDWBmMNhVxy2Mcjxy/73faa002a8e7f6b0c0ccf6d0f3fe0450b9924eab"
 	maxSearchResults = 5
 )
+
+// getAPIKey 延迟获取 API Key，确保 main 函数中 godotenv.Load 已执行
+func getAPIKey() string {
+	key := os.Getenv("QIANFAN_API_KEY")
+	if key == "" {
+		key = os.Getenv("BAIDU_QIANFAN_API_KEY")
+	}
+	return key
+}
 
 var searchToolInfo = &schema.ToolInfo{
 	Name: "search",
@@ -144,8 +153,8 @@ func (t *searchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		fmt.Printf("[搜索必要性] 关键词: %s | 原因: 未说明（建议补充）\n", input.Query)
 	}
 
-	if qianfanAPIKey == "" {
-		return `{"error": "未配置百度千帆 API Key (Set QianfanAPIKey)"}`, nil
+	if qianfanAPIKey := getAPIKey(); qianfanAPIKey == "" {
+		return `{"error": "未配置百度千帆 API Key (Set QIANFAN_API_KEY or BAIDU_QIANFAN_API_KEY)"}`, nil
 	}
 
 	refs, err := callQianfanAPI(ctx, input.Query)
@@ -233,7 +242,7 @@ func callQianfanAPI(ctx context.Context, query string) ([]qianfanRef, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+qianfanAPIKey)
+	req.Header.Set("Authorization", "Bearer "+getAPIKey())
 	req.Header.Set("User-Agent", userAgents[rand.IntN(len(userAgents))])
 
 	client := &http.Client{Timeout: 30 * time.Second}
