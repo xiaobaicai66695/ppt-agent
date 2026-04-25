@@ -93,7 +93,7 @@ func newCodeAgent(ctx context.Context, operator commandline.Operator, opts ...fu
 		opt(config)
 	}
 
-	cm, err := agentutils.NewToolCallingChatModel(ctx,
+	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(config.MaxTokens),
 		agentutils.WithTemperature(config.Temperature),
 		agentutils.WithTopP(config.TopP),

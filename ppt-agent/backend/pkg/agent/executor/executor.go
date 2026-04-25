@@ -110,7 +110,7 @@ func getNextSlideFromDisk(plan *generic.Plan, workDir string) *generic.Step {
 }
 
 func NewExecutor(ctx context.Context, operator commandline.Operator, skillsContent string) (adk.Agent, error) {
-	cm, err := agentutils.NewToolCallingChatModel(ctx,
+	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(4096),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),

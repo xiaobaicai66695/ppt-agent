@@ -85,7 +85,7 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 )
 
 func NewPlanner(ctx context.Context, operator *command.LocalOperator, skillsContent string) (adk.Agent, error) {
-	cm, err := utils.NewToolCallingChatModel(ctx,
+	cm, err := utils.NewFallbackToolCallingChatModel(ctx,
 		utils.WithMaxTokens(4096),
 		utils.WithTemperature(0),
 		utils.WithTopP(0),

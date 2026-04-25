@@ -73,7 +73,7 @@ const (
 )
 
 func NewReplanner(ctx context.Context, operator commandline.Operator) (adk.Agent, error) {
-	cm, err := agentutils.NewToolCallingChatModel(ctx,
+	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(4096),
 		agentutils.WithTemperature(1.0),
 		agentutils.WithTopP(0),
