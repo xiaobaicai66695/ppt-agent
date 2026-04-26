@@ -29,10 +29,10 @@ import (
 
 	"github.com/cloudwego/eino-ext/adk/backend/local"
 	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
-	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/schema"
 	"github.com/coze-dev/cozeloop-go"
 
@@ -162,7 +162,7 @@ func main() {
 		Planner:       planAgent,
 		Executor:      executeAgent,
 		Replanner:     replanAgent,
-		MaxIterations: 100,
+		MaxIterations: 150,
 	})
 	if err != nil {
 		fmt.Printf("planexecute.New failed, err: %v\n", err)

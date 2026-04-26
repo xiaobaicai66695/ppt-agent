@@ -19,7 +19,7 @@ package executor
 import (
 	"context"
 	"fmt"
-	"strings"
+	"sync/atomic"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
@@ -34,6 +34,9 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/params"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
+
+// executorRunCounter 记录 executor 被调用的次数（用于调试上下文增长）
+var executorRunCounter int32
 
 var executorPrompt = prompt.FromMessages(schema.Jinja2,
 	schema.SystemMessage(`你是一个PPT执行代理，负责生成幻灯片。
@@ -79,11 +82,8 @@ var executorPrompt = prompt.FromMessages(schema.Jinja2,
 {{ skills }}`), schema.UserMessage(`## 用户需求
 {{ input }}
 
-## 完整计划
-{{ plan }}
-
-## 已执行步骤
-{{ executed_steps }}
+## 执行状态
+{{ executor_context }}
 
 ## 当前任务
 {{ step }}
@@ -93,21 +93,6 @@ var executorPrompt = prompt.FromMessages(schema.Jinja2,
 2. 调用 python3 生成 PPT 文件（可一次生成多页）
 3. 对每一页调用 update_progress 记录页码
 4. 回复"接下来该做第 X 页：{标题}"`))
-
-func getNextSlideFromDisk(plan *generic.Plan, workDir string) *generic.Step {
-	if plan == nil {
-		return nil
-	}
-	existingFiles := generic.GetExistingStepFiles(workDir)
-	allSlides := plan.GetSlides()
-	for i := range allSlides {
-		slide := &allSlides[i]
-		if _, exists := existingFiles[slide.Index]; !exists {
-			return slide
-		}
-	}
-	return nil
-}
 
 func NewExecutor(ctx context.Context, operator commandline.Operator, skillsContent string) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
@@ -144,11 +129,6 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 		},
 		MaxIterations: 20,
 		GenInputFn: func(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
-			planContent, err := in.Plan.MarshalJSON()
-			if err != nil {
-				return nil, err
-			}
-
 			// 获取工作目录
 			workDir, _ := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
 
@@ -158,65 +138,44 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 				plan = &generic.Plan{}
 			}
 
-			// 核心修复：优先使用 filesystem 检查真正的进度
-			// 因为框架的 ExecutedSteps 可能没有正确累积
-			nextSlide := getNextSlideFromDisk(plan, workDir)
+			// 使用新的精简上下文构建函数
+			executorCtx := agentutils.BuildExecutorContext(ctx, plan, workDir, in.ExecutedSteps)
+			executorContextStr := agentutils.FormatExecutorContext(executorCtx)
 
-			// 如果 filesystem 也找不到剩余幻灯片，尝试用框架的 ExecutedSteps
+			// 当前任务
 			var stepStr string
-			if nextSlide != nil {
-				stepStr = generic.FormatStepForRequest(nextSlide, workDir)
+			if executorCtx.NextSlide != nil {
+				stepStr = generic.FormatStepForRequest(executorCtx.NextSlide, workDir)
 			} else {
-				// 回退到框架的 ExecutedSteps
-				var executedStepJSONs []string
-				for _, es := range in.ExecutedSteps {
-					executedStepJSONs = append(executedStepJSONs, es.Step)
-				}
-				remainingSlides := plan.GetRemainingSlides(executedStepJSONs)
-				if len(remainingSlides) > 0 {
-					nextSlide = &remainingSlides[0]
-					stepStr = generic.FormatStepForRequest(nextSlide, workDir)
-				} else {
-					stepStr = "[完成] 所有幻灯片都已生成完毕。"
-				}
+				stepStr = "[完成] 所有幻灯片都已生成完毕。"
 			}
 
-			// 格式化已执行步骤（用于 prompt 显示）
-			executedSummary := agentutils.FormatExecutedSteps(in.ExecutedSteps)
-
-			// 如果 filesystem 显示有下一个幻灯片但框架没有，将其追加到 executedSteps 摘要中
-			// 以便 prompt 能看到正确的历史进度
-			if nextSlide != nil {
-				existingFiles := generic.GetExistingStepFiles(workDir)
-				allSlides := plan.GetSlides()
-				for i := range allSlides {
-					slide := &allSlides[i]
-					if _, exists := existingFiles[slide.Index]; exists {
-						// 检查是否已经在 ExecutedSteps 中
-						found := false
-						for _, es := range in.ExecutedSteps {
-							if strings.Contains(es.Step, fmt.Sprintf(`"index":%d`, slide.Index)) ||
-							   strings.Contains(es.Step, fmt.Sprintf(`"index": %d`, slide.Index)) {
-								found = true
-								break
-							}
-						}
-						if !found {
-							// 追加到摘要中
-							executedSummary += fmt.Sprintf("## %d. Step: {\"index\":%d,\"title\":\"%s\"}\n  Result: 已生成文件\n\n",
-								len(in.ExecutedSteps)+1, slide.Index, slide.Title)
-						}
-					}
-				}
+			promptValues := map[string]any{
+				"input":            agentutils.FormatInput(in.UserInput),
+				"executor_context": executorContextStr,
+				"step":             stepStr,
+				"skills":           skillsContent,
 			}
 
-			return executorPrompt.Format(ctx, map[string]any{
-				"input":          agentutils.FormatInput(in.UserInput),
-				"plan":           string(planContent),
-				"executed_steps": executedSummary,
-				"step":           stepStr,
-				"skills":         skillsContent,
-			})
+			msgs, err := executorPrompt.Format(ctx, promptValues)
+			if err != nil {
+				return nil, err
+			}
+
+			// 打印完整上下文字符串长度（用于测试上下文压缩效果）
+			runCount := atomic.AddInt32(&executorRunCounter, 1)
+			var totalLen int
+			for _, msg := range msgs {
+				totalLen += len(msg.Content)
+			}
+			fmt.Printf("[Executor #%d] 上下文长度: total=%d chars | userInput=%d | skills=%d | executor_context=%d | step=%d\n",
+				runCount, totalLen,
+				len(promptValues["input"].(string)),
+				len(promptValues["skills"].(string)),
+				len(promptValues["executor_context"].(string)),
+				len(promptValues["step"].(string)))
+
+			return msgs, nil
 		},
 	})
 	if err != nil {
