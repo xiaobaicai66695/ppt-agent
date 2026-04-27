@@ -94,7 +94,13 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 
 ## 输出格式
 
-请严格以纯 JSON 格式输出，**不要使用任何 markdown 代码块包裹**，直接输出 JSON 文本。中文字符请确保使用标准 UTF-8 编码。
+请严格以纯 JSON 格式输出，**不要使用任何 markdown 代码块包裹**，直接输出 JSON 文本。
+
+**字符约束（严格遵守）：**
+- 所有字符必须是：中文字符、英文字母（a-zA-Z）、数字（0-9）、ASCII 可见符号（空格、标点、运算符号等）
+- **禁止使用任何非 ASCII 字符**，包括但不限于：德语/法语/俄语等西方字母变体（ä、é、ö、ß、â、ñ 等）、全角符号、中文引号（已在规范化步骤处理）
+- JSON 字符串中的中文内容必须使用标准 UTF-8 编码（Go 的 json 包原生支持）
+- RGB 颜色值使用纯 ASCII 格式，如 rgb(255, 0, 0) 或 #FF0000
 
 {
   "total_slides": <总页数>,
@@ -515,10 +521,25 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 		return nil, err
 	}
 
-	result, parseErr := parseQAResponse(resp)
-	if parseErr != nil {
-		return nil, parseErr
+	result := parseQAResponse(resp)
+
+	// 解析失败，自动重试一次
+	if result != nil && result.Summary != "" && isParseFailed(result.Summary) {
+		retryMsg := &schema.Message{
+			Role: schema.User,
+			UserInputMultiContent: []schema.MessageInputPart{
+				{
+					Type: schema.ChatMessagePartTypeText,
+					Text: "上一次输出格式有误，请重新输出纯 JSON，不要使用 markdown 代码块包裹，确保所有字符为中文字符、英文字母、数字或 ASCII 可见符号，不要出现德语/法语/俄语等西方字母变体（如 ä, é, ö, ß）。",
+				},
+			},
+		}
+		respRetry, retryErr := model.Generate(ctx, []*schema.Message{msg, resp, retryMsg})
+		if retryErr == nil {
+			result = parseQAResponse(respRetry)
+		}
 	}
+
 	if result == nil {
 		return &generic.QAResult{
 			Issues:  []generic.QAIssue{},
@@ -528,8 +549,17 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 	return result, nil
 }
 
+// isParseFailed 判断 summary 是否表示解析失败。
+func isParseFailed(summary string) bool {
+	return strings.Contains(summary, "无法定位") ||
+		strings.Contains(summary, "解析结果失败") ||
+		strings.Contains(summary, "invalid character")
+}
+
 // parseQAResponse 解析 LLM 返回的 QA 结果。
-func parseQAResponse(resp *schema.Message) (*generic.QAResult, error) {
+// 注意：解析失败时不返回 error，而是返回带 summary 的 QAResult。
+// 调用方通过检查 summary 内容判断是否解析成功。
+func parseQAResponse(resp *schema.Message) *generic.QAResult {
 	content := resp.Content
 	content = strings.TrimSpace(content)
 
@@ -546,7 +576,7 @@ func parseQAResponse(resp *schema.Message) (*generic.QAResult, error) {
 		return &generic.QAResult{
 			Issues:  []generic.QAIssue{},
 			Summary: "QA 完成，但无法定位 JSON 输出: " + truncateForSummary(content),
-		}, nil
+		}
 	}
 	jsonStr := content[start : end+1]
 
@@ -558,16 +588,16 @@ func parseQAResponse(resp *schema.Message) (*generic.QAResult, error) {
 		fixed := fixIncompleteJSON(jsonStr)
 		if fixed != jsonStr {
 			if err2 := json.Unmarshal([]byte(fixed), &result); err2 == nil {
-				return &result, nil
+				return &result
 			}
 		}
 		return &generic.QAResult{
 			Issues:  []generic.QAIssue{},
 			Summary: "QA 完成，但解析结果失败: " + err.Error() + "\n原始输出: " + truncateForSummary(content),
-		}, nil
+		}
 	}
 
-	return &result, nil
+	return &result
 }
 
 // truncateForSummary 将过长的内容截断，避免 summary 过长。
@@ -623,12 +653,18 @@ func isValidJSONPrefix(s string) bool {
 	return !inStr
 }
 
-// cleanJSONString 清理 JSON 字符串，移除控制字符等非法 JSON 字符。
+// cleanJSONString 清理 JSON 字符串，移除非法字符。
+// 移除 JSON 结构外的控制字符，但保留制表符、换行、回车（它们可能在字符串值中）。
+// 也移除 JSON 结构外侧的中文引号等非 ASCII 标点（已在规范化步骤处理）。
 func cleanJSONString(json string) string {
 	var out strings.Builder
 	for i := 0; i < len(json); i++ {
 		ch := json[i]
+		// JSON 结构外的非法控制字符：低于 0x20（除 tab/nl/cr）和 0x7F
 		if ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r' {
+			continue
+		}
+		if ch == 0x7F {
 			continue
 		}
 		out.WriteByte(ch)
