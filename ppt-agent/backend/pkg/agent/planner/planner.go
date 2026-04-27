@@ -60,7 +60,21 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - minimal: 极简风格，黑白灰
 - business: 商业推广，商务蓝 + 活力橙
 
-**6. 输出格式（必须严格遵循）：**
+**6. 多页生成建议（可选字段）：**
+当幻灯片内容需要列举具体示例、案例或数据时，建议使用多页字段：
+- multi_page_hint: 布尔值，是否建议分多页
+- multi_page_count: Planner 预估页数（1-5），Executor 会根据实际内容量最终决定
+- multi_page_reasons: 字符串数组，分页的具体理由，供 Executor 参考
+
+常见需要标记多页的场景：
+- "列举3个行业应用案例" → multi_page_hint=true, multi_page_count=3
+- "对比5种技术方案" → multi_page_hint=true, multi_page_count=2（分对比页+总结页）
+- 内容要点超过6条 → multi_page_hint=true, multi_page_count=2
+- 单个几何体内文字预计溢出 → multi_page_hint=true, multi_page_count=2
+
+普通内容页（如"深度学习原理"解释）无需标记，保持 multi_page_hint=false。
+
+**7. 输出格式（必须严格遵循）：**
 你必须直接调用 create_ppt_plan 工具来输出计划，不要输出任何其他内容。
 
 工具调用示例：
@@ -68,14 +82,16 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
   "title": "PPT标题",
   "theme": "tech",
   "slides": [
-    {"index": 1, "title": "标题页", "content_type": "title_slide", "description": "展示PPT主题和副标题"}
+    {"index": 1, "title": "标题页", "content_type": "title_slide", "description": "展示PPT主题和副标题"},
+    {"index": 2, "title": "行业应用案例", "content_type": "content_slide", "description": "列举金融、医疗、制造业的AI应用场景", "multi_page_hint": true, "multi_page_count": 3, "multi_page_reasons": ["列举3个行业", "每个行业需图文并茂"]}
   ]
 }
 
-**7. 限制：**
+**8. 限制：**
 - 必须通过工具输出有效的JSON格式
 - 不要在JSON中添加任何注释
 - 最后一页应该是总结页
+- multi_page_hint=false 的幻灯片不需要添加 multi_page_count 和 multi_page_reasons
 
 {skills}`),
 	schema.UserMessage(`

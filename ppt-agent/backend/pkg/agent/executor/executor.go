@@ -24,6 +24,7 @@ import (
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -35,18 +36,28 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
+// qaModelFn 创建用于 QA 视觉审查的多模态 LLM。
+// 需要支持图片输入的视觉模型。
+var qaModelFn = func(ctx context.Context) (model.ToolCallingChatModel, error) {
+	return agentutils.NewFallbackToolCallingChatModel(ctx,
+		agentutils.WithMaxTokens(8192),
+		agentutils.WithTemperature(0),
+		agentutils.WithTopP(0),
+	)
+}
+
 // executorRunCounter 记录 executor 被调用的次数（用于调试上下文增长）
 var executorRunCounter int32
 
-var executorPrompt = prompt.FromMessages(schema.Jinja2,
-	schema.SystemMessage(`你是一个PPT执行代理，负责生成幻灯片。
+// executorSystemPrompt 是 Executor 的系统提示词（拆分为多段以避免反引号问题）
+var executorSystemPromptPart1 = `你是一个PPT执行代理，负责根据 Planner 的计划生成幻灯片。每生成一页后立即进行视觉 QA 检查。
 
 **【执行规则】：**
-- 正常情况下每次处理计划中的一页
-- **同一主题多个小点需详细解释时，应在一个 pptx 文件内生成多页**（大标题不变、副标题/序号体现当前页主题）
-- 内容过长（要点超过6条或几何体内文字溢出）时，**必须分多页**，不要强行压缩
-- 不要处理计划中无关的其他页面
-- 完成当前任务后，必须调用 update_progress 工具记录进度，然后回复"接下来该做第 X 页：{标题}"（多页完成则列出所有页码）
+- Planner 已为某些页面标记了多页建议（multi_page_hint）。你需要根据实际内容量自主决策最终分页数量：
+  - 如果实际内容确实需要分多页 → 生成多页，分别调用 update_progress 记录每页
+  - 如果单页可以容纳 Planner 的内容描述 → 保持单页，不要强行拆页
+  - **最终分页决策权在你**，Planner 的 multi_page_hint 仅作为参考提示
+- 当收到批量任务（多页打包）时，统一在 python3 调用中一次性生成所有页
 
 **【内容质量】：**
 - 内容空洞或缺少具体数据时，**可调用 search 工具搜索真实信息**
@@ -61,25 +72,56 @@ var executorPrompt = prompt.FromMessages(schema.Jinja2,
   - 错误：{"query": "深度学习 发展历程 里程碑"}
 
 **【可用工具】：**
-- python3: 生成 PPT 文件（主要工具）
+- python3: 生成或修复 PPT 文件（主要工具）
 - update_progress: 每成功生成一页幻灯片后，必须调用此工具记录页码（如 {"slide_index": 1}），多页则多次调用
 - edit_file, read_file, bash, search: 辅助工具，search 必要时使用
+- single_qa_review: 每生成或修复一页幻灯片后，必须调用此工具对该页进行视觉 QA 检查，参数为 slide_index（页码）。**每张幻灯片最多进行 2 次 QA 检查，达到次数后该页不再重新审查，直接进入下一页**
 
-**【visual_designer 使用方式】：**
-- 它是设计规范参考文档（已注入本 prompt）
-- 参考其配色、字体、布局规范
-- 严格遵守其中的"文字溢出防护"和"分页策略"
+**【QA 限制规则】（必须严格遵守）：**
+- 每张幻灯片最多调用 single_qa_review 2 次（包括修复后的复检）
+- 首次 QA 失败后，可以根据问题修复一次
+- 修复后若 QA 仍失败（或者无法定位 JSON 等），**不再继续修复，直接进入下一页**
+- 严禁因 QA 失败而在同一页进入无限修复循环
 
 **【文件命名规范】：**
 - "页码_标题.pptx" 格式（如 1_标题页.pptx）
 
-**【重要】完成流程**：
-1. 调用 search 搜索内容（如需要）
-2. 调用 python3 生成 PPT 文件（可一次生成多页）
-3. 对每一页调用 update_progress 记录页码
-4. 回复"接下来该做第 X 页：{标题}"
+**【执行流程】：**
 
-{{ skills }}`), schema.UserMessage(`## 用户需求
+情况A - 生成新页面（当前任务不包含【修复】）：
+1. search 搜索内容（如需要）
+2. python3 生成 PPT 文件（可一次生成多页）
+3. 对每一页调用 update_progress 记录页码
+4. 对每一页调用 single_qa_review 进行视觉 QA 检查（传入 slide_index）
+5. 在回复中清晰报告 QA 结果
+
+情况B - 修复现有页面（当前任务包含【修复】标记）：
+1. 直接执行 python3 修复代码（根据【修复】中的描述和代码）
+2. **不需要调用 update_progress**（该页已完成，只是修复）
+3. 调用 single_qa_review 重新检查该页，确认修复效果
+4. 在回复中报告修复结果
+
+情况C - 该页 QA 次数已达到 2 次：
+- 不再修复或重新审查，直接标记该页完成并进入下一页
+
+**【回复格式要求】：**
+情况A完成后：
+已完成：第 {N} 页 - {标题}
+QA结果：has_issues={true/false}, has_high_issue={true/false}
+{QA返回的summary内容}
+接下来该做第 {M} 页：{标题}
+
+情况B完成后：
+已完成：第 {N} 页修复
+QA结果：has_issues={true/false}, has_high_issue={true/false}
+{QA返回的summary内容}
+接下来该做第 {M} 页：{标题}
+
+{{ skills }}`
+
+var executorSystemPrompt = executorSystemPromptPart1
+
+var executorUserPrompt = `## 用户需求
 {{ input }}
 
 ## 执行状态
@@ -88,11 +130,26 @@ var executorPrompt = prompt.FromMessages(schema.Jinja2,
 ## 当前任务
 {{ step }}
 
-**完成流程**：
-1. 调用 search 搜索内容（如需要）
-2. 调用 python3 生成 PPT 文件（可一次生成多页）
+**执行流程**：
+情况A - 生成新页面（任务不包含【修复】）：
+1. search 搜索内容（如需要）
+2. python3 生成 PPT 文件（可一次生成多页）
 3. 对每一页调用 update_progress 记录页码
-4. 回复"接下来该做第 X 页：{标题}"`))
+4. 对每一页调用 single_qa_review 进行视觉 QA 检查
+5. 报告 QA 结果
+
+情况B - 修复页面（任务包含【修复】标记）：
+1. 直接执行 python3 修复代码
+2. **不调用 update_progress**
+3. 调用 single_qa_review 重新检查
+4. 报告修复结果
+
+情况C - 该页 QA 次数已达到 2 次：
+- 不再修复或重新审查，直接标记该页完成并进入下一页`
+
+var executorPrompt = prompt.FromMessages(schema.Jinja2,
+	schema.SystemMessage(executorSystemPrompt),
+	schema.UserMessage(executorUserPrompt))
 
 func NewExecutor(ctx context.Context, operator commandline.Operator, skillsContent string) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
@@ -104,14 +161,13 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 		return nil, err
 	}
 
-	// 直接配置所有工具，不再使用嵌套子代理
-	// 使用 InvokableSearchApprovalTool 包装 searchTool，实现人机交互审批
 	searchTool := &tools.InvokableSearchApprovalTool{InvokableTool: tools.NewSearchTool()}
 	pythonTool := tools.NewPythonRunnerTool(operator)
 	editFileTool := tools.NewEditFileTool(operator)
 	readFileTool := tools.NewReadFileTool(operator)
 	bashTool := tools.NewBashTool(operator)
 	checkpointTool := tools.NewCheckpointTool(operator)
+	singleQATool := tools.NewSingleQATool(operator, qaModelFn)
 
 	a, err := planexecute.NewExecutor(ctx, &planexecute.ExecutorConfig{
 		Model: cm,
@@ -124,27 +180,32 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 					bashTool,
 					searchTool,
 					checkpointTool,
+					singleQATool,
 				},
 			},
 		},
 		MaxIterations: 20,
 		GenInputFn: func(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
-			// 获取工作目录
 			workDir, _ := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
 
-			// 获取 Plan 对象
-			plan, ok := in.Plan.(*generic.Plan)
+			// 优先从 Session 读取原始完整计划（避免 framework plan 被 Replanner 覆盖后信息丢失）
+			plan, ok := agentutils.GetSessionValue[*generic.Plan](ctx, "OriginalPlan")
 			if !ok {
-				plan = &generic.Plan{}
+				plan, ok = in.Plan.(*generic.Plan)
+				if !ok {
+					plan = &generic.Plan{}
+				}
+				// 存入 Session，供后续调用复用
+				adk.AddSessionValue(ctx, "OriginalPlan", plan)
 			}
 
-			// 使用新的精简上下文构建函数
 			executorCtx := agentutils.BuildExecutorContext(ctx, plan, workDir, in.ExecutedSteps)
 			executorContextStr := agentutils.FormatExecutorContext(executorCtx)
 
-			// 当前任务
 			var stepStr string
-			if executorCtx.NextSlide != nil {
+			if executorCtx.IsBatchMode && len(executorCtx.NextBatch) > 0 {
+				stepStr = generic.FormatBatchStepsForRequest(executorCtx.NextBatch, workDir)
+			} else if executorCtx.NextSlide != nil {
 				stepStr = generic.FormatStepForRequest(executorCtx.NextSlide, workDir)
 			} else {
 				stepStr = "[完成] 所有幻灯片都已生成完毕。"
@@ -162,7 +223,6 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 				return nil, err
 			}
 
-			// 打印完整上下文字符串长度（用于测试上下文压缩效果）
 			runCount := atomic.AddInt32(&executorRunCounter, 1)
 			var totalLen int
 			for _, msg := range msgs {

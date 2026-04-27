@@ -19,6 +19,8 @@ package replanner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
@@ -33,24 +35,38 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
+const (
+	OriginalPlanSessionKey = "OriginalPlan"
+)
+
+// replannerSystemPrompt 是系统提示词，拆分为字符串常量避免反引号问题
+var replannerSystemPrompt = `你是一个PPT执行进度评估专家，负责判断当前任务状态，并决定下一步操作。
+
+**决策规则（按优先级执行）：**
+
+1. has_high_issue=true：必须生成修复指令，修复所有问题，包括high,medium,low，调用 create_ppt_plan。
+   修复指令格式（必须严格遵守）：
+   slides = [{"index": <页码>, "title": "<原始标题>", "content_type": "content_slide", "description": "【修复】<一句话描述问题>。大模型给出的具体建议\n}]
+   - description 必须以【修复】开头
+   - description 中写清楚要修复什么，后面紧跟 python-pptx 代码
+   - 不要改动已完成且无问题的页面
+   - 调用 create_ppt_plan 后，Executor 会执行修复
+   - **每张幻灯片最多修复 2 次，超过后不再生成修复指令，直接进入下一页**
+
+2. has_issues=true（无 high 但有 medium/low 问题）：可以忽略/
+
+3. has_issues=false 且 has_high_issue=false：
+   - 已完成幻灯片数 < 总幻灯片数：调用 create_ppt_plan（生成下一页）
+   - 已完成幻灯片数 == 总幻灯片数：调用 submit_result
+
+**禁止行为**：
+- has_high_issue=true 时禁止调用 submit_result
+- has_high_issue=true 时禁止继续生成新页面，必须先修复
+- 不要直接输出文本，必须通过工具输出`
+
 var replannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
-	schema.SystemMessage(`你是一个PPT执行进度评估专家，负责判断当前任务是否全部完成，并决定下一步操作。
-
-**【核心判断规则】必须严格按照以下规则判断：**
-- 查看 "已完成幻灯片数" 和 "总幻灯片数"
-- 如果 已完成幻灯片数 < 总幻灯片数 → 调用 create_ppt_plan 工具
-- 如果 已完成幻灯片数 == 总幻灯片数 → 调用 submit_result 工具
-- 绝对不能在 未完成时调用 submit_result
-
-**【示例】：**
-- 总数=13，已完成=4 → 4 < 13，未完成，调用 create_ppt_plan
-- 总数=13，已完成=13 → 13 == 13，全部完成，调用 submit_result
-
-**【禁止行为】：**
-- 不要因为看到计划或描述中有"已完成"字样就调用 submit_result
-- 不要因为 Executor 说"已完成"就误判
-- 不要在 已完成 < 总数 时调用 submit_result
-- 不要直接输出文本，必须通过工具输出`), schema.UserMessage(`## 用户需求
+	schema.SystemMessage(replannerSystemPrompt),
+	schema.UserMessage(`## 用户需求
 {{ user_query }}
 
 ## 进度数字
@@ -60,17 +76,10 @@ var replannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 ## 剩余幻灯片计划
 {{ remaining_plan }}
 
-## 下一幻灯片（当前需要执行的）
-{{ next_slide }}
+## QA 检查结果
+{{ qa_summary }}
 
-## 判断
-已完成 {{ executed_count }} 页，总共 {{ total_count }} 页。
-{{ "所有幻灯片都已完成，调用 submit_result" if executed_count >= total_count else "还有幻灯片未完成，调用 create_ppt_plan" }}`))
-
-const (
-	// OriginalPlanSessionKey 保存原始完整计划，genInputFn 始终从 Session 读取以避免被后续循环覆盖
-	OriginalPlanSessionKey = "OriginalPlan"
-)
+## 判断`))
 
 func NewReplanner(ctx context.Context, operator commandline.Operator) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
@@ -90,9 +99,7 @@ func NewReplanner(ctx context.Context, operator commandline.Operator) (adk.Agent
 		return nil, err
 	}
 
-	// 包装 genInputFn，在首次调用时将原始计划存入 Session
 	genInputFn := func(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
-		// 首次调用时（originalPlan 未保存），将 in.Plan 保存为原始计划
 		if _, found := adk.GetSessionValue(ctx, OriginalPlanSessionKey); !found {
 			if p, ok := in.Plan.(*generic.Plan); ok {
 				adk.AddSessionValue(ctx, OriginalPlanSessionKey, p)
@@ -118,7 +125,6 @@ func NewReplanner(ctx context.Context, operator commandline.Operator) (adk.Agent
 }
 
 func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
-	// 从 Session 获取原始完整计划
 	var plan *generic.Plan
 	if p, found := adk.GetSessionValue(ctx, OriginalPlanSessionKey); found {
 		plan = p.(*generic.Plan)
@@ -128,82 +134,49 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		plan = &generic.Plan{}
 	}
 
-	// 获取工作目录
 	workDir, _ := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
-
-	// 获取总幻灯片数
 	allSlides := plan.GetSlides()
 	totalCount := len(allSlides)
 
-	// 优先级：checkpoint > filesystem > framework ExecutedSteps
-	// checkpoint 是 executor 显式记录的状态，最可靠
 	checkpointCount, _ := generic.GetCompletedCountFromCheckpoint(workDir)
+	var trueDoneIndexes map[int]bool
+	var completedCount int
 
-	// 如果 checkpoint 有记录，直接使用
 	if checkpointCount > 0 {
-		completedCount := checkpointCount
-		// 构建已完成索引集合（从 checkpoint 文件）
+		completedCount = checkpointCount
 		checkpoint, _ := generic.LoadCheckpoint(workDir)
-		trueDoneIndexes := make(map[int]bool)
+		trueDoneIndexes = make(map[int]bool)
 		if checkpoint != nil {
 			for _, idx := range checkpoint.CompletedSlides {
 				trueDoneIndexes[idx] = true
 			}
 		}
-
-		// 计算剩余幻灯片
-		var remainingSlides []generic.Step
-		for _, slide := range allSlides {
-			if !trueDoneIndexes[slide.Index] {
-				remainingSlides = append(remainingSlides, slide)
+	} else {
+		var executedIndexes []int
+		for _, es := range in.ExecutedSteps {
+			var step generic.Step
+			if err := json.Unmarshal([]byte(es.Step), &step); err == nil {
+				executedIndexes = append(executedIndexes, step.Index)
 			}
 		}
-
-		// 构建剩余计划 JSON
-		remainingPlan := &generic.Plan{
-			Title:  plan.Title,
-			Theme:  plan.Theme,
-			Slides: remainingSlides,
-			Steps:  remainingSlides,
+		existingFiles := generic.GetExistingStepFiles(workDir)
+		trueDoneIndexes = make(map[int]bool)
+		for _, idx := range executedIndexes {
+			trueDoneIndexes[idx] = true
 		}
-		remainingPlanStr, _ := remainingPlan.MarshalJSON()
-
-		// 下一幻灯片信息
-		var nextSlideStr string
-		if len(remainingSlides) > 0 {
-			nextSlideStr = generic.FormatStepForRequest(&remainingSlides[0], workDir)
-		} else {
-			nextSlideStr = "[完成] 所有幻灯片都已生成完毕。"
+		for idx := range existingFiles {
+			trueDoneIndexes[idx] = true
 		}
-
-		return replannerPromptTemplate.Format(ctx, map[string]any{
-			"current_time":    agentutils.GetCurrentTime(),
-			"user_query":     agentutils.FormatInput(in.UserInput),
-			"next_slide":     nextSlideStr,
-			"executed_steps": "[从 checkpoint 读取进度]",
-			"executed_count": completedCount,
-			"total_count":    totalCount,
-			"remaining_plan": string(remainingPlanStr),
-		})
+		completedCount = len(trueDoneIndexes)
 	}
 
-	// 如果 checkpoint 没有记录，回退到原有的 filesystem + framework 逻辑
-	var executedIndexes []int
-	for _, es := range in.ExecutedSteps {
-		var step generic.Step
-		if err := json.Unmarshal([]byte(es.Step), &step); err == nil {
-			executedIndexes = append(executedIndexes, step.Index)
+	// 将 QA 尝试次数已达 2 次的页面标记为完成（不再重试）
+	if qaAttempts, err := generic.LoadQAAttempts(workDir); err == nil && qaAttempts != nil {
+		for slideIdx, count := range qaAttempts.Attempts {
+			if count >= 2 {
+				trueDoneIndexes[slideIdx] = true
+			}
 		}
-	}
-
-	existingFiles := generic.GetExistingStepFiles(workDir)
-
-	trueDoneIndexes := make(map[int]bool)
-	for _, idx := range executedIndexes {
-		trueDoneIndexes[idx] = true
-	}
-	for idx := range existingFiles {
-		trueDoneIndexes[idx] = true
 	}
 
 	var remainingSlides []generic.Step
@@ -213,7 +186,13 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		}
 	}
 
-	executedSummary := agentutils.FormatExecutedSteps(in.ExecutedSteps)
+	remainingPlan := &generic.Plan{
+		Title:  plan.Title,
+		Theme:  plan.Theme,
+		Slides: remainingSlides,
+		Steps:  remainingSlides,
+	}
+	remainingPlanStr, _ := remainingPlan.MarshalJSON()
 
 	var nextSlideStr string
 	if len(remainingSlides) > 0 {
@@ -222,24 +201,90 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		nextSlideStr = "[完成] 所有幻灯片都已生成完毕。"
 	}
 
-	remainingPlan := &generic.Plan{
-		Title:  plan.Title,
-		Theme:  plan.Theme,
-		Slides: remainingSlides,
-		Steps:  remainingSlides,
-	}
-	remainingPlanStr, err := remainingPlan.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
+	qaResultStr := buildQAResultSummary(ctx, workDir, in)
 
 	return replannerPromptTemplate.Format(ctx, map[string]any{
-		"current_time":    agentutils.GetCurrentTime(),
+		"current_time":   agentutils.GetCurrentTime(),
 		"user_query":     agentutils.FormatInput(in.UserInput),
 		"next_slide":     nextSlideStr,
-		"executed_steps": executedSummary,
-		"executed_count": len(trueDoneIndexes),
+		"executed_count": completedCount,
 		"total_count":    totalCount,
 		"remaining_plan": string(remainingPlanStr),
+		"qa_summary":     qaResultStr,
 	})
+}
+
+// buildQAResultSummary 从 QA 结果文件中提取摘要。
+func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.ExecutionContext) string {
+	var sb strings.Builder
+
+	qaAttempts, _ := generic.LoadQAAttempts(workDir)
+
+	if qaResult, err := generic.LoadQAResult(workDir); err == nil && qaResult != nil {
+		if qaResult.HasHighIssue {
+			for _, issue := range qaResult.Issues {
+				if issue.Severity == "high" {
+					attemptCount := 0
+					if qaAttempts != nil {
+						attemptCount = qaAttempts.Attempts[issue.Slide]
+					}
+					attemptInfo := ""
+					if attemptCount > 0 {
+						attemptInfo = fmt.Sprintf("（已尝试 %d/2 次）", attemptCount)
+					}
+					if attemptCount >= 2 {
+						sb.WriteString(fmt.Sprintf("【严重问题】第%d页 has_high_issue=true%s，但已达到修复上限，不再生成修复指令。\n", issue.Slide, attemptInfo))
+						continue
+					}
+					sb.WriteString(fmt.Sprintf("【严重问题】has_high_issue=true，必须修复%s。\n", attemptInfo))
+					sb.WriteString(fmt.Sprintf("- 页面：第%d页\n", issue.Slide))
+					sb.WriteString("  问题：" + issue.Desc + "\n")
+					sb.WriteString("  修复：" + issue.Fix + "\n")
+				}
+			}
+		} else if qaResult.HasIssues {
+			sb.WriteString("【QA 问题】has_issues=true，存在 medium/low 级别问题：\n")
+			for _, issue := range qaResult.Issues {
+				if issue.Severity != "high" {
+					sb.WriteString("- [")
+					sb.WriteString(issue.Severity)
+					sb.WriteString("] ")
+					sb.WriteString(issue.Desc)
+					sb.WriteString("\n  修复：")
+					sb.WriteString(issue.Fix)
+					sb.WriteString("\n")
+				}
+			}
+		} else if qaResult.TotalSlides > 0 {
+			sb.WriteString("【QA 结果】所有已审查页面检查通过，无严重问题。\n")
+		}
+	}
+
+	if len(in.ExecutedSteps) > 0 {
+		lastStep := in.ExecutedSteps[len(in.ExecutedSteps)-1]
+		if strings.Contains(lastStep.Result, "has_high_issue=true") {
+			sb.WriteString("【Executor 报告】has_high_issue=true。\n")
+		} else if strings.Contains(lastStep.Result, "has_issues=true") {
+			sb.WriteString("【Executor 报告】has_issues=true。\n")
+		}
+	}
+
+	if sb.Len() == 0 {
+		return "【QA 结果】暂无 QA 数据（尚未完成任何页面的视觉检查）。"
+	}
+
+	// 附加：明确告知已达到 2 次 QA 上限的页面，供 Replanner 感知
+	if qaAttempts != nil {
+		var maxedSlides []int
+		for slideIdx, count := range qaAttempts.Attempts {
+			if count >= 2 {
+				maxedSlides = append(maxedSlides, slideIdx)
+			}
+		}
+		if len(maxedSlides) > 0 {
+			sb.WriteString(fmt.Sprintf("【QA 上限】以下页面已完成 2 次 QA 审查，标记为已处理：第 %v\n", maxedSlides))
+		}
+	}
+
+	return sb.String()
 }

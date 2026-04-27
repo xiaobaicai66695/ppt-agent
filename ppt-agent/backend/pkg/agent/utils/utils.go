@@ -77,12 +77,14 @@ func FormatExecutedStepsStr(executedSteps string) string {
 
 // ExecutorContext 用于构建 Executor 的精简上下文
 type ExecutorContext struct {
-	CompletedSlides  []int           // 已完成的页码列表
-	TotalCount       int             // 总页数
-	NextSlide       *generic.Step   // 下一个待执行的幻灯片
-	LastStepSuccess  bool            // 上一轮是否成功
-	LastStepError   string          // 上一轮的错误信息（如果有）
-	RemainingTitles []string        // 剩余幻灯片的标题列表（简洁）
+	CompletedSlides   []int             // 已完成的页码列表
+	TotalCount       int               // 总页数
+	NextSlide        *generic.Step     // 下一个待执行的幻灯片（单页兼容）
+	NextBatch        []generic.Step    // 批量模式：多页打包
+	IsBatchMode      bool              // 是否批量模式（Planner 建议多页）
+	LastStepSuccess  bool              // 上一轮是否成功
+	LastStepError    string            // 上一轮的错误信息（如果有）
+	RemainingTitles  []string          // 剩余幻灯片的标题列表（简洁）
 }
 
 // BuildExecutorContext 构建精简的 Executor 上下文
@@ -135,7 +137,27 @@ func BuildExecutorContext(ctx context.Context, plan *generic.Plan, workDir strin
 
 	// 设置下一个待执行的幻灯片
 	if len(remainingSlides) > 0 {
-		ec.NextSlide = &remainingSlides[0]
+		first := &remainingSlides[0]
+
+		// 检测 Planner 是否建议该页分多页
+		if first.MultiPageHint && len(remainingSlides) > 1 {
+			// Planner 建议多页：将后续若干页一起打包传给 Executor
+			batchCount := first.MultiPageCount
+			if batchCount <= 0 {
+				batchCount = 2 // 默认批量 2 页
+			}
+			if batchCount > len(remainingSlides) {
+				batchCount = len(remainingSlides)
+			}
+			ec.IsBatchMode = true
+			ec.NextBatch = remainingSlides[:batchCount]
+			// NextSlide 保留第一个，用于单页渲染兼容
+			ec.NextSlide = &remainingSlides[0]
+		} else {
+			// 标准单页模式
+			ec.IsBatchMode = false
+			ec.NextSlide = first
+		}
 	}
 
 	// 分析上一轮执行结果（通过 Result 是否为空来判断成功/失败）
@@ -183,7 +205,22 @@ func FormatExecutorContext(ec *ExecutorContext) string {
 
 	// 3. 当前任务
 	sb.WriteString("\n当前任务：")
-	if ec.NextSlide != nil {
+	if ec.IsBatchMode && len(ec.NextBatch) > 0 {
+		sb.WriteString(fmt.Sprintf("批量模式（Planner 建议分多页）：生成以下 %d 页\n", len(ec.NextBatch)))
+		for _, slide := range ec.NextBatch {
+			hint := ""
+			if slide.MultiPageHint {
+				hint = " [建议分多页]"
+			}
+			sb.WriteString(fmt.Sprintf("  - 第%d页: %s (%s)%s\n", slide.Index, slide.Title, slide.ContentType, hint))
+		}
+		if len(ec.NextBatch[0].MultiPageReasons) > 0 {
+			sb.WriteString("  Planner 分页参考理由:\n")
+			for _, r := range ec.NextBatch[0].MultiPageReasons {
+				sb.WriteString(fmt.Sprintf("    * %s\n", r))
+			}
+		}
+	} else if ec.NextSlide != nil {
 		sb.WriteString(fmt.Sprintf("生成第%d页 - %s\n", ec.NextSlide.Index, ec.NextSlide.Title))
 	} else {
 		sb.WriteString("所有幻灯片都已生成完毕\n")

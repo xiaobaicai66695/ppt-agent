@@ -18,236 +18,133 @@ package callback
 
 import (
 	"context"
+	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
-	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
 
-// startTime 程序启动时间，用于计算相对耗时
+// startTime 程序启动时间
 var startTime = time.Now()
 
-// NewLogHandler 创建一个日志追踪 Handler
-// 基于 eino callbacks.Handler 接口，追踪 ChatModel 和 Tool 调用
-func NewLogHandler() callbacks.Handler {
-	return callbacks.NewHandlerBuilder().
-		OnStartFn(onStart).
-		OnEndFn(onEnd).
-		OnErrorFn(onError).
-		OnStartWithStreamInputFn(onStartWithStreamInput).
-		OnEndWithStreamOutputFn(onEndWithStreamOutput).
-		Build()
+// maxToolOutputLen tool 输出截断阈值
+const maxToolOutputLen = 500
+
+// maxToolArgsLen tool 参数截断阈值
+const maxToolArgsLen = 300
+
+// keyToAgentName 是用于在 context 中存储 agent 名称的 key
+const keyToAgentName = "eino.callback.agent.name"
+
+// SetAgentName 将 agent 名称存入 context（供 wrapper/agent 调用）
+func SetAgentName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, keyToAgentName, name)
 }
 
+// getAgentName 从 context 或 RunInfo 中获取 agent 名称
+func getAgentName(ctx context.Context, info *callbacks.RunInfo) string {
+	// 1. 优先从 context 中获取（最准确，由 agent wrapper 设置）
+	if ctx != nil {
+		if name, ok := ctx.Value(keyToAgentName).(string); ok && name != "" {
+			return name
+		}
+	}
+
+	// 2. 从 RunInfo.Name 中获取
+	if info != nil && info.Name != "" {
+		return info.Name
+	}
+
+	return "?"
+}
+
+// elapsed 返回程序启动以来的毫秒数
 func elapsed() int64 {
 	return time.Since(startTime).Milliseconds()
 }
 
-func onStart(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-	if info == nil {
-		return ctx
+// truncate 截断过长字符串
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
 	}
-
-	if info.Component == components.ComponentOfTool {
-		tci := tool.ConvCallbackInput(input)
-		args := tci.ArgumentsInJSON
-		log.Printf("[%dms] [TRACE] Tool/%s 开始 | 类型=%s | 输入长度=%d", elapsed(), info.Name, info.Type, len(args))
-		log.Printf("    输入: %s", args)
-		return ctx
-	}
-
-	if info.Component == components.ComponentOfChatModel {
-		log.Printf("[%dms] [TRACE] ChatModel/%s 开始 | 类型=%s",
-			elapsed(), info.Name, info.Type)
-		return ctx
-	}
-
-	log.Printf("[%dms] [TRACE] %s/%s 开始 | 类型=%s",
-		elapsed(), info.Component, info.Name, info.Type)
-
-	return ctx
+	return s[:maxLen] + fmt.Sprintf(" ...[截断 %d 字符]", len(s))
 }
 
-func onEnd(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
-	if info == nil {
-		return ctx
+// extractToolArgs 提取工具参数字符串（带截断）
+func extractToolArgs(input callbacks.CallbackInput) string {
+	tci := tool.ConvCallbackInput(input)
+	if tci.ArgumentsInJSON == "" {
+		return "(无参数)"
 	}
-
-	if info.Component == components.ComponentOfTool {
-		tco := tool.ConvCallbackOutput(output)
-		response := tco.Response
-		log.Printf("[%dms] [TRACE] Tool/%s 完成 | 类型=%s | 输出长度=%d", elapsed(), info.Name, info.Type, len(response))
-		log.Printf("    输出: %s", response)
-		return ctx
-	}
-
-	if info.Component == components.ComponentOfChatModel {
-		cco := model.ConvCallbackOutput(output)
-		if cco.Message != nil {
-			contentLen := len(cco.Message.Content)
-			log.Printf("[%dms] [TRACE] ChatModel/%s 完成 | 类型=%s | 内容长度=%d",
-				elapsed(), info.Name, info.Type, contentLen)
-		} else {
-			log.Printf("[%dms] [TRACE] ChatModel/%s 完成 | 类型=%s",
-				elapsed(), info.Name, info.Type)
-		}
-		return ctx
-	}
-
-	log.Printf("[%dms] [TRACE] %s/%s 完成 | 类型=%s",
-		elapsed(), info.Component, info.Name, info.Type)
-
-	return ctx
+	return truncate(tci.ArgumentsInJSON, maxToolArgsLen)
 }
 
-func onError(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-	if info == nil {
-		log.Printf("[%dms] [ERROR] 组件出错: %v", elapsed(), err)
-		return ctx
+// extractToolResult 提取工具结果字符串（带截断）
+func extractToolResult(output callbacks.CallbackOutput) string {
+	tco := tool.ConvCallbackOutput(output)
+	if tco.Response == "" {
+		return "(空响应)"
 	}
-
-	log.Printf("[%dms] [ERROR] %s/%s 错误: %v",
-		elapsed(), info.Component, info.Name, err)
-
-	return ctx
+	return truncate(tco.Response, maxToolOutputLen)
 }
 
-func onStartWithStreamInput(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {
-	if info == nil || input == nil {
-		return ctx
-	}
-
-	defer input.Close()
-	log.Printf("[%dms] [TRACE] %s/%s 开始流式输入 | 类型=%s",
-		elapsed(), info.Component, info.Name, info.Type)
-
-	return ctx
-}
-
-func onEndWithStreamOutput(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
-	if info == nil || output == nil {
-		return ctx
-	}
-
-	defer output.Close()
-	log.Printf("[%dms] [TRACE] %s/%s 开始流式输出 | 类型=%s",
-		elapsed(), info.Component, info.Name, info.Type)
-
-	return ctx
-}
-
-// TraceSummary 执行摘要收集器
-type TraceSummary struct {
-	SessionID  string
-	StartTime  time.Time
-	EndTime    time.Time
-	TotalCalls int
-	LLMCalls   int
-	ToolCalls  int
-	ErrorCount int
-}
-
-// NewTraceSummary 创建一个新的追踪摘要
-func NewTraceSummary(sessionID string) *TraceSummary {
-	return &TraceSummary{
-		SessionID: sessionID,
-		StartTime: time.Now(),
-	}
-}
-
-// RecordLLMCall 记录一次 LLM 调用
-func (s *TraceSummary) RecordLLMCall() {
-	s.TotalCalls++
-	s.LLMCalls++
-}
-
-// RecordToolCall 记录一次工具调用
-func (s *TraceSummary) RecordToolCall() {
-	s.TotalCalls++
-	s.ToolCalls++
-}
-
-// RecordError 记录一次错误
-func (s *TraceSummary) RecordError() {
-	s.ErrorCount++
-}
-
-// Print 打印追踪摘要
-func (s *TraceSummary) Print() {
-	if s.SessionID == "" {
-		return
-	}
-
-	s.EndTime = time.Now()
-	duration := s.EndTime.Sub(s.StartTime)
-
-	log.Printf("")
-	log.Printf("========== [CALLBACK] 执行摘要 ==========")
-	log.Printf("会话ID: %s", s.SessionID)
-	log.Printf("总耗时: %v", duration)
-	log.Printf("总调用次数: %d", s.TotalCalls)
-	log.Printf("  - LLM 调用: %d", s.LLMCalls)
-	log.Printf("  - Tool 调用: %d", s.ToolCalls)
-	log.Printf("错误次数: %d", s.ErrorCount)
-	log.Printf("========================================")
-	log.Printf("")
-}
-
-// TraceInfo 追踪信息结构
-type TraceInfo struct {
-	SessionID string
-	Component string
-	Name      string
-	Type      string
-	StartTime time.Time
-	EndTime   time.Time
-	InputLen  int
-	OutputLen int
-	Error     error
-}
-
-// LogTrace 打印追踪信息
-func LogTrace(info *TraceInfo) {
-	if info == nil {
-		return
-	}
-
-	duration := time.Duration(0)
-	if !info.EndTime.IsZero() {
-		duration = info.EndTime.Sub(info.StartTime)
-	}
-
-	if info.Error != nil {
-		log.Printf("[TRACE] session=%s component=%s name=%s type=%s duration=%v error=%v",
-			info.SessionID, info.Component, info.Name, info.Type, duration, info.Error)
-	} else {
-		log.Printf("[TRACE] session=%s component=%s name=%s type=%s duration=%v input=%d output=%d",
-			info.SessionID, info.Component, info.Name, info.Type, duration, info.InputLen, info.OutputLen)
-	}
-}
-
-// SensitiveFilter 敏感信息过滤器
-func SensitiveFilter(s string) string {
-	sensitivePatterns := []string{
-		"api_key", "APIToken", "token", "password", "secret",
-	}
-	result := s
-	for _, pattern := range sensitivePatterns {
-		if strings.Contains(strings.ToLower(result), pattern) {
-			idx := strings.Index(strings.ToLower(result), pattern)
-			if idx >= 0 {
-				end := idx + len(pattern) + 10
-				if end > len(result) {
-					end = len(result)
-				}
-				result = result[:idx] + "***" + result[end:]
+// NewLogHandler 创建一个精简的日志 Handler。
+// 通过 context 和 RunInfo 获取 agent 名称，不再依赖全局 agentStack。
+func NewLogHandler() callbacks.Handler {
+	return callbacks.NewHandlerBuilder().
+		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+			if info == nil {
+				return ctx
 			}
-		}
-	}
-	return result
+
+			agentName := getAgentName(ctx, info)
+
+			switch info.Component {
+			case components.ComponentOfTool:
+				args := extractToolArgs(input)
+				log.Printf("[%dms] [%s] → TOOL: %s | args: %s", elapsed(), agentName, info.Name, args)
+			case components.ComponentOfChatModel:
+				log.Printf("[%dms] [%s] → LLM: %s", elapsed(), agentName, info.Name)
+			}
+			return ctx
+		}).
+		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+			if info == nil {
+				return ctx
+			}
+
+			agentName := getAgentName(ctx, info)
+
+			switch info.Component {
+			case components.ComponentOfTool:
+				result := extractToolResult(output)
+				log.Printf("[%dms] [%s] ← TOOL: %s | result: %s", elapsed(), agentName, info.Name, result)
+			case components.ComponentOfChatModel:
+				// 不输出 LLM 响应内容
+			}
+			return ctx
+		}).
+		OnErrorFn(func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+			if err == nil {
+				return ctx
+			}
+			name := "?"
+			if info != nil {
+				name = getAgentName(ctx, info)
+			}
+			log.Printf("[%dms] [ERROR] [%s] %s | %v", elapsed(), name, info.Name, err)
+			return ctx
+		}).
+		OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {
+			return ctx
+		}).
+		OnEndWithStreamOutputFn(func(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
+			return ctx
+		}).
+		Build()
 }

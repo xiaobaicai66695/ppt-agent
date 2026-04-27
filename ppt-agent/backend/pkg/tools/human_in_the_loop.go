@@ -21,6 +21,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -58,6 +59,50 @@ type InvokableSearchApprovalTool struct {
 	tool.InvokableTool
 }
 
+// extractSearchParams 从可能带噪声的输入中提取搜索参数。
+// 支持三种策略：直接解析、JSON块提取、正则字段提取。
+func extractSearchParams(rawInput string) (query string, reason string, _ error) {
+	// 1. 尝试直接解析
+	var searchInput map[string]any
+	if err := json.Unmarshal([]byte(rawInput), &searchInput); err == nil {
+		query, _ = searchInput["query"].(string)
+		reason, _ = searchInput["reason"].(string)
+		return query, reason, nil
+	}
+
+	// 2. 提取 JSON 块（第一个 { 到最后一个 }）
+	start := strings.Index(rawInput, "{")
+	end := strings.LastIndex(rawInput, "}")
+	if start != -1 && end != -1 && end > start {
+		jsonStr := rawInput[start : end+1]
+		if err := json.Unmarshal([]byte(jsonStr), &searchInput); err == nil {
+			query, _ = searchInput["query"].(string)
+			reason, _ = searchInput["reason"].(string)
+			return query, reason, nil
+		}
+	}
+
+	// 3. 从原始文本中用正则提取 "query": "xxx"
+	queryMatch := extractJSONField(rawInput, "query")
+	reasonMatch := extractJSONField(rawInput, "reason")
+	if queryMatch != "" {
+		return queryMatch, reasonMatch, nil
+	}
+
+	return "", "", fmt.Errorf("无法从输入中提取搜索参数")
+}
+
+// extractJSONField 从包含 JSON 的文本中提取指定字段的值。
+func extractJSONField(text string, field string) string {
+	pattern := fmt.Sprintf(`"%s"\s*:\s*"([^"]*)"`, field)
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(text)
+	if len(matches) >= 2 {
+		return matches[1]
+	}
+	return ""
+}
+
 func (i InvokableSearchApprovalTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return i.InvokableTool.Info(ctx)
 }
@@ -70,13 +115,16 @@ func (i InvokableSearchApprovalTool) InvokableRun(ctx context.Context, arguments
 		return "", err
 	}
 
-	var searchInput map[string]any
-	if err := json.Unmarshal([]byte(argumentsInJSON), &searchInput); err != nil {
-		return "", fmt.Errorf("参数解析失败: %w", err)
+	// 使用健壮的参数提取，支持 JSON 块提取和正则匹配
+	query, reason, err := extractSearchParams(argumentsInJSON)
+	if err != nil {
+		// 参数完全无法解析时，使用原始文本作为 query（不报错，避免流程中断）
+		query = strings.TrimSpace(argumentsInJSON)
+		if query == "" {
+			return "", fmt.Errorf("搜索关键词不能为空，且无法从输入中提取")
+		}
+		reason = ""
 	}
-
-	query, _ := searchInput["query"].(string)
-	reason, _ := searchInput["reason"].(string)
 	if query == "" {
 		return "", fmt.Errorf("搜索关键词不能为空")
 	}
@@ -110,11 +158,15 @@ func (i InvokableSearchApprovalTool) InvokableRun(ctx context.Context, arguments
 			return fmt.Sprintf("用户选择跳过搜索。关键词 '%s' 未执行。", query), nil
 		case 3:
 			if result.EditedQuery != nil && *result.EditedQuery != "" {
-				var stored map[string]any
-				if err := json.Unmarshal([]byte(storedArguments), &stored); err != nil {
-					return "", fmt.Errorf("解析存储参数失败: %w", err)
+				// 使用健壮的参数提取，避免 storedArguments 格式损坏导致解析失败
+				editedQuery, _, _ := extractSearchParams(storedArguments)
+				if editedQuery == "" {
+					// 参数无法解析时，直接使用新的 query
+					editedQuery = *result.EditedQuery
 				}
-				stored["query"] = *result.EditedQuery
+				stored := map[string]any{
+					"query": editedQuery,
+				}
 				editedJSON, err := json.Marshal(stored)
 				if err != nil {
 					return "", fmt.Errorf("序列化编辑后参数失败: %w", err)

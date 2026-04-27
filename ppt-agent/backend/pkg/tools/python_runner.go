@@ -61,8 +61,7 @@ type pythonInput struct {
 
 func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	input := &pythonInput{}
-	err := json.Unmarshal([]byte(argumentsInJSON), input)
-	if err != nil {
+	if err := json.Unmarshal([]byte(argumentsInJSON), input); err != nil {
 		return "", err
 	}
 
@@ -76,7 +75,7 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	tmpFile := filepath.Join(wd, "temp_script.py")
-	err = os.WriteFile(tmpFile, []byte(input.Code), 0o644)
+	err := os.WriteFile(tmpFile, []byte(input.Code), 0o644)
 	if err != nil {
 		return fmt.Sprintf("Failed to write temp file: %v", err), nil
 	}

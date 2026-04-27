@@ -29,9 +29,10 @@ ppt-agent/
 │       │   ├── tools.go                 # 工具入口
 │       │   ├── ppt/
 │       │   │   └── ppt_tool.go        # PPT 生成工具
+│       │   ├── qa/
+│       │   │   └── qa_tool.go        # QA 视觉质量审查工具
 │       │   ├── search/
 │       │   │   └── search_tool.go      # 搜索工具
-│       │   ├── code_agent_tool.go      # 代码执行代理工具
 │       │   ├── bash_tool.go            # Shell 命令工具
 │       │   ├── python_runner.go        # Python 脚本执行器
 │       │   ├── edit_file.go           # 文件编辑工具
@@ -108,7 +109,14 @@ ppt-agent/
 │  ┌──────────────────────────────────────┐                 │
 │  │          Tools (via ToolsNode)          │                 │
 │  ├──────────────────────────────────────┤                 │
-│  │  CodeAgent │ Search │ ImageSearch │ PPT │                 │
+│  │  Python │ Search │ PPT │ BatchQA    │                 │
+│  └──────────────────────────────────────┘                 │
+│                                                              │
+│  ┌──────────────────────────────────────┐                 │
+│  │          Vision QA (Multi-modal)        │                 │
+│  ├──────────────────────────────────────┤                 │
+│  │  PPTX→Images │ Visual Inspection │      │                 │
+│  │  QA Report │ Auto-fix loop         │                 │
 │  └──────────────────────────────────────┘                 │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -219,14 +227,68 @@ executeAgent, _ := executor.NewExecutor(ctx, operator, skillsContent)
 
 **Replanner**：评估已执行步骤的正确性，判断计划是否仍然适用，异常时调用 `create_ppt_plan` 重新规划。
 
+## QA 视觉质量审查系统
+
+基于多模态 LLM 的自动化视觉 QA，在所有幻灯片生成完毕后执行批量审查，确保输出质量。
+
+### 工作流程
+
+```
+所有幻灯片生成完毕
+        │
+        ▼
+┌──────────────────┐
+│ batch_qa_review  │ ──── 自动触发
+│ 工具调用          │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│ PPTX → 图片转换  │ 150 DPI 分页输出
+│ (pptx_qa_converter.py) │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│ 多模态 LLM 审查  │ 视觉 AI 模型
+│ (Vision QA)      │
+└────────┬─────────┘
+         │
+         ▼
+    QA 报告输出
+         │
+         ├─── 有问题 ──▶ Replanner 生成修复步骤
+         │
+         └─── 无问题 ──▶ 提交最终结果
+```
+
+### 检查问题类型
+
+| 类型 | 说明 | 严重程度 |
+|------|------|---------|
+| overlap | 文字与形状/图片重叠、线条穿过文字 | high |
+| overflow | 文字超出文本框边界被截断 | high |
+| contrast | 浅色文字在浅色背景上 | medium |
+| spacing | 元素间距不一致、过于靠近 | medium |
+| alignment | 同一列元素未对齐、视觉重心不稳 | medium |
+| placeholder | 占位符文本残留 (xxxx/lorem) | high |
+| ai_style | AI 感特征（装饰线、紫色渐变） | low |
+
+### 审查规则
+
+- 假设有错，不要因为"看起来还行"就跳过
+- 每一页都要单独审查，不能跳页
+- 高严重程度的问题必须报告
+- 发现问题一定要报告，不要遗漏
+
 ## 工具模块
 
 | 工具 | 文件 | 说明 |
 |------|------|------|
-| CodeAgent | `code_agent_tool.go` | 代码代理，生成并执行 Python 代码完成任务 |
 | Search | `search/search_tool.go` | 互联网内容搜索 |
 | ImageSearch | `search/search_tool.go` | 图片素材搜索（含审批机制） |
 | PPT | `ppt/ppt_tool.go` | 调用 pptx_writer 脚本生成 PPT 文件 |
+| BatchQA | `qa/qa_tool.go` | 批量视觉质量审查 |
 | Bash | `bash_tool.go` | 执行 Shell 命令 |
 | EditFile | `edit_file.go` | 编辑文件内容 |
 | ReadFile | `read_file.go` | 读取文件内容 |
@@ -411,7 +473,7 @@ npm run dev
 
 | 依赖 | 版本 |
 |------|------|
-| Go | 1.24.7 |
+| Go | 1.25.0 |
 | eino | v0.8.8 |
 | eino-ext/adk/backend/local | v0.2.1 |
 | python-pptx | >= 0.6.21 |

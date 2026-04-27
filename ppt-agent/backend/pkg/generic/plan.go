@@ -17,11 +17,16 @@ import (
 )
 
 type Step struct {
-	Index       int    `json:"index"`
-	Title       string `json:"title"`
-	ContentType string `json:"content_type"`
-	Description string `json:"description"`
-	Desc        string `json:"desc"`
+	Index       int      `json:"index"`
+	Title       string   `json:"title"`
+	ContentType string   `json:"content_type"`
+	Description string   `json:"description"`
+	Desc        string   `json:"desc"`
+
+	// MultiPageHint 标记该页是否建议分多页生成（由 Planner 设置，Executor 可自行决策）
+	MultiPageHint    bool     `json:"multi_page_hint,omitempty"`
+	MultiPageCount   int      `json:"multi_page_count,omitempty"`
+	MultiPageReasons []string `json:"multi_page_reasons,omitempty"`
 }
 
 type Plan struct {
@@ -415,6 +420,45 @@ func FormatBatchSlidesForRequest(slides []Step, batchNum, totalBatches int, work
 	return sb.String()
 }
 
+// FormatBatchStepsForRequest 将批量步骤渲染为请求字符串
+// 一次性输出多页的详细信息，供 Executor 在批量模式下使用
+func FormatBatchStepsForRequest(slides []Step, workDir string) string {
+	if len(slides) == 0 {
+		return "[完成] 该批次幻灯片都已生成完毕。"
+	}
+
+	var sb strings.Builder
+	for i, slide := range slides {
+		if i > 0 {
+			sb.WriteString("\n\n---\n\n")
+		}
+		fileName := GetStepFileName(&slide)
+		filePath := filepath.Join(workDir, fileName)
+		sb.WriteString(fmt.Sprintf(`创建幻灯片
+任务详情：
+- 页码：%d
+- 标题：%s
+- 内容类型：%s
+- 内容描述：%s
+- Planner 分页建议：%s（理由：%v）
+
+【重要】输出文件：
+- 文件名：%s
+- 完整路径：%s`,
+			slide.Index, slide.Title, slide.ContentType, slide.Description,
+			map[bool]string{true: "建议分多页", false: "单页"}[slide.MultiPageHint],
+			slide.MultiPageReasons,
+			fileName, filePath))
+	}
+
+	sb.WriteString("\n\n【批量任务要求】")
+	sb.WriteString("\n- 以上为本次需要生成的幻灯片列表，请评估每页内容量后自主决定最终分页数量")
+	sb.WriteString("\n- 可在 python3 中一次性生成所有页，分别调用 update_progress 记录每页")
+	sb.WriteString("\n- 文件命名格式：{页码}_{标题}.pptx")
+
+	return sb.String()
+}
+
 // FormatAllSlidesForRequest 将所有剩余步骤格式化为 CodeAgent 批量请求
 // 一次性传递所有幻灯片信息，支持批量生成
 func FormatAllSlidesForRequest(slides []Step, workDir string) string {
@@ -521,4 +565,111 @@ func GetCompletedCountFromCheckpoint(workDir string) (int, error) {
 		return 0, nil
 	}
 	return len(checkpoint.CompletedSlides), nil
+}
+
+// QAAttemptFileName 是 QA 尝试次数文件名
+const QAAttemptFileName = ".qa_attempts.json"
+
+// QAAttempts 记录每张幻灯片的 QA 尝试次数
+type QAAttempts struct {
+	Attempts map[int]int `json:"attempts"` // slide -> attempt count
+}
+
+// LoadQAAttempts 加载 QA 尝试次数
+func LoadQAAttempts(workDir string) (*QAAttempts, error) {
+	filePath := filepath.Join(workDir, QAAttemptFileName)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &QAAttempts{Attempts: make(map[int]int)}, nil
+		}
+		return nil, err
+	}
+	var attempts QAAttempts
+	if err := json.Unmarshal(data, &attempts); err != nil {
+		return nil, err
+	}
+	return &attempts, nil
+}
+
+// SaveQAAttempts 保存 QA 尝试次数
+func SaveQAAttempts(workDir string, a *QAAttempts) error {
+	data, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	filePath := filepath.Join(workDir, QAAttemptFileName)
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// GetQAAttempt 获取某页的 QA 尝试次数
+func GetQAAttempt(workDir string, slideIdx int) (int, error) {
+	attempts, err := LoadQAAttempts(workDir)
+	if err != nil {
+		return 0, err
+	}
+	return attempts.Attempts[slideIdx], nil
+}
+
+// IncrementQAAttempt 增加某页的 QA 尝试次数，返回增加后的值
+func IncrementQAAttempt(workDir string, slideIdx int) (int, error) {
+	attempts, err := LoadQAAttempts(workDir)
+	if err != nil {
+		return 0, err
+	}
+	attempts.Attempts[slideIdx]++
+	if err := SaveQAAttempts(workDir, attempts); err != nil {
+		return 0, err
+	}
+	return attempts.Attempts[slideIdx], nil
+}
+
+// QAResultFileName 是 QA 结果文件名前缀
+const QAResultFileName = ".qa_result.json"
+
+// QAResult 是批量 QA 的审查结果
+type QAResult struct {
+	TotalSlides  int       `json:"total_slides"`
+	Issues       []QAIssue `json:"issues"`
+	Summary      string    `json:"summary"`
+	HasIssues    bool      `json:"has_issues"`
+	HasHighIssue bool      `json:"has_high_issue"`
+	LastUpdated  string    `json:"last_updated"`
+}
+
+// QAIssue 是单个问题的描述
+type QAIssue struct {
+	Slide    int    `json:"slide"`
+	Severity string `json:"severity"`
+	Type     string `json:"type"`
+	Desc     string `json:"description"`
+	Fix      string `json:"recommendation"`
+}
+
+// SaveQAResult 将 QA 结果保存到文件
+func SaveQAResult(workDir string, result *QAResult) error {
+	result.LastUpdated = time.Now().Format("2006-01-02 15:04:05")
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	filePath := filepath.Join(workDir, QAResultFileName)
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadQAResult 从文件加载 QA 结果
+func LoadQAResult(workDir string) (*QAResult, error) {
+	filePath := filepath.Join(workDir, QAResultFileName)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result QAResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
