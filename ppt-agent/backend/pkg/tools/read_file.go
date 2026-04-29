@@ -28,8 +28,8 @@ import (
 
 var readToolInfo = &schema.ToolInfo{
 	Name: "read_file",
-	Desc: `Read the content of a file.
-* Use this tool to read files for debugging or to understand the file content.`,
+	Desc: `读取文件内容。
+* 使用此工具读取文件以了解文件内容、调试或查看任务状态。`,
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"path": {
 			Type:     "string",

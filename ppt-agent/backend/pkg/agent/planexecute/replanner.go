@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package replanner
+package planexecute
 
 import (
 	"context"
@@ -39,7 +39,6 @@ const (
 	OriginalPlanSessionKey = "OriginalPlan"
 )
 
-// replannerSystemPrompt 是系统提示词，拆分为字符串常量避免反引号问题
 var replannerSystemPrompt = `你是一个PPT执行进度评估专家，负责判断当前任务状态，并决定下一步操作。
 
 **决策规则（按优先级执行）：**
@@ -138,7 +137,6 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 	allSlides := plan.GetSlides()
 	totalCount := len(allSlides)
 
-	// 展开所有幻灯片为扁平列表，生成 slideKey
 	var flatSlides []struct {
 		Step     generic.Step
 		SlideKey string
@@ -172,7 +170,6 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		}
 	}
 
-	// 从 checkpoint 获取已完成 keys（string 类型）
 	completedSet := make(map[string]bool)
 	checkpoint, _ := generic.LoadCheckpoint(workDir)
 	if checkpoint != nil {
@@ -181,24 +178,17 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		}
 	}
 
-	// 从文件系统补充（解析文件名提取 slideKey）
 	for _, path := range generic.GetExistingStepFiles(workDir) {
 		stem := filepath.Base(path)
 		stem = strings.TrimSuffix(stem, ".pptx")
 		parts := strings.Split(stem, "_")
 		if len(parts) >= 1 {
-			prefix := parts[0]
-			if strings.Contains(prefix, ".") {
-				completedSet[prefix] = true
-			} else {
-				completedSet[prefix] = true
-			}
+			completedSet[parts[0]] = true
 		}
 	}
 
 	completedCount := len(completedSet)
 
-	// 将 QA 尝试次数已达 2 次的页面标记为完成（不再重试）
 	if qaAttempts, err := generic.LoadQAAttempts(workDir); err == nil && qaAttempts != nil {
 		for slideKey, count := range qaAttempts.Attempts {
 			if count >= 2 {
@@ -207,7 +197,6 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		}
 	}
 
-	// 构建剩余幻灯片列表
 	var remainingSlides []generic.Step
 	for _, sw := range flatSlides {
 		if !completedSet[sw.SlideKey] {
@@ -216,7 +205,6 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 		}
 	}
 
-	// 更新扁平列表的 totalCount（包含子页的总数）
 	totalCount = len(flatSlides)
 
 	remainingPlan := &generic.Plan{
@@ -247,7 +235,6 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 	})
 }
 
-// buildQAResultSummary 从 QA 结果文件中提取摘要。
 func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.ExecutionContext) string {
 	var sb strings.Builder
 
@@ -256,7 +243,6 @@ func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.E
 	if qaResult, err := generic.LoadQAResult(workDir); err == nil && qaResult != nil {
 		if qaResult.HasHighIssue {
 			for _, report := range qaResult.Reports {
-				// report 格式: "slideKey|reportContent"
 				parts := strings.SplitN(report, "|", 2)
 				slideKey := parts[0]
 				reportContent := ""
@@ -309,7 +295,6 @@ func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.E
 		return "【QA 结果】暂无 QA 数据（尚未完成任何页面的视觉检查）。"
 	}
 
-	// 附加：明确告知已达到 2 次 QA 上限的页面，供 Replanner 感知
 	if qaAttempts != nil {
 		var maxedSlides []string
 		for slideIdx, count := range qaAttempts.Attempts {
@@ -325,7 +310,6 @@ func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.E
 	return sb.String()
 }
 
-// indentText 将文本的每一行前面加上指定数量的空格缩进。
 func indentText(text string, spaces int) string {
 	prefix := strings.Repeat(" ", spaces)
 	lines := strings.Split(text, "\n")

@@ -24,8 +24,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joho/godotenv"
-
 	"github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
@@ -77,12 +75,6 @@ func WithResponseFormatJsonSchema(schema *openai.ChatCompletionResponseFormatJSO
 
 // NewToolCallingChatModel 创建 ChatModel
 func NewToolCallingChatModel(ctx context.Context, opts ...ChatModelOption) (cm model.ToolCallingChatModel, err error) {
-	envPath := os.Getenv("ENV_PATH")
-	if envPath == "" {
-		envPath = "D:\\environment\\codeGo\\llm-examples\\projects\\ppt-agent\\backend\\.env"
-	}
-	_ = godotenv.Load(envPath)
-
 	o := &ChatModelConfig{}
 	for _, opt := range opts {
 		opt(o)
@@ -180,12 +172,6 @@ type FallbackChatModel struct {
 // 遇到 429 时：当前模型暂停 30s 并尝试下一个模型
 // 所有模型都失败后才返回错误
 func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCallingChatModel, error) {
-	envPath := os.Getenv("ENV_PATH")
-	if envPath == "" {
-		envPath = "D:\\environment\\codeGo\\llm-examples\\projects\\ppt-agent\\backend\\.env"
-	}
-	_ = godotenv.Load(envPath)
-
 	o := &ChatModelConfig{}
 	for _, opt := range opts {
 		opt(o)

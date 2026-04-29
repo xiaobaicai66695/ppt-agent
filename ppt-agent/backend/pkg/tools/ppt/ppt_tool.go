@@ -149,12 +149,12 @@ func (t *pptTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts
 			SlideWidth:  960,
 			SlideHeight: 540,
 			ColorScheme: ColorScheme{
-				Primary:       "#0D1B2A",
-				PrimaryLight:  "#1B263B",
-				Accent:        "#00B4D8",
-				Background:    "#FFFFFF",
+				Primary:       "#1B2A3A",
+				PrimaryLight:  "#2A3B4D",
+				Accent:        "#5899A8",
+				Background:    "#FAF0E6",
 				TextMain:      "#0F172A",
-				TextSecondary: "#475569",
+				TextSecondary: "#5A6A7A",
 			},
 			Typography: Typography{
 				TitleFont: "Microsoft YaHei",

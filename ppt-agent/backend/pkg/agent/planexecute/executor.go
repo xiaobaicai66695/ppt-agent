@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package executor
+package planexecute
 
 import (
 	"context"
@@ -36,8 +36,6 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
-// qaModelFn 创建用于 QA 视觉审查的多模态 LLM。
-// 需要支持图片输入的视觉模型。
 var qaModelFn = func(ctx context.Context) (model.ToolCallingChatModel, error) {
 	return agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(8192),
@@ -46,10 +44,8 @@ var qaModelFn = func(ctx context.Context) (model.ToolCallingChatModel, error) {
 	)
 }
 
-// executorRunCounter 记录 executor 被调用的次数（用于调试上下文增长）
 var executorRunCounter int32
 
-// executorSystemPrompt 是 Executor 的系统提示词（拆分为多段以避免反引号问题）
 var executorSystemPromptPart1 = `你是一个PPT执行代理，负责根据 Planner 的计划生成幻灯片。每生成一页后立即进行视觉 QA 检查。
 
 **【执行规则】：**
@@ -210,14 +206,12 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 		GenInputFn: func(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
 			workDir, _ := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
 
-			// 优先从 Session 读取原始完整计划（避免 framework plan 被 Replanner 覆盖后信息丢失）
 			plan, ok := agentutils.GetSessionValue[*generic.Plan](ctx, "OriginalPlan")
 			if !ok {
 				plan, ok = in.Plan.(*generic.Plan)
 				if !ok {
 					plan = &generic.Plan{}
 				}
-				// 存入 Session，供后续调用复用
 				adk.AddSessionValue(ctx, "OriginalPlan", plan)
 			}
 

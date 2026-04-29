@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package planner
+package planexecute
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/agents"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
-	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/generic"
 )
 
@@ -46,17 +46,56 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - 顺序：步骤应该按正确的执行顺序排列
 - 清晰：每个步骤应该明确无误
 
-**4. 幻灯片类型（基础类型，任选其一）：**
-- title_slide: 标题页
-- content_slide: 自由内容页（通用兜底）
-- two_column: 双栏对比/并列
-- three_column: 三栏多要点平行展开
-- image_text: 图文混排
-- quote_slide: 引用/金句页
-- chart_slide: 数据图表页
-- section_divider: 分隔页
-- summary_slide: 总结页
-- **可留空**：由 Executor 根据内容自行决定最合适的版式
+**4. 幻灯片类型体系（按叙事用途分类）：**
+
+### 结构引导类（帮助观众建立心理地图）
+- title_slide: 标题页。核心信息 + 视觉冲击，留白要大，标题字体要有重量感。
+- agenda / toc: 目录页。通常用编号 + 简短标题，可以配合图标或网格卡片排列。
+- section_divider: 章节分隔页。以大号章节序号 + 简短标题为主，常用大面积色块，仪式感强。
+- thank_you / closing: 结尾页。比 summary_slide 更轻量，常常只放感谢语、Logo、联系方式。
+
+### 内容陈述类（用于呈现文字为主的论述）
+- content_slide: 普通文字内容页。用清晰的小标题 + 3~5 条要点，配合适度留白。（通用兜底类型）
+- story_text: 叙事性文字页。段落式叙述，常用于背景介绍、项目故事。
+- quote_slide: 金句/引言页。大号引文居中，配出处说明，强调"仪式感"。
+
+### 对比与并列类（用于同时呈现多种观点、产品、方案）
+- two_column: 双栏对比。常见于 A vs B 分析，左右并置。
+- three_column: 三栏并列。适合三个维度、三个选项或三个案例的对称排列。
+- card_grid: 卡片阵列。适合展示 4~8 个同等重要的事项（如功能特性），卡片尺寸自适应。
+- comparison_table: 对比表格。结构化对比多行多维度的信息。
+
+### 流程与关系类（用于展示逻辑链条、时间演化或层级结构）
+- timeline: 时间轴。水平或垂直，按时间点标记事件。
+- process_flow: 步骤流程图。箭头/连线 + 步骤框，适合 3~6 步的操作流程。
+- pyramid / hierarchy: 金字塔/层级图。展现由下至上的结构。
+- cycle: 循环图。闭环箭头形式，用于持续改进、生态循环等概念。
+
+### 数据与图表类（用于将数字变成可感知的信息）
+- chart_slide: 数据图表页。柱状图/折线图/饼图等，要求图表干净，图注清晰。
+- stat_slide: 关键数字页。把一个或几个超高亮度数字放大居中，配合简短说明，冲击力强。
+- map_slide: 地图示意页。结合地图标注地理位置、分布、区域数据。
+
+### 视觉叙事类（用于强化情绪和代入感）
+- image_hero: 全图背景页。一张满屏高质量图片，上方叠加半透明色块和简短文字。
+- image_text: 图文混排页。灵活组合图片和文字。
+- gallery: 图片集页。多图组合，带统一滤镜或形状裁剪。
+
+### 人与组织类（用于呈现人物或团队信息）
+- team_intro: 团队/人物介绍页。头像 + 姓名 + 职位 + 简短介绍。
+- testimonial: 客户证言页。真人照片配合引述文字，营造信赖感。
+
+### 互动与辅助类（用于转场或现场互动）
+- q_and_a: 问答页。简单标题"Q&A"，风格与结尾页接近。
+- poll / quiz: 现场投票/小测验页。可用占位符表示。
+
+### 选择决策树：
+- 内容是"多个平等要点"→ card_grid（4个以上）或 three_column（3个）
+- 有时间顺序 → timeline
+- 是对比 → two_column / comparison_table
+- 是数据 → chart_slide / stat_slide
+- 是人物 → team_intro
+- **保留回退机制**：如果没有特殊内容特征，使用 content_slide 即可，避免生搬硬套。
 
 **5. 配色方案建议：**
 - tech: 科技技术主题，深空蓝 + 科技青
@@ -65,7 +104,7 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - minimal: 极简风格，黑白灰
 - business: 商业推广，商务蓝 + 活力橙
 
-**【核心】7. 分页（sub_steps）必须配合 content_plan 使用：**
+**【核心】6. 分页（sub_steps）必须配合 content_plan 使用：**
 
 当需要分页时，sub_steps 中的每个子页**必须**包含 content_plan，内容元素要充分展开。
 
@@ -89,7 +128,7 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - top-title: 上标题下内容
 - center: 居中布局
 
-**8. 输出格式（必须严格遵循）：**
+**7. 输出格式（必须严格遵循）：**
 你必须直接调用 create_ppt_plan 工具来输出计划，不要输出任何其他内容。
 
 **【重要】以下是不同场景下的完整 JSON 示例，严格按照格式输出：**
@@ -242,7 +281,7 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
   ]
 }
 
-**9. 限制：**
+**8. 限制：**
 - 必须通过工具输出有效的JSON格式
 - 不要在JSON中添加任何注释
 - 最后一页应该是总结页
@@ -257,11 +296,11 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 )
 
 func NewPlanner(ctx context.Context, operator *command.LocalOperator, skillsContent string) (adk.Agent, error) {
-	cm, err := utils.NewFallbackToolCallingChatModel(ctx,
-		utils.WithMaxTokens(4096),
-		utils.WithTemperature(0),
-		utils.WithTopP(0),
-		utils.WithDisableThinking(true),
+	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+		agentutils.WithMaxTokens(4096),
+		agentutils.WithTemperature(0),
+		agentutils.WithTopP(0),
+		agentutils.WithDisableThinking(true),
 	)
 	if err != nil {
 		return nil, err
@@ -284,8 +323,8 @@ func NewPlanner(ctx context.Context, operator *command.LocalOperator, skillsCont
 func newPlannerInputGen(plannerPrompt prompt.ChatTemplate, skillsContent string) planexecute.GenPlannerModelInputFn {
 	return func(ctx context.Context, userInput []adk.Message) ([]adk.Message, error) {
 		msgs, err := plannerPrompt.Format(ctx, map[string]any{
-			"user_query":   utils.FormatInput(userInput),
-			"current_time": utils.GetCurrentTime(),
+			"user_query":   agentutils.FormatInput(userInput),
+			"current_time": agentutils.GetCurrentTime(),
 			"skills":       skillsContent,
 		})
 		if err != nil {
