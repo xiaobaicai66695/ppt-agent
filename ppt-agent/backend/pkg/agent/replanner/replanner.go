@@ -18,8 +18,8 @@ package replanner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
@@ -138,53 +138,86 @@ func replannerInputGen(ctx context.Context, in *planexecute.ExecutionContext) ([
 	allSlides := plan.GetSlides()
 	totalCount := len(allSlides)
 
-	checkpointCount, _ := generic.GetCompletedCountFromCheckpoint(workDir)
-	var trueDoneIndexes map[int]bool
-	var completedCount int
-
-	if checkpointCount > 0 {
-		completedCount = checkpointCount
-		checkpoint, _ := generic.LoadCheckpoint(workDir)
-		trueDoneIndexes = make(map[int]bool)
-		if checkpoint != nil {
-			for _, idx := range checkpoint.CompletedSlides {
-				trueDoneIndexes[idx] = true
-			}
-		}
-	} else {
-		var executedIndexes []int
-		for _, es := range in.ExecutedSteps {
-			var step generic.Step
-			if err := json.Unmarshal([]byte(es.Step), &step); err == nil {
-				executedIndexes = append(executedIndexes, step.Index)
-			}
-		}
-		existingFiles := generic.GetExistingStepFiles(workDir)
-		trueDoneIndexes = make(map[int]bool)
-		for _, idx := range executedIndexes {
-			trueDoneIndexes[idx] = true
-		}
-		for idx := range existingFiles {
-			trueDoneIndexes[idx] = true
-		}
-		completedCount = len(trueDoneIndexes)
+	// 展开所有幻灯片为扁平列表，生成 slideKey
+	var flatSlides []struct {
+		Step     generic.Step
+		SlideKey string
 	}
+	for _, slide := range allSlides {
+		if len(slide.SubSteps) > 0 {
+			for _, sub := range slide.SubSteps {
+				flatSlides = append(flatSlides, struct {
+					Step     generic.Step
+					SlideKey string
+				}{
+					Step: generic.Step{
+						Index:         slide.Index,
+						Title:         sub.Title,
+						ContentType:   sub.ContentType,
+						Description:   sub.Description,
+						ContentPlan:   sub.ContentPlan,
+						LayoutHint:    sub.LayoutHint,
+					},
+					SlideKey: fmt.Sprintf("%d.%d", slide.Index, sub.Index),
+				})
+			}
+		} else {
+			flatSlides = append(flatSlides, struct {
+				Step     generic.Step
+				SlideKey string
+			}{
+				Step:     slide,
+				SlideKey: fmt.Sprintf("%d", slide.Index),
+			})
+		}
+	}
+
+	// 从 checkpoint 获取已完成 keys（string 类型）
+	completedSet := make(map[string]bool)
+	checkpoint, _ := generic.LoadCheckpoint(workDir)
+	if checkpoint != nil {
+		for _, key := range checkpoint.CompletedSlides {
+			completedSet[key] = true
+		}
+	}
+
+	// 从文件系统补充（解析文件名提取 slideKey）
+	for _, path := range generic.GetExistingStepFiles(workDir) {
+		stem := filepath.Base(path)
+		stem = strings.TrimSuffix(stem, ".pptx")
+		parts := strings.Split(stem, "_")
+		if len(parts) >= 1 {
+			prefix := parts[0]
+			if strings.Contains(prefix, ".") {
+				completedSet[prefix] = true
+			} else {
+				completedSet[prefix] = true
+			}
+		}
+	}
+
+	completedCount := len(completedSet)
 
 	// 将 QA 尝试次数已达 2 次的页面标记为完成（不再重试）
 	if qaAttempts, err := generic.LoadQAAttempts(workDir); err == nil && qaAttempts != nil {
-		for slideIdx, count := range qaAttempts.Attempts {
+		for slideKey, count := range qaAttempts.Attempts {
 			if count >= 2 {
-				trueDoneIndexes[slideIdx] = true
+				completedSet[slideKey] = true
 			}
 		}
 	}
 
+	// 构建剩余幻灯片列表
 	var remainingSlides []generic.Step
-	for _, slide := range allSlides {
-		if !trueDoneIndexes[slide.Index] {
-			remainingSlides = append(remainingSlides, slide)
+	for _, sw := range flatSlides {
+		if !completedSet[sw.SlideKey] {
+			sw.Step.SlideKey = sw.SlideKey
+			remainingSlides = append(remainingSlides, sw.Step)
 		}
 	}
+
+	// 更新扁平列表的 totalCount（包含子页的总数）
+	totalCount = len(flatSlides)
 
 	remainingPlan := &generic.Plan{
 		Title:  plan.Title,
@@ -222,38 +255,41 @@ func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.E
 
 	if qaResult, err := generic.LoadQAResult(workDir); err == nil && qaResult != nil {
 		if qaResult.HasHighIssue {
-			for _, issue := range qaResult.Issues {
-				if issue.Severity == "high" {
-					attemptCount := 0
-					if qaAttempts != nil {
-						attemptCount = qaAttempts.Attempts[issue.Slide]
-					}
-					attemptInfo := ""
-					if attemptCount > 0 {
-						attemptInfo = fmt.Sprintf("（已尝试 %d/2 次）", attemptCount)
-					}
-					if attemptCount >= 2 {
-						sb.WriteString(fmt.Sprintf("【严重问题】第%d页 has_high_issue=true%s，但已达到修复上限，不再生成修复指令。\n", issue.Slide, attemptInfo))
-						continue
-					}
-					sb.WriteString(fmt.Sprintf("【严重问题】has_high_issue=true，必须修复%s。\n", attemptInfo))
-					sb.WriteString(fmt.Sprintf("- 页面：第%d页\n", issue.Slide))
-					sb.WriteString("  问题：" + issue.Desc + "\n")
-					sb.WriteString("  修复：" + issue.Fix + "\n")
+			for _, report := range qaResult.Reports {
+				// report 格式: "slideKey|reportContent"
+				parts := strings.SplitN(report, "|", 2)
+				slideKey := parts[0]
+				reportContent := ""
+				if len(parts) > 1 {
+					reportContent = parts[1]
 				}
+				attemptCount := 0
+				if qaAttempts != nil {
+					attemptCount = qaAttempts.Attempts[slideKey]
+				}
+				attemptInfo := ""
+				if attemptCount > 0 {
+					attemptInfo = fmt.Sprintf("（已尝试 %d/2 次）", attemptCount)
+				}
+				if attemptCount >= 2 {
+					sb.WriteString(fmt.Sprintf("【严重问题】%s has_high_issue=true%s，但已达到修复上限，不再生成修复指令。\n", slideKey, attemptInfo))
+					continue
+				}
+				sb.WriteString(fmt.Sprintf("【严重问题】has_high_issue=true，必须修复%s。\n", attemptInfo))
+				sb.WriteString(fmt.Sprintf("- 页面：%s\n", slideKey))
+				sb.WriteString("  审查报告：\n" + indentText(reportContent, 4) + "\n")
 			}
 		} else if qaResult.HasIssues {
 			sb.WriteString("【QA 问题】has_issues=true，存在 medium/low 级别问题：\n")
-			for _, issue := range qaResult.Issues {
-				if issue.Severity != "high" {
-					sb.WriteString("- [")
-					sb.WriteString(issue.Severity)
-					sb.WriteString("] ")
-					sb.WriteString(issue.Desc)
-					sb.WriteString("\n  修复：")
-					sb.WriteString(issue.Fix)
-					sb.WriteString("\n")
+			for _, report := range qaResult.Reports {
+				parts := strings.SplitN(report, "|", 2)
+				slideKey := parts[0]
+				reportContent := ""
+				if len(parts) > 1 {
+					reportContent = parts[1]
 				}
+				sb.WriteString(fmt.Sprintf("- 页面：%s\n", slideKey))
+				sb.WriteString("  " + indentText(reportContent, 2) + "\n")
 			}
 		} else if qaResult.TotalSlides > 0 {
 			sb.WriteString("【QA 结果】所有已审查页面检查通过，无严重问题。\n")
@@ -275,7 +311,7 @@ func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.E
 
 	// 附加：明确告知已达到 2 次 QA 上限的页面，供 Replanner 感知
 	if qaAttempts != nil {
-		var maxedSlides []int
+		var maxedSlides []string
 		for slideIdx, count := range qaAttempts.Attempts {
 			if count >= 2 {
 				maxedSlides = append(maxedSlides, slideIdx)
@@ -286,5 +322,20 @@ func buildQAResultSummary(ctx context.Context, workDir string, in *planexecute.E
 		}
 	}
 
+	return sb.String()
+}
+
+// indentText 将文本的每一行前面加上指定数量的空格缩进。
+func indentText(text string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(text, "\n")
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(prefix)
+		sb.WriteString(line)
+	}
 	return sb.String()
 }

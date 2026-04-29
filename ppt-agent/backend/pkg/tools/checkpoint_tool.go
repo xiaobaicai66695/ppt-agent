@@ -35,8 +35,8 @@ var checkpointToolInfo = &schema.ToolInfo{
 此工具用于确保即使框架状态丢失，也能通过文件系统追踪真实的生成进度。`,
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"slide_index": {
-			Type:        "integer",
-			Desc:        "已完成幻灯片的页码",
+			Type:        schema.String,
+			Desc:        "已完成幻灯片的页码标识，如 4_标题页 或 4.1_金融行业",
 			Required:    true,
 		},
 	}),
@@ -55,7 +55,7 @@ func (c *checkpointTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 }
 
 type checkpointInput struct {
-	SlideIndex int `json:"slide_index"`
+	SlideIndex string `json:"slide_index"`
 }
 
 func (c *checkpointTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
@@ -64,8 +64,8 @@ func (c *checkpointTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 		return "", err
 	}
 
-	if input.SlideIndex <= 0 {
-		return "", fmt.Errorf("slide_index 必须大于 0")
+	if input.SlideIndex == "" {
+		return "", fmt.Errorf("slide_index 不能为空")
 	}
 
 	wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
@@ -78,5 +78,5 @@ func (c *checkpointTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 	}
 
 	completedCount, _ := generic.GetCompletedCountFromCheckpoint(wd)
-	return fmt.Sprintf("已记录第 %d 页完成。当前共完成 %d 页。", input.SlideIndex, completedCount), nil
+	return fmt.Sprintf("已记录第 %s 页完成。当前共完成 %d 页。", input.SlideIndex, completedCount), nil
 }

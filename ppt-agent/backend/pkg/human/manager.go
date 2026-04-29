@@ -88,20 +88,12 @@ func (m *Manager) RunWithApproval(ctx context.Context, runner *adk.Runner, check
 		// 处理所有中断（可能同时有多个）
 		targets := make(map[string]any)
 		interruptContexts := lastEvent.Action.Interrupted.InterruptContexts
-		firstSearchHandled := false
 
 		for _, ic := range interruptContexts {
 			if info, ok := ic.Info.(*tools.SearchApprovalInfo); ok {
 				if m.interactive {
-					if !firstSearchHandled {
-						// 第一个搜索：交互式询问用户
-						info.Result = m.promptSearchApprovalLoop(info)
-						firstSearchHandled = true
-					} else {
-						// 其余搜索：自动确认，让 LLM 自己决定
-						fmt.Printf("[提示] 其他搜索 '%s' 已自动确认执行\n", info.Query)
-						info.Result = &tools.SearchApprovalResult{Option: 2}
-					}
+					// 逐个询问用户，不自动跳过任何搜索
+					info.Result = m.promptSearchApprovalLoop(info)
 				} else {
 					fmt.Println("[人机交互] 非交互模式，默认跳过搜索")
 					info.Result = &tools.SearchApprovalResult{Option: 1}

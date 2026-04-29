@@ -27,8 +27,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -46,15 +44,15 @@ var singleQAToolInfo = &schema.ToolInfo{
 	Desc: `执行单页视觉质量审查。每生成一页幻灯片后，立即使用此工具进行该页的 QA 检查。
 
 该工具会：
-1. 将指定的单个 PPTX 文件转换为图片
+1. 查找指定 PPTX 文件对应的图片
 2. 使用视觉 AI 模型审查该页幻灯片
 3. 返回该页的 QA 报告，包含问题描述和具体修复建议（必须包含 python-pptx 代码片段）
 
-传入参数 slide_index（页码），工具会自动查找对应的 pptx 文件。`,
+传入参数 pptx_filename（PPTX 文件名），工具会自动查找对应的图片文件。`,
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"slide_index": {
-			Type:     schema.Integer,
-			Desc:     "要审查的幻灯片页码（序号）",
+		"pptx_filename": {
+			Type:     schema.String,
+			Desc:     "PPTX 文件名，如 4_标题页.pptx 或 4.1_金融与法律.pptx",
 			Required: true,
 		},
 	}),
@@ -66,8 +64,8 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 ## 你的职责
 
 你的审查结果将直接交给另一个 AI Agent 执行修复。因此：
-- 如果发现问题，必须给出**具体、可执行**的 python-pptx 代码片段
-- 如果没有发现问题，明确返回空 issues 数组
+- 如果发现问题，给出**具体、可执行**的修复指令
+- 如果没有发现问题，明确说明"该页检查通过"
 - 不要泛泛而谈，必须精确到形状对象、颜色值、坐标、字号等
 
 ## 必须检查的问题类型
@@ -90,31 +88,23 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 
 1. 假设有错，不要因为"看起来还行"就跳过
 2. 发现了问题一定要报告，不要遗漏
-3，一定给出具体建议，如1，颜色：rgb()，2，排版：某部分应该在某一块，如，左栏的内容超出了页面，以左上为坐标原点，向下向右为正方向，应该位于(10%,20%)处
+3. 给出具体建议，如颜色 rgb()、排版位置坐标（以左上为原点，向下向右为正方向）
 
 ## 输出格式
 
-请严格以纯 JSON 格式输出，**不要使用任何 markdown 代码块包裹**，直接输出 JSON 文本。
+请用**自然语言**输出审查结果，格式如下：
 
-**字符约束（严格遵守）：**
-- 所有字符必须是：中文字符、英文字母（a-zA-Z）、数字（0-9）、ASCII 可见符号（空格、标点、运算符号等）
-- **禁止使用任何非 ASCII 字符**，包括但不限于：德语/法语/俄语等西方字母变体（ä、é、ö、ß、â、ñ 等）、全角符号、中文引号（已在规范化步骤处理）
-- JSON 字符串中的中文内容必须使用标准 UTF-8 编码（Go 的 json 包原生支持）
-- RGB 颜色值使用纯 ASCII 格式，如 rgb(255, 0, 0) 或 #FF0000
+如果有问题：
+【问题1 - high】
+- 页面：<页码标识>
+- 描述：<问题描述>
+- 修复：<具体可执行的修复指令，包含 python-pptx 代码>
 
-{
-  "total_slides": <总页数>,
-  "issues": [
-    {
-      "slide": <页码>,
-      "severity": "high|medium|low",
-      "type": "overlap|overflow|contrast|spacing|alignment|placeholder|ai_style",
-      "description": "<问题描述，如：第3个文本框内的'未来'二字在青色背景上使用了青色字体>",
-      "recommendation": "给出具体的建议，如1，颜色：rgb()，2，排版：某部分应该在某一块，如，左栏的内容超出了页面，以左上为坐标原点，向下向右为正方向，应该位于(10%,20%)处"
-    }
-  ],
-  "summary": "<整体评估，1-2句话>"
-}`
+【问题2 - medium】
+...
+
+如果无问题：
+【审查结果】该页检查通过，无视觉问题。`
 
 // SingleTool 是单页 QA 视觉审查工具。
 type SingleTool struct {
@@ -199,19 +189,20 @@ func (t *SingleTool) runConverter(ctx context.Context, wd string) (map[string]an
 	return result, nil
 }
 
-// findTargetImage 查找对应页码的图片文件。
+// findTargetImage 查找对应 PPTX 文件名的图片。
 // 支持多种命名格式：
-//   - {全局页号}_{PPT内页号}.jpg：例如 1_01.jpg, 2_01.jpg（converter 实际生成的格式）
-//   - {stem}_page_{NN}.jpg：旧格式
-//   - slide_{N}.jpg / slide_{NN}.jpg
-func findTargetImage(imgDir string, slideIdx int) (string, bool) {
+//   - {N.M}.jpg：例如 4.1.jpg（子页，N.M 格式）
+//   - {N_MM}.jpg：例如 4_01.jpg（普通页，N_MM 格式）
+//   - {stem}.jpg：直接匹配文件名（不含扩展名）
+func findTargetImage(imgDir string, pptxFilename string) (string, bool) {
 	entries, err := os.ReadDir(imgDir)
 	if err != nil {
 		return "", false
 	}
 
-	// 收集所有图片文件并按页码匹配
-	var candidates []string
+	// 提取待查找的 stem（如 "4.1"、"4_01"）
+	stem := strings.TrimSuffix(pptxFilename, ".pptx")
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -222,54 +213,28 @@ func findTargetImage(imgDir string, slideIdx int) (string, bool) {
 			continue
 		}
 
-		// 提取页码：支持新格式 {N}_{M}.jpg 和旧格式 {stem}_page_{N}.jpg
-		if pageNum := extractPageNumFromName(name); pageNum == slideIdx {
-			candidates = append(candidates, name)
+		// 匹配：去掉扩展名后等于 stem
+		candidateStem := strings.TrimSuffix(name, filepath.Ext(name))
+		if candidateStem == stem {
+			return name, true
 		}
 	}
 
-	if len(candidates) > 0 {
-		// 按文件名排序，取第一个
-		return candidates[0], true
-	}
 	return "", false
 }
 
-// extractPageNumFromName 从图片文件名中提取页码。
-// 支持格式（按优先级）：
-//   - {全局页号}_{PPT内页号}.jpg：例如 1_01.jpg, 2_01.jpg（converter 实际生成格式）
-//   - {stem}_page_{N}.jpg：旧格式
-//   - slide_{N}.jpg / slide_{NN}.jpg
-func extractPageNumFromName(name string) int {
-	// 尝试 {全局页号}_{PPT内页号}.jpg 格式（converter 生成的格式）
-	re := regexp.MustCompile(`^(\d+)_(\d+)\.jpe?g$`)
-	matches := re.FindStringSubmatch(name)
-	if len(matches) >= 2 {
-		if n, err := strconv.Atoi(matches[1]); err == nil {
-			return n
-		}
-	}
-	// 尝试 _page_{N}.jpg 格式
-	re2 := regexp.MustCompile(`_page_(\d+)`)
-	matches2 := re2.FindStringSubmatch(name)
-	if len(matches2) >= 2 {
-		if n, err := strconv.Atoi(matches2[1]); err == nil {
-			return n
-		}
-	}
-	// 尝试 slide_{N}.jpg 格式
-	re3 := regexp.MustCompile(`slide_(\d+)`)
-	matches3 := re3.FindStringSubmatch(name)
-	if len(matches3) >= 2 {
-		if n, err := strconv.Atoi(matches3[1]); err == nil {
-			return n
-		}
-	}
-	return 0
+// extractPageNumFromName 从图片文件名中提取页码标识（用于 QA 结果中的 slide 字段）。
+// 支持格式：
+//   - {N.M}.jpg：子页，如 4.1
+//   - {N_MM}.jpg：普通页，如 4_01
+//   - {stem}.jpg：直接返回 stem
+func extractPageNumFromName(name string) string {
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	return stem
 }
 
 // mergeQAResult 将新结果合并到现有 QA 结果中。
-// 按 slide 去重：新结果中同一页的内容会覆盖旧结果。
+// 直接追加 Reports 列表。
 func mergeQAResult(existing *generic.QAResult, new *generic.QAResult) *generic.QAResult {
 	if existing == nil {
 		return new
@@ -278,44 +243,11 @@ func mergeQAResult(existing *generic.QAResult, new *generic.QAResult) *generic.Q
 		return existing
 	}
 
-	// 构建新结果页码集合
-	newIssuesMap := make(map[int]bool)
-	for _, issue := range new.Issues {
-		newIssuesMap[issue.Slide] = true
-	}
-
-	// 合并 issues：旧结果中页码不在新结果中的保留，新结果的全部追加
-	var mergedIssues []generic.QAIssue
-	for _, issue := range existing.Issues {
-		if !newIssuesMap[issue.Slide] {
-			mergedIssues = append(mergedIssues, issue)
-		}
-	}
-	mergedIssues = append(mergedIssues, new.Issues...)
-
 	merged := &generic.QAResult{
 		TotalSlides: new.TotalSlides,
-		Issues:      mergedIssues,
-		HasIssues:   len(mergedIssues) > 0,
-	}
-
-	for _, issue := range mergedIssues {
-		if issue.Severity == "high" {
-			merged.HasHighIssue = true
-			break
-		}
-	}
-
-	// summary 合并：只有当新 summary 是有效 QA 结果时才替换/追加；错误信息不覆盖已有 summary
-	newIsError := strings.Contains(new.Summary, "未找到") || strings.Contains(new.Summary, "转换出错")
-	if existing.Summary != "" && new.Summary != "" && !newIsError {
-		merged.Summary = existing.Summary + "\n" + new.Summary
-	} else if new.Summary != "" && !newIsError {
-		merged.Summary = new.Summary
-	} else if existing.Summary != "" {
-		merged.Summary = existing.Summary
-	} else {
-		merged.Summary = new.Summary
+		Reports:     append(existing.Reports, new.Reports...),
+		HasIssues:   existing.HasIssues || new.HasIssues,
+		HasHighIssue: existing.HasHighIssue || new.HasHighIssue,
 	}
 
 	return merged
@@ -327,17 +259,20 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		return "", fmt.Errorf("无法获取工作目录")
 	}
 
-	// 解析 slide_index 参数
+	// 解析 pptx_filename 参数
 	var args struct {
-		SlideIndex int `json:"slide_index"`
+		PPTXFilename string `json:"pptx_filename"`
 	}
 	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
 		return "", fmt.Errorf("解析参数失败: %v", err)
 	}
-	slideIdx := args.SlideIndex
+	pptxFilename := args.PPTXFilename
+	if pptxFilename == "" {
+		return "", fmt.Errorf("pptx_filename 参数不能为空")
+	}
 
 	// 检查 QA 尝试次数，每页最多 2 次
-	attemptCount, _ := generic.IncrementQAAttempt(wd, slideIdx)
+	attemptCount, _ := generic.IncrementQAAttempt(wd, pptxFilename)
 	if attemptCount > 2 {
 		existingResult, _ := generic.LoadQAResult(wd)
 		if existingResult != nil {
@@ -347,8 +282,8 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		// 没有历史结果，返回已超过次数限制
 		emptyResult := generic.QAResult{
 			TotalSlides: 0,
-			Issues:      []generic.QAIssue{},
-			Summary:     fmt.Sprintf("第 %d 页 QA 已达到最大尝试次数（2次），跳过后续审查", slideIdx),
+			Reports:     []string{},
+			Summary:     fmt.Sprintf("%s QA 已达到最大尝试次数（2次），跳过后续审查", pptxFilename),
 		}
 		b, _ := json.Marshal(emptyResult)
 		return string(b), nil
@@ -357,13 +292,13 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 	// Step 1: 将工作目录下所有 PPTX 转换为图片
 	convResult, err := t.runConverter(ctx, wd)
 	if err != nil {
-		emptyResult := generic.QAResult{TotalSlides: 0, Issues: []generic.QAIssue{}, Summary: "转换出错: " + err.Error()}
+		emptyResult := generic.QAResult{TotalSlides: 0, Reports: []string{}, Summary: "转换出错: " + err.Error()}
 		b, _ := json.Marshal(emptyResult)
 		return string(b), nil
 	}
 
 	if errMsg, ok := convResult["error"].(string); ok && errMsg != "" {
-		emptyResult := generic.QAResult{TotalSlides: 0, Issues: []generic.QAIssue{}, Summary: "转换出错: " + errMsg}
+		emptyResult := generic.QAResult{TotalSlides: 0, Reports: []string{}, Summary: "转换出错: " + errMsg}
 		b, _ := json.Marshal(emptyResult)
 		return string(b), nil
 	}
@@ -371,9 +306,9 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 	textContent, _ := convResult["text_content"].(string)
 	totalSlides := int(converterResultToFloat(convResult["total_slides"]))
 
-	// Step 2: 找到对应页码的图片（支持 jpg 和 png）
+	// Step 2: 找到对应 PPTX 文件名的图片
 	imgDir := filepath.Join(wd, "qa_images")
-	targetImgName, found := findTargetImage(imgDir, slideIdx)
+	targetImgName, found := findTargetImage(imgDir, pptxFilename)
 
 	if !found {
 		// 尝试列出目录中的图片文件以便调试
@@ -387,8 +322,8 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		}
 		emptyResult := generic.QAResult{
 			TotalSlides: totalSlides,
-			Issues:      []generic.QAIssue{},
-			Summary:     fmt.Sprintf("未找到第 %d 页对应的图片文件（目录: %s，文件: %v）", slideIdx, imgDir, existingFiles),
+			Reports:     []string{},
+			Summary:     fmt.Sprintf("未找到 %s 对应的图片文件（目录: %s，文件: %v）", pptxFilename, imgDir, existingFiles),
 		}
 		b, _ := json.Marshal(emptyResult)
 		return string(b), nil
@@ -408,7 +343,7 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		} else {
 			emptyResult := generic.QAResult{
 				TotalSlides: totalSlides,
-				Issues:      []generic.QAIssue{},
+				Reports:     []string{},
 				Summary:     "QA 执行失败: " + err.Error(),
 			}
 			b, _ := json.Marshal(emptyResult)
@@ -416,15 +351,6 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		}
 	}
 	result.TotalSlides = totalSlides
-
-	result.HasIssues = len(result.Issues) > 0
-	result.HasHighIssue = false
-	for _, issue := range result.Issues {
-		if issue.Severity == "high" {
-			result.HasHighIssue = true
-			break
-		}
-	}
 
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
@@ -474,8 +400,8 @@ func loadImageAsBase64(imgPath string) (string, string, error) {
 	return mimeType, fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(fc)), nil
 }
 
-// parseSlideIndex 从图片文件名中解析页码。
-func parseSlideIndex(imgName string) int {
+// parseSlideIndex 从图片文件名中解析页码标识（用于 QA 结果中的 slide 字段）。
+func parseSlideIndex(imgName string) string {
 	return extractPageNumFromName(imgName)
 }
 
@@ -484,7 +410,7 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 	imgDir := filepath.Join(wd, "qa_images")
 	imgPath := filepath.Join(imgDir, imgName)
 
-	slideIdx := parseSlideIndex(imgName)
+	slideKey := parseSlideIndex(imgName) // 现在返回 PPTX 文件名 stem
 
 	mimeType, dataURI, err := loadImageAsBase64(imgPath)
 	if err != nil {
@@ -508,7 +434,7 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 	})
 	parts = append(parts, schema.MessageInputPart{
 		Type: schema.ChatMessagePartTypeText,
-		Text: fmt.Sprintf("\n请仔细审查第 %d 页幻灯片图片，并以 JSON 格式输出审查结果，不要输出其他内容。", slideIdx),
+		Text: fmt.Sprintf("\n请仔细审查幻灯片图片 %s，以自然语言输出审查结果。", slideKey),
 	})
 
 	msg := &schema.Message{
@@ -521,153 +447,25 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 		return nil, err
 	}
 
-	result := parseQAResponse(resp)
-
-	// 解析失败，自动重试一次
-	if result != nil && result.Summary != "" && isParseFailed(result.Summary) {
-		retryMsg := &schema.Message{
-			Role: schema.User,
-			UserInputMultiContent: []schema.MessageInputPart{
-				{
-					Type: schema.ChatMessagePartTypeText,
-					Text: "上一次输出格式有误，请重新输出纯 JSON，不要使用 markdown 代码块包裹，确保所有字符为中文字符、英文字母、数字或 ASCII 可见符号，不要出现德语/法语/俄语等西方字母变体（如 ä, é, ö, ß）。",
-				},
-			},
-		}
-		respRetry, retryErr := model.Generate(ctx, []*schema.Message{msg, resp, retryMsg})
-		if retryErr == nil {
-			result = parseQAResponse(respRetry)
-		}
-	}
-
-	if result == nil {
+	report := strings.TrimSpace(resp.Content)
+	if report == "" {
 		return &generic.QAResult{
-			Issues:  []generic.QAIssue{},
-			Summary: "QA 完成，但 LLM 返回内容无法解析",
+			Reports: []string{slideKey + "|（LLM 返回为空）"},
+			Summary: "LLM 返回为空",
 		}, nil
 	}
+
+	// 判断是否有问题：通过关键词检测
+	hasHigh := strings.Contains(report, "high") || strings.Contains(report, "【问题")
+	hasMedium := strings.Contains(report, "medium")
+	hasIssues := hasHigh || hasMedium || !strings.Contains(report, "检查通过") && !strings.Contains(report, "无视觉问题")
+
+	result := &generic.QAResult{
+		Reports:      []string{slideKey + "|" + report},
+		HasIssues:    hasIssues,
+		HasHighIssue: hasHigh,
+	}
+
 	return result, nil
 }
 
-// isParseFailed 判断 summary 是否表示解析失败。
-func isParseFailed(summary string) bool {
-	return strings.Contains(summary, "无法定位") ||
-		strings.Contains(summary, "解析结果失败") ||
-		strings.Contains(summary, "invalid character")
-}
-
-// parseQAResponse 解析 LLM 返回的 QA 结果。
-// 注意：解析失败时不返回 error，而是返回带 summary 的 QAResult。
-// 调用方通过检查 summary 内容判断是否解析成功。
-func parseQAResponse(resp *schema.Message) *generic.QAResult {
-	content := resp.Content
-	content = strings.TrimSpace(content)
-
-	// 规范化：替换中文引号为 ASCII 双引号
-	content = strings.ReplaceAll(content, "\u201c", "\"")
-	content = strings.ReplaceAll(content, "\u201d", "\"")
-	content = strings.ReplaceAll(content, "\u2018", "'")
-	content = strings.ReplaceAll(content, "\u2019", "'")
-
-	// 提取 JSON 块（第一个 { 到最后一个 }）
-	start := strings.Index(content, "{")
-	end := strings.LastIndex(content, "}")
-	if start == -1 || end == -1 || end <= start {
-		return &generic.QAResult{
-			Issues:  []generic.QAIssue{},
-			Summary: "QA 完成，但无法定位 JSON 输出: " + truncateForSummary(content),
-		}
-	}
-	jsonStr := content[start : end+1]
-
-	cleaned := cleanJSONString(jsonStr)
-
-	var result generic.QAResult
-	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
-		// JSON 不完整，尝试修复：补全截断的字段值
-		fixed := fixIncompleteJSON(jsonStr)
-		if fixed != jsonStr {
-			if err2 := json.Unmarshal([]byte(fixed), &result); err2 == nil {
-				return &result
-			}
-		}
-		return &generic.QAResult{
-			Issues:  []generic.QAIssue{},
-			Summary: "QA 完成，但解析结果失败: " + err.Error() + "\n原始输出: " + truncateForSummary(content),
-		}
-	}
-
-	return &result
-}
-
-// truncateForSummary 将过长的内容截断，避免 summary 过长。
-func truncateForSummary(s string) string {
-	const maxLen = 500
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
-// fixIncompleteJSON 尝试修复被截断的 JSON 字符串。
-// 常见截断情况：字符串值或数组元素被截断，截断点通常在最后一个完整字段之后。
-func fixIncompleteJSON(jsonStr string) string {
-	// 策略：从后向前扫描，找到最后一个安全的截断点
-	// 安全截断点：处于对象或数组闭合处的 }, 或 ]
-	// 通过检查平衡性和字符串状态来判断
-
-	for i := len(jsonStr) - 1; i >= 0; i-- {
-		prefix := jsonStr[:i+1]
-		if isValidJSONPrefix(prefix) {
-			return prefix
-		}
-	}
-	return jsonStr
-}
-
-// isValidJSONPrefix 检查给定字符串是否是有效 JSON 的前缀。
-// 通过从前往后解析，验证所有已解析部分的结构完整性。
-func isValidJSONPrefix(s string) bool {
-	if s == "" || s == "{}" || s == "[]" {
-		return false
-	}
-	inStr := false
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if ch == '"' && (i == 0 || s[i-1] != '\\') {
-			inStr = !inStr
-			continue
-		}
-		if inStr {
-			continue
-		}
-		switch ch {
-		case '{', '[':
-			// 对象/数组开始，OK
-		case '}', ']':
-			// 不允许在有效前缀末尾出现孤立闭合括号
-			return false
-		}
-	}
-	// 有效前缀不能以未闭合字符串结束
-	return !inStr
-}
-
-// cleanJSONString 清理 JSON 字符串，移除非法字符。
-// 移除 JSON 结构外的控制字符，但保留制表符、换行、回车（它们可能在字符串值中）。
-// 也移除 JSON 结构外侧的中文引号等非 ASCII 标点（已在规范化步骤处理）。
-func cleanJSONString(json string) string {
-	var out strings.Builder
-	for i := 0; i < len(json); i++ {
-		ch := json[i]
-		// JSON 结构外的非法控制字符：低于 0x20（除 tab/nl/cr）和 0x7F
-		if ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r' {
-			continue
-		}
-		if ch == 0x7F {
-			continue
-		}
-		out.WriteByte(ch)
-	}
-	return out.String()
-}

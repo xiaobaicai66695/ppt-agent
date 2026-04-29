@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
@@ -77,14 +78,14 @@ func FormatExecutedStepsStr(executedSteps string) string {
 
 // ExecutorContext 用于构建 Executor 的精简上下文
 type ExecutorContext struct {
-	CompletedSlides   []int             // 已完成的页码列表
-	TotalCount       int               // 总页数
-	NextSlide        *generic.Step     // 下一个待执行的幻灯片（单页兼容）
-	NextBatch        []generic.Step    // 批量模式：多页打包
-	IsBatchMode      bool              // 是否批量模式（Planner 建议多页）
-	LastStepSuccess  bool              // 上一轮是否成功
-	LastStepError    string            // 上一轮的错误信息（如果有）
-	RemainingTitles  []string          // 剩余幻灯片的标题列表（简洁）
+	CompletedSlides  []string      // 已完成的页码标识列表（如 "4"、"4.1"）
+	TotalCount      int           // 总页数
+	NextSlide       *generic.Step // 下一个待执行的幻灯片（单页或分页组）
+	NextSlideKey    string        // 当前任务的 slideKey（用于 update_progress 和 QA）
+	IsBatchMode     bool          // 是否批量模式（Planner 指定了 SubSteps）
+	LastStepSuccess bool          // 上一轮是否成功
+	LastStepError   string        // 上一轮的错误信息（如果有）
+	RemainingTitles []string      // 剩余幻灯片的标题列表（简洁）
 }
 
 // BuildExecutorContext 构建精简的 Executor 上下文
@@ -94,76 +95,102 @@ func BuildExecutorContext(ctx context.Context, plan *generic.Plan, workDir strin
 		LastStepSuccess: true,
 	}
 
-	// 获取总幻灯片数
+	// 1. 展开所有幻灯片为扁平列表，同时生成唯一的 slideKey（用于完成状态追踪）
+	// slideKey 格式：普通页 "N"，分页子页 "N.M"
 	allSlides := plan.GetSlides()
-	ec.TotalCount = len(allSlides)
+	var flatSlides []SlideWithKey // SlideWithKey 包含 Step 和它对应的 slideKey
+	for _, slide := range allSlides {
+		if len(slide.SubSteps) > 0 {
+			for _, sub := range slide.SubSteps {
+				flatSlides = append(flatSlides, SlideWithKey{
+					Step: generic.Step{
+						Index:         slide.Index,
+						Title:         sub.Title,
+						ContentType:   sub.ContentType,
+						Description:   sub.Description,
+						ContentPlan:   sub.ContentPlan,
+						LayoutHint:    sub.LayoutHint,
+					},
+					SlideKey: fmt.Sprintf("%d.%d", slide.Index, sub.Index),
+				})
+			}
+		} else {
+			flatSlides = append(flatSlides, SlideWithKey{
+				Step:     slide,
+				SlideKey: fmt.Sprintf("%d", slide.Index),
+			})
+		}
+	}
+	ec.TotalCount = len(flatSlides)
 
-	// 获取已完成幻灯片（优先级：checkpoint > filesystem > framework）
-	completedSet := make(map[int]bool)
+	// 2. 获取已完成幻灯片的 slideKey（优先级：checkpoint > filesystem）
+	completedSet := make(map[string]bool)
 
-	// 1. 从 checkpoint 读取（最可靠）
+	// checkpoint 中存储的是 slideKey 列表
 	if checkpoint, err := generic.LoadCheckpoint(workDir); err == nil && checkpoint != nil {
-		for _, idx := range checkpoint.CompletedSlides {
-			completedSet[idx] = true
+		for _, key := range checkpoint.CompletedSlides {
+			completedSet[key] = true
 		}
 	}
 
-	// 2. 从 filesystem 补充
-	for idx := range generic.GetExistingStepFiles(workDir) {
-		completedSet[idx] = true
+	// filesystem 中的文件名：普通页 4_标题页.pptx，子页 4.1_金融.pptx
+	for _, path := range generic.GetExistingStepFiles(workDir) {
+		// 从文件名提取 slideKey: "4_标题页" -> "4"，"4.1_金融" -> "4.1"
+		stem := filepath.Base(path)
+		stem = strings.TrimSuffix(stem, ".pptx")
+		// 检查是否为子页（包含 ".N" 模式）
+		parts := strings.Split(stem, "_")
+		if len(parts) >= 1 {
+			prefix := parts[0]
+			// 如果前缀包含 "."，说明是子页，保留完整前缀
+			if strings.Contains(prefix, ".") {
+				completedSet[prefix] = true
+			} else {
+				// 普通页，取前缀作为 key
+				completedSet[prefix] = true
+			}
+		}
 	}
 
-	// 3. 从 framework executedSteps 补充（兜底）
+	// framework executedSteps 兜底（从 Step JSON 中解析 slideKey）
 	for _, es := range executedSteps {
 		var step generic.Step
 		if err := json.Unmarshal([]byte(es.Step), &step); err == nil {
-			completedSet[step.Index] = true
+			// 只能通过 Index 判断，如果 Index 已存在则视为完成
+			key := fmt.Sprintf("%d", step.Index)
+			completedSet[key] = true
 		}
 	}
 
-	// 转换为有序列表
-	for idx := range completedSet {
-		ec.CompletedSlides = append(ec.CompletedSlides, idx)
+	// 3. 转换为有序列表
+	for key := range completedSet {
+		ec.CompletedSlides = append(ec.CompletedSlides, key)
 	}
 
-	// 构建剩余幻灯片列表和标题摘要
-	var remainingSlides []generic.Step
-	for _, slide := range allSlides {
-		if !completedSet[slide.Index] {
-			remainingSlides = append(remainingSlides, slide)
-			ec.RemainingTitles = append(ec.RemainingTitles, fmt.Sprintf("%d. %s", slide.Index, slide.Title))
+	// 4. 构建剩余幻灯片列表（基于 slideKey）
+	var remainingSlides []SlideWithKey
+	for _, sw := range flatSlides {
+		if !completedSet[sw.SlideKey] {
+			remainingSlides = append(remainingSlides, sw)
+			ec.RemainingTitles = append(ec.RemainingTitles,
+				fmt.Sprintf("第%s页: %s", sw.SlideKey, sw.Title))
 		}
 	}
 
-	// 设置下一个待执行的幻灯片
+	// 5. 设置下一个待执行的幻灯片
 	if len(remainingSlides) > 0 {
-		first := &remainingSlides[0]
-
-		// 检测 Planner 是否建议该页分多页
-		if first.MultiPageHint && len(remainingSlides) > 1 {
-			// Planner 建议多页：将后续若干页一起打包传给 Executor
-			batchCount := first.MultiPageCount
-			if batchCount <= 0 {
-				batchCount = 2 // 默认批量 2 页
-			}
-			if batchCount > len(remainingSlides) {
-				batchCount = len(remainingSlides)
-			}
+		first := &remainingSlides[0].Step
+		first.SlideKey = remainingSlides[0].SlideKey
+		ec.NextSlideKey = remainingSlides[0].SlideKey
+		if len(first.SubSteps) > 0 {
 			ec.IsBatchMode = true
-			ec.NextBatch = remainingSlides[:batchCount]
-			// NextSlide 保留第一个，用于单页渲染兼容
-			ec.NextSlide = &remainingSlides[0]
-		} else {
-			// 标准单页模式
-			ec.IsBatchMode = false
-			ec.NextSlide = first
 		}
+		ec.NextSlide = first
 	}
 
-	// 分析上一轮执行结果（通过 Result 是否为空来判断成功/失败）
+	// 6. 分析上一轮执行结果
 	if len(executedSteps) > 0 {
 		lastStep := executedSteps[len(executedSteps)-1]
-		// Result 为空表示失败，有内容表示成功
 		ec.LastStepSuccess = lastStep.Result != ""
 		if !ec.LastStepSuccess {
 			ec.LastStepError = "执行结果为空"
@@ -171,6 +198,12 @@ func BuildExecutorContext(ctx context.Context, plan *generic.Plan, workDir strin
 	}
 
 	return ec
+}
+
+// SlideWithKey 包含展开后的幻灯片及其 slideKey
+type SlideWithKey struct {
+	generic.Step
+	SlideKey string
 }
 
 // FormatExecutorContext 将 ExecutorContext 格式化为字符串
@@ -182,14 +215,6 @@ func FormatExecutorContext(ec *ExecutorContext) string {
 	if len(ec.CompletedSlides) == 0 {
 		sb.WriteString("已完成幻灯片：无（共0页）\n")
 	} else {
-		// 排序
-		for i := 0; i < len(ec.CompletedSlides)-1; i++ {
-			for j := i + 1; j < len(ec.CompletedSlides); j++ {
-				if ec.CompletedSlides[i] > ec.CompletedSlides[j] {
-					ec.CompletedSlides[i], ec.CompletedSlides[j] = ec.CompletedSlides[j], ec.CompletedSlides[i]
-				}
-			}
-		}
 		completedStr := fmt.Sprintf("%v", ec.CompletedSlides)
 		sb.WriteString(fmt.Sprintf("已完成幻灯片：%s（共%d页）\n", completedStr, len(ec.CompletedSlides)))
 	}
@@ -205,30 +230,28 @@ func FormatExecutorContext(ec *ExecutorContext) string {
 
 	// 3. 当前任务
 	sb.WriteString("\n当前任务：")
-	if ec.IsBatchMode && len(ec.NextBatch) > 0 {
-		sb.WriteString(fmt.Sprintf("批量模式（Planner 建议分多页）：生成以下 %d 页\n", len(ec.NextBatch)))
-		for _, slide := range ec.NextBatch {
-			hint := ""
-			if slide.MultiPageHint {
-				hint = " [建议分多页]"
-			}
-			sb.WriteString(fmt.Sprintf("  - 第%d页: %s (%s)%s\n", slide.Index, slide.Title, slide.ContentType, hint))
+	if ec.NextSlide != nil {
+		var contentTypeHint string
+		if ec.NextSlide.ContentType != "" {
+			contentTypeHint = ec.NextSlide.ContentType
+		} else {
+			contentTypeHint = "待 Executor 决定"
 		}
-		if len(ec.NextBatch[0].MultiPageReasons) > 0 {
-			sb.WriteString("  Planner 分页参考理由:\n")
-			for _, r := range ec.NextBatch[0].MultiPageReasons {
-				sb.WriteString(fmt.Sprintf("    * %s\n", r))
-			}
+		if ec.IsBatchMode {
+			sb.WriteString(fmt.Sprintf("批量模式（Planner 指定分页组，共 %d 页）：\n", ec.TotalCount))
+			sb.WriteString(fmt.Sprintf("  - 第%s页: %s (%s)\n",
+				ec.NextSlideKey, ec.NextSlide.Title, contentTypeHint))
+		} else {
+			sb.WriteString(fmt.Sprintf("生成第%s页 - %s (%s)\n",
+				ec.NextSlideKey, ec.NextSlide.Title, contentTypeHint))
 		}
-	} else if ec.NextSlide != nil {
-		sb.WriteString(fmt.Sprintf("生成第%d页 - %s\n", ec.NextSlide.Index, ec.NextSlide.Title))
 	} else {
-		sb.WriteString("所有幻灯片都已生成完毕\n")
+		sb.WriteString(fmt.Sprintf("所有幻灯片都已生成完毕（共 %d 页）\n", ec.TotalCount))
 	}
 
-	// 4. 剩余幻灯片标题摘要（只需要标题，不需要完整描述）
+	// 4. 剩余幻灯片标题摘要
 	if len(ec.RemainingTitles) > 0 {
-		sb.WriteString("\n待生成（共" + fmt.Sprintf("%d", len(ec.RemainingTitles)) + "页）：\n")
+		sb.WriteString(fmt.Sprintf("\n待生成（共%d页）：\n", len(ec.RemainingTitles)))
 		for _, title := range ec.RemainingTitles {
 			sb.WriteString("- " + title + "\n")
 		}

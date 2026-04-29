@@ -16,6 +16,21 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+type ContentElement struct {
+	Type        string `json:"type"`                  // bullet_list, numbered_list, example_box, key_point_card, image_placeholder, table, chart_placeholder, callout, quote
+	Items       []string `json:"items,omitempty"`     // 用于 bullet_list / numbered_list
+	Text        string   `json:"text,omitempty"`      // 用于 callout / quote
+	Title       string   `json:"title,omitempty"`     // 用于 example_box / key_point_card
+	Description string   `json:"description,omitempty"` // 用于 example_box
+	LayoutHint  string   `json:"layout_hint,omitempty"` // 布局提示：left-image, right-image, top-title, center
+}
+
+// ContentPlan 描述页面内部的内容结构，是 description 的结构化升级
+type ContentPlan struct {
+	Summary  string           `json:"summary,omitempty"`  // 页面核心内容的一句话概括
+	Elements []ContentElement `json:"elements,omitempty"` // 内容元素列表
+}
+
 type Step struct {
 	Index       int      `json:"index"`
 	Title       string   `json:"title"`
@@ -23,10 +38,29 @@ type Step struct {
 	Description string   `json:"description"`
 	Desc        string   `json:"desc"`
 
-	// MultiPageHint 标记该页是否建议分多页生成（由 Planner 设置，Executor 可自行决策）
-	MultiPageHint    bool     `json:"multi_page_hint,omitempty"`
-	MultiPageCount   int      `json:"multi_page_count,omitempty"`
-	MultiPageReasons []string `json:"multi_page_reasons,omitempty"`
+	// SubSteps 分页组：若设置此字段，表示该幻灯片需要分多页生成。
+	// SubSteps 中的每个子项对应一页幻灯片，页码依次递增。
+	// 最多嵌套一层（SubSteps 中不能再有 SubSteps）。
+	SubSteps []SubStep `json:"sub_steps,omitempty"`
+
+	// ContentPlan 内容结构化描述（可选，Planner 可选择性填充）
+	ContentPlan *ContentPlan `json:"content_plan,omitempty"`
+
+	// LayoutHint 布局提示，补充 content_type 的不足
+	LayoutHint string `json:"layout_hint,omitempty"`
+
+	// SlideKey 内部字段，用于格式化输出文件名和 QA 查找（如 "4"、"4.1"）
+	SlideKey string `json:"-"`
+}
+
+// SubStep 分页组的子页面，与 Step 结构相同但不再支持嵌套分页
+type SubStep struct {
+	Index       int           `json:"index"`
+	Title       string        `json:"title"`
+	ContentType string        `json:"content_type"`
+	Description string        `json:"description"`
+	ContentPlan *ContentPlan  `json:"content_plan,omitempty"`
+	LayoutHint  string        `json:"layout_hint,omitempty"`
 }
 
 type Plan struct {
@@ -141,6 +175,153 @@ func stripPlanFence(s string) string {
 	return s
 }
 
+// contentPlanElementSubParams 是 content_plan.elements 中单个元素的子参数字段定义
+var contentPlanElementSubParams = map[string]*schema.ParameterInfo{
+	"type": {
+		Type:    schema.String,
+		Desc:    "元素类型：bullet_list(要点列表), numbered_list(编号列表), example_box(案例框), key_point_card(核心论断卡片), image_placeholder(配图占位), table(表格), chart_placeholder(图表占位), callout(突出引用), quote(金句引用)",
+		Required: false,
+	},
+	"items": {
+		Type:    schema.Array,
+		ElemInfo: &schema.ParameterInfo{Type: schema.String},
+		Desc:    "列表项（用于 bullet_list / numbered_list）",
+		Required: false,
+	},
+	"text": {
+		Type:    schema.String,
+		Desc:    "文本内容（用于 callout / quote）",
+		Required: false,
+	},
+	"title": {
+		Type:    schema.String,
+		Desc:    "标题（用于 example_box / key_point_card）",
+		Required: false,
+	},
+	"description": {
+		Type:    schema.String,
+		Desc:    "详细描述（用于 example_box / key_point_card）",
+		Required: false,
+	},
+	"layout_hint": {
+		Type:    schema.String,
+		Desc:    "布局提示：left-image, right-image, top-title, center",
+		Required: false,
+	},
+}
+
+// subStepSubParams 是 sub_steps 中单个子页面的参数字段定义
+var subStepSubParams = map[string]*schema.ParameterInfo{
+	"index": {
+		Type:    schema.Integer,
+		Desc:    "子页面序号，从1开始",
+		Required: true,
+	},
+	"title": {
+		Type:    schema.String,
+		Desc:    "子页面标题",
+		Required: true,
+	},
+	"content_type": {
+		Type:    schema.String,
+		Desc:    "内容类型：content_slide, two_column, image_text 等",
+		Required: false,
+	},
+	"description": {
+		Type:    schema.String,
+		Desc:    "子页面内容描述",
+		Required: true,
+	},
+	"content_plan": {
+		Type:    schema.Object,
+		Desc:    "子页面的内容结构化描述（可选）",
+		Required: false,
+		SubParams: map[string]*schema.ParameterInfo{
+			"summary": {
+				Type:    schema.String,
+				Desc:    "页面核心内容的一句话概括",
+				Required: false,
+			},
+			"elements": {
+				Type:    schema.Array,
+				Desc:    "内容元素列表",
+				Required: false,
+				ElemInfo: &schema.ParameterInfo{
+					Type:        schema.Object,
+					SubParams:   contentPlanElementSubParams,
+					Desc: "单个内容元素",
+				},
+			},
+		},
+	},
+	"layout_hint": {
+		Type:    schema.String,
+		Desc:    "布局补充提示",
+		Required: false,
+	},
+}
+
+// slideSubParams 是 slides 数组中每个幻灯片的参数字段定义
+var slideSubParams = map[string]*schema.ParameterInfo{
+	"index": {
+		Type:     schema.Integer,
+		Desc:     "幻灯片序号，从1开始",
+		Required: true,
+	},
+	"title": {
+		Type:     schema.String,
+		Desc:     "幻灯片标题",
+		Required: true,
+	},
+	"content_type": {
+		Type:    schema.String,
+		Desc:    "内容类型：title_slide(标题页), content_slide(自由内容页), two_column(双栏对比), three_column(三栏多要点), image_text(图文混排), quote_slide(引用金句页), chart_slide(数据图表页), section_divider(分隔页), summary_slide(总结页)，也可留空或填 custom_layout 由 Executor 自行决定",
+		Required: false,
+	},
+	"description": {
+		Type:     schema.String,
+		Desc:     "幻灯片内容描述",
+		Required: true,
+	},
+	"sub_steps": {
+		Type:    schema.Array,
+		Desc:    "分页组：若设置此字段，表示该幻灯片需要分多页生成。每个子项对应一页，页码依次递增。最多嵌套一层（不能再有 sub_steps）。",
+		Required: false,
+		ElemInfo: &schema.ParameterInfo{
+			Type:        schema.Object,
+			SubParams:   subStepSubParams,
+			Desc: "分页组的子页面",
+		},
+	},
+	"content_plan": {
+		Type:    schema.Object,
+		Desc:    "内容结构化描述（可选），用于描述单页内的元素结构",
+		Required: false,
+		SubParams: map[string]*schema.ParameterInfo{
+			"summary": {
+				Type:    schema.String,
+				Desc:    "页面核心内容的一句话概括",
+				Required: false,
+			},
+			"elements": {
+				Type:    schema.Array,
+				Desc:    "内容元素列表",
+				Required: false,
+				ElemInfo: &schema.ParameterInfo{
+					Type:        schema.Object,
+					SubParams:   contentPlanElementSubParams,
+					Desc: "单个内容元素",
+				},
+			},
+		},
+	},
+	"layout_hint": {
+		Type:    schema.String,
+		Desc:    "布局补充提示：left-image, right-image, top-title, center 等",
+		Required: false,
+	},
+}
+
 var PlanToolInfo = &schema.ToolInfo{
 	Name: "create_ppt_plan",
 	Desc: "创建PPT制作计划，将任务分解为多个幻灯片步骤。",
@@ -157,32 +338,8 @@ var PlanToolInfo = &schema.ToolInfo{
 				Required: false,
 			},
 			"slides": {
-				Type: schema.Array,
-				ElemInfo: &schema.ParameterInfo{
-					Type: schema.Object,
-					SubParams: map[string]*schema.ParameterInfo{
-						"index": {
-							Type:     schema.Integer,
-							Desc:     "幻灯片序号，从1开始",
-							Required: true,
-						},
-						"title": {
-							Type:     schema.String,
-							Desc:     "幻灯片标题",
-							Required: true,
-						},
-						"content_type": {
-							Type:     schema.String,
-							Desc:     "内容类型",
-							Required: false,
-						},
-						"description": {
-							Type:     schema.String,
-							Desc:     "幻灯片内容描述",
-							Required: true,
-						},
-					},
-				},
+				Type:     schema.Array,
+				ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: slideSubParams, Desc: "幻灯片列表"},
 				Desc:     "幻灯片列表",
 				Required: true,
 			},
@@ -375,20 +532,82 @@ func GetExistingStepFiles(workDir string) map[int]string {
 // FormatStepForRequest 将 Step 格式化为 CodeAgent 请求字符串
 // 包含文件名约束指令
 func FormatStepForRequest(step *Step, workDir string) string {
-	fileName := GetStepFileName(step)
-	filePath := filepath.Join(workDir, fileName)
-	// 构建请求
-	request := fmt.Sprintf(`创建第%d个幻灯片
+	// 若存在 SubSteps（分页组），则递归展开每个子页面
+	if len(step.SubSteps) > 0 {
+		var sb strings.Builder
+		for i, sub := range step.SubSteps {
+			if i > 0 {
+				sb.WriteString("\n\n---\n\n")
+			}
+			fileName := GetSubStepFileName(step.Index, sub.Index, sub.Title)
+			filePath := filepath.Join(workDir, fileName)
+
+			var contentPlanStr string
+			if sub.ContentPlan != nil {
+				data, _ := json.Marshal(sub.ContentPlan)
+				contentPlanStr = "\n- 内容结构规划（content_plan）：" + string(data)
+			}
+			var layoutHintStr string
+			if sub.LayoutHint != "" {
+				layoutHintStr = "\n- 布局提示：" + sub.LayoutHint
+			}
+
+			sb.WriteString(fmt.Sprintf(`创建第%d页（第%d/%d子页）
 任务详情：
-- 页码：%d
-- 标题：%s
-- 内容类型：%s
-- 内容描述：%s
+|- 页码：%d
+|- 标题：%s
+|- 内容类型：%s
+|- 内容描述：%s%s%s
 
 【重要】输出文件：
-- 文件名：%s
-- 完整路径：%s`, step.Index, step.Index, step.Title, step.ContentType, step.Description, fileName, filePath)
+|- 文件名：%s
+|- 完整路径：%s`,
+				step.Index, sub.Index, len(step.SubSteps),
+				step.Index, sub.Title, sub.ContentType, sub.Description,
+				contentPlanStr, layoutHintStr,
+				fileName, filePath))
+		}
+		return sb.String()
+	}
+
+	// 普通单页：如果有 slideKey 则用 slideKey 生成文件名
+	var fileName string
+	if step.SlideKey != "" {
+		safeTitle := SanitizeFilename(step.Title)
+		fileName = fmt.Sprintf("%s_%s.pptx", step.SlideKey, safeTitle)
+	} else {
+		fileName = GetStepFileName(step)
+	}
+	filePath := filepath.Join(workDir, fileName)
+
+	var contentPlanStr string
+	if step.ContentPlan != nil {
+		data, _ := json.Marshal(step.ContentPlan)
+		contentPlanStr = "\n- 内容结构规划（content_plan）：" + string(data)
+	}
+
+	var layoutHintStr string
+	if step.LayoutHint != "" {
+		layoutHintStr = "\n- 布局提示：" + step.LayoutHint
+	}
+
+	request := fmt.Sprintf(`创建幻灯片
+任务详情：
+|- 页码：%d
+|- 标题：%s
+|- 内容类型：%s
+|- 内容描述：%s%s%s
+
+【重要】输出文件：
+|- 文件名：%s
+|- 完整路径：%s`, step.Index, step.Title, step.ContentType, step.Description, contentPlanStr, layoutHintStr, fileName, filePath)
 	return request
+}
+
+// GetSubStepFileName 生成分页组子页的文件名：{页码}.{子页码}_{标题}.pptx
+func GetSubStepFileName(parentIdx, subIdx int, title string) string {
+	safeTitle := SanitizeFilename(title)
+	return fmt.Sprintf("%d.%d_%s.pptx", parentIdx, subIdx, safeTitle)
 }
 
 // FormatBatchSlidesForRequest 将一批幻灯片格式化为 CodeAgent 请求
@@ -401,19 +620,62 @@ func FormatBatchSlidesForRequest(slides []Step, batchNum, totalBatches int, work
 	sb.WriteString(fmt.Sprintf("【批量生成任务 - 第 %d/%d 批】请生成以下幻灯片：\n\n", batchNum, totalBatches))
 
 	for i, slide := range slides {
+		// 若存在分页组 SubSteps，递归展开
+		if len(slide.SubSteps) > 0 {
+			for j, sub := range slide.SubSteps {
+				fileName := GetSubStepFileName(slide.Index, sub.Index, sub.Title)
+
+				var contentPlanStr string
+				if sub.ContentPlan != nil {
+					data, _ := json.Marshal(sub.ContentPlan)
+					contentPlanStr = fmt.Sprintf("\n- 内容结构规划（content_plan）：%s", string(data))
+				}
+				var layoutHintStr string
+				if sub.LayoutHint != "" {
+					layoutHintStr = fmt.Sprintf("\n- 布局提示：%s", sub.LayoutHint)
+				}
+
+				if i > 0 || j > 0 {
+					sb.WriteString("\n\n")
+				}
+				sb.WriteString(fmt.Sprintf("## 幻灯片 %d.%d/%d\n", slide.Index, sub.Index, len(slide.SubSteps)))
+				sb.WriteString(fmt.Sprintf("- 页码：%d（子页 %d）\n", slide.Index, sub.Index))
+				sb.WriteString(fmt.Sprintf("- 标题：%s\n", sub.Title))
+				sb.WriteString(fmt.Sprintf("- 内容类型：%s\n", sub.ContentType))
+				sb.WriteString(fmt.Sprintf("- 内容描述：%s%s%s\n", sub.Description, contentPlanStr, layoutHintStr))
+				sb.WriteString(fmt.Sprintf("- 输出文件：%s\n", fileName))
+			}
+			continue
+		}
+
+		// 普通单页
 		fileName := GetStepFileName(&slide)
 
-		sb.WriteString(fmt.Sprintf("## 幻灯片 %d/%d (批内序号: %d)\n", slide.Index, len(slides), i+1))
+		var contentPlanStr string
+		if slide.ContentPlan != nil {
+			data, _ := json.Marshal(slide.ContentPlan)
+			contentPlanStr = fmt.Sprintf("\n- 内容结构规划（content_plan）：%s", string(data))
+		}
+		var layoutHintStr string
+		if slide.LayoutHint != "" {
+			layoutHintStr = fmt.Sprintf("\n- 布局提示：%s", slide.LayoutHint)
+		}
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(fmt.Sprintf("## 幻灯片 %d/%d\n", slide.Index, len(slides)))
 		sb.WriteString(fmt.Sprintf("- 页码：%d\n", slide.Index))
 		sb.WriteString(fmt.Sprintf("- 标题：%s\n", slide.Title))
 		sb.WriteString(fmt.Sprintf("- 内容类型：%s\n", slide.ContentType))
-		sb.WriteString(fmt.Sprintf("- 内容描述：%s\n", slide.Description))
-		sb.WriteString(fmt.Sprintf("- 输出文件：%s\n\n", fileName))
+		sb.WriteString(fmt.Sprintf("- 内容描述：%s%s%s\n", slide.Description, contentPlanStr, layoutHintStr))
+		sb.WriteString(fmt.Sprintf("- 输出文件：%s\n", fileName))
 	}
 
-	sb.WriteString("【重要】\n")
-	sb.WriteString("- 必须为每个幻灯片生成独立的 .pptx 文件\n")
-	sb.WriteString("- 文件命名格式：{页码}_{标题}.pptx\n")
+	sb.WriteString("\n【重要】\n")
+	sb.WriteString("- 必须为每个幻灯片（包括分页组中的每个子页）生成独立的 .pptx 文件\n")
+	sb.WriteString("- 分页组子页命名格式：{页码}.{子页码}_{标题}.pptx\n")
+	sb.WriteString("- 普通页面命名格式：{页码}_{标题}.pptx\n")
+	sb.WriteString("- 每生成一页后，必须调用 update_progress 和 single_qa_review\n")
 	sb.WriteString("- 所有文件保存到工作目录\n")
 	sb.WriteString("- 完成后列出所有生成的文件\n")
 
@@ -432,29 +694,78 @@ func FormatBatchStepsForRequest(slides []Step, workDir string) string {
 		if i > 0 {
 			sb.WriteString("\n\n---\n\n")
 		}
-		fileName := GetStepFileName(&slide)
-		filePath := filepath.Join(workDir, fileName)
-		sb.WriteString(fmt.Sprintf(`创建幻灯片
+
+		// 若存在分页组 SubSteps，递归展开
+		if len(slide.SubSteps) > 0 {
+			for j, sub := range slide.SubSteps {
+				if j > 0 {
+					sb.WriteString("\n\n---\n\n")
+				}
+				fileName := GetSubStepFileName(slide.Index, sub.Index, sub.Title)
+				filePath := filepath.Join(workDir, fileName)
+
+				var contentPlanStr string
+				if sub.ContentPlan != nil {
+					data, _ := json.Marshal(sub.ContentPlan)
+					contentPlanStr = "\n- 内容结构规划（content_plan）：" + string(data)
+				}
+				var layoutHintStr string
+				if sub.LayoutHint != "" {
+					layoutHintStr = "\n- 布局提示：" + sub.LayoutHint
+				}
+
+				sb.WriteString(fmt.Sprintf(`创建幻灯片
 任务详情：
-- 页码：%d
-- 标题：%s
-- 内容类型：%s
-- 内容描述：%s
-- Planner 分页建议：%s（理由：%v）
+|- 页码：%d（子页 %d）
+|- 标题：%s
+|- 内容类型：%s
+|- 内容描述：%s%s%s
 
 【重要】输出文件：
-- 文件名：%s
-- 完整路径：%s`,
+|- 文件名：%s
+|- 完整路径：%s`,
+					slide.Index, sub.Index,
+					sub.Title, sub.ContentType, sub.Description,
+					contentPlanStr, layoutHintStr,
+					fileName, filePath))
+			}
+			continue
+		}
+
+		// 普通单页
+		fileName := GetStepFileName(&slide)
+		filePath := filepath.Join(workDir, fileName)
+
+		var contentPlanStr string
+		if slide.ContentPlan != nil {
+			data, _ := json.Marshal(slide.ContentPlan)
+			contentPlanStr = "\n- 内容结构规划（content_plan）：" + string(data)
+		}
+		var layoutHintStr string
+		if slide.LayoutHint != "" {
+			layoutHintStr = "\n- 布局提示：" + slide.LayoutHint
+		}
+
+		sb.WriteString(fmt.Sprintf(`创建幻灯片
+任务详情：
+|- 页码：%d
+|- 标题：%s
+|- 内容类型：%s
+|- 内容描述：%s%s%s
+
+【重要】输出文件：
+|- 文件名：%s
+|- 完整路径：%s`,
 			slide.Index, slide.Title, slide.ContentType, slide.Description,
-			map[bool]string{true: "建议分多页", false: "单页"}[slide.MultiPageHint],
-			slide.MultiPageReasons,
+			contentPlanStr, layoutHintStr,
 			fileName, filePath))
 	}
 
 	sb.WriteString("\n\n【批量任务要求】")
-	sb.WriteString("\n- 以上为本次需要生成的幻灯片列表，请评估每页内容量后自主决定最终分页数量")
-	sb.WriteString("\n- 可在 python3 中一次性生成所有页，分别调用 update_progress 记录每页")
-	sb.WriteString("\n- 文件命名格式：{页码}_{标题}.pptx")
+	sb.WriteString("\n- 以上为本次需要生成的幻灯片列表（含分页组子页）")
+	sb.WriteString("\n- 分页组子页命名格式：{页码}.{子页码}_{标题}.pptx")
+	sb.WriteString("\n- 普通页面命名格式：{页码}_{标题}.pptx")
+	sb.WriteString("\n- 每生成一页后，必须调用 update_progress 和 single_qa_review")
 
 	return sb.String()
 }
@@ -470,19 +781,63 @@ func FormatAllSlidesForRequest(slides []Step, workDir string) string {
 	sb.WriteString("【批量生成任务】请一次性生成所有幻灯片：\n\n")
 
 	for i, slide := range slides {
+		// 若存在分页组 SubSteps，递归展开
+		if len(slide.SubSteps) > 0 {
+			for j, sub := range slide.SubSteps {
+				if i > 0 || j > 0 {
+					sb.WriteString("\n\n")
+				}
+				fileName := GetSubStepFileName(slide.Index, sub.Index, sub.Title)
+
+				var contentPlanStr string
+				if sub.ContentPlan != nil {
+					data, _ := json.Marshal(sub.ContentPlan)
+					contentPlanStr = fmt.Sprintf("\n- 内容结构规划（content_plan）：%s", string(data))
+				}
+				var layoutHintStr string
+				if sub.LayoutHint != "" {
+					layoutHintStr = fmt.Sprintf("\n- 布局提示：%s", sub.LayoutHint)
+				}
+
+				sb.WriteString(fmt.Sprintf("## 幻灯片 %d.%d/%d\n", slide.Index, sub.Index, len(slide.SubSteps)))
+				sb.WriteString(fmt.Sprintf("- 页码：%d（子页 %d）\n", slide.Index, sub.Index))
+				sb.WriteString(fmt.Sprintf("- 标题：%s\n", sub.Title))
+				sb.WriteString(fmt.Sprintf("- 内容类型：%s\n", sub.ContentType))
+				sb.WriteString(fmt.Sprintf("- 内容描述：%s%s%s\n", sub.Description, contentPlanStr, layoutHintStr))
+				sb.WriteString(fmt.Sprintf("- 输出文件：%s\n", fileName))
+			}
+			continue
+		}
+
+		// 普通单页
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
 		fileName := GetStepFileName(&slide)
+
+		var contentPlanStr string
+		if slide.ContentPlan != nil {
+			data, _ := json.Marshal(slide.ContentPlan)
+			contentPlanStr = fmt.Sprintf("\n- 内容结构规划（content_plan）：%s", string(data))
+		}
+		var layoutHintStr string
+		if slide.LayoutHint != "" {
+			layoutHintStr = fmt.Sprintf("\n- 布局提示：%s", slide.LayoutHint)
+		}
 
 		sb.WriteString(fmt.Sprintf("## 幻灯片 %d/%d\n", i+1, len(slides)))
 		sb.WriteString(fmt.Sprintf("- 页码：%d\n", slide.Index))
 		sb.WriteString(fmt.Sprintf("- 标题：%s\n", slide.Title))
 		sb.WriteString(fmt.Sprintf("- 内容类型：%s\n", slide.ContentType))
-		sb.WriteString(fmt.Sprintf("- 内容描述：%s\n", slide.Description))
-		sb.WriteString(fmt.Sprintf("- 输出文件：%s\n\n", fileName))
+		sb.WriteString(fmt.Sprintf("- 内容描述：%s%s%s\n", slide.Description, contentPlanStr, layoutHintStr))
+		sb.WriteString(fmt.Sprintf("- 输出文件：%s\n", fileName))
 	}
 
-	sb.WriteString("【重要】\n")
-	sb.WriteString("- 必须为每个幻灯片生成独立的 .pptx 文件\n")
-	sb.WriteString("- 文件命名格式：{页码}_{标题}.pptx\n")
+	sb.WriteString("\n【重要】\n")
+	sb.WriteString("- 必须为每个幻灯片（包括分页组子页）生成独立的 .pptx 文件\n")
+	sb.WriteString("- 分页组子页命名格式：{页码}.{子页码}_{标题}.pptx\n")
+	sb.WriteString("- 普通页面命名格式：{页码}_{标题}.pptx\n")
+	sb.WriteString("- 每生成一页后，必须调用 update_progress 和 single_qa_review\n")
 	sb.WriteString("- 所有文件保存到工作目录\n")
 	sb.WriteString("- 完成后列出所有生成的文件\n")
 
@@ -494,13 +849,13 @@ const CheckpointFileName = ".slides_checkpoint.json"
 
 // SlidesCheckpoint 存储已完成幻灯片的进度信息
 type SlidesCheckpoint struct {
-	CompletedSlides []int  `json:"completed_slides"` // 已完成的页码列表
-	TotalSlides    int    `json:"total_slides"`    // 总幻灯片数
-	LastUpdated    string `json:"last_updated"`     // 最后更新时间
+	CompletedSlides []string `json:"completed_slides"` // 已完成的页码标识列表（如 "4"、"4.1"）
+	TotalSlides    int      `json:"total_slides"`    // 总幻灯片数
+	LastUpdated    string   `json:"last_updated"`     // 最后更新时间
 }
 
 // SaveCheckpoint 保存进度到 checkpoint 文件
-func SaveCheckpoint(workDir string, completedSlides []int, totalSlides int) error {
+func SaveCheckpoint(workDir string, completedSlides []string, totalSlides int) error {
 	checkpoint := SlidesCheckpoint{
 		CompletedSlides: completedSlides,
 		TotalSlides:    totalSlides,
@@ -532,20 +887,20 @@ func LoadCheckpoint(workDir string) (*SlidesCheckpoint, error) {
 }
 
 // AddCompletedSlide 向 checkpoint 添加一个已完成的幻灯片
-func AddCompletedSlide(workDir string, slideIndex int) error {
+func AddCompletedSlide(workDir string, slideKey string) error {
 	checkpoint, err := LoadCheckpoint(workDir)
 	if err != nil {
 		return err
 	}
 	if checkpoint == nil {
-		checkpoint = &SlidesCheckpoint{CompletedSlides: []int{}}
+		checkpoint = &SlidesCheckpoint{CompletedSlides: []string{}}
 	}
-	for _, idx := range checkpoint.CompletedSlides {
-		if idx == slideIndex {
+	for _, k := range checkpoint.CompletedSlides {
+		if k == slideKey {
 			return nil
 		}
 	}
-	checkpoint.CompletedSlides = append(checkpoint.CompletedSlides, slideIndex)
+	checkpoint.CompletedSlides = append(checkpoint.CompletedSlides, slideKey)
 	checkpoint.LastUpdated = time.Now().Format("2006-01-02 15:04:05")
 	data, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -570,9 +925,9 @@ func GetCompletedCountFromCheckpoint(workDir string) (int, error) {
 // QAAttemptFileName 是 QA 尝试次数文件名
 const QAAttemptFileName = ".qa_attempts.json"
 
-// QAAttempts 记录每张幻灯片的 QA 尝试次数
+// QAAttempts 记录每张幻灯片的 QA 尝试次数，key 为 PPTX 文件名
 type QAAttempts struct {
-	Attempts map[int]int `json:"attempts"` // slide -> attempt count
+	Attempts map[string]int `json:"attempts"` // pptx_filename -> attempt count
 }
 
 // LoadQAAttempts 加载 QA 尝试次数
@@ -581,7 +936,7 @@ func LoadQAAttempts(workDir string) (*QAAttempts, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &QAAttempts{Attempts: make(map[int]int)}, nil
+			return &QAAttempts{Attempts: make(map[string]int)}, nil
 		}
 		return nil, err
 	}
@@ -603,47 +958,38 @@ func SaveQAAttempts(workDir string, a *QAAttempts) error {
 }
 
 // GetQAAttempt 获取某页的 QA 尝试次数
-func GetQAAttempt(workDir string, slideIdx int) (int, error) {
+func GetQAAttempt(workDir string, pptxFilename string) (int, error) {
 	attempts, err := LoadQAAttempts(workDir)
 	if err != nil {
 		return 0, err
 	}
-	return attempts.Attempts[slideIdx], nil
+	return attempts.Attempts[pptxFilename], nil
 }
 
 // IncrementQAAttempt 增加某页的 QA 尝试次数，返回增加后的值
-func IncrementQAAttempt(workDir string, slideIdx int) (int, error) {
+func IncrementQAAttempt(workDir string, pptxFilename string) (int, error) {
 	attempts, err := LoadQAAttempts(workDir)
 	if err != nil {
 		return 0, err
 	}
-	attempts.Attempts[slideIdx]++
+	attempts.Attempts[pptxFilename]++
 	if err := SaveQAAttempts(workDir, attempts); err != nil {
 		return 0, err
 	}
-	return attempts.Attempts[slideIdx], nil
+	return attempts.Attempts[pptxFilename], nil
 }
 
 // QAResultFileName 是 QA 结果文件名前缀
 const QAResultFileName = ".qa_result.json"
 
-// QAResult 是批量 QA 的审查结果
+// QAResult 是 QA 审查结果，直接使用自然语言报告，不再解析 JSON。
 type QAResult struct {
-	TotalSlides  int       `json:"total_slides"`
-	Issues       []QAIssue `json:"issues"`
-	Summary      string    `json:"summary"`
-	HasIssues    bool      `json:"has_issues"`
-	HasHighIssue bool      `json:"has_high_issue"`
-	LastUpdated  string    `json:"last_updated"`
-}
-
-// QAIssue 是单个问题的描述
-type QAIssue struct {
-	Slide    int    `json:"slide"`
-	Severity string `json:"severity"`
-	Type     string `json:"type"`
-	Desc     string `json:"description"`
-	Fix      string `json:"recommendation"`
+	TotalSlides  int      `json:"total_slides"`
+	Reports      []string `json:"reports"` // 每页的自然语言审查报告，格式为 "页码|报告内容"
+	Summary      string   `json:"summary"` // 整体摘要
+	HasIssues    bool     `json:"has_issues"`
+	HasHighIssue bool     `json:"has_high_issue"`
+	LastUpdated  string   `json:"last_updated"`
 }
 
 // SaveQAResult 将 QA 结果保存到文件

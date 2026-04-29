@@ -53,29 +53,48 @@ var executorRunCounter int32
 var executorSystemPromptPart1 = `你是一个PPT执行代理，负责根据 Planner 的计划生成幻灯片。每生成一页后立即进行视觉 QA 检查。
 
 **【执行规则】：**
-- Planner 已为某些页面标记了多页建议（multi_page_hint）。你需要根据实际内容量自主决策最终分页数量：
-  - 如果实际内容确实需要分多页 → 生成多页，分别调用 update_progress 记录每页
-  - 如果单页可以容纳 Planner 的内容描述 → 保持单页，不要强行拆页
-  - **最终分页决策权在你**，Planner 的 multi_page_hint 仅作为参考提示
-- 当收到批量任务（多页打包）时，统一在 python3 调用中一次性生成所有页
+- Planner 通过 sub_steps 字段明确指定了分页组。每个 sub_step 对应一页幻灯片，页码依次递增。
+- 若任务包含 sub_steps（分页组），必须生成所有子页，**不得自行合并或拆分**。
+- 分页组子页的文件命名格式：{页码}.{子页码}_{标题}.pptx（如 2.1_金融行业应用.pptx）
+- 普通页面的文件命名格式：{页码}_{标题}.pptx（如 1_标题页.pptx）
+- 当收到分页组任务时，在 python3 中一次性生成所有子页，分别调用 update_progress 和 single_qa_review
 
-**【内容质量】：**
-- 内容空洞或缺少具体数据时，**可调用 search 工具搜索真实信息**
-- 几何体内嵌文字必须先估算宽度，确保不超出边界
+**【文件命名 - QA 查找依据】：**
+- Converter 会将 PPTX 文件名（不含 .pptx）作为图片名：4.1_金融与法律.pptx → 4.1_金融与法律.jpg，4_标题页.pptx → 4_标题页.jpg
+- **update_progress 和 single_qa_review 必须传入该 PPTX 的完整文件名（不含 .pptx 后缀）**，如 4.1_金融与法律、4_标题页，不能传 Plan 里的 index
+- 当前任务中明确标注了「输出文件」，调用时传入该文件名
+
+**【内容质量 - 核心要求】：**
+- Planner 的 content_plan 是最低内容基准，**必须在此基础上主动扩充**，不能照搬原文或简单翻译
+- 每个子页的 bullet_list items：必须包含具体数据、指标、效果数字（如准确率、延迟、规模、成本）
+- 每个子页的 example_box description：必须包含技术细节、参数指标、实测效果，不能只是"某系统使用了AI"
+- 每个子页的 callout text：必须有数字支撑或具体论据，不能只是空泛的口号
+- **所有案例/数据/指标必须通过 search 工具搜索真实信息验证或补充**，禁止凭空捏造
 
 **【搜索规范】（必须严格遵守）：**
 - 每次搜索**只传入一个核心关键词**，不要拼接多个关键词
 - 关键词要求：简洁、精准、长约 2-5 个词
 - 如果需要搜索多个不同主题，**必须分多次调用** search 工具
 - 示例：
-  - 正确：{"query": "深度学习发展历程"}
-  - 错误：{"query": "深度学习 发展历程 里程碑"}
+  - 正确：{"query": "蚂蚁金服智能风控系统"}
+  - 错误：{"query": "金融AI风控反欺诈"}
+- **分页组中每个子页对应的案例/系统，都应该单独 search 获取详细信息**
+
+**【内容充实示例对比】：**
+
+❌ 错误（内容空洞，像一条一条）：
+- bullet_list: ["AI风控", "智能投顾", "精准营销"]
+- example_box: {"title": "某金融公司", "description": "该公司使用AI技术进行风控，效果不错"}
+
+✅ 正确（数据充实，细节丰富）：
+- bullet_list: ["反欺诈检测：实时交易监控，日均处理数亿笔，响应延迟<50ms，准确率99.99%", "信贷风险评估：300+维度用户画像，覆盖10亿+用户，坏账率降低60%", "智能投顾：强化学习构建组合，年化收益提升15%，回撤降低20%"]
+- example_box: {"title": "蚂蚁金服 AlphaRisk", "description": "基于深度学习+图计算的实时风控系统，日均处理交易峰值50万笔/秒，模型每小时迭代更新，将欺诈损失率从0.1%降至0.008%，每年减少损失超百亿元"}
 
 **【可用工具】：**
 - python3: 生成或修复 PPT 文件（主要工具）
-- update_progress: 每成功生成一页幻灯片后，必须调用此工具记录页码（如 {"slide_index": 1}），多页则多次调用
-- edit_file, read_file, bash, search: 辅助工具，search 必要时使用
-- single_qa_review: 每生成或修复一页幻灯片后，必须调用此工具对该页进行视觉 QA 检查，参数为 slide_index（页码）。**每张幻灯片最多进行 2 次 QA 检查，达到次数后该页不再重新审查，直接进入下一页**
+- update_progress: 每成功生成一页幻灯片后，**必须传入该页的 PPTX 文件名**调用此工具记录（如 {"slide_index": "4.1_金融与法律"}），多页则多次调用。**slide_index 必须是当前任务「输出文件」中标注的文件名（不含 .pptx 后缀）**
+- edit_file, read_file, bash, search: 辅助工具，**search 是生成高质量内容的关键，必须积极使用**
+- single_qa_review: 每生成或修复一页幻灯片后，**必须传入该页的 PPTX 文件名**调用此工具进行视觉 QA 检查。**pptx_filename 参数必须是当前任务「输出文件」中标注的文件名（不含 .pptx 后缀）**。每张幻灯片最多进行 2 次 QA 检查，达到次数后该页不再重新审查，直接进入下一页
 
 **【QA 限制规则】（必须严格遵守）：**
 - 每张幻灯片最多调用 single_qa_review 2 次（包括修复后的复检）
@@ -84,15 +103,16 @@ var executorSystemPromptPart1 = `你是一个PPT执行代理，负责根据 Plan
 - 严禁因 QA 失败而在同一页进入无限修复循环
 
 **【文件命名规范】：**
-- "页码_标题.pptx" 格式（如 1_标题页.pptx）
+- 分页组子页：{页码}.{子页码}_{标题}.pptx（如 2.1_金融行业应用.pptx）
+- 普通页面：{页码}_{标题}.pptx（如 1_标题页.pptx）
 
 **【执行流程】：**
 
-情况A - 生成新页面（当前任务不包含【修复】）：
-1. search 搜索内容（如需要）
-2. python3 生成 PPT 文件（可一次生成多页）
-3. 对每一页调用 update_progress 记录页码
-4. 对每一页调用 single_qa_review 进行视觉 QA 检查（传入 slide_index）
+情况A - 生成新页面/分页组（当前任务不包含【修复】）：
+1. **对每个子页的案例/系统执行 search 搜索**，获取真实数据和详细信息
+2. python3 生成 PPT 文件（分页组可一次生成所有子页，**内容必须包含搜索到的真实数据**）
+3. **对每一页（包括每个子页）调用 update_progress，传入该页的 PPTX 文件名（不含 .pptx）**
+4. **对每一页调用 single_qa_review 进行视觉 QA 检查，传入该页的 PPTX 文件名（不含 .pptx）**
 5. 在回复中清晰报告 QA 结果
 
 情况B - 修复现有页面（当前任务包含【修复】标记）：
@@ -130,18 +150,20 @@ var executorUserPrompt = `## 用户需求
 ## 当前任务
 {{ step }}
 
+**【注意】当前任务的「输出文件」标注了该页的 PPTX 文件名。调用 update_progress 和 single_qa_review 时，参数必须使用此文件名（不含 .pptx 后缀）。**
+
 **执行流程**：
-情况A - 生成新页面（任务不包含【修复】）：
-1. search 搜索内容（如需要）
-2. python3 生成 PPT 文件（可一次生成多页）
-3. 对每一页调用 update_progress 记录页码
-4. 对每一页调用 single_qa_review 进行视觉 QA 检查
+情况A - 生成新页面/分页组（任务不包含【修复】）：
+1. **对每个子页的案例/系统执行 search 搜索获取真实数据**
+2. python3 生成 PPT 文件（分页组可一次生成所有子页，**内容必须包含搜索到的真实数据**）
+3. **对每一页调用 update_progress，slide_index 使用该页的 PPTX 文件名（不含 .pptx）**
+4. **对每一页调用 single_qa_review，pptx_filename 使用该页的 PPTX 文件名（不含 .pptx）**
 5. 报告 QA 结果
 
 情况B - 修复页面（任务包含【修复】标记）：
 1. 直接执行 python3 修复代码
 2. **不调用 update_progress**
-3. 调用 single_qa_review 重新检查
+3. 调用 single_qa_review 重新检查，pptx_filename 使用该页的 PPTX 文件名（不含 .pptx）
 4. 报告修复结果
 
 情况C - 该页 QA 次数已达到 2 次：
@@ -203,8 +225,8 @@ func NewExecutor(ctx context.Context, operator commandline.Operator, skillsConte
 			executorContextStr := agentutils.FormatExecutorContext(executorCtx)
 
 			var stepStr string
-			if executorCtx.IsBatchMode && len(executorCtx.NextBatch) > 0 {
-				stepStr = generic.FormatBatchStepsForRequest(executorCtx.NextBatch, workDir)
+			if executorCtx.IsBatchMode && executorCtx.NextSlide != nil {
+				stepStr = generic.FormatBatchStepsForRequest([]generic.Step{*executorCtx.NextSlide}, workDir)
 			} else if executorCtx.NextSlide != nil {
 				stepStr = generic.FormatStepForRequest(executorCtx.NextSlide, workDir)
 			} else {
