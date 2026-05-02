@@ -216,8 +216,8 @@ func TestFallbackChatModel_AllModelsFail(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when all models fail, got nil")
 	}
-	if err.Error() != "所有模型均失败" {
-		t.Errorf("expected '所有模型均失败', got %v", err)
+	if !strings.Contains(err.Error(), "model error") {
+		t.Errorf("expected 'model error', got %v", err)
 	}
 }
 

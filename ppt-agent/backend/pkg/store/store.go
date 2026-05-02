@@ -19,6 +19,7 @@ package store
 import (
 	"context"
 	"encoding/gob"
+	"sync"
 
 	"github.com/cloudwego/eino/compose"
 
@@ -44,15 +45,20 @@ func NewInMemoryStore() compose.CheckPointStore {
 }
 
 type inMemoryStore struct {
+	mu  sync.RWMutex
 	mem map[string][]byte
 }
 
 func (i *inMemoryStore) Set(ctx context.Context, key string, value []byte) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.mem[key] = value
 	return nil
 }
 
 func (i *inMemoryStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	v, ok := i.mem[key]
 	return v, ok, nil
 }

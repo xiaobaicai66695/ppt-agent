@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/components/model"
@@ -111,11 +112,14 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 type SingleTool struct {
 	op      commandline.Operator
 	modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)
-	// 复用已初始化的 model，避免每次调用都重新创建
-	cachedModel     model.ToolCallingChatModel
-	cachedModelInit sync.Once
-	cachedModelErr  error
+	cachedModel    model.ToolCallingChatModel
+	cachedModelMu  sync.Mutex
+	cachedModelAt  time.Time
+	cachedModelErr error
 }
+
+// modelCacheTTL 模型缓存有效期（超时后重新创建，防止 token 过期或连接断开导致 QA 永久失效）
+const modelCacheTTL = 10 * time.Minute
 
 // NewSingleTool 创建一个单页 QA Tool 实例。
 func NewSingleTool(op commandline.Operator, modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)) tool.InvokableTool {
@@ -124,6 +128,25 @@ func NewSingleTool(op commandline.Operator, modelFn func(ctx context.Context) (m
 
 func (t *SingleTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return singleQAToolInfo, nil
+}
+
+// getOrCreateModel 返回缓存的模型，若缓存未初始化或已过期则重新创建。
+// TTL 机制防止 token 过期或连接断开导致 QA 功能永久失效。
+func (t *SingleTool) getOrCreateModel(ctx context.Context) (model.ToolCallingChatModel, error) {
+	t.cachedModelMu.Lock()
+	defer t.cachedModelMu.Unlock()
+
+	if t.cachedModel != nil && t.cachedModelErr == nil {
+		if time.Since(t.cachedModelAt) < modelCacheTTL {
+			return t.cachedModel, nil
+		}
+	}
+
+	t.cachedModel, t.cachedModelErr = t.modelFn(ctx)
+	if t.cachedModelErr == nil {
+		t.cachedModelAt = time.Now()
+	}
+	return t.cachedModel, t.cachedModelErr
 }
 
 // runConverter 执行 Python 脚本将 PPTX 转换为图片。
@@ -330,15 +353,13 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		return string(b), nil
 	}
 
-	// Step 3: 调用 LLM 进行单页视觉 QA（复用缓存的 model，避免重复初始化）
-	t.cachedModelInit.Do(func() {
-		t.cachedModel, t.cachedModelErr = t.modelFn(ctx)
-	})
-	if t.cachedModelErr != nil {
-		return "", fmt.Errorf("创建 LLM 失败: %v", t.cachedModelErr)
+	// Step 3: 调用 LLM 进行单页视觉 QA（带 TTL 的模型缓存，过期自动重建）
+	model, err := t.getOrCreateModel(ctx)
+	if err != nil {
+		return "", fmt.Errorf("创建 LLM 失败: %v", err)
 	}
 
-	result, err := t.doSingleVisualQA(ctx, t.cachedModel, wd, targetImgName, textContent)
+	result, err := t.doSingleVisualQA(ctx, model, wd, targetImgName, textContent)
 	if err != nil {
 		if result != nil {
 		} else {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -925,6 +926,9 @@ func GetCompletedCountFromCheckpoint(workDir string) (int, error) {
 // QAAttemptFileName 是 QA 尝试次数文件名
 const QAAttemptFileName = ".qa_attempts.json"
 
+// qaFileMu 保护 QA 相关文件的并发读写，防止 Reviewer 和 Fixer 的竞态条件
+var qaFileMu sync.Mutex
+
 // QAAttempts 记录每张幻灯片的 QA 尝试次数，key 为 PPTX 文件名
 type QAAttempts struct {
 	Attempts map[string]int `json:"attempts"` // pptx_filename -> attempt count
@@ -966,8 +970,12 @@ func GetQAAttempt(workDir string, pptxFilename string) (int, error) {
 	return attempts.Attempts[pptxFilename], nil
 }
 
-// IncrementQAAttempt 增加某页的 QA 尝试次数，返回增加后的值
+// IncrementQAAttempt 增加某页的 QA 尝试次数，返回增加后的值。
+// 使用互斥锁保证 load-increment-save 的原子性，避免 Reviewer/Fixer 并发竞争。
 func IncrementQAAttempt(workDir string, pptxFilename string) (int, error) {
+	qaFileMu.Lock()
+	defer qaFileMu.Unlock()
+
 	attempts, err := LoadQAAttempts(workDir)
 	if err != nil {
 		return 0, err
@@ -992,8 +1000,10 @@ type QAResult struct {
 	LastUpdated  string   `json:"last_updated"`
 }
 
-// SaveQAResult 将 QA 结果保存到文件
+// SaveQAResult 将 QA 结果保存到文件（受 qaFileMu 保护，防止并发覆盖）
 func SaveQAResult(workDir string, result *QAResult) error {
+	qaFileMu.Lock()
+	defer qaFileMu.Unlock()
 	result.LastUpdated = time.Now().Format("2006-01-02 15:04:05")
 	data, err := json.Marshal(result)
 	if err != nil {
