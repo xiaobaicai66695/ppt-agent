@@ -258,8 +258,8 @@ func runPlanExecuteMode(ctx context.Context, query *schema.Message, taskID, outp
 func runDeepAgentMode(ctx context.Context, userQuery, taskID, outputDir string,
 	operator *command.LocalOperator, skillsContent string, interactive bool, hm *human.Manager) {
 
-	// 从环境变量获取并发数，默认 3
-	concurrency := 3
+	// 从环境变量获取并发数，默认 5（限制同时生成幻灯片的数量，避免 rate limit）
+	concurrency := 5
 	if envConcurrency := os.Getenv("DEEP_AGENT_CONCURRENCY"); envConcurrency != "" {
 		if c, err := strconv.Atoi(envConcurrency); err == nil && c > 0 {
 			concurrency = c
