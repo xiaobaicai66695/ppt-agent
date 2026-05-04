@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -31,7 +33,61 @@ var (
 const (
 	qianfanBaseURL   = "https://qianfan.baidubce.com/v2/ai_search"
 	maxSearchResults = 5
+
+	// 客户端 QPS 限速：每秒 2 次，允许瞬时突发 3 次。
+	searchRateLimit  = 2.0
+	searchBurstLimit = 3
 )
+
+// tokenBucket 简单令牌桶，纯标准库实现，无外部依赖。
+type tokenBucket struct {
+	mu       sync.Mutex
+	rate     float64 // 令牌/秒
+	burst    float64 // 最大令牌数
+	tokens   float64 // 当前令牌数
+	lastFill time.Time
+}
+
+var searchLimiter = &tokenBucket{
+	rate:     searchRateLimit,
+	burst:    searchBurstLimit,
+	tokens:   searchBurstLimit,
+	lastFill: time.Now(),
+}
+
+// wait 阻塞等待直到获取一个令牌。context 取消时返回错误。
+func (tb *tokenBucket) wait(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		tb.mu.Lock()
+		now := time.Now()
+		elapsed := now.Sub(tb.lastFill).Seconds()
+		tb.tokens = math.Min(tb.tokens+elapsed*tb.rate, tb.burst)
+		tb.lastFill = now
+
+		if tb.tokens >= 1.0 {
+			tb.tokens -= 1.0
+			tb.mu.Unlock()
+			return nil
+		}
+		// 计算需要等待多长时间才能获取一个令牌
+		waitFor := time.Duration((1.0-tb.tokens)/tb.rate*1000) * time.Millisecond
+		// 至少等 50ms 避免忙等
+		if waitFor < 50*time.Millisecond {
+			waitFor = 50 * time.Millisecond
+		}
+		tb.mu.Unlock()
+
+		select {
+		case <-time.After(waitFor):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
 
 // getAPIKey 延迟获取 API Key，确保 main 函数中 godotenv.Load 已执行
 func getAPIKey() string {
@@ -155,6 +211,11 @@ func (t *searchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 
 	if qianfanAPIKey := getAPIKey(); qianfanAPIKey == "" {
 		return `{"error": "未配置百度千帆 API Key (Set QIANFAN_API_KEY or BAIDU_QIANFAN_API_KEY)"}`, nil
+	}
+
+	// 客户端 QPS 限速，避免并发请求互相踩踏触发 API 限流
+	if err := searchLimiter.wait(ctx); err != nil {
+		return "", fmt.Errorf("搜索请求被取消: %v", err)
 	}
 
 	refs, err := callQianfanAPI(ctx, input.Query)

@@ -1,34 +1,21 @@
-/*
- * Copyright 2025 CloudWeGo Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
-	"github.com/cloudwego/eino-ext/adk/backend/local"
 	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
@@ -45,10 +32,15 @@ import (
 	agentplan "github.com/cloudwego/ppt-agent/pkg/agent/planexecute"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/human"
+	"github.com/cloudwego/ppt-agent/pkg/server"
 	"github.com/cloudwego/ppt-agent/pkg/store"
 )
 
 func main() {
+	modeFlag := flag.String("mode", "cli", "启动模式: cli (命令行) 或 web (Web服务)")
+	addrFlag := flag.String("addr", ":8080", "Web 模式监听地址")
+	flag.Parse()
+
 	pwd, err := os.Getwd()
 	if err != nil {
 		fmt.Printf("获取当前目录失败: %v\n", err)
@@ -60,71 +52,28 @@ func main() {
 
 	ctx := context.Background()
 
-	// 设置 Callback（可观测性）
-	// 1. 注册日志追踪 Handler
+	// Callbacks
 	logHandler := callback.NewLogHandler()
 	callbacks.AppendGlobalHandlers(logHandler)
 	fmt.Println("[Callback] 日志追踪 Handler 已注册")
 
-	startTime := time.Now()
-
-	// 2. 设置 CozeLoop 追踪（可选，需要配置环境变量）
-	cozeLoopClient := setupCozeLoop(ctx)
+	cozeLoopClient := setupCozeLoop()
 	if cozeLoopClient != nil {
 		callbacks.AppendGlobalHandlers(clc.NewLoopHandler(cozeLoopClient))
 		fmt.Println("[Callback] CozeLoop Handler 已注册")
 	}
 
-	interactive := os.Getenv("INTERACTIVE") != "false"
-
-	// 生成 UUID 作为会话标识
-	taskID := uuid.New().String()
-	fmt.Printf("[启动] 任务ID: %s\n", taskID)
-
-	// 创建输出目录 output/{uuid}
-	outputDir := filepath.Join(pwd, "..", "output", taskID)
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		fmt.Printf("[错误] 创建输出目录失败: %v\n", err)
-		return
-	}
-	fmt.Printf("[启动] 输出目录: %s\n", outputDir)
-
-	// 创建 LocalOperator
-	fmt.Println("[启动] 创建 LocalOperator...")
-	operator := &command.LocalOperator{}
-	ctx = operator.SetWorkDir(ctx, outputDir)
-	fmt.Println("[启动] LocalOperator 创建成功")
-
-	// 创建 skill backend
-	fmt.Println("[启动] 创建 skill backend...")
-	be, err := local.NewBackend(ctx, &local.Config{})
-	if err != nil {
-		fmt.Printf("local.NewBackend failed, err: %v\n", err)
-		return
-	}
-	_ = be
-
-	skillsDir := filepath.Join(pwd, "..", "skills")
-	skillBackend, err := skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
-		Backend: be,
-		BaseDir: skillsDir,
+	// Skill backend
+	be, err := skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
+		BaseDir: filepath.Join(pwd, "..", "skills"),
 	})
 	if err != nil {
 		fmt.Printf("skill.NewBackendFromFilesystem failed, err: %v\n", err)
 		return
 	}
+	_ = be
 
-	sm, err := skill.NewMiddleware(ctx, &skill.Config{
-		Backend: skillBackend,
-	})
-	if err != nil {
-		fmt.Printf("skill.NewMiddleware failed, err: %v\n", err)
-		return
-	}
-	_ = sm
-	fmt.Println("[启动] skill backend 创建成功")
-
-	// 加载 skills 内容（用于注入 prompt）
+	skillsDir := filepath.Join(pwd, "..", "skills")
 	loadedSkills, err := agent.LoadSkillsFromDir(ctx, skillsDir)
 	if err != nil {
 		fmt.Printf("agent.LoadSkillsFromDir failed, err: %v\n", err)
@@ -133,61 +82,183 @@ func main() {
 	skillsContent := agent.FormatSkillsForPrompt(loadedSkills)
 	fmt.Printf("[启动] 加载了 %d 个 skills\n", len(loadedSkills))
 
-	query := schema.UserMessage("帮我做一个关于AI大模型介绍的PPT")
-	fmt.Println()
-	fmt.Println("========================================")
-	fmt.Printf("任务ID: %s\n", taskID)
-	fmt.Println("User query:", query.Content)
-	fmt.Println("交互模式:", map[bool]string{true: "启用", false: "禁用"}[interactive])
-	fmt.Printf("输出目录: %s\n", outputDir)
-	fmt.Println("========================================")
-	fmt.Println()
-
-	startupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	select {
-	case <-startupCtx.Done():
-		fmt.Println("[错误] 启动超时 (30秒)")
-		return
+	switch *modeFlag {
+	case "web":
+		runWebMode(pwd, skillsContent, skillsDir, *addrFlag)
 	default:
+		runCLIMode(ctx, pwd, skillsContent, skillsDir)
 	}
 
-	agentMode := os.Getenv("AGENT_MODE")
-
-	// 创建人机交互管理器（两种模式都使用）
-	hm := human.NewManager(interactive)
-
-	if agentMode == "deep" {
-		// DeepAgent 模式：使用 eino prebuilt/deep 并行执行
-		fmt.Println("[启动] 使用 DeepAgent 模式（eino prebuilt/deep）")
-		runDeepAgentMode(ctx, query.Content, taskID, outputDir, operator, skillsContent, interactive, hm)
-	} else {
-		// 原有 plan-execute 模式
-		fmt.Println("[启动] 使用 Plan-Execute 模式（串行执行）")
-		runPlanExecuteMode(ctx, query, taskID, outputDir, operator, skillsContent, hm)
-	}
-
-	// 打印执行摘要
-	elapsed := time.Since(startTime).Round(time.Millisecond)
-	fmt.Printf("\n[Callback] 任务执行完成，总耗时: %v\n", elapsed)
-
-	// 关闭 CozeLoop（如果启用）
 	if cozeLoopClient != nil {
 		fmt.Println("[Callback] 等待 CozeLoop 数据上报...")
 		time.Sleep(5 * time.Second)
 		cozeLoopClient.Close(ctx)
 	}
-
-	fmt.Printf("\n[完成] 所有文件已保存到: %s\n", outputDir)
-	time.Sleep(2 * time.Second)
 }
 
-// runPlanExecuteMode 运行原有的 plan-execute 串行模式
-func runPlanExecuteMode(ctx context.Context, query *schema.Message, taskID, outputDir string,
+// ---------------------------------------------------------------------------
+// Web mode
+// ---------------------------------------------------------------------------
+
+func runWebMode(pwd, skillsContent, skillsDir, addr string) {
+	outputBase := filepath.Join(pwd, "..", "output")
+
+	// Shared operator (stateless, safe to reuse).
+	operator := &command.LocalOperator{}
+
+	concurrency := 5
+	if c := os.Getenv("DEEP_AGENT_CONCURRENCY"); c != "" {
+		if v, err := strconv.Atoi(c); err == nil && v > 0 {
+			concurrency = v
+		}
+	}
+
+	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
+		return agentutils.NewFallbackToolCallingChatModel(ctx,
+			agentutils.WithMaxTokens(8192),
+			agentutils.WithTemperature(0),
+			agentutils.WithTopP(0),
+		)
+	}
+
+	// Agent factory: creates a fresh agent per task with the right WorkDir/TaskID.
+	agentFactory := func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent, error) {
+		cfg.Concurrency = concurrency
+		cfg.Operator = operator
+		cfg.QAModelFn = qaModelFn
+		cfg.Skills = skillsContent
+		cfg.SkillsDir = skillsDir
+		return deep.NewPPTTaskDeepAgent(ctx, cfg)
+	}
+
+	srv := server.NewServer(&server.ServerConfig{
+		Addr:         addr,
+		BaseDir:      outputBase,
+		FrontendDir:  filepath.Join(pwd, "..", "frontend", "dist"),
+		AgentFactory: agentFactory,
+		MakeTaskConfig: func(taskID string) *deep.PPTTaskConfig {
+			return &deep.PPTTaskConfig{
+				TaskID: taskID,
+			}
+		},
+	})
+
+	fmt.Printf("[Web] 启动模式: DeepAgent\n")
+	fmt.Printf("[Web] 并发数: %d\n", concurrency)
+	if err := srv.Start(); err != nil {
+		log.Printf("[Web] 服务器错误: %v\n", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CLI mode (existing behaviour)
+// ---------------------------------------------------------------------------
+
+func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
+	interactive := os.Getenv("INTERACTIVE") != "false"
+
+	taskID := uuid.New().String()
+	fmt.Printf("[启动] 任务ID: %s\n", taskID)
+
+	outputDir := filepath.Join(pwd, "..", "output", taskID)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		fmt.Printf("[错误] 创建输出目录失败: %v\n", err)
+		return
+	}
+	fmt.Printf("[启动] 输出目录: %s\n", outputDir)
+
+	operator := &command.LocalOperator{}
+	ctx = operator.SetWorkDir(ctx, outputDir)
+	fmt.Println("[启动] LocalOperator 创建成功")
+
+	queryContent := getUserQuery()
+	fmt.Println()
+	fmt.Println("========================================")
+	fmt.Printf("任务ID: %s\n", taskID)
+	fmt.Printf("User query: %s\n", queryContent)
+	fmt.Printf("交互模式: %s\n", map[bool]string{true: "启用", false: "禁用"}[interactive])
+	fmt.Printf("输出目录: %s\n", outputDir)
+	fmt.Println("========================================")
+	fmt.Println()
+
+	agentMode := os.Getenv("AGENT_MODE")
+	hm := human.NewManager(interactive)
+
+	if agentMode == "deep" {
+		fmt.Println("[启动] 使用 DeepAgent 模式（eino prebuilt/deep）")
+		runDeepAgentCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
+	} else {
+		query := schema.UserMessage(queryContent)
+		runPlanExecuteCLI(ctx, query, taskID, operator, skillsContent, hm)
+	}
+}
+
+func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
+	operator *command.LocalOperator, skillsContent, skillsDir string, interactive bool, hm *human.Manager) {
+
+	concurrency := 5
+	if envConcurrency := os.Getenv("DEEP_AGENT_CONCURRENCY"); envConcurrency != "" {
+		if c, err := strconv.Atoi(envConcurrency); err == nil && c > 0 {
+			concurrency = c
+		}
+	}
+	fmt.Printf("[启动] 并发数: %d\n", concurrency)
+
+	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
+		return agentutils.NewFallbackToolCallingChatModel(ctx,
+			agentutils.WithMaxTokens(8192),
+			agentutils.WithTemperature(0),
+			agentutils.WithTopP(0),
+		)
+	}
+
+	fmt.Println("[启动] 创建 PPT Deep Agent（eino prebuilt/deep）...")
+	agent, err := deep.NewPPTTaskDeepAgent(ctx, &deep.PPTTaskConfig{
+		WorkDir:     outputDir,
+		TaskID:      taskID,
+		Concurrency: concurrency,
+		Operator:    operator,
+		QAModelFn:   qaModelFn,
+		Skills:      skillsContent,
+		SkillsDir:   skillsDir,
+	})
+	if err != nil {
+		fmt.Printf("deep.NewPPTTaskDeepAgent failed, err: %v\n", err)
+		return
+	}
+	fmt.Println("[启动] PPT Deep Agent 创建成功")
+
+	cfg := &deep.PPTTaskConfig{
+		WorkDir:  outputDir,
+		TaskID:   taskID,
+		Operator: operator,
+	}
+
+	var result *deep.PPTTaskResult
+	if interactive && hm != nil {
+		result, err = deep.RunPPTTaskDeepAgentWithHuman(ctx, agent, cfg, userQuery, hm)
+	} else {
+		result, err = deep.RunPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
+	}
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+
+	if result != nil {
+		fmt.Printf("\n=== 最终结果 ===\n%s\n", result.Message)
+		fmt.Printf("生成文件数: %d / %d\n", result.DoneSlides, result.TotalSlides)
+		if len(result.Files) > 0 {
+			fmt.Println("生成的文件:")
+			for _, f := range result.Files {
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+	}
+}
+
+func runPlanExecuteCLI(ctx context.Context, query *schema.Message, taskID string,
 	operator *command.LocalOperator, skillsContent string, hm *human.Manager) {
 
-	// 创建 agents
 	fmt.Println("[启动] 创建 planner agent...")
 	planAgent, err := agentplan.NewPlanner(ctx, operator, skillsContent)
 	if err != nil {
@@ -212,7 +283,6 @@ func runPlanExecuteMode(ctx context.Context, query *schema.Message, taskID, outp
 	}
 	fmt.Println("[启动] replanner 创建成功")
 
-	// 创建 plan-execute agent
 	fmt.Println("[启动] 创建 plan-execute agent...")
 	entryAgent, err := planexecute.New(ctx, &planexecute.Config{
 		Planner:       planAgent,
@@ -226,7 +296,6 @@ func runPlanExecuteMode(ctx context.Context, query *schema.Message, taskID, outp
 	}
 	fmt.Println("[启动] plan-execute agent 创建成功")
 
-	// 创建 runner
 	fmt.Println("[启动] 创建 runner...")
 	r := adk.NewRunner(ctx, adk.RunnerConfig{
 		Agent:           entryAgent,
@@ -236,10 +305,7 @@ func runPlanExecuteMode(ctx context.Context, query *schema.Message, taskID, outp
 	fmt.Println("[启动] runner 创建成功")
 
 	fmt.Println("[执行] 启动 ADK Query...")
-	fmt.Println("[执行] 请等待，这可能需要几秒钟...")
-
 	iter := r.Query(ctx, query.Content, adk.WithCheckPointID(taskID))
-
 	fmt.Println("[执行] Query 已启动，开始处理事件...")
 
 	event, err := hm.RunWithApproval(ctx, r, taskID, iter)
@@ -254,80 +320,11 @@ func runPlanExecuteMode(ctx context.Context, query *schema.Message, taskID, outp
 	}
 }
 
-// runDeepAgentMode 运行 DeepAgent 并行模式（使用 eino prebuilt/deep）
-func runDeepAgentMode(ctx context.Context, userQuery, taskID, outputDir string,
-	operator *command.LocalOperator, skillsContent string, interactive bool, hm *human.Manager) {
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
-	// 从环境变量获取并发数，默认 5（限制同时生成幻灯片的数量，避免 rate limit）
-	concurrency := 5
-	if envConcurrency := os.Getenv("DEEP_AGENT_CONCURRENCY"); envConcurrency != "" {
-		if c, err := strconv.Atoi(envConcurrency); err == nil && c > 0 {
-			concurrency = c
-		}
-	}
-	fmt.Printf("[启动] 并发数: %d\n", concurrency)
-
-	// QA 模型创建函数
-	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
-		return agentutils.NewFallbackToolCallingChatModel(ctx,
-			agentutils.WithMaxTokens(8192),
-			agentutils.WithTemperature(0),
-			agentutils.WithTopP(0),
-		)
-	}
-
-	// 创建 PPT Deep Agent
-	fmt.Println("[启动] 创建 PPT Deep Agent（eino prebuilt/deep）...")
-	agent, err := deep.NewPPTTaskDeepAgent(ctx, &deep.PPTTaskConfig{
-		WorkDir:     outputDir,
-		TaskID:      taskID,
-		Concurrency: concurrency,
-		Operator:    operator,
-		QAModelFn:   qaModelFn,
-		Skills:      skillsContent,
-	})
-	if err != nil {
-		fmt.Printf("deep.NewPPTTaskDeepAgent failed, err: %v\n", err)
-		return
-	}
-	fmt.Println("[启动] PPT Deep Agent 创建成功")
-
-	fmt.Println("[执行] 启动 DeepAgent...")
-	fmt.Println("[执行] 请等待，这可能需要较长时间...")
-
-	cfg := &deep.PPTTaskConfig{
-		WorkDir:  outputDir,
-		TaskID:   taskID,
-		Operator: operator,
-	}
-
-	var result *deep.PPTTaskResult
-	if interactive && hm != nil {
-		// 启用人机交互模式：网络搜索前会询问用户
-		result, err = deep.RunPPTTaskDeepAgentWithHuman(ctx, agent, cfg, userQuery, hm)
-	} else {
-		// 普通模式：直接流式输出
-		result, err = deep.RunPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
-	}
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-	}
-
-	if result != nil {
-		fmt.Printf("\n=== 最终结果 ===\n%s\n", result.Message)
-		fmt.Printf("生成文件数: %d / %d\n", result.DoneSlides, result.TotalSlides)
-		if len(result.Files) > 0 {
-			fmt.Println("生成的文件:")
-			for _, f := range result.Files {
-				fmt.Printf("  - %s\n", f)
-			}
-		}
-	}
-}
-
-// setupCozeLoop 设置 CozeLoop 追踪
-// 如果未配置环境变量，返回 nil
-func setupCozeLoop(ctx context.Context) cozeloop.Client {
+func setupCozeLoop() cozeloop.Client {
 	apiToken := os.Getenv("COZELOOP_API_TOKEN")
 	workspaceID := os.Getenv("COZELOOP_WORKSPACE_ID")
 
@@ -347,4 +344,31 @@ func setupCozeLoop(ctx context.Context) cozeloop.Client {
 
 	log.Printf("[Callback] CozeLoop 配置成功: workspaceID=%s", workspaceID)
 	return client
+}
+
+func getUserQuery() string {
+	if len(os.Args) > 1 {
+		return strings.Join(os.Args[1:], " ")
+	}
+
+	fmt.Println("请输入您的PPT需求（如：帮我做一个关于AI大模型介绍的PPT）:")
+	fmt.Print("> ")
+
+	reader := bufio.NewReader(os.Stdin)
+	query, err := reader.ReadString('\n')
+	if err != nil {
+		if err == io.EOF {
+			return ""
+		}
+		log.Printf("读取输入失败: %v\n", err)
+		return ""
+	}
+
+	query = strings.TrimSpace(query)
+	if query == "" {
+		fmt.Println("未输入内容，将使用默认查询")
+		return "帮我做一个关于AI大模型介绍的PPT"
+	}
+
+	return query
 }

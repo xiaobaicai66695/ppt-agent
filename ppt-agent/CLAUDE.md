@@ -22,11 +22,21 @@ go test ./pkg/agent/utils/ -v       # model fallback unit tests
 go test ./pkg/tools/qa/ -v          # QA converter integration test
 go test ./pkg/tools/search/ -v      # search integration test
 
+# Standalone search tool test (interactive)
+cd backend
+go run ./cmd/search_runner.go
+
 # Run with env
 export AGENT_MODE=deep              # "deep" (parallel) or empty (serial plan-execute)
 export INTERACTIVE=false            # skip human-in-the-loop prompts
 export DEEP_AGENT_CONCURRENCY=3     # max parallel slide generation (default 5)
+export COZELOOP_API_TOKEN=          # optional: CozeLoop observability
+export COZELOOP_WORKSPACE_ID=       # optional: CozeLoop observability
 ```
+
+### Observability (CozeLoop)
+
+When `COZELOOP_API_TOKEN` and `COZELOOP_WORKSPACE_ID` are set, the app registers a CozeLoop callback handler for tracing. A local `LogHandler` (`pkg/callback/callback.go`) is always registered — it logs structured `[<ms>] [<agent>] →/← <component>` lines for tool calls, LLM calls, and agent transitions. Streaming output is handled via `MessageStream.Copy(2)` in the event loop (not the callback system).
 
 ## Architecture
 
@@ -50,13 +60,22 @@ Both modes share the same tool implementations, skill injection, and model confi
 
 The master agent writes `tasks.json` to the work directory. Each task progresses through statuses:
 ```
-pending → done → qa_done → fixed
+pending → generating → done → qa_done → fixed
 ```
+The master agent sets `generating` when it dispatches a task to SlideExecutor, and `done` after the executor reports success. The `generating` status is set in the agent prompt instruction (not enforced in Go types).
+
 Helper methods on `TasksManifest` (`NeedsFix()`, `PendingTasks()`, `DoneTasks()`) drive the orchestration loop. QA results are stored per-task in `qa_report` fields. Fix attempts are capped at 2 per slide.
+
+Status constants are defined in `pkg/agent/deep/types.go`. The `WriteTasksManifest` function merges new tasks with existing statuses (writes don't overwrite in-progress state).
 
 ### Visual QA pipeline
 
-`single_qa_review` tool (`pkg/tools/qa/qa_tool.go`):
+Two QA modes, depending on execution mode:
+
+- **DeepAgent mode**: The Reviewer sub-agent uses `single_qa_review` (`pkg/tools/qa/qa_tool.go`) — one slide at a time, invoked by the master agent per completed task.
+- **Plan-Execute-Replan mode**: Uses batch QA after all slides are generated.
+
+Both share the same underlying pipeline:
 1. Runs `pptx_qa_converter.py` which calls LibreOffice (PPTX→PDF) then pdftoppm (PDF→JPEG at 150 DPI)
 2. Finds the image matching the requested PPTX filename stem
 3. Sends the image + system prompt to a multimodal LLM (via `modelFn`)

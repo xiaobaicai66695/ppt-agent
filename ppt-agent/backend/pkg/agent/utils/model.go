@@ -253,6 +253,15 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 	}, nil
 }
 
+// NewSingleChatModel 根据模型名称创建单个模型（无降级链）。用于压缩器等不需要高可用的场景。
+func NewSingleChatModel(ctx context.Context, modelName string, opts ...ChatModelOption) (model.ToolCallingChatModel, error) {
+	o := &ChatModelConfig{}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return newSingleModel(ctx, modelName, o)
+}
+
 // newSingleModel 根据模型名称创建单个模型
 func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig) (model.ToolCallingChatModel, error) {
 	conf := &ark.ChatModelConfig{
@@ -265,6 +274,13 @@ func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig)
 		TopP:        cfg.TopP,
 	}
 
+	// DeepSeek 系列模型默认开启 thinking 模式，流式输出中会夹杂 reasoning_content，
+	// 导致 eino ReAct 框架解析 tool call JSON 失败。这里自动禁用。
+	if strings.Contains(strings.ToLower(modelName), "deepseek") {
+		conf.Thinking = &arkmodel.Thinking{
+			Type: arkmodel.ThinkingTypeDisabled,
+		}
+	}
 	if cfg.DisableThinking != nil && *cfg.DisableThinking {
 		conf.Thinking = &arkmodel.Thinking{
 			Type: arkmodel.ThinkingTypeDisabled,

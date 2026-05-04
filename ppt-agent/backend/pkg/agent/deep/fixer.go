@@ -53,7 +53,8 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 - **python3**：执行 Python 代码（参数：code），使用 python-pptx 修复 PPT 问题
 
 ## 任务文件格式（tasks.json）
-- title: 幻灯片标题
+- title: 幻灯片所属 PPT 的标题
+- template: 所使用的模板名称（如 "tech-intro"、"tech-sharing" 等）
 - output_file: PPTX 文件名，如 "1_AI大模型介绍.pptx"
 - status: 任务状态
 - qa_report: 质检报告，包含修复建议

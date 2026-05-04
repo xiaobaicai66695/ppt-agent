@@ -1,328 +1,416 @@
-import React, { useState, useRef, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
-interface Message {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface TaskItem {
+  task_id: string;
+  page_index: number;
+  title: string;
+  content_type: string;
+  output_file: string;
+  status: string;
+  qa_report?: string;
+  fix_attempts?: number;
+}
+
+interface TaskInfo {
   id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
+  query: string;
+  status: 'running' | 'completed' | 'failed';
+  work_dir: string;
+  created_at: string;
+  done_count: number;
+  total_count: number;
+  duration?: string;
+  error?: string;
+  files?: string[];
 }
 
-interface ExecutionEvent {
+interface SSEEvent {
   type: string;
-  message: string;
-  phase?: string;
-  slide?: number;
+  content?: string;
+  tool_name?: string;
+  tool_args?: string;
+  error?: string;
+  tasks?: TaskItem[];
+  done?: number;
   total?: number;
+  files?: string[];
+  message?: string;
+  duration?: string;
+  status?: string;
 }
 
-interface Plan {
-  title: string;
-  theme: string;
-  slides: Slide[];
-}
+// ---------------------------------------------------------------------------
+// Status helpers
+// ---------------------------------------------------------------------------
 
-interface Slide {
-  index: number;
-  title: string;
-  desc: string;
-}
+const STATUS_LABELS: Record<string, string> = {
+  pending: '待生成',
+  generating: '生成中',
+  done: '已完成',
+  qa_done: '已质检',
+  fixed: '已修复',
+  failed: '失败',
+};
 
-const API_BASE = 'http://localhost:8080';
+const STATUS_COLORS: Record<string, string> = {
+  pending: '#94a3b8',
+  generating: '#3b82f6',
+  done: '#22c55e',
+  qa_done: '#14b8a6',
+  fixed: '#a855f7',
+  failed: '#ef4444',
+};
 
-const templates = [
-  {
-    id: 'ai-intro',
-    icon: '🤖',
-    title: 'AI大模型介绍',
-    description: '介绍AI大模型的基础知识和应用场景',
-    prompt: '帮我做一个关于AI大模型的PPT，包含发展历程、技术原理、应用场景和未来展望'
-  },
-  {
-    id: 'tech-sharing',
-    icon: '💻',
-    title: '技术分享',
-    description: '通用的技术分享演示文稿',
-    prompt: '做一个技术分享PPT，主题是微服务架构设计'
-  },
-  {
-    id: 'product-intro',
-    icon: '📦',
-    title: '产品介绍',
-    description: '产品特点和功能展示',
-    prompt: '做一个新产品的介绍PPT，包含产品功能、优势和使用方法'
-  },
-  {
-    id: 'plan-report',
-    icon: '📊',
-    title: '商业计划',
-    description: '创业项目或商业计划展示',
-    prompt: '做一个商业计划书PPT，包含项目背景、市场分析、商业模式和盈利预测'
-  }
-];
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
 
-function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentEvent, setCurrentEvent] = useState<ExecutionEvent | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [planResult, setPlanResult] = useState<Plan | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+export default function App() {
+  const [tasks, setTasks] = useState<TaskInfo[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Active task streaming state
+  const [taskItems, setTaskItems] = useState<TaskItem[]>([]);
+  const [doneCount, setDoneCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [logLines, setLogLines] = useState<{ ts: number; text: string; kind: string }[]>([]);
+  const [finalFiles, setFinalFiles] = useState<string[]>([]);
+  const [finalMessage, setFinalMessage] = useState('');
+  const [duration, setDuration] = useState('');
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const esRef = useRef<EventSource | null>(null);
 
+  // Load task list on mount
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    fetch('/api/tasks')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setTasks(data);
+      })
+      .catch(() => {});
+  }, []);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || isProcessing) return;
+  // Auto-scroll log
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logLines]);
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: inputValue,
-      timestamp: new Date()
-    };
+  const selectedTask = tasks.find(t => t.id === selectedId);
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
-    setIsProcessing(true);
-    setPlanResult(null);
+  const addLog = useCallback((kind: string, text: string) => {
+    setLogLines(prev => [...prev.slice(-300), { ts: Date.now(), text, kind }]);
+  }, []);
 
-    const aiMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: '',
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, aiMessage]);
+  const handleCreate = async () => {
+    const q = query.trim();
+    if (!q || creating) return;
+    setCreating(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/generate/stream`, {
+      const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: inputValue })
+        body: JSON.stringify({ query: q }),
       });
+      const info: TaskInfo = await res.json();
+      setTasks(prev => [info, ...prev]);
+      setSelectedId(info.id);
+      setQuery('');
+      setTaskItems([]);
+      setDoneCount(0);
+      setTotalCount(0);
+      setLogLines([]);
+      setFinalFiles([]);
+      setFinalMessage('');
+      setDuration('');
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                handleStreamEvent(data);
-              } catch (e) {
-                console.error('Parse error:', e);
-              }
-            }
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Request failed:', error);
-      simulateProcess();
+      // Connect SSE
+      connectSSE(info.id);
+    } catch (err) {
+      addLog('error', '创建任务失败: ' + (err as Error).message);
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleStreamEvent = (event: ExecutionEvent) => {
-    setCurrentEvent(event);
+  const connectSSE = (taskId: string) => {
+    if (esRef.current) esRef.current.close();
 
-    if (event.type === 'phase_start') {
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content === '') {
-          return [...prev.slice(0, -1), { ...lastMsg, content: `**${event.message}**\n\n` }];
+    const es = new EventSource(`/api/tasks/${taskId}/stream`);
+    esRef.current = es;
+
+    const handleEvent = (e: MessageEvent) => {
+      try {
+        const evt: SSEEvent = JSON.parse(e.data);
+        switch (evt.type) {
+          case 'answer':
+            addLog('answer', evt.content || '');
+            break;
+          case 'tool_call':
+            addLog('tool', `🔧 ${evt.tool_name}(${evt.tool_args ? evt.tool_args.slice(0, 120) : ''})`);
+            break;
+          case 'progress':
+            if (evt.tasks) setTaskItems(evt.tasks);
+            if (evt.done !== undefined) setDoneCount(evt.done);
+            if (evt.total !== undefined) setTotalCount(evt.total);
+            break;
+          case 'error':
+            addLog('error', '❌ ' + (evt.error || evt.content || ''));
+            break;
+          case 'complete':
+            setDoneCount(evt.done || 0);
+            setTotalCount(evt.total || 0);
+            if (evt.files) setFinalFiles(evt.files);
+            if (evt.message) setFinalMessage(evt.message);
+            if (evt.duration) setDuration(evt.duration);
+            if (evt.tasks) setTaskItems(evt.tasks);
+            es.close();
+            // Refresh task info
+            fetch(`/api/tasks/${taskId}`)
+              .then(r => r.json())
+              .then((info: TaskInfo) => {
+                setTasks(prev => prev.map(t => (t.id === taskId ? info : t)));
+              })
+              .catch(() => {});
+            break;
         }
-        return [...prev, {
-          id: Date.now().toString(),
-          role: 'assistant' as const,
-          content: `**${event.message}**\n\n`,
-          timestamp: new Date()
-        }];
-      });
-    } else if (event.type === 'slide_progress') {
-      setProgress((event.slide || 0) / (event.total || 1) * 100);
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant') {
-          return [...prev.slice(0, -1), {
-            ...lastMsg,
-            content: lastMsg.content + `正在生成第 ${event.slide}/${event.total} 页...\n\n`
-          }];
-        }
-        return prev;
-      });
-    } else if (event.type === 'plan_complete' && event.plan) {
-      setPlanResult(event.plan as Plan);
-    } else if (event.type === 'complete') {
-      setIsProcessing(false);
-      setProgress(100);
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant') {
-          return [...prev.slice(0, -1), {
-            ...lastMsg,
-            content: lastMsg.content + `\n\n✅ **PPT生成完成！**`
-          }];
-        }
-        return prev;
-      });
+      } catch { /* ignore parse errors */ }
+    };
+
+    es.addEventListener('answer', handleEvent);
+    es.addEventListener('tool_call', handleEvent);
+    es.addEventListener('progress', handleEvent);
+    es.addEventListener('error', handleEvent);
+    es.addEventListener('complete', handleEvent);
+
+    es.onerror = () => {
+      // SSE will auto-reconnect; if the task is done the server closes it.
+    };
+  };
+
+  const handleSelectTask = (id: string) => {
+    setSelectedId(id);
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    // Reset display state
+    setTaskItems([]);
+    setDoneCount(task.done_count);
+    setTotalCount(task.total_count);
+    setLogLines([]);
+    setFinalFiles(task.files || []);
+    setFinalMessage('');
+    setDuration(task.duration || '');
+
+    if (task.status === 'running') {
+      connectSSE(id);
+    } else {
+      // Load tasks.json for completed tasks
+      fetch(`/api/tasks/${id}`)
+        .then(r => r.json())
+        .then((info: TaskInfo) => {
+          setDoneCount(info.done_count);
+          setTotalCount(info.total_count);
+          setFinalFiles(info.files || []);
+          setDuration(info.duration || '');
+        })
+        .catch(() => {});
     }
-  };
-
-  const simulateProcess = () => {
-    const steps = [
-      { type: 'phase_start', message: '🔍 正在分析您的需求...', phase: 'plan' },
-      { type: 'plan_complete', message: '规划完成！', plan: { title: 'AI大模型介绍', theme: 'professional', slides: [] } },
-      { type: 'slide_progress', message: '正在生成第1页...', slide: 1, total: 5 },
-      { type: 'slide_progress', message: '正在生成第2页...', slide: 2, total: 5 },
-      { type: 'slide_progress', message: '正在生成第3页...', slide: 3, total: 5 },
-      { type: 'slide_progress', message: '正在生成第4页...', slide: 4, total: 5 },
-      { type: 'slide_progress', message: '正在生成第5页...', slide: 5, total: 5 },
-      { type: 'complete', message: 'PPT生成完成！' }
-    ];
-
-    let index = 0;
-    const interval = setInterval(() => {
-      if (index < steps.length) {
-        handleStreamEvent(steps[index] as ExecutionEvent);
-        index++;
-      } else {
-        clearInterval(interval);
-      }
-    }, 800);
-  };
-
-  const handleTemplateClick = (template: typeof templates[0]) => {
-    setInputValue(template.prompt);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleCreate();
     }
   };
 
-  return (
-    <div className="app-container">
-      <header className="header">
-        <div className="header-content">
-          <div className="logo">
-            <div className="logo-icon">📊</div>
-            <span className="logo-text">PPT智能生成助手</span>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <span style={{
-              padding: '0.25rem 0.75rem',
-              background: isProcessing ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
-              color: isProcessing ? '#f59e0b' : '#10b981',
-              borderRadius: '9999px',
-              fontSize: '0.75rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.25rem'
-            }}>
-              <span className={`status-dot ${isProcessing ? 'processing' : ''}`}></span>
-              {isProcessing ? '处理中' : '就绪'}
-            </span>
-          </div>
-        </div>
-      </header>
+  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-      <main className="main-content">
-        <div className="chat-container">
-          <div className="chat-messages">
-            {messages.length === 0 && (
-              <div className="templates-section">
-                <h3 style={{ marginBottom: '1rem', color: '#64748b' }}>选择模板快速开始</h3>
-                <div className="templates-grid">
-                  {templates.map(template => (
-                    <div
-                      key={template.id}
-                      className="template-card"
-                      onClick={() => handleTemplateClick(template)}
-                    >
-                      <div className="template-icon">{template.icon}</div>
-                      <div className="template-title">{template.title}</div>
-                      <div className="template-desc">{template.description}</div>
+  return (
+    <div className="layout">
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <h1 className="sidebar-logo">📊 PPT Agent</h1>
+          <span className="sidebar-sub">AI 幻灯片生成</span>
+        </div>
+
+        {/* Create form */}
+        <div className="create-form">
+          <textarea
+            className="create-input"
+            placeholder="描述你的 PPT 需求..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={2}
+          />
+          <button className="create-btn" onClick={handleCreate} disabled={creating}>
+            {creating ? '创建中...' : '生成 PPT'}
+          </button>
+        </div>
+
+        {/* Task history */}
+        <div className="task-list">
+          <h3 className="task-list-title">任务历史</h3>
+          {tasks.length === 0 && <p className="empty-hint">暂无任务</p>}
+          {tasks.map(t => (
+            <div
+              key={t.id}
+              className={`task-item ${t.id === selectedId ? 'active' : ''}`}
+              onClick={() => handleSelectTask(t.id)}
+            >
+              <div className="task-item-top">
+                <span className="task-item-query">{t.query.slice(0, 40)}{t.query.length > 40 ? '...' : ''}</span>
+              </div>
+              <div className="task-item-meta">
+                <span className="task-badge" style={{ background: t.status === 'running' ? '#3b82f6' : t.status === 'completed' ? '#22c55e' : '#ef4444' }}>
+                  {t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : '失败'}
+                </span>
+                <span className="task-item-time">{fmtTime(t.created_at)}</span>
+              </div>
+              {t.total_count > 0 && (
+                <div className="task-item-progress">
+                  <div className="mini-bar"><div className="mini-bar-fill" style={{ width: `${Math.round((t.done_count / t.total_count) * 100)}%` }} /></div>
+                  <span className="mini-count">{t.done_count}/{t.total_count}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main className="main">
+        {!selectedTask ? (
+          <div className="welcome">
+            <div className="welcome-icon">📊</div>
+            <h2>PPT Agent</h2>
+            <p>在左侧输入需求，开始生成 PPT</p>
+            <div className="welcome-hints">
+              <div className="hint-card">
+                <strong>并行生成</strong>
+                <span>多个幻灯片同时生成，大幅提升效率</span>
+              </div>
+              <div className="hint-card">
+                <strong>自动质检</strong>
+                <span>生成后自动进行视觉质量检查</span>
+              </div>
+              <div className="hint-card">
+                <strong>实时追踪</strong>
+                <span>每页状态实时可见，进度一目了然</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="dashboard">
+            {/* Header */}
+            <div className="dash-header">
+              <div>
+                <h2 className="dash-title">{selectedTask.query}</h2>
+                <span className="dash-id">ID: {selectedTask.id.slice(0, 8)}...</span>
+              </div>
+              <div className="dash-stats">
+                {selectedTask.status === 'running' && <span className="stat-badge running">● 运行中</span>}
+                {selectedTask.status === 'completed' && <span className="stat-badge done">● 已完成</span>}
+                {selectedTask.status === 'failed' && <span className="stat-badge failed">● 失败</span>}
+                {duration && <span className="stat-duration">⏱ {duration}</span>}
+              </div>
+            </div>
+
+            {/* Progress */}
+            {totalCount > 0 && (
+              <div className="progress-section">
+                <div className="progress-header">
+                  <span>进度</span>
+                  <span className="progress-num">{doneCount} / {totalCount} 页</span>
+                </div>
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${progressPct}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* Task cards grid */}
+            {taskItems.length > 0 && (
+              <div className="cards-section">
+                <h3 className="section-title">页面状态</h3>
+                <div className="cards-grid">
+                  {taskItems.map(item => (
+                    <div key={item.task_id} className="task-card">
+                      <div className="card-status" style={{ background: STATUS_COLORS[item.status] || '#94a3b8' }}>
+                        {item.page_index}
+                      </div>
+                      <div className="card-body">
+                        <div className="card-title">{item.title}</div>
+                        <div className="card-meta">
+                          <span className="card-type">{item.content_type}</span>
+                          <span className="card-status-label" style={{ color: STATUS_COLORS[item.status] || '#94a3b8' }}>
+                            {STATUS_LABELS[item.status] || item.status}
+                          </span>
+                        </div>
+                        {item.output_file && (
+                          <div className="card-file">{item.output_file}</div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {messages.map(message => (
-              <div key={message.id} className={`message ${message.role}`}>
-                <div className="message-avatar">
-                  {message.role === 'user' ? '👤' : '🤖'}
-                </div>
-                <div className="message-content">
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
-                </div>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {isProcessing && (
-            <div className="status-bar">
-              <div className="status-indicator">
-                <span className="status-dot processing"></span>
-                <span>{currentEvent?.message || '处理中...'}</span>
-              </div>
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+            {/* Event log */}
+            <div className="log-section">
+              <h3 className="section-title">事件日志 {logLines.length > 0 && `(${logLines.length})`}</h3>
+              <div className="log-box">
+                {logLines.length === 0 && <p className="empty-hint">等待事件...</p>}
+                {logLines.map((l, i) => (
+                  <div key={i} className={`log-line ${l.kind}`}>
+                    <span className="log-ts">{new Date(l.ts).toLocaleTimeString()}</span>
+                    <span className="log-text">{l.text}</span>
+                  </div>
+                ))}
+                <div ref={logEndRef} />
               </div>
             </div>
-          )}
 
-          <div className="input-container">
-            <div className="input-wrapper">
-              <textarea
-                className="chat-input"
-                placeholder="描述你想要制作的PPT内容..."
-                value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={1}
-              />
-              <button
-                className="send-button"
-                onClick={handleSend}
-                disabled={!inputValue.trim() || isProcessing}
-              >
-                {isProcessing ? '生成中...' : '发送'}
-              </button>
-            </div>
-          </div>
-        </div>
+            {/* Final message */}
+            {finalMessage && (
+              <div className="final-message">
+                <h3>生成结果</h3>
+                <p>{finalMessage}</p>
+              </div>
+            )}
 
-        {planResult && (
-          <div style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            background: 'white',
-            borderRadius: '8px',
-            boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-          }}>
-            <h4 style={{ marginBottom: '0.5rem' }}>📋 PPT大纲预览</h4>
-            <p><strong>标题：</strong>{planResult.title}</p>
-            <p><strong>主题：</strong>{planResult.theme}</p>
-            <p><strong>页数：</strong>{planResult.slides.length} 页</p>
+            {/* File downloads */}
+            {finalFiles.length > 0 && (
+              <div className="files-section">
+                <h3 className="section-title">生成文件 ({finalFiles.length})</h3>
+                <div className="files-grid">
+                  {finalFiles.map(f => {
+                    const name = f.split(/[/\\]/).pop() || f;
+                    return (
+                      <a
+                        key={f}
+                        className="file-card"
+                        href={`/api/tasks/${selectedTask.id}/files/${encodeURIComponent(name)}`}
+                        download
+                      >
+                        <span className="file-icon">📄</span>
+                        <span className="file-name">{name}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -330,4 +418,13 @@ function App() {
   );
 }
 
-export default App;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function fmtTime(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

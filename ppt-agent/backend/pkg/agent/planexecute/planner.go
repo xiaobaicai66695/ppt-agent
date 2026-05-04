@@ -44,12 +44,27 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 
 **2. 风格与主题**
 从以下配色方案中选择（对应 palette 字段）：
-- ocean_soft（雾霾蓝）：技术分享、学术汇报
-- sage_calm（鼠尾草绿）：教学课件、周报
-- warm_terracotta（陶土橙）：团队分享、产品发布
-- charcoal_light（浅炭灰）：商务路演、商业计划
-- berry_cream（玫瑰灰粉）：用户案例、创意展示
-- lavender_mist（薰衣草灰）：文艺分享、知识传播
+
+**【重要】配色选择规则：**
+
+中国场景：
+- 涉及政府/政党/政务/时政 → government_red（政务红）
+- 涉及思政课/团课/爱国主义 → patriotic_blue（爱国蓝）
+- 涉及答辩/毕业设计/课程项目 → debate_purple（答辩紫）
+- 涉及竞赛/创业/创新项目 → civic_gold（公民金）
+- 涉及活动策划/团建/宣传 → activity_orange（活力橙）
+- 涉及调研/行业分析/述职 → report_green（报告绿）
+- 涉及课堂短讲/通用场景/不确定 → simple_gray（简约灰）
+
+经典场景：
+- 涉及学术/技术/研究 → ocean_soft（雾霾蓝）
+- 涉及教学/课件/周报 → sage_calm（鼠尾草绿）
+- 涉及团队分享/产品发布 → warm_terracotta（陶土橙）
+- 涉及商务路演/商业计划 → charcoal_light（浅炭灰）
+- 涉及用户案例/创意展示 → berry_cream（玫瑰灰粉）
+- 涉及文艺分享/知识传播 → lavender_mist（薰衣草灰）
+- 涉及环保/自然主题 → forest_moss（苔藓绿）
+- 涉及温馨/人文主题 → sunset_peach（杏色）
 
 **3. 模板起点（优先使用模板）**
 从以下完整PPT模板中选择（优先使用模板改编，而非从零设计）：
@@ -59,6 +74,18 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - weekly-report（周报）：周报、月报、工作汇报，6-8页
 - pitch-deck（商业计划）：创业路演、商业计划，10-12页
 - course-module（课程课件）：教学课件、培训材料，14-17页
+- current-affairs（时政分享）：时政热点分析、政策解读，10-14页
+- politics-ideology（思政团课）：思政教育、团课主题，12-16页
+- design-defense（答辩汇报）：课设/毕设答辩、项目展示，10-14页
+- innovation-compete（科创竞赛）：大创/挑战杯/竞赛汇报，12-16页
+- research-report（调研报告）：行业分析、调研汇报，10-14页
+- activity-plan（活动策划）：团建活动、策划方案，8-12页
+- personal-summary（述职报告）：个人总结、述职汇报，8-12页
+- short-class-talk（课堂分享）：课堂短时分享（精简版），5-8页
+- meeting-minutes（会议纪要）：会议记录、工作例会，8-12页
+- product-intro（产品介绍）：产品功能演示、客户介绍，12-15页
+- training-course（培训课件）：内部培训、技能培训，15-20页
+- project-proposal（项目提案）：新项目立项、资源申请，12-16页
 
 如果用户场景与模板匹配，直接引用模板结构增删调整。
 如果场景与模板明显差异，使用单页布局模板组合生成。
@@ -130,6 +157,20 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - 是人物 → team_intro
 - **保留回退机制**：如果没有特殊内容特征，使用 content_slide 即可，避免生搬硬套。
 
+### 内容叙事类（用于将抽象概念转化为具体认知，必须优先使用）
+
+**核心原则：每一页都必须有至少一个具体的、命名的、带数字的实例。禁止纯抽象论述。**
+
+- **image_text（图文混排页）**：用图片配合文字说明案例/产品/成果，增强可信性。必须包含：图片占位 + 标题 + 核心要点(4-5条，每条不超过35字)。适用于案例展示、产品介绍、成果汇报等场景
+- **deep_dive（双栏详解页）**：双栏布局深入展开。左栏放核心要点和分析，右栏放案例和数据。适用于深入讲解概念、方法、机制等场景，通用性强，不限于技术主题
+- **kpi_dashboard（指标看板）**：3-4 个核心指标卡片，每卡片含：数值(带单位) + 标签 + 趋势方向(↑↓→) + 同比/环比变化
+
+**内容深度决策树：**
+- 展示案例/产品/成果 → 优先使用 image_text（图文混排），必须有图片占位和真实案例
+- 深入讲解概念/方法/机制 → 优先使用 deep_dive（双栏详解），左要点右案例
+- 强调关键指标 → 使用 stat_slide（关键数字页）或 kpi_dashboard（指标看板）
+- 一个复杂主题需要多页展开 → 拆为「概述页」+「图文页」+「详解页」
+
 **5. 配色方案建议：**
 - tech: 科技技术主题，深空蓝 + 科技青
 - professional: 正式报告，深海蓝
@@ -146,10 +187,16 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 当需要分页时，sub_steps 中的每个子页**必须**包含 content_plan，内容元素要充分展开。
 
 **元素丰富度要求：**
-- bullet_list：每个 items 要有具体说明，不能只是标题
-- example_box：description 要详细（技术参数、数据指标、效果数字），不能只是"某系统应用了AI"
+- bullet_list：每个 items 要有具体说明，不能只是标题。每条至少包含一个具体数字或事实
+- example_box：description 要详细（技术参数、数据指标、效果数字），必须有命名实体（公司/系统/人物名称），不能只是"某系统应用了AI"
 - callout：text 要有具体数字或论据支撑
+- **kpi_grid**：3-4 个指标卡片，每卡片包含 label(指标名) + value(数值+单位，如"1248K") + trend(↑/↓/→) + delta(变化幅度，如"+38% YoY")
+- **stat_slide**：单个或多个大数字居中展示，用于强调关键指标（见 stat_slide 生成器）
+- **case_study_block**：结构化案例块，包含 context(行业背景1-2句) + problem(痛点1句) + solution(方案2-3句，含技术细节) + results(量化结果2-3条，每条含具体数字)
+- **two_column**：双列对比，left_header(左列标题) + left_bullets(3-5条) + right_header + right_bullets(3-5条)。每条差异必须用具体数字或事实，禁用模糊描述
+- **data_table**：headers(列表头数组) + rows(数据行二维数组)，适用于结构化多维对比
 - 每个 sub_step 至少包含 2-3 个元素，且每个元素的内容要有实质信息
+- **优先使用实例型元素**（example_box, case_study_block, kpi_grid）而非纯 bullet_list
 
 **错误示例（内容太简单）：**
 - example_box: {"title": "AI应用", "description": "AI在各行业有广泛应用"}

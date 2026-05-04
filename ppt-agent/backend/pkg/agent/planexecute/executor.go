@@ -64,7 +64,7 @@ generators 包位于 skills/visual_designer/generators/，python3 执行时按�
 
 ### 调用规范（必须严格遵守）
 
-- ` + bt + `new_presentation(palette="xxx")` + bt + ` 创建演示文稿，**内部已包含一个空白幻灯片（slide[0]）**
+- ` + bt + `new_presentation(palette="xxx")` + bt + ` 创建演示文稿，**不含幻灯片，slide 由 generate_xxx 创建**
 - 每个 generate_xxx 函数必须传入 ` + bt + `prs` + bt + ` 参数，否则会新建一个独立的 presentation，导致最终保存时出现空白页
 - **` + bt + `save_slide(slide, output_path)` + bt + `**：将单个 slide 保存为独立的 PPTX 文件（推荐使用）
 - **` + bt + `save_presentation(prs, output_path)` + bt + `**：保存整个 presentation
@@ -73,13 +73,13 @@ generators 包位于 skills/visual_designer/generators/，python3 执行时按�
 
 **单页（每任务一页，推荐用 save_slide）**：
 
-    prs = new_presentation(palette="ocean_soft")  # 已创建 slide[0]
+    prs = new_presentation(palette="ocean_soft")  # 创建空 presentation
     generate_xxx(prs, palette="ocean_soft", ...)  # 将内容填入 slide[0]
     save_slide(prs.slides[0], os.path.join(script_dir, "1_标题页.pptx"))  # 保存 1 页
 
 **多页（分页组子页，需要在同一 python3 调用中生成多个子页）**：
 
-    prs = new_presentation(palette="ocean_soft")  # slide[0]
+    prs = new_presentation(palette="ocean_soft")  # 创建空 presentation
     generate_xxx(prs, ...)   # slide[0]
     generate_xxx(prs, ...)   # slide[1]
     save_slide(prs.slides[0], os.path.join(script_dir, "2.1_子页1.pptx"))

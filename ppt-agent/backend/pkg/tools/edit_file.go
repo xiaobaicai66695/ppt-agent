@@ -17,8 +17,10 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"regexp"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/components/tool"
@@ -61,9 +63,37 @@ type editInput struct {
 	Content string `json:"content"`
 }
 
+// normalizeContentBlock converts Anthropic content block format in the JSON string
+// to plain string values. For example: {"content":{"type":"text","text":"..."}}
+// becomes {"content":"..."}
+func normalizeContentBlock(argsJSON string) (string, error) {
+	var buf bytes.Buffer
+	err := json.Compact(&buf, []byte(argsJSON))
+	if err != nil {
+		return argsJSON, nil
+	}
+	normalized := buf.String()
+
+	contentBlockRegex := regexp.MustCompile(`"content"\s*:\s*\{\s*"type"\s*:\s*"text"\s*,\s*"text"\s*:\s*("([^"\\]|\\.)*")\s*\}`)
+	normalized = contentBlockRegex.ReplaceAllStringFunc(normalized, func(match string) string {
+		parts := contentBlockRegex.FindStringSubmatch(match)
+		if len(parts) < 2 {
+			return match
+		}
+		return `"content":` + parts[1]
+	})
+
+	return normalized, nil
+}
+
 func (e *editFileTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
+	normalized, err := normalizeContentBlock(argumentsInJSON)
+	if err != nil {
+		return "", err
+	}
+
 	input := &editInput{}
-	err := json.Unmarshal([]byte(argumentsInJSON), input)
+	err = json.Unmarshal([]byte(normalized), input)
 	if err != nil {
 		return "", err
 	}

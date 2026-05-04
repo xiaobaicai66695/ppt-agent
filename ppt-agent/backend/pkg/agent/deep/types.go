@@ -26,17 +26,27 @@ import (
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
+
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 )
 
 // PPTTaskConfig PPT 任务配置
 type PPTTaskConfig struct {
-	WorkDir     string
-	TaskID      string
-	Concurrency int
-	Operator    commandline.Operator
-	QAModelFn   func(ctx context.Context) (model.ToolCallingChatModel, error)
-	Skills      string
+	WorkDir       string
+	TaskID        string
+	Concurrency   int
+	Operator      commandline.Operator
+	QAModelFn     func(ctx context.Context) (model.ToolCallingChatModel, error)
+	Skills        string
+	SkillsDir     string // skills 目录的绝对路径，用于构造 read_file 可用的模板路径
+	CompressorOpt CompressorOption
 }
+
+// CompressorOption 定义上下文压缩中间件的配置
+type CompressorOption = agentutils.CompressorOption
+
+// CompressorConfig 压缩器配置
+type CompressorConfig = agentutils.CompressorConfig
 
 // TasksManifest PPT 任务清单
 type TasksManifest struct {
@@ -162,7 +172,7 @@ type PPTTaskStart struct {
 	Runner       *adk.Runner
 	Iter         *adk.AsyncIterator[*adk.AgentEvent]
 	CheckpointID string
-	StartTime   time.Time
+	StartTime    time.Time
 }
 
 type PPTTaskResult struct {

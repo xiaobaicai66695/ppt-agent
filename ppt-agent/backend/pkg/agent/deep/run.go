@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -28,6 +29,25 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/human"
 )
+
+// AgentEventType constants for streaming events.
+const (
+	AgentEventAnswer   = "answer"
+	AgentEventToolCall = "tool_call"
+	AgentEventError    = "error"
+)
+
+// AgentEvent is a structured event emitted during agent execution.
+type AgentEvent struct {
+	Type     string `json:"type"`
+	Content  string `json:"content,omitempty"`
+	ToolName string `json:"tool_name,omitempty"`
+	ToolArgs string `json:"tool_args,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// AgentEventCallback is called for each event during agent execution.
+type AgentEventCallback func(event AgentEvent)
 
 func StartPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskStart, error) {
 	startTime := time.Now()
@@ -45,7 +65,7 @@ func StartPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 		Runner:       runner,
 		Iter:         iter,
 		CheckpointID: cfg.TaskID,
-		StartTime:   startTime,
+		StartTime:    startTime,
 	}, nil
 }
 
@@ -89,6 +109,19 @@ func RunPPTTaskDeepAgentWithHuman(ctx context.Context, agent adk.Agent, cfg *PPT
 }
 
 func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskResult, error) {
+	return runPPTTaskDeepAgentInternal(ctx, agent, cfg, userQuery, makePrintCallback())
+}
+
+// RunPPTTaskDeepAgentWithCallback runs the agent and calls onEvent for each streaming event.
+// The callback is called synchronously — the caller should forward events or buffer them quickly.
+func RunPPTTaskDeepAgentWithCallback(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
+	userQuery string, onEvent AgentEventCallback) (*PPTTaskResult, error) {
+	return runPPTTaskDeepAgentInternal(ctx, agent, cfg, userQuery, onEvent)
+}
+
+func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
+	userQuery string, onEvent AgentEventCallback) (*PPTTaskResult, error) {
+
 	start, err := StartPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
 	if err != nil {
 		return nil, err
@@ -99,6 +132,7 @@ func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfi
 	var (
 		lastMessage       adk.Message
 		lastMessageStream *schema.StreamReader[adk.Message]
+		answerBuf         strings.Builder
 	)
 
 	for {
@@ -117,12 +151,15 @@ func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfi
 				event.Output.MessageOutput.MessageStream = cpStream[0]
 				lastMessage = nil
 				lastMessageStream = cpStream[1]
-				printStreamingMessage(lastMessageStream)
+				processStreamingMessage(lastMessageStream, onEvent, &answerBuf)
 			} else {
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
 				if lastMessage != nil && lastMessage.Content != "" {
-					fmt.Printf("\nanswer: %s\n", lastMessage.Content)
+					onEvent(AgentEvent{
+						Type:    AgentEventAnswer,
+						Content: lastMessage.Content,
+					})
 				}
 			}
 		}
@@ -130,20 +167,20 @@ func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfi
 		if event.Output != nil && event.Output.MessageOutput != nil {
 			if m := event.Output.MessageOutput.Message; m != nil {
 				for _, tc := range m.ToolCalls {
-					fmt.Printf("\ntool name: %s", tc.Function.Name)
-					fmt.Printf("\narguments: %s", tc.Function.Arguments)
+					onEvent(AgentEvent{
+						Type:     AgentEventToolCall,
+						ToolName: tc.Function.Name,
+						ToolArgs: tc.Function.Arguments,
+					})
 				}
 			}
 		}
 
 		if event.Err != nil {
-			fmt.Printf("\nerror: %v\n", event.Err)
-		}
-
-		if event.Action != nil {
-			if event.Action.Exit {
-				fmt.Printf("\naction: exit\n")
-			}
+			onEvent(AgentEvent{
+				Type:  AgentEventError,
+				Error: event.Err.Error(),
+			})
 		}
 	}
 
@@ -154,10 +191,8 @@ func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfi
 	var lastMsg string
 	if lastMessage != nil {
 		lastMsg = lastMessage.Content
-	} else if lastMessageStream != nil {
-		if msg, err := schema.ConcatMessageStream(lastMessageStream); err == nil {
-			lastMsg = msg.Content
-		}
+	} else if answerBuf.Len() > 0 {
+		lastMsg = answerBuf.String()
 	}
 
 	manifest, err := ReadTasksManifest(cfg.WorkDir)
@@ -179,41 +214,40 @@ func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfi
 	return result, nil
 }
 
-func printStreamingMessage(stream *schema.StreamReader[adk.Message]) {
+func makePrintCallback() AgentEventCallback {
+	return func(event AgentEvent) {
+		switch event.Type {
+		case AgentEventAnswer:
+			fmt.Printf("\nanswer: %s\n", event.Content)
+		case AgentEventToolCall:
+			fmt.Printf("\ntool name: %s", event.ToolName)
+			fmt.Printf("\narguments: %s", event.ToolArgs)
+		case AgentEventError:
+			fmt.Printf("\nerror: %s\n", event.Error)
+		}
+	}
+}
+
+func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent AgentEventCallback, buf *strings.Builder) {
 	if stream == nil {
 		return
 	}
-
-	answerPrinted := false
-	toolPrinted := false
-
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
-			if err == io.EOF {
-				break
+			if err != io.EOF {
+				onEvent(AgentEvent{Type: AgentEventError, Error: err.Error()})
 			}
-			fmt.Printf("error: %v", err)
 			return
 		}
-
 		if chunk.Content == "" {
 			continue
 		}
-
-		if chunk.Role == schema.Tool {
-			if !toolPrinted {
-				toolPrinted = true
-				fmt.Printf("\ntool response: ")
-			}
-			fmt.Print(chunk.Content)
-		} else {
-			if !answerPrinted {
-				answerPrinted = true
-				fmt.Printf("\nanswer: ")
-			}
-			fmt.Print(chunk.Content)
-		}
+		buf.WriteString(chunk.Content)
+		onEvent(AgentEvent{
+			Type:    AgentEventAnswer,
+			Content: chunk.Content,
+		})
 	}
-	fmt.Println()
 }
+

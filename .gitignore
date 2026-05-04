@@ -17,4 +17,8 @@ frontend/*
 .vscode/
 .env
 .idea/
+
 *.py
+
+# skill Python 文件不受 *.py 规则限制
+!ppt-agent/skills/visual_designer/**/*.py

@@ -65,7 +65,7 @@ func main() {
 			fmt.Printf("\n[统计] 共返回 %d 个可信来源结果\n", len(results))
 		}
 		fmt.Println()
-		fmt.Println("--- 搜索结束 ---\n")
+		fmt.Println("--- 搜索结束 ---")
 	}
 }
 
