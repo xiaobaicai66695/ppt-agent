@@ -74,7 +74,8 @@ func (m *TasksManifest) MustMarshalJSON() string {
 }
 
 func (m *TasksManifest) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, m)
+	type alias TasksManifest
+	return json.Unmarshal(data, (*alias)(m))
 }
 
 func (m *TasksManifest) CompletedCount() int {

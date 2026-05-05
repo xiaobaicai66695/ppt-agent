@@ -17,6 +17,7 @@ import (
 	"github.com/joho/godotenv"
 
 	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
+	"github.com/cloudwego/eino-ext/adk/backend/local"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
@@ -64,16 +65,22 @@ func main() {
 	}
 
 	// Skill backend
-	be, err := skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
-		BaseDir: filepath.Join(pwd, "..", "skills"),
+	localBE, err := local.NewBackend(ctx, &local.Config{})
+	if err != nil {
+		fmt.Printf("local.NewBackend failed, err: %v\n", err)
+		return
+	}
+
+	skillsDir := filepath.Join(pwd, "..", "skills")
+	_, err = skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
+		Backend: localBE,
+		BaseDir: skillsDir,
 	})
 	if err != nil {
 		fmt.Printf("skill.NewBackendFromFilesystem failed, err: %v\n", err)
 		return
 	}
-	_ = be
 
-	skillsDir := filepath.Join(pwd, "..", "skills")
 	loadedSkills, err := agent.LoadSkillsFromDir(ctx, skillsDir)
 	if err != nil {
 		fmt.Printf("agent.LoadSkillsFromDir failed, err: %v\n", err)

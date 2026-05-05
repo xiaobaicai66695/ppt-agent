@@ -77,6 +77,33 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filePath)
 }
 
+func (s *Server) handleThumbnail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	filename := r.PathValue("filename")
+
+	ts := s.tasks.GetTaskState(id)
+	if ts == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+		return
+	}
+
+	filePath := filepath.Join(ts.Info.WorkDir, filename)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})
+		return
+	}
+
+	jpeg, err := GenerateThumbnail(filePath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(jpeg)
+}
+
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if s.tasks.CancelTask(id) {

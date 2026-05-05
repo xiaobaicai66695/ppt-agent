@@ -55,24 +55,30 @@ type TaskInfo struct {
 
 // TaskState holds the internal state of a single task.
 type TaskState struct {
-	Info      TaskInfo
-	events    []SSERichEvent
-	listeners map[string]chan SSERichEvent
-	cancel    context.CancelFunc
-	result    *deep.PPTTaskResult
-	mu        sync.Mutex
+	Info          TaskInfo
+	events        []SSERichEvent
+	listeners     map[string]chan SSERichEvent
+	cancel        context.CancelFunc
+	result        *deep.PPTTaskResult
+	reportedFiles map[string]bool // 已上报过的 output_file，避免重复发送 file_ready
+	mu            sync.Mutex
 }
 
 func (ts *TaskState) addListener(id string, ch chan SSERichEvent) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+	if ts.listeners == nil {
+		ts.listeners = make(map[string]chan SSERichEvent)
+	}
 	ts.listeners[id] = ch
 }
 
 func (ts *TaskState) removeListener(id string) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	delete(ts.listeners, id)
+	if ts.listeners != nil {
+		delete(ts.listeners, id)
+	}
 }
 
 func (ts *TaskState) broadcast(event SSERichEvent) {
@@ -93,6 +99,9 @@ func (ts *TaskState) broadcast(event SSERichEvent) {
 func (ts *TaskState) replay(listenerCh chan SSERichEvent) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+	if ts.listeners == nil {
+		return
+	}
 	for _, evt := range ts.events {
 		select {
 		case listenerCh <- evt:
@@ -145,15 +154,18 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, factory Age
 			WorkDir:   workDir,
 			CreatedAt: time.Now(),
 		},
-		listeners: make(map[string]chan SSERichEvent),
+		listeners:     make(map[string]chan SSERichEvent),
+			reportedFiles: make(map[string]bool),
 	}
-	ctx, ts.cancel = context.WithCancel(ctx)
+	// 使用独立的 background context，避免 HTTP 请求结束后 context 被取消
+	agentCtx, cancel := context.WithCancel(context.Background())
+	ts.cancel = cancel
 
 	tm.mu.Lock()
 	tm.tasks[cfg.TaskID] = ts
 	tm.mu.Unlock()
 
-	go tm.runAgent(ctx, ts, agent, cfg, query)
+	go tm.runAgent(agentCtx, ts, agent, cfg, query)
 
 	return &ts.Info, nil
 }
@@ -223,6 +235,32 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 		case <-ticker.C:
 		}
 
+		// —— 磁盘扫描：直接检查 .pptx 文件是否已落地 ——
+		// 不依赖 tasks.json 的状态更新（master agent 可能很久才更新一次）
+		entries, err := os.ReadDir(workDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				if filepath.Ext(entry.Name()) == ".pptx" {
+					ts.mu.Lock()
+					if !ts.reportedFiles[entry.Name()] {
+						ts.reportedFiles[entry.Name()] = true
+						ts.mu.Unlock()
+						ts.broadcast(SSERichEvent{
+							Type:     "file_ready",
+							ToolName: entry.Name(),
+							Files:    []string{entry.Name()},
+						})
+						continue
+					}
+					ts.mu.Unlock()
+				}
+			}
+		}
+
+		// —— tasks.json 状态轮询 ——
 		manifest, err := deep.ReadTasksManifest(workDir)
 		if err != nil || manifest == nil {
 			continue
@@ -230,6 +268,7 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 
 		done := manifest.CompletedCount()
 		total := len(manifest.Tasks)
+
 		if done == lastDone && total > 0 {
 			continue
 		}

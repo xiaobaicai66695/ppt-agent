@@ -28,13 +28,35 @@ func (s *Server) handleStreamTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// 对于已结束的任务：直接回放历史事件并发送完成信号，不添加监听器
+	ts.mu.Lock()
+	done := ts.Info.Status != TaskStatusRunning
+	events := make([]SSERichEvent, len(ts.events))
+	copy(events, ts.events)
+	ts.mu.Unlock()
+
+	for _, evt := range events {
+		writeSSE(w, flusher, evt)
+	}
+
+	if done {
+		// 如果历史事件中没有 complete，补发一个
+		if len(events) == 0 || events[len(events)-1].Type != "complete" {
+			writeSSE(w, flusher, SSERichEvent{
+				Type:   "complete",
+				Status: ts.Info.Status,
+				Done:   ts.Info.DoneCount,
+				Total:  ts.Info.TotalCount,
+				Files:  ts.Info.Files,
+			})
+		}
+		return
+	}
+
 	listenerID := uuid.New().String()
 	ch := make(chan SSERichEvent, 64)
 	ts.addListener(listenerID, ch)
 	defer ts.removeListener(listenerID)
-
-	// Replay buffered events for catch-up.
-	ts.replay(ch)
 
 	ctx := r.Context()
 	for {
@@ -47,7 +69,6 @@ func (s *Server) handleStreamTask(w http.ResponseWriter, r *http.Request) {
 			}
 			writeSSE(w, flusher, evt)
 			if evt.Type == "complete" {
-				// Give the client time to read the final event.
 				time.Sleep(50 * time.Millisecond)
 				return
 			}

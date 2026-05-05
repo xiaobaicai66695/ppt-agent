@@ -51,6 +51,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleGetTask)
 	mux.HandleFunc("GET /api/tasks/{id}/stream", s.handleStreamTask)
 	mux.HandleFunc("GET /api/tasks/{id}/files/{filename}", s.handleDownloadFile)
+		mux.HandleFunc("GET /api/tasks/{id}/thumb/{filename}", s.handleThumbnail)
 	mux.HandleFunc("POST /api/tasks/{id}/cancel", s.handleCancelTask)
 
 	// Health check.

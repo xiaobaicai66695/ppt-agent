@@ -34,7 +34,13 @@
       "Bash(python -c \"import pptx; s = pptx.Presentation\\(\\); sl = s.slides.add_slide\\(s.slide_layouts[0]\\); print\\(type\\(sl.part\\)\\); print\\([x for x in dir\\(sl.part\\) if not x.startswith\\('_'\\)]\\)\")",
       "Bash(python *)",
       "Bash(node *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npx vue-tsc *)",
+      "Bash(git check-ignore *)",
+      "WebSearch",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); models=data.get\\('data',[]\\); print\\(f'共 {len\\(models\\)} 个模型可用\\\\n'\\); [print\\(f'  {m[\\\\\"id\\\\\"]:45s}  {m.get\\(\\\\\"owned_by\\\\\",\\\\\"\\\\\"\\)}'\\) for m in sorted\\(models, key=lambda x: x['id']\\)[:40]]\")"
     ]
   }
 }

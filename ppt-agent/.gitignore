@@ -1,0 +1,22 @@
+# Output
+output/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Backend
+backend/ppt-agent
+backend/ppt-agent.exe
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env.local
+.env.*.local

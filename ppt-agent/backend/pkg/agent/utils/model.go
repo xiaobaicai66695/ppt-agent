@@ -276,7 +276,14 @@ func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig)
 
 	// DeepSeek 系列模型默认开启 thinking 模式，流式输出中会夹杂 reasoning_content，
 	// 导致 eino ReAct 框架解析 tool call JSON 失败。这里自动禁用。
-	if strings.Contains(strings.ToLower(modelName), "deepseek") {
+	// Qwen3.5/3.6, DeepSeek, Kimi-K2 thinking models consume token budget
+// with reasoning_content, breaking tool call JSON parsing in ReAct.
+// Disable thinking for all such models in tool-calling scenarios.
+shouldDisable := strings.Contains(strings.ToLower(modelName), "deepseek") ||
+strings.Contains(strings.ToLower(modelName), "qwen3.5") ||
+strings.Contains(strings.ToLower(modelName), "qwen3.6") ||
+strings.Contains(strings.ToLower(modelName), "kimi-k2")
+if shouldDisable {
 		conf.Thinking = &arkmodel.Thinking{
 			Type: arkmodel.ThinkingTypeDisabled,
 		}
