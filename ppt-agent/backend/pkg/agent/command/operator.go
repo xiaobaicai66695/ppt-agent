@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 
@@ -65,8 +66,12 @@ func (b *WorkDirBackend) getWorkDir(ctx context.Context) string {
 	return ""
 }
 
-// LocalOperator 本地命令行操作实现
-type LocalOperator struct{}
+// LocalOperator 本地命令行操作实现。
+// workDir 字段作为 context 传播失败时的兜底（Eino sub-agent 可能不继承父 context 的自定义值）。
+type LocalOperator struct {
+	mu      sync.RWMutex
+	workDir string
+}
 
 // 确保 LocalOperator 实现了 commandline.Operator 接口
 var _ commandline.Operator = (*LocalOperator)(nil)
@@ -138,20 +143,27 @@ func (l *LocalOperator) RunCommand(ctx context.Context, command []string) (*comm
 	}, nil
 }
 
-// GetWorkDir 获取工作目录
+// GetWorkDir 获取工作目录。优先从 context 读取；若无则用 operator 自身存储的兜底值。
 func (l *LocalOperator) GetWorkDir(ctx context.Context) string {
-	wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
-	if ok {
+	if wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey); ok && wd != "" {
 		return wd
 	}
-	// fallback 到当前目录
+	l.mu.RLock()
+	wd := l.workDir
+	l.mu.RUnlock()
+	if wd != "" {
+		return wd
+	}
 	if dir, err := os.Getwd(); err == nil {
 		return dir
 	}
 	return ""
 }
 
-// SetWorkDir 设置工作目录到 context
+// SetWorkDir 设置工作目录到 context 并保存到 operator 实例作为兜底。
 func (l *LocalOperator) SetWorkDir(ctx context.Context, dir string) context.Context {
+	l.mu.Lock()
+	l.workDir = dir
+	l.mu.Unlock()
 	return params.SetTypedContextParams(ctx, params.WorkDirSessionKey, dir)
 }

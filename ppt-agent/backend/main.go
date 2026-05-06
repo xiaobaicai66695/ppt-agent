@@ -28,12 +28,14 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	agentplan "github.com/cloudwego/ppt-agent/pkg/agent/planexecute"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
+	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/human"
-	"github.com/cloudwego/ppt-agent/pkg/server"
+	"github.com/cloudwego/ppt-agent/pkg/web"
 	"github.com/cloudwego/ppt-agent/pkg/store"
 )
 
@@ -89,6 +91,20 @@ func main() {
 	skillsContent := agent.FormatSkillsForPrompt(loadedSkills)
 	fmt.Printf("[启动] 加载了 %d 个 skills\n", len(loadedSkills))
 
+	// MySQL 初始化
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:210618@tcp(127.0.0.1:3306)/myapp?charset=utf8mb4&parseTime=True"
+	}
+	if err := db.Init(dsn); err != nil {
+		fmt.Printf("[DB] MySQL 连接失败: %v（用户/会话功能不可用）\n", err)
+	} else {
+		// 创建默认 root 管理员
+		rootEmail := getEnvDefault("ROOT_EMAIL", "root@ppt-agent.local")
+		rootPass := getEnvDefault("ROOT_PASSWORD", "root")
+		auth.SeedRootUser(rootEmail, rootPass)
+	}
+
 	switch *modeFlag {
 	case "web":
 		runWebMode(pwd, skillsContent, skillsDir, *addrFlag)
@@ -108,7 +124,7 @@ func main() {
 // ---------------------------------------------------------------------------
 
 func runWebMode(pwd, skillsContent, skillsDir, addr string) {
-	outputBase := filepath.Join(pwd, "..", "output")
+	outputBase := filepath.Join(pwd, "..", "weboutput")
 
 	// Shared operator (stateless, safe to reuse).
 	operator := &command.LocalOperator{}
@@ -138,7 +154,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		return deep.NewPPTTaskDeepAgent(ctx, cfg)
 	}
 
-	srv := server.NewServer(&server.ServerConfig{
+	srv := web.NewServer(&web.ServerConfig{
 		Addr:         addr,
 		BaseDir:      outputBase,
 		FrontendDir:  filepath.Join(pwd, "..", "frontend", "dist"),
@@ -351,6 +367,13 @@ func setupCozeLoop() cozeloop.Client {
 
 	log.Printf("[Callback] CozeLoop 配置成功: workspaceID=%s", workspaceID)
 	return client
+}
+
+func getEnvDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func getUserQuery() string {

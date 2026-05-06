@@ -1,3 +1,122 @@
+// ── Token management ──────────────────────────────────────────────────────
+
+const TOKEN_KEY = 'ppt_agent_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token);
+  // Also set cookie for EventSource (can't send custom headers)
+  document.cookie = `session_token=${token}; path=/; SameSite=Lax`;
+}
+
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+  document.cookie = 'session_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+}
+
+export function isLoggedIn(): boolean {
+  return !!getToken();
+}
+
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  const t = getToken();
+  if (t) h['Authorization'] = `Bearer ${t}`;
+  return h;
+}
+
+// Global fetch wrapper: auto-redirect to /auth on 401
+async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    clearToken();
+    window.location.href = '/auth';
+    throw new Error('登录已过期，请重新登录');
+  }
+  return res;
+}
+
+// ── Auth API ──────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  token?: string;
+  is_new?: boolean;
+}
+
+export async function sendCode(email: string): Promise<void> {
+  const res = await apiFetch('/api/auth/send-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error || '发送失败');
+  }
+}
+
+export async function loginWithCode(email: string, code: string): Promise<AuthUser> {
+  const res = await apiFetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error || '登录失败');
+  }
+  const data = await res.json();
+  if (data.token) setToken(data.token);
+  return data;
+}
+
+export async function loginWithPassword(email: string, password: string): Promise<AuthUser> {
+  const res = await apiFetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error || '登录失败');
+  }
+  const data = await res.json();
+  if (data.token) setToken(data.token);
+  return data;
+}
+
+export async function setPassword(password: string): Promise<void> {
+  const res = await apiFetch('/api/auth/set-password', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error || '设置失败');
+  }
+}
+
+export async function logout() {
+  try {
+    await apiFetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
+  } catch { /* ignore */ }
+  clearToken();
+}
+
+export async function fetchMe(): Promise<AuthUser> {
+  const res = await apiFetch('/api/auth/me', { headers: authHeaders() });
+  if (!res.ok) throw new Error('未登录');
+  return res.json();
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
 export interface TaskItem {
   task_id: string;
   page_index: number;
@@ -11,6 +130,7 @@ export interface TaskItem {
 
 export interface TaskInfo {
   id: string;
+  user_id?: number;
   query: string;
   status: 'running' | 'completed' | 'failed';
   work_dir: string;
@@ -55,21 +175,39 @@ export const STATUS_COLORS: Record<string, string> = {
   failed: '#ef4444',
 };
 
+// ── Task API ──────────────────────────────────────────────────────────────
+
 export async function fetchTasks(): Promise<TaskInfo[]> {
-  const res = await fetch('/api/tasks');
+  const res = await apiFetch('/api/tasks', { headers: authHeaders() });
   return res.json();
 }
 
 export async function createTask(query: string): Promise<TaskInfo> {
-  const res = await fetch('/api/tasks', {
+  const res = await apiFetch('/api/tasks', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ query }),
   });
   return res.json();
 }
 
 export async function fetchTask(id: string): Promise<TaskInfo> {
-  const res = await fetch(`/api/tasks/${id}`);
+  const res = await apiFetch(`/api/tasks/${id}`, { headers: authHeaders() });
   return res.json();
+}
+
+export async function cancelTask(id: string): Promise<TaskInfo> {
+  const res = await apiFetch(`/api/tasks/${id}/cancel`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  const res = await apiFetch(`/api/tasks/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('删除失败');
 }

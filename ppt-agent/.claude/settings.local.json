@@ -40,7 +40,13 @@
       "Bash(npx vue-tsc *)",
       "Bash(git check-ignore *)",
       "WebSearch",
-      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); models=data.get\\('data',[]\\); print\\(f'共 {len\\(models\\)} 个模型可用\\\\n'\\); [print\\(f'  {m[\\\\\"id\\\\\"]:45s}  {m.get\\(\\\\\"owned_by\\\\\",\\\\\"\\\\\"\\)}'\\) for m in sorted\\(models, key=lambda x: x['id']\\)[:40]]\")"
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); models=data.get\\('data',[]\\); print\\(f'共 {len\\(models\\)} 个模型可用\\\\n'\\); [print\\(f'  {m[\\\\\"id\\\\\"]:45s}  {m.get\\(\\\\\"owned_by\\\\\",\\\\\"\\\\\"\\)}'\\) for m in sorted\\(models, key=lambda x: x['id']\\)[:40]]\")",
+      "Bash(go get *)",
+      "Bash(npx vite *)",
+      "Read(//d/tools/codeGo/pkg/mod/github.com/cloudwego/eino@v0.8.8/adk/**)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(xxd)"
     ]
   }
 }

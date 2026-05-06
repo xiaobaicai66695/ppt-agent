@@ -136,6 +136,13 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 	)
 
 	for {
+		if err := ctx.Err(); err != nil {
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+			return nil, err
+		}
+
 		event, ok := iter.Next()
 		if !ok {
 			break

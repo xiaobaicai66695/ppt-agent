@@ -1,8 +1,10 @@
-package server
+package task
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,6 +13,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
 // TaskStatus represents the overall status of a PPT generation task.
@@ -20,6 +23,7 @@ const (
 	TaskStatusRunning   TaskStatus = "running"
 	TaskStatusCompleted TaskStatus = "completed"
 	TaskStatusFailed    TaskStatus = "failed"
+	TaskStatusCancelled TaskStatus = "cancelled"
 )
 
 // SSERichEvent is an enriched event for SSE streaming. It wraps agent-level
@@ -42,6 +46,7 @@ type SSERichEvent struct {
 // TaskInfo is the public-facing summary of a task.
 type TaskInfo struct {
 	ID         string     `json:"id"`
+	UserID     int        `json:"user_id"`
 	Query      string     `json:"query"`
 	Status     TaskStatus `json:"status"`
 	WorkDir    string     `json:"work_dir"`
@@ -56,36 +61,36 @@ type TaskInfo struct {
 // TaskState holds the internal state of a single task.
 type TaskState struct {
 	Info          TaskInfo
-	events        []SSERichEvent
+	Events        []SSERichEvent
 	listeners     map[string]chan SSERichEvent
 	cancel        context.CancelFunc
 	result        *deep.PPTTaskResult
-	reportedFiles map[string]bool // 已上报过的 output_file，避免重复发送 file_ready
-	mu            sync.Mutex
+	reportedFiles map[string]bool
+	Mu            sync.Mutex
 }
 
-func (ts *TaskState) addListener(id string, ch chan SSERichEvent) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+func (ts *TaskState) AddListener(id string, ch chan SSERichEvent) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	if ts.listeners == nil {
 		ts.listeners = make(map[string]chan SSERichEvent)
 	}
 	ts.listeners[id] = ch
 }
 
-func (ts *TaskState) removeListener(id string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+func (ts *TaskState) RemoveListener(id string) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	if ts.listeners != nil {
 		delete(ts.listeners, id)
 	}
 }
 
-func (ts *TaskState) broadcast(event SSERichEvent) {
-	ts.mu.Lock()
-	ts.events = append(ts.events, event)
-	if len(ts.events) > 500 {
-		ts.events = ts.events[len(ts.events)-300:]
+func (ts *TaskState) Broadcast(event SSERichEvent) {
+	ts.Mu.Lock()
+	ts.Events = append(ts.Events, event)
+	if len(ts.Events) > 500 {
+		ts.Events = ts.Events[len(ts.Events)-300:]
 	}
 	for _, ch := range ts.listeners {
 		select {
@@ -93,16 +98,16 @@ func (ts *TaskState) broadcast(event SSERichEvent) {
 		default:
 		}
 	}
-	ts.mu.Unlock()
+	ts.Mu.Unlock()
 }
 
-func (ts *TaskState) replay(listenerCh chan SSERichEvent) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	if ts.listeners == nil {
 		return
 	}
-	for _, evt := range ts.events {
+	for _, evt := range ts.Events {
 		select {
 		case listenerCh <- evt:
 		default:
@@ -113,29 +118,113 @@ func (ts *TaskState) replay(listenerCh chan SSERichEvent) {
 
 // TaskManager manages the lifecycle of all PPT generation tasks.
 type TaskManager struct {
-	mu       sync.RWMutex
-	tasks    map[string]*TaskState
-	baseDir  string
+	mu      sync.RWMutex
+	tasks   map[string]*TaskState
+	baseDir string
 }
 
 // NewTaskManager creates a new TaskManager. baseDir is the parent directory
 // under which per-task output directories are created.
+// If a MySQL DB is available, previously running tasks are marked as failed
+// (the owning process no longer exists).
 func NewTaskManager(baseDir string) *TaskManager {
+	if db.DB != nil {
+		if err := db.MarkZombieTasks(); err != nil {
+			log.Printf("[TaskManager] 标记僵尸任务失败: %v\n", err)
+		}
+	}
 	return &TaskManager{
 		tasks:   make(map[string]*TaskState),
 		baseDir: baseDir,
 	}
 }
 
+// ── DB conversion helpers ────────────────────────────────────────────────
+
+func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
+	filesJSON, _ := json.Marshal(info.Files)
+	return &db.TaskRecord{
+		ID:         info.ID,
+		UserID:     uint(info.UserID),
+		Query:      info.Query,
+		Status:     string(info.Status),
+		WorkDir:    info.WorkDir,
+		DoneCount:  info.DoneCount,
+		TotalCount: info.TotalCount,
+		Duration:   info.Duration,
+		Error:      info.Error,
+		Files:      string(filesJSON),
+	}
+}
+
+func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
+	var files []string
+	json.Unmarshal([]byte(r.Files), &files)
+	if files == nil {
+		files = []string{}
+	}
+	return &TaskInfo{
+		ID:         r.ID,
+		UserID:     int(r.UserID),
+		Query:      r.Query,
+		Status:     TaskStatus(r.Status),
+		WorkDir:    r.WorkDir,
+		DoneCount:  r.DoneCount,
+		TotalCount: r.TotalCount,
+		Duration:   r.Duration,
+		Error:      r.Error,
+		Files:      files,
+		CreatedAt:  r.CreatedAt,
+	}
+}
+
+func (ts *TaskState) persist() {
+	if db.DB == nil {
+		return
+	}
+	ts.Mu.Lock()
+	r := taskInfoToRecord(&ts.Info)
+	ts.Mu.Unlock()
+	if err := db.UpdateTaskRecord(r.ID, map[string]any{
+		"status":      r.Status,
+		"done_count":  r.DoneCount,
+		"total_count": r.TotalCount,
+		"duration":    r.Duration,
+		"error":       r.Error,
+		"files":       r.Files,
+	}); err != nil {
+		log.Printf("[TaskManager] persist %s: %v\n", r.ID, err)
+	}
+}
+
 // AgentFactory creates an agent for a specific task configuration.
 type AgentFactory func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent, error)
 
+// ErrTaskAlreadyRunning is returned when trying to create a task while another is running.
+var ErrTaskAlreadyRunning = fmt.Errorf("已有任务正在执行，请等待当前任务完成后再创建新任务")
+
+// HasRunningTask returns true if the given user already has a running task.
+func (tm *TaskManager) HasRunningTask(userID int) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	for _, ts := range tm.tasks {
+		if ts.Info.UserID == userID && ts.Info.Status == TaskStatusRunning {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateTask creates a new task, starts agent execution in a goroutine, and
 // returns the task info.
-func (tm *TaskManager) CreateTask(ctx context.Context, query string, factory AgentFactory,
-	cfg *deep.PPTTaskConfig) (*TaskInfo, error) {
+func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
+	factory AgentFactory, cfg *deep.PPTTaskConfig) (*TaskInfo, error) {
 
-	workDir := filepath.Join(tm.baseDir, cfg.TaskID)
+	if tm.HasRunningTask(userID) {
+		return nil, ErrTaskAlreadyRunning
+	}
+
+	workDir := filepath.Join(tm.baseDir, fmt.Sprintf("%d-%s", userID, cfg.TaskID))
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return nil, err
 	}
@@ -149,21 +238,31 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, factory Age
 	ts := &TaskState{
 		Info: TaskInfo{
 			ID:        cfg.TaskID,
+			UserID:    userID,
 			Query:     query,
 			Status:    TaskStatusRunning,
 			WorkDir:   workDir,
 			CreatedAt: time.Now(),
 		},
 		listeners:     make(map[string]chan SSERichEvent),
-			reportedFiles: make(map[string]bool),
+		reportedFiles: make(map[string]bool),
 	}
-	// 使用独立的 background context，避免 HTTP 请求结束后 context 被取消
 	agentCtx, cancel := context.WithCancel(context.Background())
+	type workDirSetter interface{ SetWorkDir(context.Context, string) context.Context }
+	if setter, ok := cfg.Operator.(workDirSetter); ok {
+		agentCtx = setter.SetWorkDir(agentCtx, workDir)
+	}
 	ts.cancel = cancel
 
 	tm.mu.Lock()
 	tm.tasks[cfg.TaskID] = ts
 	tm.mu.Unlock()
+
+	if db.DB != nil {
+		if err := db.CreateTaskRecord(taskInfoToRecord(&ts.Info)); err != nil {
+			log.Printf("[TaskManager] 持久化任务失败: %v\n", err)
+		}
+	}
 
 	go tm.runAgent(agentCtx, ts, agent, cfg, query)
 
@@ -175,13 +274,12 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 
 	defer tm.cleanupTask(ts)
 
-	// Start progress poller.
 	progressCtx, progressCancel := context.WithCancel(ctx)
 	defer progressCancel()
 	go tm.pollProgress(progressCtx, ts, cfg.WorkDir)
 
 	result, err := deep.RunPPTTaskDeepAgentWithCallback(ctx, agent, cfg, query, func(event deep.AgentEvent) {
-		ts.broadcast(SSERichEvent{
+		ts.Broadcast(SSERichEvent{
 			Type:     event.Type,
 			Content:  event.Content,
 			ToolName: event.ToolName,
@@ -190,14 +288,19 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		})
 	})
 
-	ts.mu.Lock()
+	ts.Mu.Lock()
 	ts.result = result
-	ts.mu.Unlock()
+	ts.Mu.Unlock()
 
 	ts.Info.Status = TaskStatusCompleted
 	if err != nil {
-		ts.Info.Status = TaskStatusFailed
-		ts.Info.Error = err.Error()
+		if ctx.Err() == context.Canceled {
+			ts.Info.Status = TaskStatusCancelled
+			ts.Info.Error = "任务已被用户中断"
+		} else {
+			ts.Info.Status = TaskStatusFailed
+			ts.Info.Error = err.Error()
+		}
 	}
 
 	if result != nil {
@@ -207,7 +310,8 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.Files = result.Files
 	}
 
-	// Send a final event.
+	ts.persist()
+
 	finalEvent := SSERichEvent{
 		Type:     "complete",
 		Status:   ts.Info.Status,
@@ -220,7 +324,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	if result != nil {
 		finalEvent.Message = result.Message
 	}
-	ts.broadcast(finalEvent)
+	ts.Broadcast(finalEvent)
 }
 
 func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir string) {
@@ -235,8 +339,6 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 		case <-ticker.C:
 		}
 
-		// —— 磁盘扫描：直接检查 .pptx 文件是否已落地 ——
-		// 不依赖 tasks.json 的状态更新（master agent 可能很久才更新一次）
 		entries, err := os.ReadDir(workDir)
 		if err == nil {
 			for _, entry := range entries {
@@ -244,23 +346,22 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 					continue
 				}
 				if filepath.Ext(entry.Name()) == ".pptx" {
-					ts.mu.Lock()
+					ts.Mu.Lock()
 					if !ts.reportedFiles[entry.Name()] {
 						ts.reportedFiles[entry.Name()] = true
-						ts.mu.Unlock()
-						ts.broadcast(SSERichEvent{
+						ts.Mu.Unlock()
+						ts.Broadcast(SSERichEvent{
 							Type:     "file_ready",
 							ToolName: entry.Name(),
 							Files:    []string{entry.Name()},
 						})
 						continue
 					}
-					ts.mu.Unlock()
+					ts.Mu.Unlock()
 				}
 			}
 		}
 
-		// —— tasks.json 状态轮询 ——
 		manifest, err := deep.ReadTasksManifest(workDir)
 		if err != nil || manifest == nil {
 			continue
@@ -274,7 +375,7 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 		}
 		lastDone = done
 
-		ts.broadcast(SSERichEvent{
+		ts.Broadcast(SSERichEvent{
 			Type:  "progress",
 			Tasks: manifest.Tasks,
 			Done:  done,
@@ -284,8 +385,8 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 }
 
 func (tm *TaskManager) cleanupTask(ts *TaskState) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	for _, ch := range ts.listeners {
 		close(ch)
 	}
@@ -295,13 +396,19 @@ func (tm *TaskManager) cleanupTask(ts *TaskState) {
 // GetTask returns the stored task info, or nil if not found.
 func (tm *TaskManager) GetTask(id string) *TaskInfo {
 	tm.mu.RLock()
-	defer tm.mu.RUnlock()
 	ts := tm.tasks[id]
-	if ts == nil {
-		return nil
+	tm.mu.RUnlock()
+	if ts != nil {
+		info := ts.Info
+		return &info
 	}
-	info := ts.Info
-	return &info
+	if db.DB != nil {
+		r, err := db.GetTaskRecord(id)
+		if err == nil {
+			return recordToTaskInfo(r)
+		}
+	}
+	return nil
 }
 
 // GetTaskState returns the internal task state, or nil if not found.
@@ -311,22 +418,38 @@ func (tm *TaskManager) GetTaskState(id string) *TaskState {
 	return tm.tasks[id]
 }
 
-// ListTasks returns summaries of all known tasks, newest first.
-func (tm *TaskManager) ListTasks() []TaskInfo {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
+// ListTasks returns summaries of tasks for the given user, newest first.
+func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
+	seen := make(map[string]bool)
 	var result []TaskInfo
+
+	tm.mu.RLock()
 	for _, ts := range tm.tasks {
-		result = append(result, ts.Info)
+		if ts.Info.UserID == userID {
+			result = append(result, ts.Info)
+			seen[ts.Info.ID] = true
+		}
 	}
-	// Reverse: newest first.
+	tm.mu.RUnlock()
+
+	if db.DB != nil {
+		records, err := db.ListTaskRecordsByUser(uint(userID))
+		if err == nil {
+			for i := len(records) - 1; i >= 0; i-- {
+				if !seen[records[i].ID] {
+					result = append(result, *recordToTaskInfo(&records[i]))
+				}
+			}
+		}
+	}
+
 	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
 		result[i], result[j] = result[j], result[i]
 	}
 	return result
 }
 
-// CancelTask cancels a running task.
+// CancelTask cancels a running task. Returns true if the task was found and running.
 func (tm *TaskManager) CancelTask(id string) bool {
 	tm.mu.RLock()
 	ts := tm.tasks[id]
@@ -334,8 +457,60 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	if ts == nil || ts.cancel == nil {
 		return false
 	}
+	ts.Mu.Lock()
+	if ts.Info.Status == TaskStatusRunning {
+		ts.Info.Status = TaskStatusCancelled
+	}
+	ts.Mu.Unlock()
+	ts.persist()
 	ts.cancel()
 	return true
+}
+
+// DeleteTask removes a task from memory, the DB record, and its output directory.
+// Running tasks are cancelled before deletion.
+func (tm *TaskManager) DeleteTask(id string) error {
+	ts := tm.GetTaskState(id)
+
+	// If running, cancel first.
+	if ts != nil && ts.Info.Status == TaskStatusRunning {
+		tm.CancelTask(id)
+		// Wait briefly for the goroutine to wind down.
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Remove from in-memory map.
+	tm.mu.Lock()
+	delete(tm.tasks, id)
+	ts = tm.tasks[id] // will be nil
+	tm.mu.Unlock()
+
+	// Delete DB record.
+	if db.DB != nil {
+		if err := db.DeleteTaskRecord(id); err != nil {
+			log.Printf("[TaskManager] 删除DB记录失败 %s: %v\n", id, err)
+		}
+	}
+
+	// Remove output directory.
+	var workDir string
+	if ts != nil {
+		workDir = ts.Info.WorkDir
+	} else {
+		// Task no longer in memory (e.g., server restarted). Look up from DB.
+		if db.DB != nil {
+			if r, err := db.GetTaskRecord(id); err == nil {
+				workDir = r.WorkDir
+			}
+		}
+	}
+	if workDir != "" {
+		if err := os.RemoveAll(workDir); err != nil {
+			return fmt.Errorf("删除工作目录失败: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // ReadTasksManifestFile reads and returns the tasks.json for a task.

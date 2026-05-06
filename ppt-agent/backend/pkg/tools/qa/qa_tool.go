@@ -281,6 +281,13 @@ func mergeQAResult(existing *generic.QAResult, new *generic.QAResult) *generic.Q
 func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
 	if !ok || wd == "" {
+		// 兜底：Eino sub-agent 可能不继承父 context 的自定义值，从 operator 实例读取
+		type workDirGetter interface{ GetWorkDir(context.Context) string }
+		if getter, ok := t.op.(workDirGetter); ok {
+			wd = getter.GetWorkDir(ctx)
+		}
+	}
+	if wd == "" {
 		return "", fmt.Errorf("无法获取工作目录")
 	}
 
