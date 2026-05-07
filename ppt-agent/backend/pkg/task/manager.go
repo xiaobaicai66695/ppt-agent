@@ -39,8 +39,11 @@ type SSERichEvent struct {
 	Total    int             `json:"total,omitempty"`
 	Files    []string        `json:"files,omitempty"`
 	Message  string          `json:"message,omitempty"`
-	Duration string          `json:"duration,omitempty"`
-	Status   TaskStatus      `json:"status,omitempty"`
+	Duration         string          `json:"duration,omitempty"`
+	Status           TaskStatus      `json:"status,omitempty"`
+	PromptTokens     int64           `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64           `json:"completion_tokens,omitempty"`
+	TotalTokens      int64           `json:"total_tokens,omitempty"`
 }
 
 // TaskInfo is the public-facing summary of a task.
@@ -53,9 +56,12 @@ type TaskInfo struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	DoneCount  int        `json:"done_count"`
 	TotalCount int        `json:"total_count"`
-	Duration   string     `json:"duration,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	Files      []string   `json:"files,omitempty"`
+	Duration         string     `json:"duration,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	Files            []string   `json:"files,omitempty"`
+	PromptTokens     int64      `json:"prompt_tokens"`
+	CompletionTokens int64      `json:"completion_tokens"`
+	TotalTokens      int64      `json:"total_tokens"`
 }
 
 // TaskState holds the internal state of a single task.
@@ -144,16 +150,19 @@ func NewTaskManager(baseDir string) *TaskManager {
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(info.Files)
 	return &db.TaskRecord{
-		ID:         info.ID,
-		UserID:     uint(info.UserID),
-		Query:      info.Query,
-		Status:     string(info.Status),
-		WorkDir:    info.WorkDir,
-		DoneCount:  info.DoneCount,
-		TotalCount: info.TotalCount,
-		Duration:   info.Duration,
-		Error:      info.Error,
-		Files:      string(filesJSON),
+		ID:               info.ID,
+		UserID:           uint(info.UserID),
+		Query:            info.Query,
+		Status:           string(info.Status),
+		WorkDir:          info.WorkDir,
+		DoneCount:        info.DoneCount,
+		TotalCount:       info.TotalCount,
+		Duration:         info.Duration,
+		Error:            info.Error,
+		Files:            string(filesJSON),
+		PromptTokens:     info.PromptTokens,
+		CompletionTokens: info.CompletionTokens,
+		TotalTokens:      info.TotalTokens,
 	}
 }
 
@@ -164,17 +173,20 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		files = []string{}
 	}
 	return &TaskInfo{
-		ID:         r.ID,
-		UserID:     int(r.UserID),
-		Query:      r.Query,
-		Status:     TaskStatus(r.Status),
-		WorkDir:    r.WorkDir,
-		DoneCount:  r.DoneCount,
-		TotalCount: r.TotalCount,
-		Duration:   r.Duration,
-		Error:      r.Error,
-		Files:      files,
-		CreatedAt:  r.CreatedAt,
+		ID:               r.ID,
+		UserID:           int(r.UserID),
+		Query:            r.Query,
+		Status:           TaskStatus(r.Status),
+		WorkDir:          r.WorkDir,
+		DoneCount:        r.DoneCount,
+		TotalCount:       r.TotalCount,
+		Duration:         r.Duration,
+		Error:            r.Error,
+		Files:            files,
+		CreatedAt:        r.CreatedAt,
+		PromptTokens:     r.PromptTokens,
+		CompletionTokens: r.CompletionTokens,
+		TotalTokens:      r.TotalTokens,
 	}
 }
 
@@ -186,12 +198,15 @@ func (ts *TaskState) persist() {
 	r := taskInfoToRecord(&ts.Info)
 	ts.Mu.Unlock()
 	if err := db.UpdateTaskRecord(r.ID, map[string]any{
-		"status":      r.Status,
-		"done_count":  r.DoneCount,
-		"total_count": r.TotalCount,
-		"duration":    r.Duration,
-		"error":       r.Error,
-		"files":       r.Files,
+		"status":            r.Status,
+		"done_count":        r.DoneCount,
+		"total_count":       r.TotalCount,
+		"duration":          r.Duration,
+		"error":             r.Error,
+		"files":             r.Files,
+		"prompt_tokens":     r.PromptTokens,
+		"completion_tokens": r.CompletionTokens,
+		"total_tokens":      r.TotalTokens,
 	}); err != nil {
 		log.Printf("[TaskManager] persist %s: %v\n", r.ID, err)
 	}
@@ -248,6 +263,8 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		reportedFiles: make(map[string]bool),
 	}
 	agentCtx, cancel := context.WithCancel(context.Background())
+	// Attach token tracker to context for callbacks to accumulate usage.
+	agentCtx, _ = WithTokenTracker(agentCtx)
 	type workDirSetter interface{ SetWorkDir(context.Context, string) context.Context }
 	if setter, ok := cfg.Operator.(workDirSetter); ok {
 		agentCtx = setter.SetWorkDir(agentCtx, workDir)
@@ -310,16 +327,27 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.Files = result.Files
 	}
 
+	// Collect accumulated token usage from callbacks.
+	if tt := TokenTrackerFromContext(ctx); tt != nil {
+		p, c, t := tt.TokenTotals()
+		ts.Info.PromptTokens = p
+		ts.Info.CompletionTokens = c
+		ts.Info.TotalTokens = t
+	}
+
 	ts.persist()
 
 	finalEvent := SSERichEvent{
-		Type:     "complete",
-		Status:   ts.Info.Status,
-		Message:  ts.Info.Error,
-		Done:     ts.Info.DoneCount,
-		Total:    ts.Info.TotalCount,
-		Files:    ts.Info.Files,
-		Duration: ts.Info.Duration,
+		Type:            "complete",
+		Status:          ts.Info.Status,
+		Message:         ts.Info.Error,
+		Done:            ts.Info.DoneCount,
+		Total:           ts.Info.TotalCount,
+		Files:           ts.Info.Files,
+		Duration:        ts.Info.Duration,
+		PromptTokens:    ts.Info.PromptTokens,
+		CompletionTokens: ts.Info.CompletionTokens,
+		TotalTokens:     ts.Info.TotalTokens,
 	}
 	if result != nil {
 		finalEvent.Message = result.Message
@@ -416,6 +444,20 @@ func (tm *TaskManager) GetTaskState(id string) *TaskState {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.tasks[id]
+}
+
+// NewColdTaskState creates a minimal TaskState from a TaskInfo (no events, no cancel).
+// Used to restore tasks from MySQL after a backend restart.
+func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
+	ts := &TaskState{
+		Info:          info,
+		listeners:     make(map[string]chan SSERichEvent),
+		reportedFiles: make(map[string]bool),
+	}
+	tm.mu.Lock()
+	tm.tasks[info.ID] = ts
+	tm.mu.Unlock()
+	return ts
 }
 
 // ListTasks returns summaries of tasks for the given user, newest first.

@@ -46,7 +46,10 @@
       "Read(//d/tools/codeGo/pkg/mod/github.com/cloudwego/eino@v0.8.8/adk/**)",
       "Bash(git show *)",
       "Read(//tmp/**)",
-      "Bash(xxd)"
+      "Bash(xxd)",
+      "Read(//d/tools/codeGo/pkg/mod/github.com/cloudwego/eino@v0.8.8/schema//**)",
+      "Read(//d/tools/codeGo/pkg/mod/github.com/cloudwego//**)",
+      "Bash(npm --version)"
     ]
   }
 }

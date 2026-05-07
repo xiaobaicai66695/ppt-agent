@@ -27,8 +27,11 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/cloudwego/ppt-agent/pkg/task"
 )
 
 // startTime 程序启动时间
@@ -308,8 +311,13 @@ func NewLogHandler() callbacks.Handler {
 				result := extractToolResult(output)
 				log.Printf("[%dms] [%s] ← TOOL: %s | result: %s", elapsed(), agentName, info.Name, result)
 			case components.ComponentOfChatModel:
-				if resp := extractToolResult(output); resp != "(空响应)" {
-					log.Printf("[%dms] [%s] ← LLM | result: %s", elapsed(), agentName, resp)
+				if mo := model.ConvCallbackOutput(output); mo != nil && mo.TokenUsage != nil {
+					tu := mo.TokenUsage
+					log.Printf("[%dms] [%s] ← LLM | prompt=%d completion=%d total=%d",
+						elapsed(), agentName, tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
+					if tt := task.TokenTrackerFromContext(ctx); tt != nil {
+						tt.Add(tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
+					}
 				}
 			case adk.ComponentOfAgent:
 			}

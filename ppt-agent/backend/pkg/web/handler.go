@@ -12,6 +12,16 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/task"
 )
 
+// safePath joins baseDir with filename and returns the cleaned absolute path.
+// Returns an error if the result escapes baseDir (path traversal protection).
+func safePath(baseDir, filename string) (string, error) {
+	cleaned := filepath.Clean(filepath.Join(baseDir, filename))
+	if !strings.HasPrefix(cleaned, filepath.Clean(baseDir)+string(filepath.Separator)) {
+		return "", os.ErrPermission
+	}
+	return cleaned, nil
+}
+
 // ── Auth handlers ────────────────────────────────────────────────────────
 
 func (s *Server) handleSendCode(c *gin.Context) {
@@ -149,7 +159,11 @@ func (s *Server) handleDownloadFile(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(ts.Info.WorkDir, filename)
+	filePath, err := safePath(ts.Info.WorkDir, filename)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "非法的文件路径"})
+		return
+	}
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
@@ -169,7 +183,11 @@ func (s *Server) handleThumbnail(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(ts.Info.WorkDir, filename)
+	filePath, err := safePath(ts.Info.WorkDir, filename)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "非法的文件路径"})
+		return
+	}
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return

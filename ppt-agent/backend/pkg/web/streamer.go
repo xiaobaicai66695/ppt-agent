@@ -16,8 +16,13 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 	id := c.Param("id")
 	ts := s.tasks.GetTaskState(id)
 	if ts == nil {
-		c.JSON(404, gin.H{"error": "task not found"})
-		return
+		// Task not in memory — try to restore from MySQL
+		info := s.tasks.GetTask(id)
+		if info == nil {
+			c.JSON(404, gin.H{"error": "task not found"})
+			return
+		}
+		ts = s.tasks.NewColdTaskState(*info)
 	}
 
 	c.Header("Content-Type", "text/event-stream")

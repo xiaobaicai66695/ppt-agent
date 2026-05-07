@@ -38,48 +38,46 @@ func newReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "Reviewer",
-		Description: "视觉质量审查专家，负责检查 PPT 幻灯片是否存在排版、溢出、重叠、对比度等问题。",
-		Instruction: fmt.Sprintf(`你是 PPT 视觉质量审查专家。
+		Description: "视觉质量批量审查专家，一次性检查所有已完成幻灯片的排版、溢出、重叠、对比度等问题，汇总输出 QA 结果。",
+		Instruction: fmt.Sprintf(`你是 PPT 视觉质量批量审查专家。一次性审查所有已完成幻灯片，汇总输出 QA 结果。
 
 工作目录（绝对路径）：%s
 
-## ⚠️ 路径规则
+## 路径规则
 
-**read_file 必须使用绝对路径，绝不能用相对路径。**
-- 错误：read_file(path="tasks.json")
+read_file 必须使用绝对路径，绝不能用相对路径。
 - 正确：read_file(path="%s/tasks.json")
 
 ## 可用工具
 
 - **single_qa_review**：单页视觉质量审查（参数：pptx_filename），对指定 PPTX 进行视觉 QA
-- **read_file**：读取文件内容（参数：path，**必须用绝对路径**）
+- **read_file**：读取文件内容（参数：path，必须用绝对路径）
 
-## 任务文件格式（tasks.json）
+## 执行流程（批量审查，一次完成所有页）
 
-- title: 幻灯片所属 PPT 的标题
-- template: 所使用的模板名称（如 "tech-intro"、"tech-sharing"、"product-launch" 等）
-- output_file: PPTX 文件名，如 "1_AI大模型介绍.pptx"
-- status: 任务状态（pending/generating/done/qa_done/fixed）
-- qa_report: 质检报告
-
-## 执行流程
-
-1. 用 read_file 读取 %s/tasks.json（绝对路径），获取所有 status=done 的任务
-2. 对每个任务，使用 single_qa_review 工具进行视觉 QA
-3. 调用 single_qa_review 时，pptx_filename 参数必须使用该任务的 output_file 字段值（去掉 .pptx 后缀）
+1. 用 read_file 读取 %s/tasks.json（绝对路径），收集所有 status=done 的任务
+2. 对所有 status=done 的任务逐一调用 single_qa_review，不要跳过任何一页
+3. pptx_filename 参数 = 该任务的 output_file 去掉 .pptx 后缀
    - 例如：output_file="1_AI大模型介绍.pptx" → pptx_filename="1_AI大模型介绍"
-   - 禁止使用 title 字段的值（如"标题页"）作为文件名
-4. **输出质检结果**（格式见下方），由主 Agent 写入 tasks.json
+   - 禁止使用 title 字段的值作为文件名
+4. 全部审查完毕后，汇总输出所有页的 QA 结果
 
-质检结果输出格式：
+## 批量 QA 结果输出格式（重要）
 
-    任务 task_id=X：
-    - output_file: xxx.pptx
-    - qa_status: pass / fail
-    - qa_report: "<问题描述>"
-    - fix_priority: high / medium / low
+必须包含所有被审查页（无论 pass 还是 fail），格式严格如下：
 
-**不要修改 tasks.json**，只输出质检结果，由主 Agent 更新文件。
+    === 批量 QA 结果汇总（共 N 页） ===
+
+    任务 task_id=1：output_file=1_xxx.pptx
+    - qa_status: pass
+    - qa_report: "无问题"
+
+    任务 task_id=2：output_file=2_xxx.pptx
+    - qa_status: fail
+    - qa_report: "标题文字与背景色块重叠，建议调整标题位置"
+    - fix_priority: high
+
+不要修改 tasks.json，只输出质检结果汇总，由主 Agent 写入。
 
 ## 检查问题类型
 

@@ -1,3 +1,10 @@
+// ── Status types ────────────────────────────────────────────────────────────
+
+export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
+export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'error' | 'complete';
+export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
+
 // ── Task types ──────────────────────────────────────────────────────────────
 
 export interface TaskItem {
@@ -6,7 +13,7 @@ export interface TaskItem {
   title: string;
   content_type: string;
   output_file: string;
-  status: string;
+  status: TaskItemStatus;
   qa_report?: string;
   fix_attempts?: number;
 }
@@ -15,7 +22,7 @@ export interface TaskInfo {
   id: string;
   user_id?: number;
   query: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  status: TaskStatus;
   work_dir: string;
   created_at: string;
   done_count: number;
@@ -23,10 +30,13 @@ export interface TaskInfo {
   duration?: string;
   error?: string;
   files?: string[];
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 }
 
 export interface SSEEvent {
-  type: string;
+  type: SSEEventType;
   content?: string;
   tool_name?: string;
   tool_args?: string;
@@ -37,7 +47,10 @@ export interface SSEEvent {
   files?: string[];
   message?: string;
   duration?: string;
-  status?: string;
+  status?: TaskStatus;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 }
 
 // ── Batch tracking ──────────────────────────────────────────────────────────
@@ -54,7 +67,7 @@ export interface Batch {
 export interface LogLine {
   ts: number;
   text: string;
-  kind: string;
+  kind: LogKind;
 }
 
 // ── Status helpers ──────────────────────────────────────────────────────────

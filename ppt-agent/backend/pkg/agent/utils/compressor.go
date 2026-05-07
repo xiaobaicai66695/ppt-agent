@@ -19,7 +19,9 @@ package utils
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -139,6 +141,7 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 
 	summarizerWithTools, err := c.summarizer.WithTools(tools)
 	if err != nil {
+		log.Printf("[Compressor] summarizer.WithTools 失败，使用无 tools summarizer: %v", err)
 		summarizerWithTools = c.summarizer
 	}
 
@@ -151,6 +154,10 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 
 // compress 执行实际的压缩逻辑
 func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.Message) ([]*schema.Message, error) {
+	if len(messages) < 2 {
+		return messages, nil // nothing to compress
+	}
+
 	// 策略：保留 system → 保留最近 preserveCount 对 → 摘要中间段
 	// messages 结构: [system, user, assistant, user, assistant, ...]
 	// 我们按 user-assistant 对来处理
@@ -163,9 +170,13 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 
 	// 解析出 system + pairs
 	systemMsg = messages[0]
+	if systemMsg.Role != schema.System {
+		// 没有 system 消息 — 把第一条当 system 仍可工作，但记录警告
+		log.Printf("[Compressor] 第一条消息角色非 system(%s)，按 system 处理", systemMsg.Role)
+	}
 	rest := messages[1:]
 
-	for i := 0; i+1 <= len(rest); i += 2 {
+	for i := 0; i+1 < len(rest); i += 2 {
 		pairs = append(pairs, struct {
 			user      *schema.Message
 			assistant *schema.Message
@@ -212,8 +223,10 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 
 请只输出压缩后的摘要，不要输出其他内容。`, summaryBuilder.String())
 
-	// 调用 summarizer 生成摘要
-	summaryMsg, err := c.summarizer.Generate(ctx, []*schema.Message{
+	// 调用 summarizer 生成摘要（带 30s 超时）
+	summarizerCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	summaryMsg, err := c.summarizer.Generate(summarizerCtx, []*schema.Message{
 		schema.SystemMessage("你是一个对话摘要助手，专门将长对话压缩为简洁的摘要。"),
 		schema.UserMessage(summaryPrompt),
 	})

@@ -24,7 +24,13 @@ const query = ref('');
 
 function fmtTime(iso: string): string {
   if (!iso) return '';
-  return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const d = new Date(iso);
+  const today = new Date();
+  const isToday = d.toDateString() === today.toDateString();
+  if (isToday) {
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+  return `${d.getMonth() + 1}/${d.getDate()} ` + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
 function handleCreate() {
@@ -125,7 +131,7 @@ const taskCount = computed(() => props.tasks.length);
           @click="emit('selectTask', t.id)"
         >
           <div class="task-item-top">
-            <span class="task-item-query">{{ t.query.length > 38 ? t.query.slice(0, 38) + '...' : t.query }}</span>
+            <span class="task-item-query">{{ (t.query || '').length > 38 ? (t.query || '').slice(0, 38) + '...' : (t.query || '') }}</span>
             <button v-if="t.status !== 'running'" class="task-delete-btn" title="删除" @click.stop="emit('deleteTask', t.id)">×</button>
           </div>
           <div class="task-item-meta">

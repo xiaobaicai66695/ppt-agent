@@ -247,15 +247,21 @@ edit_file 只能用绝对路径，如 edit_file(path="%s/tasks.json", content=".
 3. output_file 在 ls 中不存在的 → 文件未实际生成，**立即用 task 重新生成该页**
 4. 只有 ls 确认所有文件存在后，才能进入第四步质检
 
-### 第四步：质检
-1. 用 read_file 读取 %s/tasks.json（绝对路径）
-2. 遍历所有 status=done 的任务
-3. 调用 Reviewer 进行质检
-4. 只更新对应任务的 status 和 qa_report 字段，不要覆盖整个文件
+### 第四步：批量质检（全部生成完后再统一审查）
+1. 用 read_file 读取 %s/tasks.json（绝对路径），确认所有任务 status=done
+2. **一次性调用 Reviewer**，Reviewer 会批量检查所有 status=done 的幻灯片
+3. Reviewer 返回汇总结果后，用 edit_file 逐条将 QA 结果写入对应任务的 qa_report 字段，并将 status 更新为 qa_done
+4. 只更新对应任务的 status 和 qa_report 字段，禁止覆盖整个文件
 
-### 第五步：修复问题
-对 status=qa_done 且 qa_report 包含 high/medium 问题的任务调用 Fixer。
-每页最多修复 2 次。
+### 第五步：定点修复（带模板上下文）
+1. 用 read_file 读取 tasks.json，筛选出 status=qa_done 且 qa_report 非空且 fix_attempts < 2 的任务
+2. 对每个待修复任务，调用 Fixer，task description 中必须包含：
+   - 要修复的 output_file
+   - 使用的 template 名（Fixer 会读取模板理解设计意图）
+   - content_type（Fixer 会读取单页规范）
+   - qa_report 摘要
+3. Fixer 返回后，用 edit_file 更新该任务 fix_attempts += 1，若修复成功则将 status 改为 fixed
+4. 每页最多修复 2 次
 
 ### 第六步：汇总结果
 1. 用 read_file 读取 %s/tasks.json（绝对路径）

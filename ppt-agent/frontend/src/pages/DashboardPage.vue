@@ -19,7 +19,7 @@ const selectedId = ref<string | null>(null);
 const taskItems = ref<TaskItem[]>([]);
 const doneCount = ref(0);
 const totalCount = ref(0);
-const logLines = ref<{ ts: number; text: string; kind: string }[]>([]);
+const logLines = ref<{ ts: number; text: string; kind: import('../types').LogKind }[]>([]);
 const finalFiles = ref<string[]>([]);
 const finalMessage = ref('');
 const duration = ref('');
@@ -34,6 +34,12 @@ let es: EventSource | null = null;
 
 const selectedTask = computed(() => tasks.value.find(t => t.id === selectedId.value));
 const hasRunningTask = computed(() => tasks.value.some(t => t.status === 'running'));
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
 
 const sampleQueries = [
   '做一个关于新能源汽车的行业分析报告',
@@ -55,6 +61,24 @@ const orderedSlides = computed(() => {
   const slides = new Map<string, { task: TaskItem; fileReady: boolean }>();
   for (const t of taskItems.value) {
     slides.set(t.task_id, { task: t, fileReady: finalFiles.value.includes(t.output_file) });
+  }
+  // Fallback: when taskItems is empty (e.g. restored from MySQL after restart),
+  // generate entries directly from the file list
+  if (slides.size === 0 && finalFiles.value.length > 0) {
+    finalFiles.value.forEach((f, i) => {
+      const name = f.split(/[/\\]/).pop() || f;
+      slides.set(f, {
+        task: {
+          task_id: f,
+          page_index: i + 1,
+          title: name,
+          content_type: '',
+          output_file: f,
+          status: 'done',
+        },
+        fileReady: true,
+      });
+    });
   }
   return [...slides.values()].sort((a, b) => a.task.page_index - b.task.page_index);
 });
@@ -102,7 +126,7 @@ function downloadSelected() {
 }
 
 // ── Log ────────────────────────────────────────────────────────────────
-function addLog(kind: string, text: string) {
+function addLog(kind: import('../types').LogKind, text: string) {
   if (kind === 'answer' && logLines.value.length > 0) {
     const last = logLines.value[logLines.value.length - 1];
     if (last.kind === 'answer') {
@@ -116,6 +140,7 @@ function addLog(kind: string, text: string) {
 
 // ── SSE ────────────────────────────────────────────────────────────────
 function connectSSE(taskId: string) {
+  if (!taskId) return;
   if (es) es.close();
   es = new EventSource(`/api/tasks/${taskId}/stream`);
   activeWorkers.value = 0;
@@ -197,12 +222,19 @@ function connectSSE(taskId: string) {
         totalCount.value = evt.total || 0;
         if (evt.files) {
           finalFiles.value = evt.files;
-          // Cache all files from complete event
           for (const f of evt.files) cachePPT(taskId, f);
         }
         if (evt.message) finalMessage.value = evt.message;
         if (evt.duration) duration.value = evt.duration;
         if (evt.tasks) taskItems.value = evt.tasks;
+        if (evt.total_tokens) {
+          const t = tasks.value.find(x => x.id === taskId);
+          if (t) {
+            t.prompt_tokens = evt.prompt_tokens || 0;
+            t.completion_tokens = evt.completion_tokens || 0;
+            t.total_tokens = evt.total_tokens || 0;
+          }
+        }
         activeWorkers.value = 0;
         es!.close();
         refreshTask(taskId);
@@ -274,7 +306,7 @@ interface TaskCache {
   taskItems: TaskItem[];
   doneCount: number;
   totalCount: number;
-  logLines: { ts: number; text: string; kind: string }[];
+  logLines: { ts: number; text: string; kind: import('../types').LogKind }[];
   finalFiles: string[];
   finalMessage: string;
   duration: string;
@@ -314,6 +346,7 @@ function restoreCache(id: string): boolean {
 
 // ── Actions ────────────────────────────────────────────────────────────
 function selectTask(id: string) {
+  if (!id) return;
   if (selectedId.value && selectedId.value !== id) {
     saveCache(selectedId.value);
     disconnectSSE();
@@ -477,27 +510,32 @@ onUnmounted(() => { disconnectSSE(); });
         <!-- Header -->
         <div class="dash-header">
           <div class="dash-header-left">
-            <h2 class="dash-title">{{ selectedTask.query }}</h2>
+            <h2 class="dash-title">{{ selectedTask?.query }}</h2>
             <div class="dash-meta">
-              <span class="dash-id">{{ selectedTask.id.slice(0, 8) }}</span>
+              <span class="dash-id">{{ selectedTask?.id?.slice(0, 8) }}</span>
               <span v-if="duration" class="dash-duration">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><path d="M8 4v4l3 2"/></svg>
                 {{ duration }}
               </span>
+              <span v-if="(selectedTask?.total_tokens ?? 0) > 0" class="dash-tokens">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><line x1="5" y1="7" x2="5" y2="10"/><line x1="8" y1="5" x2="8" y2="10"/><line x1="11" y1="6" x2="11" y2="10"/></svg>
+                {{ fmtTokens(selectedTask?.total_tokens ?? 0) }} tokens
+                <span class="token-detail">({{ fmtTokens(selectedTask?.prompt_tokens ?? 0) }}p + {{ fmtTokens(selectedTask?.completion_tokens ?? 0) }}c)</span>
+              </span>
             </div>
           </div>
           <div class="dash-status">
-            <span v-if="activeWorkers > 0 && selectedTask.status === 'running'" class="stat-badge workers">
+            <span v-if="activeWorkers > 0 && selectedTask?.status === 'running'" class="stat-badge workers">
               <span class="pulse-dot"></span>{{ activeWorkers }} 并行执行中
             </span>
-            <span v-if="selectedTask.status === 'running'" class="stat-badge running">
+            <span v-if="selectedTask?.status === 'running'" class="stat-badge running">
               <span class="pulse-dot"></span>运行中
             </span>
-            <span v-if="selectedTask.status === 'completed'" class="stat-badge done"> 已完成</span>
-            <span v-if="selectedTask.status === 'cancelled'" class="stat-badge cancelled"> 已中断</span>
-            <span v-if="selectedTask.status === 'failed'" class="stat-badge failed"> 失败</span>
+            <span v-if="selectedTask?.status === 'completed'" class="stat-badge done"> 已完成</span>
+            <span v-if="selectedTask?.status === 'cancelled'" class="stat-badge cancelled"> 已中断</span>
+            <span v-if="selectedTask?.status === 'failed'" class="stat-badge failed"> 失败</span>
             <button
-              v-if="selectedTask.status === 'running'"
+              v-if="selectedTask?.status === 'running'"
               class="cancel-btn"
               :disabled="cancelling"
               @click="handleCancel"
@@ -510,7 +548,7 @@ onUnmounted(() => { disconnectSSE(); });
           :done-count="doneCount"
           :total-count="totalCount"
           :task-items="taskItems"
-          :is-running="selectedTask.status === 'running'"
+          :is-running="selectedTask?.status === 'running'"
         />
 
         <!-- Left-Right Split -->
@@ -567,7 +605,7 @@ onUnmounted(() => { disconnectSSE(); });
                   v-for="s in orderedSlides"
                   :key="s.task.task_id"
                   :task="s.task"
-                  :task-id="selectedTask.id"
+                  :task-id="selectedTask?.id"
                   :file-ready="s.fileReady"
                   :selected="selectedSlides.has(s.task.task_id)"
                   @toggle="toggleSelect(s.task.task_id)"
@@ -578,7 +616,7 @@ onUnmounted(() => { disconnectSSE(); });
         </div>
 
         <!-- Final message -->
-        <div v-if="finalMessage && selectedTask.status !== 'running'" class="final-message">
+        <div v-if="finalMessage && selectedTask?.status !== 'running'" class="final-message">
           <div class="final-header">
             <span class="final-icon"></span>
             <h3>任务完成</h3>
@@ -643,6 +681,9 @@ onUnmounted(() => { disconnectSSE(); });
 .dash-id { font-size: 0.68rem; color: var(--c-text-muted); font-family: 'SF Mono', monospace; background: var(--c-border-light); padding: 0.12rem 0.4rem; border-radius: 4px; }
 .dash-duration { font-size: 0.72rem; color: var(--c-text-muted); display: flex; align-items: center; gap: 0.2rem; }
 .dash-duration svg { width: 12px; height: 12px; }
+.dash-tokens { font-size: 0.72rem; color: var(--c-text-muted); display: flex; align-items: center; gap: 0.2rem; }
+.dash-tokens svg { width: 13px; height: 13px; }
+.token-detail { font-size: 0.64rem; color: var(--c-text-muted); opacity: 0.7; }
 .dash-status { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
 .stat-badge { font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.7rem; border-radius: 999px; display: flex; align-items: center; gap: 0.3rem; }
 .stat-badge.running { background: var(--c-primary-light); color: #1d4ed8; }

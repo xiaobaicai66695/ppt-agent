@@ -46,8 +46,11 @@ type TaskRecord struct {
 	WorkDir    string    `gorm:"size:512" json:"work_dir"`
 	DoneCount  int       `gorm:"default:0" json:"done_count"`
 	TotalCount int       `gorm:"default:0" json:"total_count"`
-	Duration   string    `gorm:"size:50" json:"duration"`
-	Error      string    `gorm:"type:text" json:"error"`
+	Duration          string    `gorm:"size:50" json:"duration"`
+	Error             string    `gorm:"type:text" json:"error"`
+	PromptTokens      int64     `gorm:"default:0" json:"prompt_tokens"`
+	CompletionTokens  int64     `gorm:"default:0" json:"completion_tokens"`
+	TotalTokens       int64     `gorm:"default:0" json:"total_tokens"`
 	Files      string    `gorm:"type:text" json:"files"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`

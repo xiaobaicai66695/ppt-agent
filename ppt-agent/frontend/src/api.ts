@@ -182,17 +182,26 @@ export async function fetchTasks(): Promise<TaskInfo[]> {
   return res.json();
 }
 
+async function checkResponse(res: Response): Promise<Response> {
+  if (!res.ok) {
+    let msg = `请求失败 (${res.status})`;
+    try { const e = await res.json(); if (e.error) msg = e.error; } catch {}
+    throw new Error(msg);
+  }
+  return res;
+}
+
 export async function createTask(query: string): Promise<TaskInfo> {
-  const res = await apiFetch('/api/tasks', {
+  const res = await checkResponse(await apiFetch('/api/tasks', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ query }),
-  });
+  }));
   return res.json();
 }
 
 export async function fetchTask(id: string): Promise<TaskInfo> {
-  const res = await apiFetch(`/api/tasks/${id}`, { headers: authHeaders() });
+  const res = await checkResponse(await apiFetch(`/api/tasks/${id}`, { headers: authHeaders() }));
   return res.json();
 }
 

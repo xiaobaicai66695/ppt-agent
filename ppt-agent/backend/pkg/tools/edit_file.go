@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"strings"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/components/tool"
@@ -63,6 +64,72 @@ type editInput struct {
 	Content string `json:"content"`
 }
 
+// fixContentObject detects when the LLM passes a raw JSON object for the content field
+// instead of a string, and converts it. For example:
+//
+//	{"path":"tasks.json","content":{"title":"x","tasks":[...]}}
+//
+// becomes:
+//
+//	{"path":"tasks.json","content":"{\"title\":\"x\",\"tasks\":[...]}"}
+func fixContentObject(argsJSON string) string {
+	prefix := `"content":`
+	idx := strings.Index(argsJSON, prefix)
+	if idx < 0 {
+		return argsJSON
+	}
+	start := idx + len(prefix)
+	// skip whitespace
+	for start < len(argsJSON) && (argsJSON[start] == ' ' || argsJSON[start] == '\t') {
+		start++
+	}
+	if start >= len(argsJSON) || argsJSON[start] != '{' && argsJSON[start] != '[' {
+		return argsJSON // already a string, number, or other primitive
+	}
+
+	// Find the matching end by counting braces
+	depth := 0
+	end := start
+	inString := false
+	var escapeNext bool
+	for ; end < len(argsJSON); end++ {
+		c := argsJSON[end]
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+		if inString {
+			if c == '\\' {
+				escapeNext = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+			if depth == 0 {
+				// end is the closing brace/bracket — need to include it
+				inner := argsJSON[start : end+1]
+				escaped, err := json.Marshal(inner)
+				if err != nil {
+					return argsJSON
+				}
+				// json.Marshal double-escapes the string; we need the JSON string form
+				prefixPart := argsJSON[:idx+len(prefix)]
+				suffixPart := argsJSON[end+1:]
+				return prefixPart + string(escaped) + suffixPart
+			}
+		}
+	}
+	return argsJSON
+}
+
 // normalizeContentBlock converts Anthropic content block format in the JSON string
 // to plain string values. For example: {"content":{"type":"text","text":"..."}}
 // becomes {"content":"..."}
@@ -91,6 +158,10 @@ func (e *editFileTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	if err != nil {
 		return "", err
 	}
+
+	// LLM sometimes passes content as a raw JSON object instead of a string.
+	// Detect and stringify: {"content": {...}} → {"content": "{...}"}
+	normalized = fixContentObject(normalized)
 
 	input := &editInput{}
 	err = json.Unmarshal([]byte(normalized), input)
