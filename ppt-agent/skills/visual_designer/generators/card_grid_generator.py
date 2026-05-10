@@ -100,7 +100,7 @@ def generate(
     margin_top = y_cards
     gap = 0.25
     card_area_w = 12.133 - margin_x * 2
-    card_area_h = 5.5
+    card_area_h = 5.2
     card_w = (card_area_w - gap * (cols - 1)) / cols
     card_h = (card_area_h - gap * (card_rows - 1)) / card_rows
 

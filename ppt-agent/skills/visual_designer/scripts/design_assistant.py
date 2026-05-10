@@ -442,6 +442,11 @@ LAYOUT_TEMPLATES = {
     "two_column": {
         "name": "双栏布局",
         "elements": ["title", "left_column", "right_column"],
+        "content_modes": [
+            "纯要点：left_bullets + right_bullets（向后兼容）",
+            "引言+要点：left_intro + left_bullets + right_intro + right_bullets",
+            "多区块（推荐）：left_sections{key_points/analysis/data} + right_sections{key_points/analysis/data}"
+        ],
         "alignment": "split",
         "spacing": "medium",
         "bg_style": "浅色背景",

@@ -281,13 +281,25 @@ for slide in slides_data:
             direction=content.get("direction", "horizontal_zigzag"),
             steps=content.get("steps", []))
     elif slide_type == "two_column":
+        refs = content.get("references", [])
+        source = content.get("source", "")
+        if isinstance(refs, list) and refs:
+            source = "来源: " + " | ".join(str(r) for r in refs)
         generate_two_column(prs,
             palette=palette,
+            source=source,
             title=content.get("title", ""),
+            kicker=content.get("kicker", ""),
             left_header=content.get("left_header", ""),
             right_header=content.get("right_header", ""),
             left_bullets=content.get("left_bullets", []),
-            right_bullets=content.get("right_bullets", []))
+            right_bullets=content.get("right_bullets", []),
+            left_intro=content.get("left_intro", ""),
+            right_intro=content.get("right_intro", ""),
+            left_sections=content.get("left_sections", {}),
+            right_sections=content.get("right_sections", {}),
+            left_items=content.get("left_items", []),
+            right_items=content.get("right_items", []))
     elif slide_type == "three_column":
         generate_three_column(prs,
             palette=palette,
@@ -303,10 +315,13 @@ for slide in slides_data:
     elif slide_type == "image_text":
         generate_image_text(prs,
             palette=palette,
+            source=content.get("source", ""),
             title=content.get("title", ""),
             layout=content.get("layout", "right-image"),
             header=content.get("header", ""),
-            bullets=content.get("bullets", []))
+            paragraph=content.get("paragraph", ""),
+            kicker=content.get("kicker", ""),
+            sub_header=content.get("sub_header", ""))
     else:
         # 兜底：默认使用 content_slide
         generate_content_slide(prs,

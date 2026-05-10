@@ -50,17 +50,32 @@ read_file 必须使用绝对路径，绝不能用相对路径。
 
 ## 可用工具
 
-- **single_qa_review**：单页视觉质量审查（参数：pptx_filename），对指定 PPTX 进行视觉 QA
-- **read_file**：读取文件内容（参数：path，必须用绝对路径）
+- **single_qa_review**：单页视觉质量审查。参数 pptx_filename = 文件名去掉 .pptx 后缀
+- **read_file**：读取文件（参数：path，必须用绝对路径）
 
-## 执行流程（批量审查，一次完成所有页）
+## 哪些页不需要质检（跳过）
 
-1. 用 read_file 读取 %s/tasks.json（绝对路径），收集所有 status=done 的任务
-2. 对所有 status=done 的任务逐一调用 single_qa_review，不要跳过任何一页
-3. pptx_filename 参数 = 该任务的 output_file 去掉 .pptx 后缀
-   - 例如：output_file="1_AI大模型介绍.pptx" → pptx_filename="1_AI大模型介绍"
-   - 禁止使用 title 字段的值作为文件名
-4. 全部审查完毕后，汇总输出所有页的 QA 结果
+以下 content_type 属于结构引导类页面，布局极简，无需视觉审查，直接标为 pass：
+- **title_slide** — 标题页（封面）
+- **agenda** — 目录页
+- **section_divider** — 章节分割页
+- **summary_slide** — 总结/结束页
+- **image_text** — 图文混排页（图片为占位区，预留给用户自行填充）
+
+## 执行流程
+
+**第一步：读取并过滤**
+1. 用 read_file 读取 %s/tasks.json
+2. 筛选 status=done 且 content_type 不在上述跳过列表中的任务
+3. 先输出 "开始批量审查 N 页幻灯片（已跳过 M 页结构引导类页面）..."
+
+**第二步：并行发起全部 QA 调用**
+1. 【关键】同时发起所有 single_qa_review 调用，不要逐页串行
+2. pptx_filename 参数 = output_file 去掉 .pptx 后缀
+
+**第三步：汇总**
+- 被跳过的页也要出现在汇总中，标注 qa_status: pass, qa_report: "标题/目录/分割/结束页，跳过视觉审查"
+- 其余页按实际 QA 结果汇总
 
 ## 批量 QA 结果输出格式（重要）
 

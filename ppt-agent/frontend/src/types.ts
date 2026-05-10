@@ -2,7 +2,7 @@
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'error' | 'complete';
+export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'error' | 'complete';
 export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
 
 // ── Task types ──────────────────────────────────────────────────────────────

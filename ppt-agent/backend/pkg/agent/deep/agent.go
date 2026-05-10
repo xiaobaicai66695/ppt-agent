@@ -49,7 +49,8 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建压缩器模型失败: %w", err)
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
-		agentutils.WithCompressThreshold(20),
+		agentutils.WithCompressThreshold(12),
+		agentutils.WithTokenThreshold(30000),
 		agentutils.WithPreserveCount(4),
 	)
 
@@ -204,7 +205,8 @@ edit_file 只能用绝对路径，如 edit_file(path="%s/tasks.json", content=".
 详见 skills/visual_designer/SKILL.md 的排版约束和内容充实度标准。
 
 核心要点：
-- bullet 每条不超过 35 个中文字符，最多 4-6 条，信息密度要高
+- content_slide 等使用 bullets 的类型：每条不超过 35 个中文字符，最多 4-6 条，信息密度要高
+- image_text 图文混排：paragraph 字段必须填入 300-450 字自然语言段落，禁止罗列要点
 - 案例必须用真实公司名+具体数字，禁止"某公司"、"效果不错"
 - 案例页优先使用图文混排（image_text）增强可信性
 - 信息密度优先，避免空洞留白，每页都要有实质内容
@@ -222,23 +224,38 @@ edit_file 只能用绝对路径，如 edit_file(path="%s/tasks.json", content=".
 1. 根据前三确认（受众、场景、页数），对照上方的模板目录，选择场景最匹配的 1 个模板
 2. 用 read_file 只读取选定的那个模板文件（绝对路径：%s/<模板名>.py）
 3. 参考模板的 slide_structure 创建 tasks.json
-4. 用 edit_file 写入 %s（绝对路径）
-5. 写完后用 read_file 验证格式正确
+4. **【关键】将模板 slide_structure 中每页的 filling_prompt 规范，翻译为 tasks.json 中的 content_plan 结构化字段：**
+   - content_plan.summary = 页面核心信息的一句话概括
+   - content_plan.elements = 内容元素数组，每条元素的格式见 plan.go 中的 ContentElement 定义：
+     - type=bullet_list：提取 filling_prompt 中的 bullet 要点，每条必须包含「概念:具体说明」，禁止只填空洞标题
+     - type=example_box：必须有 title（真实名称）+ description（含技术细节+量化数据+实际效果）
+     - type=callout：有具体数字或论据支撑的突出引用
+   - 禁止在 tasks.json 中只填「生成第X页」这类简单 description，必须有完整的 content_plan
+5. 用 edit_file 写入 %s（绝对路径）
+6. 写完后用 read_file 验证格式正确
 
 > ⚠️ 只读 1 个模板：模板目录已包含选择所需的全部信息（场景描述+页数），禁止批量读取模板文件。只读选定的那一个。
 
-### 第二步：并行生成幻灯片
-1. 每次 task 调用传入 3-5 个 task_id（批量）
-2. task description 精简到 ≤150 字，只写"生成第 X-Y 页"
-3. SlideExecutor 自己会读 tasks.json 获取详情
-4. 最多 5 个并发任务
+### 第二步：分批并行生成幻灯片（强制批量）
+**必须分批，禁止逐页调用！**
+1. 将 tasks.json 中所有 status=pending 的任务按 page_index 分成批次：
+   - 第 1 批：第 1-5 页（5 个 task_id）
+   - 第 2 批：第 6-10 页（5 个 task_id）
+   - 以此类推，每批严格 5 个 task_id，最后一批可少于 5 个
+2. **同时发起所有批次的 task 调用**（最多 5 个并发 = 5 个批次并行执行）
+3. task description 精简为"生成第 X-Y 页"
+4. SlideExecutor 自己读 tasks.json 获取详情
+
+**禁止行为**：
+- 禁止每次只传 1 个 task_id（串行调用）
+- 禁止等第一批完全完成后再发起第二批（应该所有批次同时发出）
 
 **第二步结果检查（重要）**：
-- SlideExecutor 返回后，检查其中的状态汇总表
-- 有 ✅ success 的任务 → 用 edit_file 将 tasks.json 中对应 status 更新为 done
-- 有 ❌ failed 的任务 → **不要标记为 done，立即用 task 重新调用 SlideExecutor 生成这些失败页**
-- 每页最多重试 2 次，2 次仍失败则标记为 failed 并在最终汇总中说明
-- **禁止跳过失败的页面**：每个 task_id 都必须有对应的 PPTX 文件产出
+- 所有批次 SlideExecutor 返回后，汇总检查各任务状态
+- 有 ✅ success → 用 edit_file 将 status 更新为 done
+- 有 ❌ failed → 收集所有失败页，用 **1 次** task 调用批量重试
+- 每页最多重试 2 次，2 次仍失败则标记为 failed
+- **禁止跳过失败的页面**
 
 ### 第三步：文件落地确认
 1. 所有 SlideExecutor 返回并更新 tasks.json 后，用 bash 执行 ls 检查文件：

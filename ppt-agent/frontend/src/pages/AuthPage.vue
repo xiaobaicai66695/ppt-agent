@@ -87,6 +87,11 @@ function switchMode(m: 'code' | 'password') {
       <h2 class="auth-title">欢迎使用 PPT Agent</h2>
       <p class="auth-sub">AI 驱动的智能幻灯片生成平台</p>
 
+      <div class="demo-hint">
+        <span class="demo-label">体验账号</span>
+        <span class="demo-cred">root@qq.com / root</span>
+      </div>
+
       <form @submit.prevent="handleLogin">
         <input
           class="auth-input"
@@ -273,6 +278,22 @@ function switchMode(m: 'code' | 'password') {
 }
 .auth-switch a:hover { color: #a5b4fc; }
 .switch-sep { color: #334155; }
+
+.demo-hint {
+  display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+  margin-bottom: 0.75rem; padding: 0.55rem 0.9rem;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.15);
+  border-radius: 8px; font-size: 0.78rem;
+}
+.demo-label {
+  color: #64748b; font-weight: 500;
+}
+.demo-cred {
+  color: #818cf8; font-weight: 600;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+}
 
 @keyframes float {
   0%, 100% { transform: translateY(0) scale(1); }

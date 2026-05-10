@@ -123,7 +123,7 @@ skills 目录（绝对路径）：%s
 
 **每个生成器的合法参数速查（详细参数表见 generators.md）：**
 
-  generate_image_text:       prs, palette, source, title, layout, header, bullets, kicker, sub_header
+  generate_image_text:       prs, palette, source, title, layout, header, paragraph, kicker, sub_header
   generate_section_divider:   prs, palette, source, number, title, subtitle, kicker
   generate_kpi_dashboard:    prs, palette, source, kicker, title, kpis, subtitle
 
@@ -157,9 +157,49 @@ skills 目录（绝对路径）：%s
 
 核心要点：
 - 每个幻灯片必须有实质性信息，不能只是标题罗列
-- bullet 每条不超过 35 个中文字符，最多 4-6 条，信息密度要高
+- content_slide 等使用 bullets 的类型：每条不超过 35 个中文字符，最多 4-6 条，信息密度要高
+- image_text 图文混排：tasks.json 中必须填入 paragraph 字段（300-450 字自然语言段落），禁止拆分为 bullets
 - 案例/数据/指标优先通过 search 工具验证
 - 信息密度优先，避免空洞留白，每页都要有实质内容
+
+## 【必须使用 content_plan】内容结构使用规则
+
+**tasks.json 中每个任务可能包含 content_plan 字段，这是 Planner 精心规划的内容结构，必须优先使用。**
+
+**当 content_plan 存在时，按以下规则提取数据：**
+
+### content_slide:
+- summary → 对应生成器的 lede 参数（引言/开篇句）
+- elements 中 type=bullet_list → 对应生成器的 bullets 参数
+- elements 中 type=callout → 额外增加一段突出引用文本
+
+### image_text（图文混排）:
+- summary → 对应生成器的 lede 参数
+- elements 中 type=bullet_list → 忽略，**必须**只用 elements 中 type=example_box 的 description
+- 如果有 example_box：description → 生成器的 paragraph 参数（300-450 字），header → 生成器的 header 参数，sub_header → 生成器的 sub_header 参数
+- **禁止**将 example_box 的 description 拆分成 bullets，必须以自然语言段落形式传入 paragraph
+
+### deep_dive（双栏详解）:
+- summary → 对应生成器的 lede 参数
+- kicker → 从 elements 中提取或使用描述性字段
+- elements 中 type=bullet_list → key_points 参数
+- elements 中 type=example_box → case_example 参数
+
+### kpi_dashboard（指标看板）:
+- elements 中 type=example_box → kpis 列表，每个 example_box 转换为 {"value": ..., "label": ..., "delta": ..., "baseline": ...}
+- 每个 kpi 必须有 value（具体数值+单位）、label（效果说明）、delta（趋势 ↑/↓）、baseline（对比基准）
+
+### 错误做法（必须避免）：
+- 看到 content_plan 但仍然只用 description 生成
+- 将 paragraph 内容拆分成 bullets
+- 忽略 example_box 的具体描述，直接用 title 生成空洞内容
+- 只填占位符（如"{要点1}"、"{数值}"）而不填入真实内容
+
+### 正确做法：
+1. 读取 tasks.json，检查该任务是否有 content_plan 字段
+2. 如果有 content_plan，按上述规则提取各生成器参数
+3. 用提取的参数调用生成器，不要回退到只用 description
+4. 所有参数必须填入真实内容，禁止保留任何花括号占位符
 
 ## 速率限制处理
 

@@ -18,6 +18,7 @@ def generate(
     title: str = "{页面标题}",
     layout: str = "right-image",
     header: str = "{子标题}",
+    paragraph: str = "",
     bullets: List[str] = None,
     kicker: str = "",
     sub_header: str = "",
@@ -31,7 +32,8 @@ def generate(
         title: Slide title.
         layout: "left-image" or "right-image".
         header: Section/feature header text.
-        bullets: List of bullet items.
+        paragraph: A single paragraph of text (300-450 chars) for detailed description.
+        bullets: List of bullet items (legacy, use paragraph instead).
         kicker: Small label above title (e.g. "功能 · 核心").
         sub_header: Secondary header between title and feature header (e.g. "能力亮点").
 
@@ -39,12 +41,7 @@ def generate(
         The Presentation object.
     """
     if bullets is None:
-        bullets = [
-            "{要点1}",
-            "{要点2}",
-            "{要点3}",
-            "{要点4}",
-        ]
+        bullets = []
 
     if prs is None:
         prs = new_presentation(palette=palette)
@@ -130,7 +127,7 @@ def generate(
     )
 
     # Sub header (between feature header and bullets)
-    y_bullet_start = 2.5
+    y_content_start = 2.5
     if sub_header:
         add_text(
             slide,
@@ -140,7 +137,7 @@ def generate(
             color="secondary", alignment="left",
             palette=palette,
         )
-        y_bullet_start = 2.6
+        y_content_start = 2.6
         # Accent line under sub_header
         add_rect(
             slide,
@@ -155,25 +152,37 @@ def generate(
             fill_color="primary", palette=palette,
         )
 
-    # Bullet list
-    for i, item in enumerate(bullets[:6]):
-        y = y_bullet_start + i * 0.85
-
-        # Bullet dot
-        add_rect(
-            slide,
-            left=text_x + 0.05, top=y + 0.12, width=0.12, height=0.12,
-            fill_color="secondary", palette=palette,
-        )
-
+    # Content: paragraph or bullets
+    if paragraph:
+        # Render paragraph with natural line wrapping
         add_text(
             slide,
-            text=item,
-            left=text_x + 0.28, top=y, width=text_w - 0.3, height=0.75,
+            text=paragraph,
+            left=text_x, top=y_content_start, width=text_w, height=4.0,
             font_size=14, bold=False,
             color="text", alignment="left",
             palette=palette,
         )
+    else:
+        # Legacy: bullet list
+        for i, item in enumerate(bullets[:6] if bullets else []):
+            y = y_content_start + i * 0.85
+
+            # Bullet dot
+            add_rect(
+                slide,
+                left=text_x + 0.05, top=y + 0.12, width=0.12, height=0.12,
+                fill_color="secondary", palette=palette,
+            )
+
+            add_text(
+                slide,
+                text=item,
+                left=text_x + 0.28, top=y, width=text_w - 0.3, height=0.75,
+                font_size=14, bold=False,
+                color="text", alignment="left",
+                palette=palette,
+            )
 
     add_source_line(slide, source, palette)
     return prs

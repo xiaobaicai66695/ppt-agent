@@ -29,21 +29,32 @@ import (
 
 // CompressorConfig 压缩器配置
 type CompressorConfig struct {
-	Threshold     int // 触发压缩的消息对数量阈值（默认 20）
-	PreserveCount int // 压缩时保留的留边消息对数量（默认 4）
+	// 触发压缩的消息项数量阈值（默认 12，比原来保守）
+	MessageThreshold int
+	// 触发压缩的估算 token 数阈值（默认 30000，覆盖 system_prompt + 上下文后接近 32K 模型的安全线）
+	TokenThreshold int
+	// 压缩时保留的留边消息对数量（默认 4）
+	PreserveCount int
 }
 
 // CompressorOption 压缩器配置选项
 type CompressorOption func(*CompressorConfig)
 
-// WithCompressThreshold 设置触发压缩的消息数量阈值（默认 20）
+// WithCompressThreshold 设置触发压缩的消息数量阈值（默认 12）
 func WithCompressThreshold(n int) CompressorOption {
 	return func(c *CompressorConfig) {
-		c.Threshold = n
+		c.MessageThreshold = n
 	}
 }
 
-// WithPreserveCount 设置压缩时保留的留边消息数量（默认 4）
+// WithTokenThreshold 设置触发压缩的 token 数阈值（默认 8000）
+func WithTokenThreshold(n int) CompressorOption {
+	return func(c *CompressorConfig) {
+		c.TokenThreshold = n
+	}
+}
+
+// WithPreserveCount 设置压缩时保留的留边消息对数量（默认 4）
 func WithPreserveCount(n int) CompressorOption {
 	return func(c *CompressorConfig) {
 		c.PreserveCount = n
@@ -53,8 +64,9 @@ func WithPreserveCount(n int) CompressorOption {
 // DefaultCompressorConfig 返回默认压缩配置
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		Threshold:     20,
-		PreserveCount: 4,
+		MessageThreshold: 12,
+		TokenThreshold:   30000,
+		PreserveCount:   4,
 	}
 }
 
@@ -86,7 +98,8 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 
 // Generate 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	if len(messages) <= c.cfg.Threshold {
+	estimatedTokens := totalTokenEstimate(messages)
+	if len(messages) <= c.cfg.MessageThreshold && estimatedTokens <= c.cfg.TokenThreshold {
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
@@ -96,21 +109,22 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
-	beforeLen := totalTokenEstimate(messages)
+	beforeLen := estimatedTokens
 	afterLen := totalTokenEstimate(compressed)
 	saved := float64(0)
 	if beforeLen > 0 {
 		saved = 100 * (1 - float64(afterLen)/float64(beforeLen))
 	}
-	fmt.Printf("[Compressor] 压缩: %d → %d 条消息 (估算 token: %d → %d, 节省约 %.1f%%)\n",
-		len(messages), len(compressed), beforeLen, afterLen, saved)
+	fmt.Printf("[Compressor] 压缩: %d 条消息, %d token → %d 条消息, %d token (估算节省约 %.1f%%)\n",
+		len(messages), beforeLen, len(compressed), afterLen, saved)
 
 	return c.inner.Generate(ctx, compressed, opts...)
 }
 
 // Stream 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	if len(messages) <= c.cfg.Threshold {
+	estimatedTokens := totalTokenEstimate(messages)
+	if len(messages) <= c.cfg.MessageThreshold && estimatedTokens <= c.cfg.TokenThreshold {
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
@@ -120,14 +134,14 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
-	beforeLen := totalTokenEstimate(messages)
+	beforeLen := estimatedTokens
 	afterLen := totalTokenEstimate(compressed)
 	saved := float64(0)
 	if beforeLen > 0 {
 		saved = 100 * (1 - float64(afterLen)/float64(beforeLen))
 	}
-	fmt.Printf("[Compressor] 压缩: %d → %d 条消息 (估算 token: %d → %d, 节省约 %.1f%%)\n",
-		len(messages), len(compressed), beforeLen, afterLen, saved)
+	fmt.Printf("[Compressor] 压缩: %d 条消息, %d token → %d 条消息, %d token (估算节省约 %.1f%%)\n",
+		len(messages), beforeLen, len(compressed), afterLen, saved)
 
 	return c.inner.Stream(ctx, compressed, opts...)
 }
@@ -224,6 +238,10 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 请只输出压缩后的摘要，不要输出其他内容。`, summaryBuilder.String())
 
 	// 调用 summarizer 生成摘要（带 30s 超时）
+	// 注意：summarizer 的 token 消耗通过 callback 的 OnEnd 链路自动被 TokenTracker 捕获。
+	// 但 compress 是内部私有方法，无法直接访问 TokenTracker。
+	// 此处通过估算记录日志，作为 TokenTracker 的补充参考。
+	summarizerInputTokens := tokenEstimate(summaryPrompt)
 	summarizerCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	summaryMsg, err := c.summarizer.Generate(summarizerCtx, []*schema.Message{
@@ -232,6 +250,12 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	})
 	if err != nil {
 		return nil, fmt.Errorf("summarizer 调用失败: %w", err)
+	}
+	if tt := TokenTrackerFromContext(ctx); tt != nil {
+		// 估算：summarizer output 长度按 summaryPrompt 的 20% 估算
+		summarizerOutputTokens := summarizerInputTokens / 5
+		tt.Add(summarizerInputTokens, summarizerOutputTokens, summarizerInputTokens+summarizerOutputTokens)
+		log.Printf("[Compressor] summarizer token 已计入 tracker: prompt≈%d, completion≈%d", summarizerInputTokens, summarizerOutputTokens)
 	}
 
 	// 构建压缩后的消息列表

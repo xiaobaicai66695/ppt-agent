@@ -21,6 +21,10 @@ const (
 )
 
 func InitContextParams(ctx context.Context) context.Context {
+	current := ctx.Value(contextParamsKey)
+	if current == nil {
+		return context.WithValue(ctx, contextParamsKey, make(map[string]interface{}))
+	}
 	return ctx
 }
 

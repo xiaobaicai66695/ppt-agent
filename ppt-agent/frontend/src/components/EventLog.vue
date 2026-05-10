@@ -17,13 +17,17 @@ function onScroll() {
   autoScroll.value = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
 }
 
-watch(() => props.lines.length, () => {
-  if (autoScroll.value) {
-    nextTick(() => {
-      if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
-    });
-  }
-});
+// Watch both length (new lines) and last line text (streaming append)
+watch(
+  () => props.lines.length + (props.lines[props.lines.length - 1]?.text?.length || 0),
+  () => {
+    if (autoScroll.value) {
+      nextTick(() => {
+        if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
+      });
+    }
+  },
+);
 </script>
 
 <template>
@@ -36,7 +40,7 @@ watch(() => props.lines.length, () => {
     <div
       ref="logBox"
       class="log-box"
-      :style="{ maxHeight: maxHeight || '400px' }"
+      :style="maxHeight ? { maxHeight } : { flex: 1 }"
       @scroll="onScroll"
     >
       <div v-if="lines.length === 0" class="log-empty">
@@ -62,7 +66,7 @@ watch(() => props.lines.length, () => {
 
 <style scoped>
 .event-log-section {
-  margin-bottom: 1rem;
+  display: flex; flex-direction: column; height: 100%;
 }
 .log-header {
   display: flex; align-items: center; gap: 0.4rem;
@@ -79,6 +83,7 @@ watch(() => props.lines.length, () => {
   margin-left: auto;
 }
 .log-box {
+  flex: 1; min-height: 0;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--radius);

@@ -49,7 +49,10 @@
       "Bash(xxd)",
       "Read(//d/tools/codeGo/pkg/mod/github.com/cloudwego/eino@v0.8.8/schema//**)",
       "Read(//d/tools/codeGo/pkg/mod/github.com/cloudwego//**)",
-      "Bash(npm --version)"
+      "Bash(npm --version)",
+      "Bash(npm view *)",
+      "Bash(go mod *)",
+      "Bash(go test *)"
     ]
   }
 }

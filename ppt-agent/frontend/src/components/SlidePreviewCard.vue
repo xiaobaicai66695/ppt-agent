@@ -30,14 +30,12 @@ function getDownloadUrl(): string {
 function onImgError() {
   thumbLoaded.value = false;
   if (retryKey.value < 3) {
-    // Retry after a short delay (thumbnail might still be generating)
     setTimeout(() => { retryKey.value++; }, 1500);
   } else {
     thumbError.value = true;
   }
 }
 
-// Shorter filename for display
 const shortName = computed(() => {
   const name = props.task.output_file.split(/[/\\]/).pop() || props.task.output_file;
   return name.length > 28 ? name.slice(0, 25) + '...' : name;
@@ -47,13 +45,11 @@ const shortName = computed(() => {
 <template>
   <div class="slide-preview" :class="{ placeholder: !fileReady, selected }">
     <template v-if="fileReady">
-      <!-- Select checkbox (multi-download mode) -->
       <div class="select-overlay" @click.stop="emit('toggle')">
         <span class="check-mark" :class="{ on: selected }">
           <svg v-if="selected" viewBox="0 0 16 16" fill="currentColor"><path d="M6 10.8L3.2 8l-.9.9L6 12.6l8-8-.9-.9z"/></svg>
         </span>
       </div>
-
       <div class="preview-inner">
         <div class="preview-thumb">
           <img
@@ -115,41 +111,43 @@ const shortName = computed(() => {
   border-color: var(--c-primary);
 }
 .slide-preview.placeholder {
-  border-style: dashed;
-  background: var(--c-bg);
-  opacity: 0.85;
+  border-style: dashed; background: var(--c-bg); opacity: 0.85;
 }
 .slide-preview.selected {
   border-color: var(--c-primary);
   box-shadow: 0 0 0 2px rgba(59,130,246,0.25);
 }
 
-.preview-inner {
-  display: flex; flex-direction: column;
-  width: 100%; height: 100%;
+.preview-inner { display: flex; flex-direction: column; width: 100%; }
+
+.select-overlay {
+  position: absolute; top: 0.4rem; right: 0.4rem; z-index: 2; cursor: pointer;
 }
+.check-mark {
+  width: 22px; height: 22px; border-radius: 4px;
+  border: 2px solid #cbd5e1; background: rgba(255,255,255,0.9);
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition);
+}
+.check-mark svg { width: 14px; height: 14px; color: #fff; }
+.check-mark.on { border-color: var(--c-primary); background: var(--c-primary); }
 
 .preview-thumb {
-  width: 100%;
-  aspect-ratio: 16 / 9;
+  width: 100%; aspect-ratio: 16 / 9;
   background: var(--c-bg);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; position: relative;
 }
 .preview-thumb img {
-  width: 100%; height: 100%;
-  object-fit: cover;
+  width: 100%; height: 100%; object-fit: cover;
   opacity: 0; transition: opacity 0.4s;
 }
 .preview-thumb img.loaded { opacity: 1; }
 
 .thumb-spinner {
-  position: absolute;
-  width: 28px; height: 28px;
-  border: 2px solid var(--c-border);
-  border-top-color: var(--c-primary);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  position: absolute; width: 28px; height: 28px;
+  border: 2px solid var(--c-border); border-top-color: var(--c-primary);
+  border-radius: 50%; animation: spin 0.7s linear infinite;
 }
 
 .thumb-fallback {
@@ -160,15 +158,12 @@ const shortName = computed(() => {
 .thumb-note { font-size: 0.7rem; }
 
 .preview-info {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.65rem 0.75rem;
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.65rem 0.75rem;
 }
 .preview-idx {
   font-size: 0.72rem; font-weight: 700;
-  color: var(--c-primary);
-  background: var(--c-primary-light);
-  padding: 0.15rem 0.5rem; border-radius: 4px;
-  flex-shrink: 0;
+  color: var(--c-primary); background: var(--c-primary-light);
+  padding: 0.15rem 0.5rem; border-radius: 4px; flex-shrink: 0;
 }
 .preview-title {
   font-size: 0.85rem; font-weight: 600;
@@ -179,37 +174,15 @@ const shortName = computed(() => {
   font-size: 0.62rem; color: var(--c-text-muted);
   font-family: 'SF Mono', monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  max-width: 30%; flex-shrink: 0;
-  margin-left: auto;
+  max-width: 30%; flex-shrink: 0; margin-left: auto;
 }
 
-/* Select overlay */
-.select-overlay {
-  position: absolute; top: 0.4rem; right: 0.4rem;
-  z-index: 2; cursor: pointer;
-}
-.check-mark {
-  width: 22px; height: 22px; border-radius: 4px;
-  border: 2px solid #cbd5e1;
-  background: rgba(255,255,255,0.9);
-  display: flex; align-items: center; justify-content: center;
-  transition: all var(--transition);
-}
-.check-mark svg { width: 14px; height: 14px; color: #fff; }
-.check-mark.on {
-  border-color: var(--c-primary);
-  background: var(--c-primary);
-}
-
-/* Placeholder */
 .placeholder-body {
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 1rem 0.75rem; min-height: 72px;
+  display: flex; align-items: center; gap: 0.75rem; padding: 1rem 0.75rem; min-height: 72px;
 }
 .ph-idx {
   width: 36px; height: 36px; border-radius: 50%;
-  background: var(--c-border-light);
-  color: var(--c-text-muted);
+  background: var(--c-border-light); color: var(--c-text-muted);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
 }

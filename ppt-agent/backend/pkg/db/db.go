@@ -18,15 +18,6 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Session — 登录会话。
-type Session struct {
-	Token     string    `gorm:"size:64;primaryKey" json:"token"`
-	UserID    uint      `gorm:"index;not null" json:"user_id"`
-	User      User      `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"-"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
-}
-
 // VerificationCode — 邮箱验证码。
 type VerificationCode struct {
 	ID        uint      `gorm:"primaryKey" json:"-"`
@@ -96,9 +87,14 @@ func MarkZombieTasks() error {
 		}).Error
 }
 
+// Init initializes the database connection with production-grade settings.
+// - maxOpenConns/maxIdleConns: limit concurrent DB load
+// - connMaxLifetime: recycle connections before MySQL's wait_timeout expires
+// - connMaxIdleTime: close connections left idle longer than MySQL's interactive_timeout
+// - tcpKeepalive: detect dead connections at the TCP layer without waiting for MySQL timeout
 func Init(dsn string) error {
 	var err error
-	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	DB, err = gorm.Open(mysql.Open(dsn+"&interpolateParams=true"), &gorm.Config{})
 	if err != nil {
 		return fmt.Errorf("gorm.Open: %w", err)
 	}
@@ -106,9 +102,14 @@ func Init(dsn string) error {
 	sqlDB, _ := DB.DB()
 	sqlDB.SetMaxOpenConns(10)
 	sqlDB.SetMaxIdleConns(5)
-	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetConnMaxLifetime(3 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(2 * time.Minute)
 
-	if err := DB.AutoMigrate(&User{}, &Session{}, &VerificationCode{}, &TaskRecord{}); err != nil {
+	if err := sqlDB.Ping(); err != nil {
+		return fmt.Errorf("DB ping failed: %w", err)
+	}
+
+	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 

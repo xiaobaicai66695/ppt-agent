@@ -9,7 +9,7 @@ export function getToken(): string | null {
 export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
   // Also set cookie for EventSource (can't send custom headers)
-  document.cookie = `session_token=${token}; path=/; SameSite=Lax`;
+  document.cookie = `session_token=${token}; path=/; max-age=604800; SameSite=Lax`;
 }
 
 export function clearToken() {
@@ -28,12 +28,15 @@ function authHeaders(): Record<string, string> {
   return h;
 }
 
-// Global fetch wrapper: auto-redirect to /auth on 401
+// Global fetch wrapper: handle 401 without disrupting active workflows
 async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   const res = await fetch(url, options);
   if (res.status === 401) {
     clearToken();
-    window.location.href = '/auth';
+    // Only auto-redirect if user is on a page that requires auth (not already on /auth)
+    if (!window.location.pathname.startsWith('/auth')) {
+      window.location.href = '/auth';
+    }
     throw new Error('登录已过期，请重新登录');
   }
   return res;

@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"regexp"
+	"strings"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/components/model"
@@ -11,6 +13,30 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools/qa"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 )
+
+// SanitizeJSON fixes common LLM JSON errors before unmarshaling.
+// Handles: trailing commas, extra braces, double-escaped quotes.
+func SanitizeJSON(raw string) string {
+	raw = strings.TrimSpace(raw)
+
+	// 1. Remove trailing commas before closing braces/brackets
+	re := regexp.MustCompile(`,(\s*[}\]])`)
+	raw = re.ReplaceAllString(raw, "$1")
+
+	// 2. Fix double-escaped JSON strings inside JSON
+	// The LLM sometimes outputs: {"content":"{\"title\":...}"} which is correct,
+	// but sometimes: {"content":"{"title":...}"} which is broken
+	// This is handled by fixContentObject in edit_file.go
+
+	// 3. Remove any text before first { or [ and after last } or ]
+	start := strings.IndexAny(raw, "{[")
+	end := strings.LastIndexAny(raw, "}]")
+	if start >= 0 && end > start {
+		raw = raw[start : end+1]
+	}
+
+	return raw
+}
 
 func NewSearchTool() tool.InvokableTool {
 	return search.NewSearchTool()

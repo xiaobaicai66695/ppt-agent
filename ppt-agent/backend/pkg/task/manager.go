@@ -13,6 +13,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
@@ -264,7 +265,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	}
 	agentCtx, cancel := context.WithCancel(context.Background())
 	// Attach token tracker to context for callbacks to accumulate usage.
-	agentCtx, _ = WithTokenTracker(agentCtx)
+	agentCtx, _ = utils.WithTokenTracker(agentCtx)
 	type workDirSetter interface{ SetWorkDir(context.Context, string) context.Context }
 	if setter, ok := cfg.Operator.(workDirSetter); ok {
 		agentCtx = setter.SetWorkDir(agentCtx, workDir)
@@ -328,7 +329,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 
 	// Collect accumulated token usage from callbacks.
-	if tt := TokenTrackerFromContext(ctx); tt != nil {
+	if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
 		p, c, t := tt.TokenTotals()
 		ts.Info.PromptTokens = p
 		ts.Info.CompletionTokens = c
@@ -360,11 +361,31 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 	defer ticker.Stop()
 
 	var lastDone int
+	var lastTokens int64
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+
+		// —— 实时 token 用量同步 ——
+		if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
+			p, c, t := tt.TokenTotals()
+			if t != lastTokens {
+				lastTokens = t
+				ts.Mu.Lock()
+				ts.Info.PromptTokens = p
+				ts.Info.CompletionTokens = c
+				ts.Info.TotalTokens = t
+				ts.Mu.Unlock()
+				ts.Broadcast(SSERichEvent{
+					Type:            "token_usage",
+					PromptTokens:    p,
+					CompletionTokens: c,
+					TotalTokens:     t,
+				})
+			}
 		}
 
 		entries, err := os.ReadDir(workDir)
@@ -419,6 +440,16 @@ func (tm *TaskManager) cleanupTask(ts *TaskState) {
 		close(ch)
 	}
 	ts.listeners = nil
+
+	// Schedule removal from memory after 1 hour (MySQL + NewColdTaskState handles replay after that)
+	id := ts.Info.ID
+	time.AfterFunc(1*time.Hour, func() {
+		tm.mu.Lock()
+		if t, ok := tm.tasks[id]; ok && t != nil && t.Info.Status != TaskStatusRunning {
+			delete(tm.tasks, id)
+		}
+		tm.mu.Unlock()
+	})
 }
 
 // GetTask returns the stored task info, or nil if not found.
@@ -524,7 +555,6 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	// Remove from in-memory map.
 	tm.mu.Lock()
 	delete(tm.tasks, id)
-	ts = tm.tasks[id] // will be nil
 	tm.mu.Unlock()
 
 	// Delete DB record.
@@ -548,6 +578,7 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	}
 	if workDir != "" {
 		if err := os.RemoveAll(workDir); err != nil {
+			log.Printf("[TaskManager] 删除工作目录失败 %s: %v\n", workDir, err)
 			return fmt.Errorf("删除工作目录失败: %w", err)
 		}
 	}

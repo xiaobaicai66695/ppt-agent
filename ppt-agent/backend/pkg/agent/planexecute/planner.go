@@ -120,7 +120,7 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - quote_slide: 金句/引言页。大号引文居中，配出处说明，强调"仪式感"。
 
 ### 对比与并列类（用于同时呈现多种观点、产品、方案）
-- two_column: 双栏对比。常见于 A vs B 分析，左右并置。
+- two_column: 双栏对比。常见于 A vs B 分析，左右并置。支持多区块结构（左：核心要点+深度分析；右：案例+数据），使对比更深入
 - three_column: 三栏并列。适合三个维度、三个选项或三个案例的对称排列。
 - card_grid: 卡片阵列。适合展示 4~8 个同等重要的事项（如功能特性），卡片尺寸自适应。
 - comparison_table: 对比表格。结构化对比多行多维度的信息。
@@ -193,7 +193,7 @@ var plannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
 - **kpi_grid**：3-4 个指标卡片，每卡片包含 label(指标名) + value(数值+单位，如"1248K") + trend(↑/↓/→) + delta(变化幅度，如"+38% YoY")
 - **stat_slide**：单个或多个大数字居中展示，用于强调关键指标（见 stat_slide 生成器）
 - **case_study_block**：结构化案例块，包含 context(行业背景1-2句) + problem(痛点1句) + solution(方案2-3句，含技术细节) + results(量化结果2-3条，每条含具体数字)
-- **two_column**：双列对比，left_header(左列标题) + left_bullets(3-5条) + right_header + right_bullets(3-5条)。每条差异必须用具体数字或事实，禁用模糊描述
+- **two_column**：双列对比，left_header + left_sections{key_points/analysis/data} + right_header + right_sections{key_points/analysis/data}。支持多区块结构（核心要点/深度分析/数据支撑），每条内容必须包含具体数字或事实，禁用模糊描述。优先使用 sections 模式，其次用 bullets 模式
 - **data_table**：headers(列表头数组) + rows(数据行二维数组)，适用于结构化多维对比
 - 每个 sub_step 至少包含 2-3 个元素，且每个元素的内容要有实质信息
 - **优先使用实例型元素**（example_box, case_study_block, kpi_grid）而非纯 bullet_list

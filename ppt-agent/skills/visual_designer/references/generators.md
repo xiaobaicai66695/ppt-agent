@@ -90,6 +90,7 @@ from generators import (
 | section_header | str | `"{小节标题}"` (可选) |
 | bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据", ...]` (4-6条，每条≤35中文字符) |
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
+| lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
 
 #### generate_quote_slide — 金句/引言页
 | 参数 | 类型 | 示例 |
@@ -104,9 +105,13 @@ from generators import (
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
 | header | str | `"核心技术突破"` |
-| bullets | `List[str]` | `["视觉理解：支持图像输入分析", ...]` (3-4条) |
+| paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
+| bullets | `List[str]` | ~~（已废弃，勿用 paragraph 拆分后的 bullets）~~ |
 | kicker | str | `"功能 · 核心"` (可选，标题上方小标签) |
-| sub_header | str | `"能力亮点"` (可选，header 与 bullets 之间的次级标题) |
+| sub_header | str | `"能力亮点"` (可选，header 与内容之间的次级标题) |
+| source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
+
+> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。
 
 ### 对比与并列类
 
@@ -115,10 +120,18 @@ from generators import (
 |------|------|------|
 | title | str | `"CNN vs Transformer 对比"` |
 | left_header | str | `"CNN"` |
-| left_bullets | `List[str]` | `["擅长空间特征提取", ...]` (3-5条) |
 | right_header | str | `"Transformer"` |
-| right_bullets | `List[str]` | `["擅长全局依赖建模", ...]` (3-5条) |
 | kicker | str | `"方案对比"` (可选，标题上方小标签) |
+| left_bullets | `List[str]` | `["擅长空间特征提取", ...]` (3-6条，向后兼容) |
+| right_bullets | `List[str]` | `["擅长全局依赖建模", ...]` (3-6条，向后兼容) |
+| left_intro | str | `"CNN是计算机视觉的基础架构..."` (可选，开篇引言段落) |
+| right_intro | str | `"Transformer在NLP领域取得突破..."` (可选，开篇引言段落) |
+| left_sections | `Dict[str, List[str]]` | `{"key_points": [...], "analysis": [...], "data": [...]}` (可选，多区块结构) |
+| right_sections | `Dict[str, List[str]]` | 同上 (可选，多区块结构) |
+| left_items | `List[dict]` | `[{"title": "...", "desc": "...", "metric": "↑ 30%"}, ...]` (可选，逐项卡片模式) |
+| right_items | `List[dict]` | 同上 (可选，逐项卡片模式) |
+
+> **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。
 
 #### generate_three_column — 三栏并列
 | 参数 | 类型 | 示例 |
@@ -132,7 +145,7 @@ from generators import (
 |------|------|------|
 | title | str | `"六大核心能力"` |
 | layout | str | `"2x2"` 或 `"2x3"` 或 `"3x2"` |
-| cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的NL2SQL"}, ...]` ×4-8 |
+| cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话..."}, ...]` ×4-8 (body 为 100-120 字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |
 
@@ -173,6 +186,8 @@ from generators import (
 | title | str | `"核心业务指标"` |
 | kpis | `List[dict]` | `[{"value": "1248K", "label": "月活用户", "delta": "↑38% YoY", "baseline": "去年902K"}, ...]` ×4（固定 2x2 网格，最多 4 个） |
 | subtitle | str | `"业务线关键绩效数据"` (可选，标题下方副标题) |
+
+> **强制规则**：每个 KPI 字典必须包含全部 4 个字段：`value`（具体数值+单位）、`label`（效果说明）、`delta`（变化趋势，如 ↑38%）、`baseline`（对比基准，如 vs 传统方案）。禁止使用占位符如 `"{数值}"`。数据必须真实（通过 search 获取）。
 
 ### 内容叙事类（案例/详解）
 

@@ -3,12 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
@@ -16,10 +16,18 @@ import (
 )
 
 const (
-	sessionDuration = 24 * time.Hour
-	codeDuration    = 5 * time.Minute
-	codeMaxAttempts = 5 // per email per 5-min window
+	jwtDuration    = 7 * 24 * time.Hour
+	codeDuration   = 5 * time.Minute
+	codeMaxAttempts = 5
 )
+
+var jwtSecret = []byte("pptagent")
+
+type jwtClaims struct {
+	UserID uint   `json:"user_id"`
+	Email  string `json:"email"`
+	jwt.RegisteredClaims
+}
 
 // SendCode generates a 6-digit code, stores it, and emails it.
 func SendCode(email string) error {
@@ -27,7 +35,6 @@ func SendCode(email string) error {
 		return errors.New("请输入有效的邮箱地址")
 	}
 
-	// Rate limit: max N codes per window
 	var recentCount int64
 	db.DB.Model(&db.VerificationCode{}).
 		Where("email = ? AND created_at > ?", email, time.Now().Add(-codeDuration)).
@@ -53,14 +60,13 @@ func SendCode(email string) error {
 	return nil
 }
 
-// LoginWithCode verifies the code and returns a session token.
+// LoginWithCode verifies the code and returns a JWT token.
 // If the user doesn't exist, it auto-registers them.
 func LoginWithCode(email, code string) (token string, user *db.User, isNew bool, err error) {
 	if email == "" || code == "" {
 		return "", nil, false, errors.New("邮箱和验证码不能为空")
 	}
 
-	// Verify code
 	var vc db.VerificationCode
 	if err := db.DB.Where("email = ? AND code = ? AND used = false AND expires_at > ?",
 		email, code, time.Now()).Order("id DESC").First(&vc).Error; err != nil {
@@ -70,10 +76,8 @@ func LoginWithCode(email, code string) (token string, user *db.User, isNew bool,
 		return "", nil, false, fmt.Errorf("验证失败: %w", err)
 	}
 
-	// Mark code as used
 	db.DB.Model(&vc).Update("used", true)
 
-	// Find or create user
 	u := &db.User{}
 	err = db.DB.Where("email = ?", email).First(u).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -86,43 +90,48 @@ func LoginWithCode(email, code string) (token string, user *db.User, isNew bool,
 		return "", nil, false, fmt.Errorf("查询用户失败: %w", err)
 	}
 
-	token, err = createSession(u.ID)
+	token, err = createToken(u)
 	if err != nil {
 		return "", nil, false, fmt.Errorf("创建会话失败: %w", err)
 	}
 	return token, u, isNew, nil
 }
 
-// ── Session management ─────────────────────────────────────────────────
+// ── JWT token management ─────────────────────────────────────────────────
 
-func createSession(userID uint) (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+func createToken(user *db.User) (string, error) {
+	now := time.Now()
+	claims := jwtClaims{
+		UserID: user.ID,
+		Email:  user.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(jwtDuration)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
 	}
-	token := hex.EncodeToString(b)
-
-	s := &db.Session{Token: token, UserID: userID, ExpiresAt: time.Now().Add(sessionDuration)}
-	if err := db.DB.Create(s).Error; err != nil {
-		return "", err
-	}
-	return token, nil
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
 }
 
-// ValidateSession checks a token and returns the associated user.
-func ValidateSession(token string) (*db.User, error) {
-	if token == "" {
+// ValidateSession validates a JWT token and returns the embedded user.
+func ValidateSession(tokenString string) (*db.User, error) {
+	if tokenString == "" {
 		return nil, errors.New("未提供会话令牌")
 	}
-	var s db.Session
-	if err := db.DB.Preload("User").Where("token = ?", token).First(&s).Error; err != nil {
-		return nil, errors.New("会话无效")
+	claims := &jwtClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("非预期的签名方法: %v", t.Header["alg"])
+		}
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return nil, errors.New("会话无效或已过期，请重新登录")
 	}
-	if time.Now().After(s.ExpiresAt) {
-		db.DB.Delete(&s)
-		return nil, errors.New("会话已过期，请重新登录")
-	}
-	return &s.User, nil
+	return &db.User{
+		ID:    claims.UserID,
+		Email: claims.Email,
+	}, nil
 }
 
 // LoginWithPassword logs in with email + password.
@@ -143,7 +152,7 @@ func LoginWithPassword(email, password string) (token string, user *db.User, err
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
 		return "", nil, errors.New("邮箱或密码错误")
 	}
-	token, err = createSession(u.ID)
+	token, err = createToken(u)
 	if err != nil {
 		return "", nil, fmt.Errorf("创建会话失败: %w", err)
 	}
@@ -178,15 +187,9 @@ func SeedRootUser(email, password string) {
 	fmt.Printf("[Auth] 默认 root 用户已创建: %s\n", email)
 }
 
-// Logout removes the session.
+// Logout is a no-op for JWT-based auth. The client discards the token.
 func Logout(token string) error {
-	return db.DB.Where("token = ?", token).Delete(&db.Session{}).Error
-}
-
-// CleanExpiredSessions removes all expired sessions and codes.
-func CleanExpiredSessions() {
-	db.DB.Where("expires_at < ?", time.Now()).Delete(&db.Session{})
-	db.DB.Where("expires_at < ?", time.Now()).Delete(&db.VerificationCode{})
+	return nil
 }
 
 // ── Context keys ──────────────────────────────────────────────────────

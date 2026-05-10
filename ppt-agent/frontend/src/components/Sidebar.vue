@@ -33,6 +33,13 @@ function fmtTime(iso: string): string {
   return `${d.getMonth() + 1}/${d.getDate()} ` + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
+function fmtTokens(n: number): string {
+  if (!n || n <= 0) return '';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
 function handleCreate() {
   const q = query.value.trim();
   if (!q || props.creating || props.hasRunningTask) return;
@@ -144,6 +151,9 @@ const taskCount = computed(() => props.tasks.length);
           <div v-if="t.total_count > 0" class="task-item-progress">
             <div class="mini-bar"><div class="mini-bar-fill" :class="{ done: t.status === 'completed' }" :style="{ width: Math.round((t.done_count / t.total_count) * 100) + '%' }" /></div>
             <span class="mini-count">{{ t.done_count }}/{{ t.total_count }}</span>
+          </div>
+          <div v-if="(t.total_tokens ?? 0) > 0" class="task-item-tokens">
+            {{ fmtTokens(t.total_tokens ?? 0) }} tokens
           </div>
         </div>
       </TransitionGroup>
@@ -305,6 +315,7 @@ const taskCount = computed(() => props.tasks.length);
 .mini-bar-fill { height: 100%; background: #6366f1; border-radius: 2px; transition: width 0.6s; }
 .mini-bar-fill.done { background: #10b981; }
 .mini-count { font-size: 0.6rem; color: #64748b; min-width: 2.5em; text-align: right; }
+.task-item-tokens { font-size: 0.6rem; color: #6366f1; margin-top: 0.25rem; opacity: 0.7; }
 .empty-hint { font-size: 0.75rem; color: #475569; padding: 0.5rem 0.25rem; line-height: 1.5; }
 
 .task-list-enter-active { transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); }

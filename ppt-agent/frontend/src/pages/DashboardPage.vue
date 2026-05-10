@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import type { TaskInfo, TaskItem, SSEEvent } from '../types';
 import { STATUS_LABELS } from '../types';
-import { fetchTasks, createTask, fetchTask, cancelTask, deleteTask, isLoggedIn } from '../api';
+import { fetchTasks, createTask, fetchTask, cancelTask, deleteTask, isLoggedIn, clearToken } from '../api';
 import { authState } from '../stores/auth';
 import Sidebar from '../components/Sidebar.vue';
 import ProgressBar from '../components/ProgressBar.vue';
@@ -59,18 +59,22 @@ const sampleThemes = [
 
 const orderedSlides = computed(() => {
   const slides = new Map<string, { task: TaskItem; fileReady: boolean }>();
+  // 1. Add all entries from taskItems (progress events)
   for (const t of taskItems.value) {
-    slides.set(t.task_id, { task: t, fileReady: finalFiles.value.includes(t.output_file) });
+    slides.set(t.output_file, { task: t, fileReady: finalFiles.value.includes(t.output_file) });
   }
-  // Fallback: when taskItems is empty (e.g. restored from MySQL after restart),
-  // generate entries directly from the file list
-  if (slides.size === 0 && finalFiles.value.length > 0) {
-    finalFiles.value.forEach((f, i) => {
+  // 2. Add files that arrived via file_ready but don't yet have a taskItem entry
+  // This ensures slides appear immediately when the .pptx file is detected on disk,
+  // without waiting for the master agent to update tasks.json
+  for (const f of finalFiles.value) {
+    if (!taskItems.value.some(t => t.output_file === f)) {
       const name = f.split(/[/\\]/).pop() || f;
+      const idxMatch = name.match(/^(\d+)_/);
+      const pageIdx = idxMatch ? parseInt(idxMatch[1]) : slides.size + 1;
       slides.set(f, {
         task: {
           task_id: f,
-          page_index: i + 1,
+          page_index: pageIdx,
           title: name,
           content_type: '',
           output_file: f,
@@ -78,7 +82,7 @@ const orderedSlides = computed(() => {
         },
         fileReady: true,
       });
-    });
+    }
   }
   return [...slides.values()].sort((a, b) => a.task.page_index - b.task.page_index);
 });
@@ -110,19 +114,20 @@ function downloadSelected() {
   const ids = selectedSlides.value;
   if (ids.size === 0) return;
   const slides = readySlides.value.filter(s => ids.has(s.task.task_id));
-  // Download each file with a small stagger
-  slides.forEach((s, i) => {
-    setTimeout(() => {
-      const name = s.task.output_file.split(/[/\\]/).pop() || s.task.output_file;
-      const a = document.createElement('a');
-      a.href = `/api/tasks/${selectedTask.value!.id}/files/${encodeURIComponent(name)}`;
-      a.download = name;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }, i * 300);
-  });
+  if (slides.length === 0) return;
+
+  // Download all selected files synchronously within the same user gesture.
+  // setTimeout breaks the gesture chain and triggers browser popup blocking.
+  for (const s of slides) {
+    const name = s.task.output_file.split(/[/\\]/).pop() || s.task.output_file;
+    const a = document.createElement('a');
+    a.href = `/api/tasks/${selectedTask.value!.id}/files/${encodeURIComponent(name)}`;
+    a.download = name;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
 }
 
 // ── Log ────────────────────────────────────────────────────────────────
@@ -139,11 +144,52 @@ function addLog(kind: import('../types').LogKind, text: string) {
 }
 
 // ── SSE ────────────────────────────────────────────────────────────────
+let sseRetryCount = 0;
+let sseCompleted = false;
+const SSE_MAX_RETRIES = 10;
+
 function connectSSE(taskId: string) {
   if (!taskId) return;
+  if (sseCompleted) return; // already received complete, don't reconnect
   if (es) es.close();
   es = new EventSource(`/api/tasks/${taskId}/stream`);
   activeWorkers.value = 0;
+  sseRetryCount = 0;
+  sseCompleted = false;
+
+  es.onerror = () => {
+    es!.close();
+    es = null;
+
+    // Already received complete event — don't retry
+    if (sseCompleted) return;
+
+    const task = tasks.value.find(t => t.id === taskId);
+
+    // Running task: keep retrying indefinitely with backoff (master agent may be idle/thinking)
+    if (task?.status === 'running') {
+      sseRetryCount++;
+      const delay = Math.min(2000 * Math.pow(1.5, sseRetryCount - 1), 15000);
+      addLog('error', `连接中断，${(delay / 1000).toFixed(0)}s 后自动重连 (第 ${sseRetryCount} 次)...`);
+      setTimeout(() => connectSSE(taskId), delay);
+      return;
+    }
+
+    // Completed/cancelled task: limited retries
+    if (task && sseRetryCount < 3) {
+      sseRetryCount++;
+      setTimeout(() => connectSSE(taskId), 2000);
+      return;
+    }
+
+    // Only force logout if we can confirm a 401 via auth check
+    if (!isLoggedIn()) {
+      clearToken();
+      window.location.href = '/auth';
+    } else {
+      addLog('error', 'SSE 连接失败，请刷新页面重试');
+    }
+  };
 
   const handler = (e: MessageEvent) => {
     let evt: SSEEvent;
@@ -213,16 +259,30 @@ function connectSSE(taskId: string) {
         }
         break;
 
+      case 'token_usage':
+        if (evt.total_tokens) {
+          const t = tasks.value.find(x => x.id === taskId);
+          if (t) {
+            t.prompt_tokens = evt.prompt_tokens || 0;
+            t.completion_tokens = evt.completion_tokens || 0;
+            t.total_tokens = evt.total_tokens || 0;
+          }
+        }
+        break;
+
       case 'error':
         addLog('error', evt.error || evt.content || '');
         break;
 
       case 'complete':
+        sseCompleted = true;
         doneCount.value = evt.done || 0;
         totalCount.value = evt.total || 0;
         if (evt.files) {
-          finalFiles.value = evt.files;
-          for (const f of evt.files) cachePPT(taskId, f);
+          for (const f of evt.files) {
+            if (!finalFiles.value.includes(f)) finalFiles.value.push(f);
+            cachePPT(taskId, f);
+          }
         }
         if (evt.message) finalMessage.value = evt.message;
         if (evt.duration) duration.value = evt.duration;
@@ -246,6 +306,7 @@ function connectSSE(taskId: string) {
   es.addEventListener('tool_call', handler);
   es.addEventListener('progress', handler);
   es.addEventListener('file_ready', handler);
+  es.addEventListener('token_usage', handler);
   es.addEventListener('error', handler);
   es.addEventListener('complete', handler);
 }
@@ -264,12 +325,6 @@ async function cachePPT(taskId: string, filename: string) {
     if (!await cache.match(fileUrl)) {
       const res = await fetch(fileUrl);
       if (res.ok) cache.put(fileUrl, res.clone());
-    }
-    // Cache the thumbnail
-    const thumbUrl = `/api/tasks/${taskId}/thumb/${encodeURIComponent(name)}`;
-    if (!await cache.match(thumbUrl)) {
-      const res = await fetch(thumbUrl);
-      if (res.ok) cache.put(thumbUrl, res.clone());
     }
   } catch { /* non-critical */ }
 }
@@ -554,7 +609,7 @@ onUnmounted(() => { disconnectSSE(); });
         <!-- Left-Right Split -->
         <div class="split-layout">
           <div class="split-left">
-            <EventLog :lines="logLines" max-height="calc(100vh - 300px)" />
+            <EventLog :lines="logLines" />
           </div>
           <div class="split-right">
             <!-- Batch panels -->
@@ -630,7 +685,7 @@ onUnmounted(() => { disconnectSSE(); });
 
 <style scoped>
 .layout { display: flex; min-height: 100vh; }
-.main { flex: 1; padding: 1.5rem 2rem; overflow-y: auto; max-height: 100vh; }
+.main { flex: 1; padding: 1.5rem 2rem; overflow: hidden; max-height: 100vh; display: flex; flex-direction: column; }
 
 /* Welcome */
 .welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; text-align: center; }
@@ -697,9 +752,9 @@ onUnmounted(() => { disconnectSSE(); });
 .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Split */
-.split-layout { display: grid; grid-template-columns: 33% 67%; gap: 1rem; margin-bottom: 1rem; }
-.split-left { min-width: 0; }
-.split-right { min-width: 0; }
+.split-layout { display: grid; grid-template-columns: 33% 67%; gap: 1rem; flex: 1; min-height: 0; }
+.split-left { min-width: 0; overflow-y: auto; }
+.split-right { min-width: 0; overflow-y: auto; padding-right: 0.3rem; }
 
 /* Section title */
 .section-title { font-size: 0.82rem; font-weight: 600; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.5rem; }

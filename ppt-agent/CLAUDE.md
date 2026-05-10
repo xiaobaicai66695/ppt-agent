@@ -51,10 +51,18 @@ Both modes share the same tool implementations, skill injection, and model confi
 ### Model fallback chain
 
 `FallbackChatModel` (`pkg/agent/utils/model.go`) wraps multiple ARK models loaded from env:
-- `ARK_MODEL` → `ARK_MODEL_BACKUP1` → `ARK_MODEL_BACKUP2`
+- `ARK_MODEL` → `ARK_MODEL_BACKUP1` → `ARK_MODEL_BACKUP2` → `ARK_MODEL_BACKUP3` → `ARK_MODEL_BACKUP4`
 - On 429 rate limit: pauses the failing model for 30s, continues to next backup
 - All models fail → returns error
 - The fallback chain is created fresh per agent (Planner, Executor, SlideExecutor, Fixer each get their own instance). The QA Reviewer gets a separate model via `QAModelFn`.
+
+### Token tracking
+
+`TokenTracker` (`pkg/agent/utils/token_tracker.go`) accumulates LLM token usage via atomic counters. It's attached to the context at task creation and updated by both the callback handler (main model calls) and the compressor (summarizer calls). The compressor tracks summarizer tokens using rough estimation since the summarizer call bypasses the callback system.
+
+### Context compression
+
+`ChatModelCompressor` (`pkg/agent/utils/compressor.go`) wraps only the DeepAgent orchestrator's chat model (not sub-agents). Dual trigger: `MessageThreshold=12` OR `TokenThreshold=30000` (estimated chars). Strategy: `system + [compressed summary] + [last 4 conversation pairs]`. Compression runs via a dedicated fallback model with `MaxTokens=4096`.
 
 ### Task lifecycle (DeepAgent mode)
 

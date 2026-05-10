@@ -19,6 +19,7 @@ def generate(
     section_header: str = "{小节标题}",
     bullets: List[str] = None,
     kicker: str = "",
+    lede: str = "",
 ) -> Presentation:
     """
     Generate a content slide with title, optional section header, and bullet list.
@@ -30,6 +31,8 @@ def generate(
         section_header: Optional section header text.
         bullets: List of bullet items (max 5, each up to 20 Chinese chars).
         kicker: Small label above title (e.g. "要点 · 核心技术").
+        lede: Optional lead-in paragraph below section header (1-2 sentences, ~50 chars).
+               Sets context before bullet points. If provided, bullets start below.
 
     Returns:
         The Presentation object.
@@ -89,6 +92,18 @@ def generate(
             left=0.7, top=y_offset, width=11.5, height=0.5,
             font_size=20, bold=True,
             color="primary", alignment="left",
+            palette=palette,
+        )
+        y_offset += 0.6
+
+    # Lede (lead-in paragraph between section_header and bullets)
+    if lede:
+        add_text(
+            slide,
+            text=lede,
+            left=0.7, top=y_offset, width=11.5, height=0.5,
+            font_size=14, bold=False,
+            color="text_muted", alignment="left",
             palette=palette,
         )
         y_offset += 0.6

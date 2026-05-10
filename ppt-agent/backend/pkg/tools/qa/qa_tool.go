@@ -79,10 +79,16 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 6. **placeholder（占位符残留）** — 包含 "xxxx"、"lorem"、"ipsum"、"placeholder" 等占位符文本
 7. **ai_style（AI感特征）** — 标题下有装饰线、紫色渐变科技风、过于均匀的配色
 8. **layout_monotony（布局单调）** — 所有元素机械式均匀排列，缺乏视觉节奏变化。具体表现：多条 bullet 间距完全一致且无任何装饰元素打破单调；页面所有文字块大小/颜色完全相同无层次；元素集中在上半部分而下半部分空洞；整体看起来像"填空题模板"而非精心设计的页面
+9. **content_emptiness（内容空洞）** — 文字内容缺乏深度，仅有标题级别的空洞罗列。具体表现：
+   - bullet 列表中每条只有1-3个词（如「AI」「深度学习」「机器学习」），无冒号分隔的概念+说明
+   - 段落文本少于50字或明显是空洞套话（如「AI在各行业有广泛应用」「效果显著」「体验良好」）
+   - 数值占位符残留（如"{数值}"、"xxx"、"{要点}"）
+   - 缺少具体数字、缺少命名实体（公司/系统/人物名称）、缺少技术细节
+   - 同一页中出现超过3个不同的空洞描述而无任何量化数据
 
 ## 严重程度定义
 
-- **high** — 明显影响阅读或观感，必须修复（如文字被截断、重叠）
+- **high** — 明显影响阅读或观感，必须修复（如文字被截断、重叠、内容空洞无实质信息）
 - **medium** — 视觉上不够精致，建议修复（如间距不均、对比度略低）
 - **low** — 微小瑕疵，不影响整体
 
@@ -189,6 +195,26 @@ func (t *SingleTool) runConverter(ctx context.Context, wd string) (map[string]an
 	imgDir := filepath.Join(wd, "qa_images")
 	if err := os.MkdirAll(imgDir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建 QA 图片目录失败: %v", err)
+	}
+
+
+	// Skip conversion only if ALL pptx files have matching jpg already (from thumbnails)
+	pptxEntries, _ := os.ReadDir(wd)
+	allExist := false
+	for _, e := range pptxEntries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pptx") {
+			continue
+		}
+		jpgName := strings.TrimSuffix(e.Name(), ".pptx") + ".jpg"
+		if _, err := os.Stat(filepath.Join(imgDir, jpgName)); err == nil {
+			allExist = true
+		} else {
+			allExist = false
+			break
+		}
+	}
+	if allExist {
+		return map[string]any{"total_slides": float64(0), "text_content": "", "skipped": true}, nil
 	}
 
 	pythonBin := "/root/pptx_env/bin/python"

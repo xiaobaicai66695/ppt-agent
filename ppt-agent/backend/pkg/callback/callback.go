@@ -31,7 +31,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/cloudwego/ppt-agent/pkg/task"
+	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 )
 
 // startTime 程序启动时间
@@ -315,7 +315,7 @@ func NewLogHandler() callbacks.Handler {
 					tu := mo.TokenUsage
 					log.Printf("[%dms] [%s] ← LLM | prompt=%d completion=%d total=%d",
 						elapsed(), agentName, tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
-					if tt := task.TokenTrackerFromContext(ctx); tt != nil {
+					if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
 						tt.Add(tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
 					}
 				}

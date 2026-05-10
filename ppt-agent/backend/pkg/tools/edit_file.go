@@ -154,6 +154,9 @@ func normalizeContentBlock(argsJSON string) (string, error) {
 }
 
 func (e *editFileTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
+	// Sanitize common LLM JSON errors (trailing commas, etc.)
+	argumentsInJSON = SanitizeJSON(argumentsInJSON)
+
 	normalized, err := normalizeContentBlock(argumentsInJSON)
 	if err != nil {
 		return "", err
