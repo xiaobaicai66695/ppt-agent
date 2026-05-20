@@ -18,13 +18,16 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 // CompressorConfig 压缩器配置
@@ -65,9 +68,140 @@ func WithPreserveCount(n int) CompressorOption {
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
 		MessageThreshold: 12,
-		TokenThreshold:   30000,
+		TokenThreshold:  30000,
 		PreserveCount:   4,
 	}
+}
+
+// ── 结构化摘要 ────────────────────────────────────────────────────────────────
+
+// CompressionSummary 是压缩后摘要的结构化格式
+type CompressionSummary struct {
+	// KeyDecisions 关键决策，结构化保留，不会被 LLM 自由文本丢失
+	KeyDecisions struct {
+		Template     string   `json:"template,omitempty"`      // 模板名称
+		ColorScheme  string   `json:"color_scheme,omitempty"` // 配色方案
+		Theme        string   `json:"theme,omitempty"`        // 主题
+		TotalPages   int      `json:"total_pages,omitempty"`  // 总页数
+		SlideTypes   []string `json:"slide_types,omitempty"`  // 内容类型列表
+		OtherDecisions []string `json:"other_decisions,omitempty"` // 其他关键决策
+	} `json:"key_decisions"`
+
+	// ProgressSummary 进度摘要：已完成的任务、当前状态
+	ProgressSummary string `json:"progress_summary"`
+
+	// ConversationSummary 自由格式对话摘要，描述中间轮次的交互过程
+	ConversationSummary string `json:"conversation_summary"`
+}
+
+// ExtractKeyDecisions 从对话历史中解析关键决策
+func ExtractKeyDecisions(messages []*schema.Message) *CompressionSummary {
+	summary := &CompressionSummary{}
+	summary.KeyDecisions.OtherDecisions = []string{}
+
+	// 正则匹配模板名称
+	templateRe := regexp.MustCompile(`(?i)(?:模板|template)[：:\s]*([a-zA-Z0-9_\-]+)`)
+	colorRe := regexp.MustCompile(`(?i)(?:配色|color|pall?ete)[：:\s]*([a-zA-Z0-9_\-]+)`)
+	themeRe := regexp.MustCompile(`(?i)(?:theme|主题)[：:\s]*([a-zA-Z0-9_\-]+)`)
+	pageRe := regexp.MustCompile(`(?i)(?:(\d+)\s*页|total.*?(\d+))`)
+	slideTypeRe := regexp.MustCompile(`(?i)(?:content_type|幻灯片类型)[：:\s]*([a-zA-Z_\-]+)`)
+
+	for _, msg := range messages {
+		content := msg.Content
+		if content == "" {
+			continue
+		}
+
+		if tmpl := templateRe.FindStringSubmatch(content); len(tmpl) > 1 && tmpl[1] != "" {
+			summary.KeyDecisions.Template = tmpl[1]
+		}
+		if color := colorRe.FindStringSubmatch(content); len(color) > 1 && color[1] != "" {
+			summary.KeyDecisions.ColorScheme = color[1]
+		}
+		if theme := themeRe.FindStringSubmatch(content); len(theme) > 1 && theme[1] != "" {
+			summary.KeyDecisions.Theme = theme[1]
+		}
+		if page := pageRe.FindStringSubmatch(content); len(page) > 1 {
+			if page[1] != "" {
+				var n int
+				fmt.Sscanf(page[1], "%d", &n)
+				if n > summary.KeyDecisions.TotalPages {
+					summary.KeyDecisions.TotalPages = n
+				}
+			}
+			if page[2] != "" {
+				var n int
+				fmt.Sscanf(page[2], "%d", &n)
+				if n > summary.KeyDecisions.TotalPages {
+					summary.KeyDecisions.TotalPages = n
+				}
+			}
+		}
+		if st := slideTypeRe.FindStringSubmatch(content); len(st) > 1 && st[1] != "" {
+			found := false
+			for _, existing := range summary.KeyDecisions.SlideTypes {
+				if existing == st[1] {
+					found = true
+					break
+				}
+			}
+			if !found {
+				summary.KeyDecisions.SlideTypes = append(summary.KeyDecisions.SlideTypes, st[1])
+			}
+		}
+	}
+
+	return summary
+}
+
+// conversationToSummary 调用 LLM 将中间对话压缩为自由摘要
+func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChatModel,
+	keyDecisions *CompressionSummary, conversationText string, inputTokens int) (string, error) {
+
+	keyDecisionsJSON, _ := json.Marshal(keyDecisions)
+
+	summaryPrompt := fmt.Sprintf(`你是一个对话摘要助手。将下面的对话历史压缩为简洁的摘要。
+
+【关键决策（必须原样保留到输出 JSON 中）】：
+%s
+
+【待摘要的对话历史】：
+%s
+
+请按以下 JSON 格式输出，不要输出任何其他内容：
+{
+  "progress_summary": "简要描述已完成的工作和当前进度（50字以内）",
+  "conversation_summary": "用50字以内概括中间轮次的交互过程"
+}`, keyDecisionsJSON, conversationText)
+
+	sumCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := summarizer.Generate(sumCtx, []*schema.Message{
+		schema.SystemMessage("你是一个对话摘要助手，擅长将长对话压缩为简洁的结构化摘要。只输出 JSON，不要输出解释。"),
+		schema.UserMessage(summaryPrompt),
+	})
+	if err != nil {
+		return "", fmt.Errorf("summarizer 调用失败: %w", err)
+	}
+
+	raw := resp.Content
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+
+	var parsed struct {
+		ProgressSummary     string `json:"progress_summary"`
+		ConversationSummary string `json:"conversation_summary"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		logger.Warn("summarizer_json_parse_failed", "raw", truncateString(raw, 200), "error", err.Error())
+		return strings.TrimSpace(raw), nil
+	}
+
+	return parsed.ConversationSummary, nil
 }
 
 // ChatModelCompressor 包装 ChatModel，在调用前对消息历史进行上下文压缩。
@@ -76,7 +210,7 @@ func DefaultCompressorConfig() *CompressorConfig {
 //   - 最近的 N 条完整消息对（留边区）
 //   - 中间段压缩为摘要
 //
-// 压缩策略：保留 system → 留边 → 摘要中间段 → 留边
+// 压缩策略：保留 system -> 留边 -> 摘要中间段 -> 留边
 type ChatModelCompressor struct {
 	inner      model.ToolCallingChatModel
 	summarizer model.ToolCallingChatModel
@@ -105,7 +239,7 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 
 	compressed, err := c.compress(ctx, messages)
 	if err != nil {
-		fmt.Printf("[Compressor] 上下文压缩失败，降级到原始消息: %v\n", err)
+		logger.Warn("compress_failed_fallback", "error", err.Error())
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
@@ -115,8 +249,10 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 	if beforeLen > 0 {
 		saved = 100 * (1 - float64(afterLen)/float64(beforeLen))
 	}
-	fmt.Printf("[Compressor] 压缩: %d 条消息, %d token → %d 条消息, %d token (估算节省约 %.1f%%)\n",
-		len(messages), beforeLen, len(compressed), afterLen, saved)
+	logger.Info("context_compressed",
+		"before_msgs", len(messages), "before_tokens", beforeLen,
+		"after_msgs", len(compressed), "after_tokens", afterLen,
+		"saved_pct", fmt.Sprintf("%.1f%%", saved))
 
 	return c.inner.Generate(ctx, compressed, opts...)
 }
@@ -130,7 +266,7 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 
 	compressed, err := c.compress(ctx, messages)
 	if err != nil {
-		fmt.Printf("[Compressor] 上下文压缩失败，降级到原始消息: %v\n", err)
+		logger.Warn("compress_failed_fallback", "error", err.Error())
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
@@ -140,8 +276,10 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 	if beforeLen > 0 {
 		saved = 100 * (1 - float64(afterLen)/float64(beforeLen))
 	}
-	fmt.Printf("[Compressor] 压缩: %d 条消息, %d token → %d 条消息, %d token (估算节省约 %.1f%%)\n",
-		len(messages), beforeLen, len(compressed), afterLen, saved)
+	logger.Info("context_compressed",
+		"before_msgs", len(messages), "before_tokens", beforeLen,
+		"after_msgs", len(compressed), "after_tokens", afterLen,
+		"saved_pct", fmt.Sprintf("%.1f%%", saved))
 
 	return c.inner.Stream(ctx, compressed, opts...)
 }
@@ -155,7 +293,7 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 
 	summarizerWithTools, err := c.summarizer.WithTools(tools)
 	if err != nil {
-		log.Printf("[Compressor] summarizer.WithTools 失败，使用无 tools summarizer: %v", err)
+		logger.Warn("summarizer_withtools_failed", "error", err.Error())
 		summarizerWithTools = c.summarizer
 	}
 
@@ -172,32 +310,52 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		return messages, nil // nothing to compress
 	}
 
-	// 策略：保留 system → 保留最近 preserveCount 对 → 摘要中间段
-	// messages 结构: [system, user, assistant, user, assistant, ...]
-	// 我们按 user-assistant 对来处理
-
+	// 解析消息结构
 	var systemMsg *schema.Message
-	var pairs []struct {
-		user      *schema.Message
-		assistant *schema.Message
-	}
+	var pairs []pairWithToolCalls
 
-	// 解析出 system + pairs
 	systemMsg = messages[0]
 	if systemMsg.Role != schema.System {
-		// 没有 system 消息 — 把第一条当 system 仍可工作，但记录警告
-		log.Printf("[Compressor] 第一条消息角色非 system(%s)，按 system 处理", systemMsg.Role)
+		logger.Warn("compress_non_system_first_msg", "role", string(systemMsg.Role))
 	}
-	rest := messages[1:]
 
-	for i := 0; i+1 < len(rest); i += 2 {
-		pairs = append(pairs, struct {
-			user      *schema.Message
-			assistant *schema.Message
-		}{
-			user:      rest[i],
-			assistant: rest[i+1],
-		})
+	// 按 user/tool_call 块分组，而不是严格两两成对
+	// 支持 tool result 消息不单独成对，而是附属到对应的 tool_call 轮次
+	i := 1
+	for i < len(messages) {
+		msg := messages[i]
+		switch msg.Role {
+		case schema.User, schema.Assistant:
+			// 新的 user 或 assistant 消息，开启新一轮对话对
+			p := pairWithToolCalls{
+				user:      nil,
+				assistant: nil,
+			}
+			if msg.Role == schema.User {
+				p.user = msg
+			} else {
+				p.assistant = msg
+			}
+			// 收集后续的 tool result 消息，附属于这个 assistant
+			for i+1 < len(messages) {
+				next := messages[i+1]
+				if next.Role == schema.Tool {
+					p.toolResults = append(p.toolResults, next)
+					i++
+				} else {
+					break
+				}
+			}
+			pairs = append(pairs, p)
+		default:
+			// tool, system 等角色，尝试追加到最后一对
+			if len(pairs) > 0 {
+				if msg.Role == schema.Tool {
+					pairs[len(pairs)-1].toolResults = append(pairs[len(pairs)-1].toolResults, msg)
+				}
+			}
+		}
+		i++
 	}
 
 	// 保留最近的 preserveCount 对话
@@ -213,73 +371,101 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	headPairs := pairs[:len(pairs)-preservePairs]
 	tailPairs := pairs[len(pairs)-preservePairs:]
 
-	// 构建摘要提示
-	var summaryBuilder strings.Builder
+	// 第一步：从全部消息中结构化提取关键决策（不过滤中间段）
+	keyDecisions := ExtractKeyDecisions(messages)
+
+	// 第二步：只把 headPairs 转为文本，送给 LLM 生成自由摘要
+	var convText strings.Builder
 	for _, p := range headPairs {
 		role := "user"
-		if p.user.Role != "" {
+		if p.user != nil && p.user.Role != "" {
 			role = string(p.user.Role)
 		}
-		summaryBuilder.WriteString(fmt.Sprintf("[%s]: %s\n", role, p.user.Content))
+		content := ""
+		if p.user != nil {
+			content = p.user.Content
+		}
+		convText.WriteString(fmt.Sprintf("[%s]: %s\n", role, content))
 		if p.assistant != nil {
-			summaryBuilder.WriteString(fmt.Sprintf("[assistant]: %s\n", p.assistant.Content))
+			convText.WriteString(fmt.Sprintf("[assistant]: %s\n", p.assistant.Content))
+		}
+		// tool result 只记录数量，不展开全文（避免太长）
+		if len(p.toolResults) > 0 {
+			convText.WriteString(fmt.Sprintf("[tool_results]: %d 个工具调用结果（已省略详情）\n", len(p.toolResults)))
 		}
 	}
 
-	summaryPrompt := fmt.Sprintf(`请将以下对话历史压缩为简洁的摘要。摘要需要保留：
-1. 所有关键决策和结论
-2. 已完成的任务和结果
-3. 当前进度状态
-4. 重要的上下文信息（如已选择的模板、配色方案、PPT结构等）
-
-原始对话：
-%s
-
-请只输出压缩后的摘要，不要输出其他内容。`, summaryBuilder.String())
-
-	// 调用 summarizer 生成摘要（带 30s 超时）
-	// 注意：summarizer 的 token 消耗通过 callback 的 OnEnd 链路自动被 TokenTracker 捕获。
-	// 但 compress 是内部私有方法，无法直接访问 TokenTracker。
-	// 此处通过估算记录日志，作为 TokenTracker 的补充参考。
-	summarizerInputTokens := tokenEstimate(summaryPrompt)
-	summarizerCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	summaryMsg, err := c.summarizer.Generate(summarizerCtx, []*schema.Message{
-		schema.SystemMessage("你是一个对话摘要助手，专门将长对话压缩为简洁的摘要。"),
-		schema.UserMessage(summaryPrompt),
-	})
+	// 调用 summarizer 生成自由摘要
+	convSummary, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String(), tokenEstimate(convText.String()))
 	if err != nil {
-		return nil, fmt.Errorf("summarizer 调用失败: %w", err)
+		logger.Warn("conversation_summary_failed", "error", err.Error())
+		convSummary = "[早期对话已压缩省略]"
 	}
-	if tt := TokenTrackerFromContext(ctx); tt != nil {
-		// 估算：summarizer output 长度按 summaryPrompt 的 20% 估算
-		summarizerOutputTokens := summarizerInputTokens / 5
-		tt.Add(summarizerInputTokens, summarizerOutputTokens, summarizerInputTokens+summarizerOutputTokens)
-		log.Printf("[Compressor] summarizer token 已计入 tracker: prompt≈%d, completion≈%d", summarizerInputTokens, summarizerOutputTokens)
+
+	// 第三步：构建结构化摘要消息
+	summaryData := struct {
+		KeyDecisions struct {
+			Template   string   `json:"template,omitempty"`
+			ColorScheme string   `json:"color_scheme,omitempty"`
+			Theme     string   `json:"theme,omitempty"`
+			TotalPages int      `json:"total_pages,omitempty"`
+			SlideTypes []string `json:"slide_types,omitempty"`
+		} `json:"key_decisions"`
+		ProgressSummary     string `json:"progress_summary"`
+		ConversationSummary string `json:"conversation_summary"`
+	}{
+		ConversationSummary: convSummary,
+	}
+	summaryData.KeyDecisions.Template = keyDecisions.KeyDecisions.Template
+	summaryData.KeyDecisions.ColorScheme = keyDecisions.KeyDecisions.ColorScheme
+	summaryData.KeyDecisions.Theme = keyDecisions.KeyDecisions.Theme
+	summaryData.KeyDecisions.TotalPages = keyDecisions.KeyDecisions.TotalPages
+	summaryData.KeyDecisions.SlideTypes = keyDecisions.KeyDecisions.SlideTypes
+
+	summaryJSON, _ := json.Marshal(summaryData)
+	progressPart := keyDecisions.ProgressSummary
+	if progressPart == "" {
+		progressPart = fmt.Sprintf("已完成 %d/%d 对话轮次，保留 %d 轮近期待查",
+			len(headPairs), len(pairs), preservePairs)
 	}
 
 	// 构建压缩后的消息列表
 	compressed := []*schema.Message{systemMsg}
-
-	// 添加摘要消息（作为 user 角色）
-	summaryContent := summaryMsg.Content
-	if summaryContent == "" {
-		summaryContent = "[早期对话已压缩省略]"
-	}
 	compressed = append(compressed, &schema.Message{
 		Role:    schema.User,
-		Content: fmt.Sprintf("【早期对话摘要】\n%s", summaryContent),
+		Content: fmt.Sprintf("【对话压缩摘要 | 已完成 %d/%d 轮】\n```json\n%s\n```\n%s",
+			len(headPairs), len(pairs), summaryJSON, progressPart),
 	})
 
-	// 添加留边对话对
+	// 添加留边对话对（保留 tool result）
 	for _, p := range tailPairs {
-		compressed = append(compressed, p.user)
+		if p.user != nil {
+			compressed = append(compressed, p.user)
+		}
 		if p.assistant != nil {
 			compressed = append(compressed, p.assistant)
+		}
+		for _, tr := range p.toolResults {
+			compressed = append(compressed, tr)
 		}
 	}
 
 	return compressed, nil
+}
+
+// pairWithToolCalls 描述一轮 user+assistant 对话及其 tool result
+type pairWithToolCalls struct {
+	user       *schema.Message
+	assistant  *schema.Message
+	toolResults []*schema.Message // 紧跟在这轮 assistant 后的 tool result
+}
+
+// truncateString 截断字符串用于日志
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // totalTokenEstimate 估算消息列表的总 token 数量（粗略估算）

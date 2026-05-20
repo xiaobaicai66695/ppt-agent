@@ -32,6 +32,7 @@ import (
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/generic"
 	"github.com/cloudwego/ppt-agent/pkg/params"
+	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
@@ -39,46 +40,24 @@ const (
 	OriginalPlanSessionKey = "OriginalPlan"
 )
 
-var replannerSystemPrompt = `你是一个PPT执行进度评估专家，负责判断当前任务状态，并决定下一步操作。
+var replannerPromptTemplate prompt.ChatTemplate
 
-**决策规则（按优先级执行）：**
+func init() {
+	systemTmpl, err := prompts.RenderPlanExecute("replanner_system", &prompts.TemplateData{})
+	if err != nil {
+		panic("failed to load replanner system template: " + err.Error())
+	}
 
-1. has_high_issue=true：必须生成修复指令，修复所有问题，包括high,medium,low，调用 create_ppt_plan。
-   修复指令格式（必须严格遵守）：
-   slides = [{"index": <页码>, "title": "<原始标题>", "content_type": "content_slide", "description": "【修复】<一句话描述问题>。大模型给出的具体建议\n}]
-   - description 必须以【修复】开头
-   - description 中写清楚要修复什么，后面紧跟 python-pptx 代码
-   - 不要改动已完成且无问题的页面
-   - 调用 create_ppt_plan 后，Executor 会执行修复
-   - **每张幻灯片最多修复 2 次，超过后不再生成修复指令，直接进入下一页**
+	userTmpl, err := prompts.RenderPlanExecute("replanner_user", &prompts.TemplateData{})
+	if err != nil {
+		panic("failed to load replanner user template: " + err.Error())
+	}
 
-2. has_issues=true（无 high 但有 medium/low 问题）：可以忽略/
-
-3. has_issues=false 且 has_high_issue=false：
-   - 已完成幻灯片数 < 总幻灯片数：调用 create_ppt_plan（生成下一页）
-   - 已完成幻灯片数 == 总幻灯片数：调用 submit_result
-
-**禁止行为**：
-- has_high_issue=true 时禁止调用 submit_result
-- has_high_issue=true 时禁止继续生成新页面，必须先修复
-- 不要直接输出文本，必须通过工具输出`
-
-var replannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
-	schema.SystemMessage(replannerSystemPrompt),
-	schema.UserMessage(`## 用户需求
-{{ user_query }}
-
-## 进度数字
-- 总幻灯片数: {{ total_count }}
-- 已完成幻灯片数: {{ executed_count }}
-
-## 剩余幻灯片计划
-{{ remaining_plan }}
-
-## QA 检查结果
-{{ qa_summary }}
-
-## 判断`))
+	replannerPromptTemplate = prompt.FromMessages(schema.Jinja2,
+		schema.SystemMessage(systemTmpl),
+		schema.UserMessage(userTmpl),
+	)
+}
 
 func NewReplanner(ctx context.Context, operator commandline.Operator) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,

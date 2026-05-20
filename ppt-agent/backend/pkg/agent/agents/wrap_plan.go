@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"runtime/debug"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/generic"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/params"
 )
 
@@ -56,7 +56,7 @@ func (r *write2PlanMDWrapper) Run(ctx context.Context, input *adk.AgentInput, op
 	go func() {
 		defer func() {
 			if e := recover(); e != nil {
-				log.Printf("[write2PlanMDWrapper] exec panic recover:%+v, stack: %s", e, string(debug.Stack()))
+				logger.Error("write2plan_wrapper_panic", "panic", fmt.Sprintf("%+v", e), "stack", string(debug.Stack()))
 			}
 			gen.Close()
 		}()
@@ -70,7 +70,7 @@ func (r *write2PlanMDWrapper) Run(ctx context.Context, input *adk.AgentInput, op
 				err := write2PlanMD(ctx, r.op)
 				gen.Send(e)
 				if err != nil {
-					log.Print("write plan failed", err)
+					logger.Error("write_plan_md_failed", "error", err.Error())
 					return
 				}
 				return
@@ -80,7 +80,7 @@ func (r *write2PlanMDWrapper) Run(ctx context.Context, input *adk.AgentInput, op
 
 		err := write2PlanMD(ctx, r.op)
 		if err != nil {
-			log.Print("write plan failed", err)
+			logger.Error("write_plan_md_failed", "error", err.Error())
 			return
 		}
 	}()

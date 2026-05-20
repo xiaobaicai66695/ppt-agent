@@ -20,8 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
-	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -32,6 +30,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/metrics"
 )
 
 // startTime 程序启动时间
@@ -74,17 +74,17 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + fmt.Sprintf(" ...[截断 %d 字符]", len(s))
+	return s[:maxLen] + fmt.Sprintf("...[truncated %d chars]", len(s))
 }
 
 // extractToolArgs 提取工具参数字符串（带截断）
 func extractToolArgs(input callbacks.CallbackInput) string {
 	tci := tool.ConvCallbackInput(input)
 	if tci == nil {
-		return "(无参数)"
+		return "(no args)"
 	}
 	if tci.ArgumentsInJSON == "" {
-		return "(无参数)"
+		return "(no args)"
 	}
 	return truncate(tci.ArgumentsInJSON, maxToolArgsLen)
 }
@@ -93,126 +93,50 @@ func extractToolArgs(input callbacks.CallbackInput) string {
 func extractToolResult(output callbacks.CallbackOutput) string {
 	tco := tool.ConvCallbackOutput(output)
 	if tco == nil {
-		return "(空响应)"
+		return "(empty)"
 	}
 	if tco.Response == "" {
-		return "(空响应)"
+		return "(empty)"
 	}
 	return truncate(tco.Response, maxToolOutputLen)
 }
 
-// Event 打印事件信息（与 eino-examples/adk/common/prints/util.go 保持一致）
-// 流式消息通过事件循环中的 MessageStream.Copy(2) 模式处理，
-// 此函数只处理非流式的 Message 或已经被复制消费后的流。
-func Event(event *adk.AgentEvent) {
-	fmt.Printf("name: %s\npath: %s", event.AgentName, event.RunPath)
-
-	if event.Output != nil && event.Output.MessageOutput != nil {
-		if m := event.Output.MessageOutput.Message; m != nil {
-			if len(m.Content) > 0 {
-				if m.Role == schema.Tool {
-					fmt.Printf("\ntool response: %s", m.Content)
-				} else {
-					fmt.Printf("\nanswer: %s", m.Content)
-				}
-			}
-			if len(m.ToolCalls) > 0 {
-				for _, tc := range m.ToolCalls {
-					fmt.Printf("\ntool name: %s", tc.Function.Name)
-					fmt.Printf("\narguments: %s", tc.Function.Arguments)
-				}
-			}
-		}
-	}
-
-	if event.Action != nil {
-		if event.Action.TransferToAgent != nil {
-			fmt.Printf("\naction: transfer to %v", event.Action.TransferToAgent.DestAgentName)
-		}
-		if event.Action.Interrupted != nil {
-			for _, ic := range event.Action.Interrupted.InterruptContexts {
-				str, ok := ic.Info.(fmt.Stringer)
-				if ok {
-					fmt.Printf("\n%s", str.String())
-				} else {
-					fmt.Printf("\n%v", ic.Info)
-				}
-			}
-		}
-		if event.Action.Exit {
-			fmt.Printf("\naction: exit")
-		}
-	}
-
-	if event.Err != nil {
-		fmt.Printf("\nerror: %v", event.Err)
-	}
-
-	fmt.Println()
-	fmt.Println()
-}
-
 // StreamEvent 打印流式事件信息（从 MessageStream 中读取并消费）
 func StreamEvent(event *adk.AgentEvent) {
-	fmt.Printf("name: %s\npath: %s", event.AgentName, event.RunPath)
+	fields := []any{
+		"agent", event.AgentName,
+		"path", event.RunPath,
+		"elapsed_ms", elapsed(),
+	}
 
 	if event.Output != nil && event.Output.MessageOutput != nil {
 		if m := event.Output.MessageOutput.Message; m != nil {
 			if len(m.Content) > 0 {
-				if m.Role == schema.Tool {
-					fmt.Printf("\ntool response: %s", m.Content)
-				} else {
-					fmt.Printf("\nanswer: %s", m.Content)
-				}
+				fields = append(fields, "role", string(m.Role), "content_len", len(m.Content))
 			}
 			if len(m.ToolCalls) > 0 {
-				for _, tc := range m.ToolCalls {
-					fmt.Printf("\ntool name: %s", tc.Function.Name)
-					fmt.Printf("\narguments: %s", tc.Function.Arguments)
+				toolNames := make([]string, len(m.ToolCalls))
+				for i, tc := range m.ToolCalls {
+					toolNames[i] = tc.Function.Name
 				}
+				fields = append(fields, "tool_calls", toolNames)
 			}
 		} else if s := event.Output.MessageOutput.MessageStream; s != nil {
-			// 流式消息：读取并打印内容
 			toolMap := map[int][]*schema.Message{}
-			var contentStart bool
-			charNumOfOneRow := 0
-			maxCharNumOfOneRow := 120
-
 			for {
 				chunk, err := s.Recv()
 				if err != nil {
 					if err == io.EOF {
 						break
 					}
-					fmt.Printf("error: %v", err)
+					logger.Default().Error("stream recv error", "err", err)
 					return
-				}
-
-				if chunk.Content != "" {
-					if !contentStart {
-						contentStart = true
-						if chunk.Role == schema.Tool {
-							fmt.Printf("\ntool response: ")
-						} else {
-							fmt.Printf("\nanswer: ")
-						}
-					}
-
-					charNumOfOneRow += len(chunk.Content)
-					if strings.Contains(chunk.Content, "\n") {
-						charNumOfOneRow = 0
-					} else if charNumOfOneRow >= maxCharNumOfOneRow {
-						fmt.Printf("\n")
-						charNumOfOneRow = 0
-					}
-					fmt.Printf("%v", chunk.Content)
 				}
 
 				if len(chunk.ToolCalls) > 0 {
 					for _, tc := range chunk.ToolCalls {
 						index := tc.Index
 						if index == nil {
-							log.Printf("[WARN] tool call index is nil, skipping")
 							continue
 						}
 						toolMap[*index] = append(toolMap[*index], &schema.Message{
@@ -233,16 +157,16 @@ func StreamEvent(event *adk.AgentEvent) {
 				}
 			}
 
-			// 打印工具调用
 			for _, msgs := range toolMap {
 				m, err := schema.ConcatMessages(msgs)
 				if err != nil {
-					log.Printf("ConcatMessage failed: %v", err)
 					continue
 				}
 				if len(m.ToolCalls) > 0 {
-					fmt.Printf("\ntool name: %s", m.ToolCalls[0].Function.Name)
-					fmt.Printf("\narguments: %s", m.ToolCalls[0].Function.Arguments)
+					fields = append(fields,
+						"tool_name", m.ToolCalls[0].Function.Name,
+						"tool_args_len", len(m.ToolCalls[0].Function.Arguments),
+					)
 				}
 			}
 		}
@@ -250,34 +174,24 @@ func StreamEvent(event *adk.AgentEvent) {
 
 	if event.Action != nil {
 		if event.Action.TransferToAgent != nil {
-			fmt.Printf("\naction: transfer to %v", event.Action.TransferToAgent.DestAgentName)
+			fields = append(fields, "action", "transfer", "dest_agent", event.Action.TransferToAgent.DestAgentName)
 		}
 		if event.Action.Interrupted != nil {
-			for _, ic := range event.Action.Interrupted.InterruptContexts {
-				str, ok := ic.Info.(fmt.Stringer)
-				if ok {
-					fmt.Printf("\n%s", str.String())
-				} else {
-					fmt.Printf("\n%v", ic.Info)
-				}
-			}
+			fields = append(fields, "action", "interrupted")
 		}
 		if event.Action.Exit {
-			fmt.Printf("\naction: exit")
+			fields = append(fields, "action", "exit")
 		}
 	}
 
 	if event.Err != nil {
-		fmt.Printf("\nerror: %v", event.Err)
+		fields = append(fields, "error", event.Err.Error())
 	}
 
-	fmt.Println()
-	fmt.Println()
+	logger.Default().Info("agent_stream_event", fields...)
 }
 
-// NewLogHandler 创建一个精简的日志 Handler（参考 eino-examples/adk/common/prints）
-// 注意：此 handler 只处理 OnStart 和 OnEnd，不处理流式输出。
-// 流式输出通过事件循环中的 MessageStream.Copy(2) 模式在 StreamEvent 中处理。
+// NewLogHandler 创建一个 slog-based 的日志 Handler。
 func NewLogHandler() callbacks.Handler {
 	return callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
@@ -288,14 +202,20 @@ func NewLogHandler() callbacks.Handler {
 			agentName := getAgentName(ctx, info)
 			ctx = SetAgentName(ctx, agentName)
 
+			fields := []any{
+				"elapsed_ms", elapsed(),
+				"agent", agentName,
+				"name", info.Name,
+			}
+
 			switch info.Component {
 			case components.ComponentOfTool:
 				args := extractToolArgs(input)
-				log.Printf("[%dms] [%s] → TOOL: %s | args: %s", elapsed(), agentName, info.Name, args)
+				logger.Default().Info("tool_call_start", append(fields, "args", args)...)
 			case components.ComponentOfChatModel:
-				log.Printf("[%dms] [%s] → LLM: %s", elapsed(), agentName, info.Name)
+				logger.Default().Info("llm_call_start", fields...)
 			case adk.ComponentOfAgent:
-				log.Printf("[%dms] [%s] → AGENT: %s", elapsed(), agentName, info.Name)
+				logger.Default().Info("agent_start", fields...)
 			}
 			return ctx
 		}).
@@ -305,21 +225,34 @@ func NewLogHandler() callbacks.Handler {
 			}
 
 			agentName := getAgentName(ctx, info)
+			fields := []any{
+				"elapsed_ms", elapsed(),
+				"agent", agentName,
+				"name", info.Name,
+			}
 
 			switch info.Component {
 			case components.ComponentOfTool:
 				result := extractToolResult(output)
-				log.Printf("[%dms] [%s] ← TOOL: %s | result: %s", elapsed(), agentName, info.Name, result)
+				logger.Default().Info("tool_call_end", append(fields, "result_preview", truncate(result, 100))...)
+				metrics.RecordToolCall(info.Name, "success")
 			case components.ComponentOfChatModel:
 				if mo := model.ConvCallbackOutput(output); mo != nil && mo.TokenUsage != nil {
 					tu := mo.TokenUsage
-					log.Printf("[%dms] [%s] ← LLM | prompt=%d completion=%d total=%d",
-						elapsed(), agentName, tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
+					logger.Default().Info("llm_call_end",
+						append(fields,
+							"prompt_tokens", tu.PromptTokens,
+							"completion_tokens", tu.CompletionTokens,
+							"total_tokens", tu.TotalTokens,
+						)...)
+					metrics.RecordTokens(int64(tu.PromptTokens), int64(tu.CompletionTokens), int64(tu.TotalTokens))
+					metrics.RecordLLMCall("success")
 					if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
 						tt.Add(tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
 					}
 				}
 			case adk.ComponentOfAgent:
+				logger.Default().Info("agent_end", fields...)
 			}
 			return ctx
 		}).
@@ -331,7 +264,12 @@ func NewLogHandler() callbacks.Handler {
 			if info != nil {
 				name = getAgentName(ctx, info)
 			}
-			log.Printf("[%dms] [ERROR] [%s] %s | %v", elapsed(), name, info.Name, err)
+			logger.Default().Error("callback_error",
+				"elapsed_ms", elapsed(),
+				"agent", name,
+				"name", info.Name,
+				"error", err.Error(),
+			)
 			return ctx
 		}).
 		OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {

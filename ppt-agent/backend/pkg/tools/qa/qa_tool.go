@@ -37,6 +37,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/generic"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/params"
 )
 
@@ -417,7 +418,7 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 	existingResult, _ := generic.LoadQAResult(wd)
 	mergedResult := mergeQAResult(existingResult, result)
 	if err := generic.SaveQAResult(wd, mergedResult); err != nil {
-		fmt.Printf("[QA] 警告: 保存 QA 结果失败: %v\n", err)
+		logger.Warn("qa_result_save_failed", "error", err.Error())
 	}
 
 	return string(resultJSON), nil

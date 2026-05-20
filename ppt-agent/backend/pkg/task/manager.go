@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,6 +14,8 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/metrics"
 )
 
 // TaskStatus represents the overall status of a PPT generation task.
@@ -137,7 +138,7 @@ type TaskManager struct {
 func NewTaskManager(baseDir string) *TaskManager {
 	if db.DB != nil {
 		if err := db.MarkZombieTasks(); err != nil {
-			log.Printf("[TaskManager] 标记僵尸任务失败: %v\n", err)
+			logger.Error("mark_zombie_tasks_failed", "error", err.Error())
 		}
 	}
 	return &TaskManager{
@@ -209,7 +210,7 @@ func (ts *TaskState) persist() {
 		"completion_tokens": r.CompletionTokens,
 		"total_tokens":      r.TotalTokens,
 	}); err != nil {
-		log.Printf("[TaskManager] persist %s: %v\n", r.ID, err)
+		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}
 }
 
@@ -276,9 +277,11 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	tm.tasks[cfg.TaskID] = ts
 	tm.mu.Unlock()
 
+	metrics.RecordTaskCreated()
+
 	if db.DB != nil {
 		if err := db.CreateTaskRecord(taskInfoToRecord(&ts.Info)); err != nil {
-			log.Printf("[TaskManager] 持久化任务失败: %v\n", err)
+			logger.Error("task_create_persist_failed", "error", err.Error())
 		}
 	}
 
@@ -327,6 +330,13 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.Duration = result.Duration.Round(time.Millisecond).String()
 		ts.Info.Files = result.Files
 	}
+
+	// Record Prometheus metrics for task completion.
+	durationSeconds := 0.0
+	if result != nil {
+		durationSeconds = result.Duration.Seconds()
+	}
+	metrics.RecordTaskCompleted(durationSeconds, ts.Info.DoneCount, ts.Info.TotalCount, string(ts.Info.Status))
 
 	// Collect accumulated token usage from callbacks.
 	if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
@@ -560,7 +570,7 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	// Delete DB record.
 	if db.DB != nil {
 		if err := db.DeleteTaskRecord(id); err != nil {
-			log.Printf("[TaskManager] 删除DB记录失败 %s: %v\n", id, err)
+			logger.Error("db_delete_task_failed", "task_id", id, "error", err.Error())
 		}
 	}
 
@@ -578,7 +588,7 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	}
 	if workDir != "" {
 		if err := os.RemoveAll(workDir); err != nil {
-			log.Printf("[TaskManager] 删除工作目录失败 %s: %v\n", workDir, err)
+			logger.Error("delete_workdir_failed", "path", workDir, "error", err.Error())
 			return fmt.Errorf("删除工作目录失败: %w", err)
 		}
 	}

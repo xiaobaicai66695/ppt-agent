@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   toggle: [];
+  preview: [task: TaskItem, thumbUrl: string];
 }>();
 
 const thumbLoaded = ref(false);
@@ -36,6 +37,12 @@ function onImgError() {
   }
 }
 
+function handlePreview() {
+  if (props.fileReady && !thumbError.value) {
+    emit('preview', props.task, getThumbUrl());
+  }
+}
+
 const shortName = computed(() => {
   const name = props.task.output_file.split(/[/\\]/).pop() || props.task.output_file;
   return name.length > 28 ? name.slice(0, 25) + '...' : name;
@@ -51,7 +58,7 @@ const shortName = computed(() => {
         </span>
       </div>
       <div class="preview-inner">
-        <div class="preview-thumb">
+        <div class="preview-thumb" @click.stop="handlePreview">
           <img
             v-if="!thumbError"
             :key="retryKey"
@@ -72,11 +79,30 @@ const shortName = computed(() => {
             </svg>
             <span class="thumb-note">生成完成</span>
           </span>
+          <!-- Preview button overlay -->
+          <button v-if="!thumbError" class="preview-btn" title="在线预览" @click.stop="handlePreview">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
         </div>
         <div class="preview-info">
           <span class="preview-idx">#{{ task.page_index }}</span>
           <span class="preview-title">{{ task.title }}</span>
           <span class="preview-name">{{ shortName }}</span>
+          <a
+            :href="getDownloadUrl()"
+            class="download-btn"
+            title="下载"
+            @click.stop
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </a>
         </div>
       </div>
     </template>
@@ -121,7 +147,7 @@ const shortName = computed(() => {
 .preview-inner { display: flex; flex-direction: column; width: 100%; }
 
 .select-overlay {
-  position: absolute; top: 0.4rem; right: 0.4rem; z-index: 2; cursor: pointer;
+  position: absolute; top: 0.4rem; right: 0.4rem; z-index: 3; cursor: pointer;
 }
 .check-mark {
   width: 22px; height: 22px; border-radius: 4px;
@@ -137,6 +163,7 @@ const shortName = computed(() => {
   background: var(--c-bg);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; position: relative;
+  cursor: zoom-in;
 }
 .preview-thumb img {
   width: 100%; height: 100%; object-fit: cover;
@@ -157,6 +184,15 @@ const shortName = computed(() => {
 .thumb-fallback svg { width: 40px; height: 40px; }
 .thumb-note { font-size: 0.7rem; }
 
+.preview-btn {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.2s;
+  border: none; cursor: zoom-in;
+}
+.preview-btn svg { width: 36px; height: 36px; color: #fff; }
+.preview-thumb:hover .preview-btn { opacity: 1; }
+
 .preview-info {
   display: flex; align-items: center; gap: 0.5rem; padding: 0.65rem 0.75rem;
 }
@@ -176,6 +212,16 @@ const shortName = computed(() => {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 30%; flex-shrink: 0; margin-left: auto;
 }
+
+.download-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 4px;
+  color: var(--c-text-muted); text-decoration: none;
+  transition: color var(--transition), background var(--transition);
+  flex-shrink: 0;
+}
+.download-btn svg { width: 14px; height: 14px; }
+.download-btn:hover { color: var(--c-primary); background: var(--c-primary-light); }
 
 .placeholder-body {
   display: flex; align-items: center; gap: 0.75rem; padding: 1rem 0.75rem; min-height: 72px;

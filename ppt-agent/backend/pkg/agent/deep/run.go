@@ -18,7 +18,6 @@ package deep
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -28,6 +27,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/human"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 // AgentEventType constants for streaming events.
@@ -225,12 +225,11 @@ func makePrintCallback() AgentEventCallback {
 	return func(event AgentEvent) {
 		switch event.Type {
 		case AgentEventAnswer:
-			fmt.Printf("\nanswer: %s\n", event.Content)
+			logger.Info("cli_event", "type", "answer", "content", event.Content)
 		case AgentEventToolCall:
-			fmt.Printf("\ntool name: %s", event.ToolName)
-			fmt.Printf("\narguments: %s", event.ToolArgs)
+			logger.Info("cli_event", "type", "tool_call", "tool", event.ToolName, "args_len", len(event.ToolArgs))
 		case AgentEventError:
-			fmt.Printf("\nerror: %s\n", event.Error)
+			logger.Error("cli_event", "type", "error", "error", event.Error)
 		}
 	}
 }

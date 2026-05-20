@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 const (
@@ -181,10 +182,10 @@ func SeedRootUser(email, password string) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	u := &db.User{Email: email, Password: string(hash)}
 	if err := db.DB.Create(u).Error; err != nil {
-		fmt.Printf("[Auth] 默认 root 用户创建失败: %v\n", err)
+		logger.Error("seed_root_user_failed", "email", email, "error", err.Error())
 		return
 	}
-	fmt.Printf("[Auth] 默认 root 用户已创建: %s\n", email)
+	logger.Info("seed_root_user_created", "email", email)
 }
 
 // Logout is a no-op for JWT-based auth. The client discards the token.

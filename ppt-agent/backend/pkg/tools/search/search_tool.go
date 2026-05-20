@@ -17,6 +17,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 var (
@@ -204,9 +206,9 @@ func (t *searchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 	}
 
 	if input.Reason != "" {
-		fmt.Printf("[搜索必要性] 关键词: %s | 原因: %s\n", input.Query, input.Reason)
+		logger.Info("search_request", "query", input.Query, "reason", input.Reason)
 	} else {
-		fmt.Printf("[搜索必要性] 关键词: %s | 原因: 未说明（建议补充）\n", input.Query)
+		logger.Info("search_request", "query", input.Query, "reason", "unspecified")
 	}
 
 	if qianfanAPIKey := getAPIKey(); qianfanAPIKey == "" {
@@ -350,7 +352,7 @@ func callQianfanAPI(ctx context.Context, query string) ([]qianfanRef, error) {
 		}
 	}
 
-	fmt.Printf("[DEBUG] 解析到 %d 条网页结果\n", len(refs))
+	logger.Debug("search_results_parsed", "count", len(refs))
 	return refs, nil
 }
 

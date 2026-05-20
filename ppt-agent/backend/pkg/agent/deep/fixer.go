@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
+ * Unless required by applicable law or  agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
@@ -18,13 +18,13 @@ package deep
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
@@ -41,58 +41,16 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)
 
-	tmplDir := cfg.SkillsDir + "/visual_designer/templates"
-	bt := "`"
+	instruction, err := buildFixerInstruction(cfg.WorkDir, cfg.SkillsDir)
+	if err != nil {
+		panic("failed to render fixer instruction template: " + err.Error())
+	}
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "Fixer",
 		Description: "PPT 修复专家，先阅读模板理解设计意图，再定点修复 QA 问题，不破坏原有设计。",
-		Instruction: fmt.Sprintf(
-			bt+`你是 PPT 修复专家。只做定点修复，不重新生成整页。
-
-工作目录：%s
-模板目录：%s
-
-## 核心原则
-
-禁止重新生成整页幻灯片。QA 报告指出的是局部问题（文字溢出、对比度不足、对齐偏差等）。你只需用 python-pptx 定点修正这些具体问题，保留原设计的布局、配色和内容结构。
-
-## 修复前必读（理解设计上下文）
-
-收到修复任务后，必须先按顺序读取以下文件，理解原始设计意图后再写修复代码：
-
-1. %s/tasks.json — 获取 template 名、content_type、qa_report 修复建议
-2. %s/full-decks/<template>.py — 该模板的整体设计语言（配色、字体层级、留白比例）
-3. %s/single-page/<content_type>.py — 该页类型的布局规范、元素位置、字号体系、NEVER 清单
-
-## 可用工具
-
-- **read_file**：读取文件（参数：path，必须用绝对路径）
-- **python3**：执行 Python 代码（参数：code），用 python-pptx 定点修复
-
-## 修复代码参考
-
-用标准 python-pptx API（from pptx import Presentation 打开原文件），只修改 QA 报告中指出的具体 shape：
-- 位置调整：shape.left, shape.top, shape.width, shape.height
-- 文字修改：shape.text_frame.paragraphs[0].runs[0].text
-- 字号调整：run.font.size
-- 颜色修正：run.font.color.rgb
-
-## 重要约束
-
-- 只修复 QA 报告中指出问题的 shape，其余全部保留
-- 禁止用 generators 包重新生成（那会重建整页）
-- 禁止改动配色方案、字体体系等全局设计
-- 修复用色值需与原模板风格一致（参考已读取的模板文件）
-- 每页最多修复 2 次（fix_attempts >= 2 则跳过）
-- 修复完成后输出结果，由主 Agent 更新 tasks.json
-
-## 结果汇报格式
-
-   任务 task_id=X：output_file=xxx.pptx / fix_status=success 或 failed
-   修复内容：调整了 shape[2].left 从 100 到 80；修改了 run[0].font.size 从 14pt 到 12pt`+bt,
-			cfg.WorkDir, tmplDir, cfg.WorkDir, tmplDir, tmplDir),
-		Model: cm,
+		Instruction: instruction,
+		Model:       cm,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: []tool.BaseTool{pythonTool, readTool},
@@ -100,4 +58,13 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 		},
 		MaxIterations: 15,
 	})
+}
+
+func buildFixerInstruction(workDir, skillsDir string) (string, error) {
+	tmplDir := skillsDir + "/visual_designer/templates"
+	data := &prompts.TemplateData{
+		WorkDir: workDir,
+		TmplDir: tmplDir,
+	}
+	return prompts.RenderDeepAgent("fixer_instruction", data)
 }

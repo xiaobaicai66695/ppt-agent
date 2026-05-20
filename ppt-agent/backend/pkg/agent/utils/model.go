@@ -30,6 +30,8 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	arkmodel "github.com/volcengine/volcengine-go-sdk/service/arkruntime/model"
+
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 // ChatModelConfig ChatModel 配置选项
@@ -192,7 +194,7 @@ func (g *globalRateLimitTracker) markRateLimited(modelName string, baseDuration 
 	defer g.mu.Unlock()
 	jitter := time.Duration(rand.Int64N(int64(baseDuration / 4))) // 0~25% 随机抖动
 	g.pauseEndTimes[modelName] = time.Now().Add(baseDuration + jitter)
-	fmt.Printf("[GlobalRateLimit] 模型 [%s] 全局暂停 %v（含 jitter）\n", modelName, baseDuration+jitter)
+	logger.Info("model_global_paused", "model", modelName, "pause", (baseDuration + jitter).String())
 }
 
 // FallbackChatModel 包装多个模型，支持 429 后降级和全局暂停。
@@ -231,13 +233,13 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		if name != "" {
 			cm, err := newSingleModel(ctx, name, o)
 			if err != nil {
-				fmt.Printf("[Model] 初始化模型 [%s] 失败: %v，跳过\n", name, err)
+				logger.Warn("model_init_failed", "model", name, "error", err.Error())
 				continue
 			}
 			validModels = append(validModels, cm)
 			validNames = append(validNames, fmt.Sprintf("%s(backup-%d)", name, i))
 			rawNames = append(rawNames, name)
-			fmt.Printf("[Model] 模型 [%s] 初始化成功\n", name)
+			logger.Info("model_init_success", "model", name, "backup", i)
 		}
 	}
 
@@ -350,12 +352,12 @@ func (f *FallbackChatModel) callWithFallback(ctx context.Context, callFn func(id
 				}
 			}
 			if hasAlternative {
-				fmt.Printf("[Model] 模型 [%s] 全局暂停中，跳过尝试下一个...\n", f.modelNames[idx])
+				logger.Debug("model_paused_skipping", "model", f.modelNames[idx])
 				continue
 			}
 			// 所有备选模型都在全局暂停中，等待当前模型恢复
 			remaining := time.Until(pauseEnd).Round(time.Second)
-			fmt.Printf("[Model] 所有模型均全局暂停中，等待模型 [%s] 恢复 %v...\n", f.modelNames[idx], remaining)
+			logger.Info("model_all_paused_waiting", "model", f.modelNames[idx], "remaining", remaining.String())
 			select {
 			case <-time.After(time.Until(pauseEnd)):
 			case <-ctx.Done():
@@ -399,11 +401,11 @@ func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Messa
 				}
 			}
 			if hasAlternative {
-				fmt.Printf("[Model] 模型 [%s] 全局暂停中，跳过尝试下一个...\n", f.modelNames[idx])
+				logger.Debug("model_paused_skipping", "model", f.modelNames[idx])
 				continue
 			}
 			remaining := time.Until(pauseEnd).Round(time.Second)
-			fmt.Printf("[Model] 所有模型均全局暂停中，等待模型 [%s] 恢复 %v...\n", f.modelNames[idx], remaining)
+			logger.Info("model_all_paused_waiting", "model", f.modelNames[idx], "remaining", remaining.String())
 			select {
 			case <-time.After(time.Until(pauseEnd)):
 			case <-ctx.Done():

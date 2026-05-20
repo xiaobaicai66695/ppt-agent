@@ -5,12 +5,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/task"
 )
 
@@ -42,7 +46,10 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery())
+	engine.Use(gin.Recovery())
+
+	// Prometheus HTTP metrics middleware
+	engine.Use(metricsMiddleware)
 
 	engine.Use(cors.New(cors.Config{
 		AllowAllOrigins:  true,
@@ -85,10 +92,16 @@ func NewServer(cfg *ServerConfig) *Server {
 		tasks.DELETE("/:id", s.handleDeleteTask)
 	}
 
-	// Health
+	// Metrics
+	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Health (basic)
 	engine.GET("/api/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	// Detailed health check (auth optional for K8s probes)
+	engine.GET("/health/ready", s.handleHealthCheck)
 
 	// Static frontend
 	engine.NoRoute(func(c *gin.Context) {
@@ -114,9 +127,23 @@ func serveStatic(c *gin.Context, frontendDir string) {
 	c.Status(http.StatusNotFound)
 }
 
+// metricsMiddleware records HTTP request metrics for Prometheus.
+func metricsMiddleware(c *gin.Context) {
+	start := time.Now()
+	c.Next()
+	duration := time.Since(start).Seconds()
+
+	// Skip metrics endpoint itself to avoid noise
+	path := c.FullPath()
+	if path == "" {
+		path = c.Request.URL.Path
+	}
+	metrics.HTTPRequestsTotal.WithLabelValues(c.Request.Method, path, fmt.Sprintf("%d", c.Writer.Status())).Inc()
+	metrics.HTTPRequestDuration.WithLabelValues(c.Request.Method, path).Observe(duration)
+}
+
 // Start starts the HTTP server.
 func (s *Server) Start() error {
-	fmt.Printf("[Web] 服务器启动于 http://localhost%s\n", s.addr)
-	fmt.Printf("[Web] 前端界面: http://localhost%s\n", s.addr)
+	logger.Info("server_starting", "addr", s.addr, "frontend", fmt.Sprintf("http://localhost%s", s.addr))
 	return s.engine.Run(s.addr)
 }

@@ -2,12 +2,13 @@ package web
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 var thumbCache sync.Map
@@ -65,7 +66,7 @@ func GenerateQAImages(workDir string) {
 		"--dpi", "150")
 	cmd.Dir = workDir
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("[Thumbnail] QA 图片生成失败: %v (输出: %s)", err, string(out))
+		logger.Warn("qa_image_generation_failed", "err", err.Error(), "output", string(out))
 	}
 }
 

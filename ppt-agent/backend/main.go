@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,6 +34,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/human"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/web"
 	"github.com/cloudwego/ppt-agent/pkg/store"
 )
@@ -46,30 +46,34 @@ func main() {
 
 	pwd, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("获取当前目录失败: %v\n", err)
+		logger.Error("get_cwd_failed", "error", err.Error())
 		return
 	}
 
 	envPath := filepath.Join(pwd, ".env")
-	_ = godotenv.Load(envPath)
+	if err := godotenv.Load(envPath); err != nil && !os.IsNotExist(err) {
+		logger.Warn("dotenv_load_failed", "path", envPath, "error", err.Error())
+	}
+	// Initialize structured logger (JSON output for production, text for dev)
+	logger.Init(os.Getenv("LOG_JSON") == "true")
 
 	ctx := context.Background()
 
 	// Callbacks
 	logHandler := callback.NewLogHandler()
 	callbacks.AppendGlobalHandlers(logHandler)
-	fmt.Println("[Callback] 日志追踪 Handler 已注册")
+	logger.Info("callback_handler_registered", "type", "log")
 
 	cozeLoopClient := setupCozeLoop()
 	if cozeLoopClient != nil {
 		callbacks.AppendGlobalHandlers(clc.NewLoopHandler(cozeLoopClient))
-		fmt.Println("[Callback] CozeLoop Handler 已注册")
+		logger.Info("callback_handler_registered", "type", "cozeloop")
 	}
 
 	// Skill backend
 	localBE, err := local.NewBackend(ctx, &local.Config{})
 	if err != nil {
-		fmt.Printf("local.NewBackend failed, err: %v\n", err)
+		logger.Error("local_backend_failed", "error", err.Error())
 		return
 	}
 
@@ -79,17 +83,17 @@ func main() {
 		BaseDir: skillsDir,
 	})
 	if err != nil {
-		fmt.Printf("skill.NewBackendFromFilesystem failed, err: %v\n", err)
+		logger.Error("skill_backend_failed", "error", err.Error())
 		return
 	}
 
 	loadedSkills, err := agent.LoadSkillsFromDir(ctx, skillsDir)
 	if err != nil {
-		fmt.Printf("agent.LoadSkillsFromDir failed, err: %v\n", err)
+		logger.Error("load_skills_failed", "error", err.Error())
 		return
 	}
 	skillsContent := agent.FormatSkillsForPrompt(loadedSkills)
-	fmt.Printf("[启动] 加载了 %d 个 skills\n", len(loadedSkills))
+	logger.Info("skills_loaded", "count", len(loadedSkills), "dir", skillsDir)
 
 	// MySQL 初始化
 	dsn := os.Getenv("MYSQL_DSN")
@@ -97,7 +101,7 @@ func main() {
 		dsn = "root:210618@tcp(127.0.0.1:3306)/myapp?charset=utf8mb4&parseTime=True"
 	}
 	if err := db.Init(dsn); err != nil {
-		fmt.Printf("[DB] MySQL 连接失败: %v（用户/会话功能不可用）\n", err)
+		logger.Warn("mysql_init_failed", "error", err.Error())
 	} else {
 		// 创建默认 root 管理员
 		rootEmail := getEnvDefault("ROOT_EMAIL", "root@ppt-agent.local")
@@ -113,7 +117,7 @@ func main() {
 	}
 
 	if cozeLoopClient != nil {
-		fmt.Println("[Callback] 等待 CozeLoop 数据上报...")
+		logger.Info("cozeloop_shutdown_waiting")
 		time.Sleep(5 * time.Second)
 		cozeLoopClient.Close(ctx)
 	}
@@ -166,10 +170,18 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		},
 	})
 
-	fmt.Printf("[Web] 启动模式: DeepAgent\n")
-	fmt.Printf("[Web] 并发数: %d\n", concurrency)
+	logger.Info("server_starting", "mode", "web", "addr", addr, "concurrency", concurrency)
+
+	// Set health check metadata
+	buildVersion := os.Getenv("APP_VERSION")
+	if buildVersion == "" {
+		buildVersion = "dev"
+	}
+	web.Version = buildVersion
+	web.StartTime = time.Now()
+
 	if err := srv.Start(); err != nil {
-		log.Printf("[Web] 服务器错误: %v\n", err)
+		logger.Error("server_error", "error", err.Error())
 	}
 }
 
@@ -181,14 +193,14 @@ func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
 	interactive := os.Getenv("INTERACTIVE") != "false"
 
 	taskID := uuid.New().String()
-	fmt.Printf("[启动] 任务ID: %s\n", taskID)
+	logger.Info("cli_task_starting", "task_id", taskID)
 
 	outputDir := filepath.Join(pwd, "..", "output", taskID)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		fmt.Printf("[错误] 创建输出目录失败: %v\n", err)
+		logger.Error("mkdir_output_dir_failed", "path", outputDir, "error", err.Error())
 		return
 	}
-	fmt.Printf("[启动] 输出目录: %s\n", outputDir)
+	logger.Info("output_dir_created", "path", outputDir)
 
 	operator := &command.LocalOperator{}
 	ctx = operator.SetWorkDir(ctx, outputDir)
@@ -208,7 +220,7 @@ func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
 	hm := human.NewManager(interactive)
 
 	if agentMode == "deep" {
-		fmt.Println("[启动] 使用 DeepAgent 模式（eino prebuilt/deep）")
+		logger.Info("agent_mode_selected", "mode", "deep")
 		runDeepAgentCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
 	} else {
 		query := schema.UserMessage(queryContent)
@@ -225,7 +237,7 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 			concurrency = c
 		}
 	}
-	fmt.Printf("[启动] 并发数: %d\n", concurrency)
+	logger.Info("cli_deep_agent_config", "concurrency", concurrency)
 
 	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
 		return agentutils.NewFallbackToolCallingChatModel(ctx,
@@ -235,7 +247,7 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 		)
 	}
 
-	fmt.Println("[启动] 创建 PPT Deep Agent（eino prebuilt/deep）...")
+	logger.Info("deep_agent_creating")
 	agent, err := deep.NewPPTTaskDeepAgent(ctx, &deep.PPTTaskConfig{
 		WorkDir:     outputDir,
 		TaskID:      taskID,
@@ -246,10 +258,10 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 		SkillsDir:   skillsDir,
 	})
 	if err != nil {
-		fmt.Printf("deep.NewPPTTaskDeepAgent failed, err: %v\n", err)
+		logger.Error("deep_agent_creation_failed", "error", err.Error())
 		return
 	}
-	fmt.Println("[启动] PPT Deep Agent 创建成功")
+	logger.Info("deep_agent_created")
 
 	cfg := &deep.PPTTaskConfig{
 		WorkDir:  outputDir,
@@ -352,7 +364,7 @@ func setupCozeLoop() cozeloop.Client {
 	workspaceID := os.Getenv("COZELOOP_WORKSPACE_ID")
 
 	if apiToken == "" || workspaceID == "" {
-		log.Println("[Callback] CozeLoop 未配置 (COZELOOP_API_TOKEN 或 COZELOOP_WORKSPACE_ID 未设置)，跳过")
+		logger.Debug("cozeloop_not_configured")
 		return nil
 	}
 
@@ -361,11 +373,11 @@ func setupCozeLoop() cozeloop.Client {
 		cozeloop.WithWorkspaceID(workspaceID),
 	)
 	if err != nil {
-		log.Printf("[Callback] CozeLoop 设置失败: %v\n", err)
+		logger.Warn("cozeloop_setup_failed", "error", err.Error())
 		return nil
 	}
 
-	log.Printf("[Callback] CozeLoop 配置成功: workspaceID=%s", workspaceID)
+	logger.Info("cozeloop_configured", "workspace_id", workspaceID)
 	return client
 }
 
@@ -390,7 +402,7 @@ func getUserQuery() string {
 		if err == io.EOF {
 			return ""
 		}
-		log.Printf("读取输入失败: %v\n", err)
+		fmt.Printf("读取输入失败: %v\n", err)
 		return ""
 	}
 

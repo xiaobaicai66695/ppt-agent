@@ -6,6 +6,8 @@ import (
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 var DB *gorm.DB
@@ -113,7 +115,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 
-	fmt.Println("[DB] MySQL + GORM 连接成功")
+	logger.Info("mysql_connected")
 	return nil
 }
 

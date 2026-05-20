@@ -27,6 +27,34 @@ const activeWorkers = ref(0);
 const cancelling = ref(false);
 const creating = ref(false);
 
+// ── Online Preview Modal ────────────────────────────────────────────────
+const previewTask = ref<TaskItem | null>(null);
+const previewThumbUrl = ref('');
+const previewVisible = ref(false);
+
+function openPreview(task: TaskItem, thumbUrl: string) {
+  previewTask.value = task;
+  previewThumbUrl.value = thumbUrl;
+  previewVisible.value = true;
+}
+
+function closePreview() {
+  previewVisible.value = false;
+  previewTask.value = null;
+}
+
+function downloadFromPreview() {
+  if (!previewTask.value || !selectedId.value) return;
+  const name = previewTask.value.output_file.split(/[/\\]/).pop() || previewTask.value.output_file;
+  const a = document.createElement('a');
+  a.href = `/api/tasks/${selectedId.value}/files/${encodeURIComponent(name)}`;
+  a.download = name;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 interface Batch { id: number; taskIds: string[]; ts: number; done: boolean; }
 const batches = ref<Batch[]>([]);
 let batchIdSeq = 0;
@@ -664,6 +692,7 @@ onUnmounted(() => { disconnectSSE(); });
                   :file-ready="s.fileReady"
                   :selected="selectedSlides.has(s.task.task_id)"
                   @toggle="toggleSelect(s.task.task_id)"
+                  @preview="openPreview"
                 />
               </TransitionGroup>
             </div>
@@ -680,6 +709,45 @@ onUnmounted(() => { disconnectSSE(); });
         </div>
       </template>
     </main>
+
+    <!-- Online PPT Preview Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="previewVisible" class="preview-modal-overlay" @click.self="closePreview">
+          <div class="preview-modal">
+            <div class="preview-modal-header">
+              {{ previewTask?.title || '幻灯片预览' }}</h3>
+              <div class="preview-modal-actions">
+                <button class="modal-action-btn" title="下载 PPTX" @click="downloadFromPreview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  下载 PPTX
+                </button>
+                <button class="modal-close-btn" @click="closePreview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="preview-modal-body">
+              <img
+                v-if="previewThumbUrl"
+                :src="previewThumbUrl"
+                :alt="previewTask?.title"
+                class="preview-modal-img"
+              />
+              <div v-else class="preview-modal-loading">
+                <span class="preview-spinner"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -822,4 +890,79 @@ onUnmounted(() => { disconnectSSE(); });
 @keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Online Preview Modal */
+.preview-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 2rem;
+}
+.preview-modal {
+  background: var(--c-surface); border-radius: var(--radius-lg);
+  max-width: 900px; width: 100%; max-height: 90vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+  overflow: hidden;
+}
+.preview-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--c-border);
+  gap: 1rem;
+}
+.preview-modal-header h3 {
+  font-size: 0.95rem; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preview-modal-actions {
+  display: flex; align-items: center; gap: 0.5rem;
+  flex-shrink: 0;
+}
+.modal-action-btn {
+  display: flex; align-items: center; gap: 0.35rem;
+  padding: 0.4rem 0.8rem; border-radius: 6px;
+  border: 1px solid var(--c-border); background: var(--c-surface);
+  color: var(--c-text-2); font-size: 0.75rem; font-weight: 500;
+  cursor: pointer; transition: all var(--transition);
+  font-family: inherit;
+}
+.modal-action-btn:hover {
+  border-color: var(--c-primary); color: var(--c-primary);
+  background: var(--c-primary-light);
+}
+.modal-action-btn svg { width: 14px; height: 14px; }
+.modal-close-btn {
+  width: 32px; height: 32px; border-radius: 6px;
+  border: 1px solid var(--c-border); background: var(--c-surface);
+  color: var(--c-text-muted); cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: all var(--transition); font-family: inherit;
+}
+.modal-close-btn:hover { background: var(--c-danger-light); border-color: #ef4444; color: #dc2626; }
+.modal-close-btn svg { width: 16px; height: 16px; }
+.preview-modal-body {
+  flex: 1; overflow: auto; padding: 1.5rem;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-bg);
+}
+.preview-modal-img {
+  max-width: 100%; max-height: calc(90vh - 120px);
+  object-fit: contain; border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+.preview-modal-loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 200px;
+}
+.preview-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--c-border); border-top-color: var(--c-primary);
+  border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+
+/* Modal transition */
+.modal-enter-active { transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.modal-leave-active { transition: all 0.2s ease-in; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-from .preview-modal, .modal-leave-to .preview-modal { transform: scale(0.95) translateY(10px); }
 </style>

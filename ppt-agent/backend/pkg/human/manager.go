@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/human/prints"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
@@ -74,7 +75,7 @@ func (m *Manager) RunWithApproval(ctx context.Context, runner *adk.Runner, check
 
 			// 防止无限循环
 			if eventCount > 100 {
-				fmt.Println("[警告] 事件数量超过 100，强制结束")
+				logger.Warn("event_count_exceeded", "count", 100, "agent", "PPT-Agent")
 				prints.Summary("PPT-Agent", eventCount, false)
 				return lastEvent, nil
 			}

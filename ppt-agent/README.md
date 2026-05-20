@@ -1,6 +1,6 @@
-# PPT Agent - 智能PPT制作助手
+# PPT Agent - 智能 PPT 制作助手
 
-基于 eino ADK 框架的多Agent智能PPT制作系统，使用 Plan-Execute-Replan 范式，结合 Skill 系统实现模块化的设计规范生成和 PPT 文件写入。
+基于 CloudWeGo [Eino](https://github.com/cloudwego/eino) ADK 框架的多 Agent PPT 生成系统，支持两种执行模式，结合 Skill 系统实现模块化的设计规范与自动化质量审查。
 
 ## 项目结构
 
@@ -8,465 +8,190 @@
 ppt-agent/
 ├── backend/                              # Go 后端服务
 │   ├── main.go                          # 主入口
-│   ├── go.mod                           # 依赖管理 (Go 1.24.7, eino v0.8)
+│   ├── go.mod                           # 依赖管理 (Go 1.25.0, eino v0.8)
 │   └── pkg/
-│       ├── agent/                        # Agent 模块
+│       ├── agent/                       # Agent 核心模块
 │       │   ├── skill.go                 # Skill 加载与格式化
-│       │   ├── agents/
-│       │   │   └── wrap_plan.go        # Plan 写入包装器
-│       │   ├── command/
-│       │   │   └── operator.go         # 命令行操作器
-│       │   ├── planner/                 # 规划 Agent
-│       │   │   └── planner.go
-│       │   ├── executor/               # 执行 Agent
-│       │   │   └── executor.go
-│       │   ├── replanner/              # 重规划 Agent
-│       │   │   └── replanner.go
+│       │   ├── command/operator.go       # 命令行操作器
+│       │   ├── deep/                     # DeepAgent 模式 (并行)
+│       │   │   ├── agent.go             # 主 Agent (PPTTaskDeepAgent)
+│       │   │   ├── run.go               # 运行逻辑
+│       │   │   ├── slide_executor.go   # 幻灯片生成执行器
+│       │   │   ├── reviewer.go           # 视觉 QA 审查器
+│       │   │   ├── fixer.go              # 修复执行器
+│       │   │   └── types.go             # 任务清单与状态类型
+│       │   ├── planexecute/             # Plan-Execute-Replan 模式 (串行)
+│       │   │   ├── planner.go           # 规划 Agent
+│       │   │   ├── executor.go          # 执行 Agent
+│       │   │   └── replanner.go         # 重规划 Agent
+│       │   ├── agents/wrap_plan.go      # Plan 写入包装器
 │       │   └── utils/
-│       │       ├── model.go            # 模型配置
+│       │       ├── model.go             # 模型配置与 fallback chain
+│       │       ├── compressor.go        # 上下文压缩
+│       │       ├── token_tracker.go     # Token 计数
 │       │       └── utils.go            # 格式化工具
 │       ├── tools/                       # 工具模块
-│       │   ├── tools.go                 # 工具入口
-│       │   ├── ppt/
-│       │   │   └── ppt_tool.go        # PPT 生成工具
-│       │   ├── qa/
-│       │   │   └── qa_tool.go        # QA 视觉质量审查工具
-│       │   ├── search/
-│       │   │   └── search_tool.go      # 搜索工具
+│       │   ├── tools.go                 # 工具注册入口
+│       │   ├── wrap.go                 # 工具包装器 (审批/HITL)
+│       │   ├── human_in_the_loop.go     # 人机交互审批工具
+│       │   ├── python_runner.go         # Python 脚本执行器
+│       │   ├── ppt/ppt_tool.go         # PPT 生成工具
+│       │   ├── qa/qa_tool.go           # 视觉 QA 审查工具
+│       │   ├── search/search_tool.go    # 搜索工具
+│       │   ├── plan_tool.go            # 计划管理工具
+│       │   ├── checkpoint_tool.go       # 检查点工具
+│       │   ├── submit_result.go         # 结果提交工具
+│       │   ├── edit_file.go            # 文件编辑工具
+│       │   ├── read_file.go            # 文件读取工具
 │       │   ├── bash_tool.go            # Shell 命令工具
-│       │   ├── python_runner.go        # Python 脚本执行器
-│       │   ├── edit_file.go           # 文件编辑工具
-│       │   ├── read_file.go           # 文件读取工具
-│       │   ├── submit_result.go       # 结果提交工具
-│       │   ├── wrap.go                # 工具包装器
 │       │   └── option.go              # 工具选项
-│       ├── human/                       # 人机交互模块
+│       ├── web/                         # HTTP 服务
+│       │   ├── server.go              # 主服务器
+│       │   ├── handler.go             # 请求处理器
+│       │   ├── streamer.go            # SSE 流式响应
+│       │   ├── middleware.go          # 中间件
+│       │   ├── thumbnail.go           # 缩略图生成
+│       │   └── health.go              # 健康检查
+│       ├── task/manager.go            # 任务生命周期管理
+│       ├── human/                      # 人机交互模块
 │       │   ├── manager.go             # 交互管理器
-│       │   └── prints/
-│       │       └── prints.go          # 输出格式化
-│       ├── generic/                     # 通用模块
-│       │   ├── plan.go                # Plan 结构定义
-│       │   └── time.go
-│       ├── params/                      # 上下文参数
-│       │   └── consts.go
-│       └── utils/                       # 辅助工具
-│           ├── model.go
-│           ├── format.go
-│           └── helper.go
-├── skills/                              # Skill 系统
-│   └── visual_designer/                # 视觉设计 Skill
-│       ├── SKILL.md                   # 设计规范（含前三确认工作流、模板系统、配色、布局、NEVER清单）
-│       ├── scripts/
-│       │   └── design_assistant.py    # 设计辅助脚本（支持模板加载和推荐）
-│       ├── templates/                  # 模板资产库
-│       │   ├── single-page/           # 12种单页布局模板
-│       │   │   ├── title_slide.json
-│       │   │   ├── content_slide.json
-│       │   │   ├── two_column.json
-│       │   │   ├── three_column.json
-│       │   │   ├── card_grid.json
-│       │   │   ├── timeline.json
-│       │   │   ├── process_flow.json
-│       │   │   ├── stat_slide.json
-│       │   │   ├── quote_slide.json
-│       │   │   ├── section_divider.json
-│       │   │   ├── image_text.json
-│       │   │   └── summary_slide.json
-│       │   └── full-decks/           # 6个完整PPT模板
-│       │       ├── tech-sharing.json      # 技术分享
-│       │       ├── ai-intro.json         # AI大模型介绍
-│       │       ├── product-launch.json    # 产品发布
-│       │       ├── weekly-report.json     # 周报
-│       │       ├── pitch-deck.json       # 商业计划
-│       │       └── course-module.json     # 课程课件
-│       └── references/
-│           └── search_guide.md       # 搜索规范指南
+│       │   └── prints/prints.go       # 输出格式化
+│       ├── auth/                       # 认证模块
+│       │   ├── auth.go                # 认证逻辑
+│       │   └── email.go               # 邮件验证
+│       ├── db/db.go                   # 数据库操作 (SQLite)
+│       ├── store/store.go             # 内存存储
+│       ├── logger/logger.go           # 日志模块
+│       ├── metrics/metrics.go         # 指标收集
+│       ├── prompts/                    # Prompt 模板 (go:embed)
+│       │   ├── prompts.go             # 模板加载器
+│       │   └── executor_user_prompt.tmpl
+│       ├── params/consts.go           # 上下文常量
+│       └── generic/                   # 通用类型
+│           ├── plan.go               # Plan 结构
+│           └── time.go
 ├── frontend/                            # React 前端
 │   ├── src/
 │   │   ├── App.tsx
-│   │   └── index.css
-│   ├── index.html
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── vite.config.ts
-├── output/                             # 运行时输出目录（自动创建）
-│   └── {task_id}/
-│       └── {slide_index}_{slide_title}.pptx
+│   │   ├── pages/DashboardPage.vue    # 仪表盘
+│   │   └── components/
+│   │       ├── SlidePreviewCard.vue   # 幻灯片预览卡片
+│   │       └── ProgressBar.vue        # 进度条
+│   └── ...
+├── skills/                              # Skill 系统
+│   └── visual_designer/
+│       ├── SKILL.md                   # 设计规范
+│       ├── scripts/design_assistant.py
+│       └── templates/                  # 模板资产
+│           ├── single-page/          # 12种单页布局
+│           └── full-decks/           # 6个完整模板
 └── README.md
 ```
 
-## 系统架构
+## 核心架构
+
+### 两种执行模式
+
+系统支持两种 Agent 执行模式，由环境变量 `AGENT_MODE` 控制：
+
+#### 模式一：DeepAgent (并行，默认)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  Plan-Execute-Replan Loop                   │
-│                     (adk/prebuilt/planexecute)              │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐           │
-│  │ Planner  │───▶│ Executor │───▶│ Replanner │           │
-│  │  Agent   │    │  Agent   │    │  Agent    │           │
-│  │ (规划)   │    │ (执行)   │    │ (重规划)  │           │
-│  └────┬─────┘    └────┬─────┘    └──────────┘           │
-│       │                │                                    │
-│       ▼                ▼                                    │
-│  ┌──────────────────────────────────────┐                 │
-│  │        Skill System (Prompt注入)       │                 │
-│  ├──────────────────────────────────────┤                 │
-│  │  visual_designer  │  pptx_writer      │                 │
-│  │  - 设计哲学/NEVER  │  - MANDATORY加载 │                 │
-│  │  - 配色/布局决策  │  - 精确操作步骤   │                 │
-│  └──────────────────────────────────────┘                 │
-│                                                              │
-│  ┌──────────────────────────────────────┐                 │
-│  │          Human-in-the-Loop             │                 │
-│  ├──────────────────────────────────────┤                 │
-│  │  工具审批 │ 图片搜索确认 │ 降级处理   │                 │
-│  └──────────────────────────────────────┘                 │
-│                                                              │
-│  ┌──────────────────────────────────────┐                 │
-│  │          Tools (via ToolsNode)          │                 │
-│  ├──────────────────────────────────────┤                 │
-│  │  Python │ Search │ PPT │ BatchQA    │                 │
-│  └──────────────────────────────────────┘                 │
-│                                                              │
-│  ┌──────────────────────────────────────┐                 │
-│  │          Vision QA (Multi-modal)        │                 │
-│  ├──────────────────────────────────────┤                 │
-│  │  PPTX→Images │ Visual Inspection │      │                 │
-│  │  QA Report │ Auto-fix loop         │                 │
-│  └──────────────────────────────────────┘                 │
-└─────────────────────────────────────────────────────────────┘
+AGENT_MODE=deep  # 或不设置
 ```
 
-## Skill 系统
-
-### 设计理念
-
-Skill 是**知识的外化机制**，而非"教 AI 做某事"。大模型已经知道绝大多数知识，Skill 的作用是：
-
-- 传递**专家思维方式**（不教技术细节，教如何思考）
-- 注入**反模式清单**（告诉 Agent 什么是绝对不能做的）
-- 提供**精确操作规程**（对脆弱操作给出低自由度的精确指导）
-- 提供**模板资产**（让 Agent 从模板改编而非从零设计）
+使用 Eino prebuilt `deep` 编排模式，Master Agent 并行调度三个子 Agent：
 
 ```
-通用 Agent + 优秀 Skill = 特定领域的专家 Agent
+PPTTaskDeepAgent (Master)
+├── SlideExecutor ──── 生成幻灯片 (python-pptx)
+├── Reviewer     ──── 视觉 QA 审查 (多模态 LLM)
+└── Fixer        ──── 修复 QA 发现的问题
 ```
 
-### Skill 评判标准
+幻灯片生成可并行执行（默认 5 个并发，受 `DEEP_AGENT_CONCURRENCY` 控制）。
 
-| 标准 | 说明 |
-|------|------|
-| **Token 效率** | 好 Skill = 专家独有的知识 - Claude 已有的知识 |
-| **思维方式** | 注重思考框架，而非 Step 1/2/3 步骤清单 |
-| **NEVER 清单** | 明确告诉 Agent 什么是"垃圾做法" |
-| **模板资产** | 提供真实可用的模板，Agent 从模板改编而非从零设计 |
-| **触发机制** | Description 包含"做什么"和"何时用"的关键词 |
-| **自由度匹配** | 创意任务高自由度，格式操作低自由度 |
-| **加载触发** | 关键节点嵌入 MANDATORY 强制加载指令 |
-
-### 1. visual_designer - 视觉设计 Skill
-
-传递专业视觉设计师的思维方式，引导 Agent 在动手之前先回答三个问题：Purpose（解决什么问题）、Tone（审美方向）、Differentiation（差异化定位）。
-
-**核心内容**：
-- 设计哲学三问（Purpose / Tone / Differentiation）
-- **模板系统**：12种单页布局模板 + 6个完整PPT模板
-- NEVER 清单（颜色、排版、布局、内容各4条禁止项）
-- 6种精选配色系统（ocean_soft / sage_calm / warm_terracotta / charcoal_light / berry_cream / lavender_mist）
-- 布局决策树（按要点数量和内容类型路由）
-- 视觉元素使用原则（宁少勿滥，宁精勿滥）
-
-**模板资产**（位于 `skills/visual_designer/templates/`）：
-- `single-page/`：12种单页布局模板（title_slide、content_slide、two_column、three_column、card_grid、timeline、process_flow、stat_slide、quote_slide、section_divider、image_text、summary_slide）
-- `full-decks/`：6个完整PPT模板（tech-sharing、ai-intro、product-launch、weekly-report、pitch-deck、course-module）
-
-**NEVER 清单示例**：
-- 禁止紫色渐变 + 白底（最典型的"AI感"配色）
-- 禁止使用 Inter/Roboto/Arial 作为主要英文字体
-- 禁止空洞的要点（少于20字视为空洞）
-
-### 2. pptx_writer - PPTX 写入 Skill
-
-OOXML 格式操作规程，确保 Agent 能精确生成有效的 PPTX 文件。
-
-**核心内容**：
-- **MANDATORY 加载指令**（执行前必须完整阅读脚本）
-- NEVER 清单（禁止跳过依赖检查、禁止硬编码坐标、禁止不验证文件）
-- 决策路由表（创建 vs 编辑 vs 特殊操作 → 不同路径）
-- 完整配色系统参考（与 visual_designer 保持一致）
-- 错误处理规范（图片失败 → warnings 记录，不中断流程）
-
-### Skill 加载机制
-
-Skill 在 `main.go` 中统一加载，通过 prompt 注入到 Planner 和 Executor：
-
-```go
-// 1. 加载 SKILL.md 文件内容
-loadedSkills, _ := agent.LoadSkillsFromDir(ctx, skillsDir)
-skillsContent := agent.FormatSkillsForPrompt(loadedSkills)
-
-// 2. 同时注入到两个 Agent 的 prompt 中
-planAgent, _ := planner.NewPlanner(ctx, operator, skillsContent)
-executeAgent, _ := executor.NewExecutor(ctx, operator, skillsContent)
-```
-
-加载后，Planner 会参考设计规范做规划决策，Executor 会参考操作规范生成 PPT。
-
-### Skill 与工具的区别
-
-| 概念 | 本质 | 作用 | 示例 |
-|------|------|------|------|
-| Tool | 模型能做什么 | 执行动作 | bash、read_file、write_file |
-| Skill | 模型知道做什么 | 指导决策 | 设计规范、审查指南、格式操作规程 |
-
-工具是能力的边界，没有 bash 工具模型就无法执行命令。Skill 则是技巧的注入，没有视觉设计 Skill，模型写出的 PPT 将千篇一律。
-
-## Agent 模块
-
-### Plan-Execute-Replan 循环
+#### 模式二：Plan-Execute-Replan (串行)
 
 ```
-用户需求
-    │
-    ▼
-┌──────────┐    制定计划    ┌──────────┐    评估进度    ┌──────────┐
-│ Planner  │──────────────▶│ Executor │──────────────▶│ Replanner│
-│ (规划)   │               │ (执行)   │               │ (重规划) │
-└──────────┘               └──────────┘               └──────────┘
-    │                           │                           │
-    ▼                           ▼                           ▼
-  生成幻灯片计划           执行当前步骤              判断是否完成
-  (slides[])           生成 PPT 文件           或需要调整计划
-                              │                           │
-                              ▼                           ▼
-                        提交步骤完成              提交最终结果
-                              │                      或重新规划
-                              └──────────────────────────────┘
+AGENT_MODE=planexecute  # 显式设置
 ```
 
-**Planner**：分析用户需求，制定包含幻灯片列表的完整计划，参考 `visual_designer` 的设计哲学选择配色和布局。
-
-**Executor**：根据当前步骤生成 PPT 文件，参考 `pptx_writer` 的操作规范确保文件正确生成，支持工具调用（代码代理、搜索、PPT生成）。
-
-**Replanner**：评估已执行步骤的正确性，判断计划是否仍然适用，异常时调用 `create_ppt_plan` 重新规划。
-
-## QA 视觉质量审查系统
-
-基于多模态 LLM 的自动化视觉 QA，在所有幻灯片生成完毕后执行批量审查，确保输出质量。
-
-### 工作流程
+传统串行模式，三个 Agent 顺序执行：
 
 ```
-所有幻灯片生成完毕
-        │
-        ▼
-┌──────────────────┐
-│ batch_qa_review  │ ──── 自动触发
-│ 工具调用          │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ PPTX → 图片转换  │ 150 DPI 分页输出
-│ (pptx_qa_converter.py) │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 多模态 LLM 审查  │ 视觉 AI 模型
-│ (Vision QA)      │
-└────────┬─────────┘
-         │
-         ▼
-    QA 报告输出
-         │
-         ├─── 有问题 ──▶ Replanner 生成修复步骤
-         │
-         └─── 无问题 ──▶ 提交最终结果
+Planner ──▶ Executor ──▶ Replanner ──▶ (循环)
 ```
 
-### 检查问题类型
+### 模型 Fallback 链
 
-| 类型 | 说明 | 严重程度 |
-|------|------|---------|
-| overlap | 文字与形状/图片重叠、线条穿过文字 | high |
-| overflow | 文字超出文本框边界被截断 | high |
-| contrast | 浅色文字在浅色背景上 | medium |
-| spacing | 元素间距不一致、过于靠近 | medium |
-| alignment | 同一列元素未对齐、视觉重心不稳 | medium |
-| placeholder | 占位符文本残留 (xxxx/lorem) | high |
-| ai_style | AI 感特征（装饰线、紫色渐变） | low |
+所有 LLM 调用使用多级 fallback 链，自动处理 429 限流：
 
-### 审查规则
+```
+ARK_MODEL → ARK_MODEL_BACKUP1 → ARK_MODEL_BACKUP2 → ... → ARK_MODEL_BACKUP4
+```
 
-- 假设有错，不要因为"看起来还行"就跳过
-- 每一页都要单独审查，不能跳页
-- 高严重程度的问题必须报告
-- 发现问题一定要报告，不要遗漏
+触发 429 时失败模型暂停 30 秒，继续尝试下一个；全部失败才报错。
 
-## 工具模块
+### 上下文压缩
+
+DeepAgent 模式使用 `ChatModelCompressor` 压缩对话历史，触发条件（二选一）：
+
+- 消息数超过 12 条
+- Token 估计超过 30,000
+
+压缩策略：`system + [压缩摘要] + [最近 4 轮对话]`
+
+### Visual QA 流水线
+
+```
+PPTX 文件 ──▶ pptx_qa_converter.py ──▶ PDF ──▶ pdftoppm ──▶ JPEG (150 DPI)
+                                                              │
+                                                              ▼
+                                                    多模态 LLM 视觉审查
+                                                              │
+                                                              ▼
+                                                   .qa_result.json
+```
+
+- **DeepAgent 模式**：每完成一页立即审查（单页 QA）
+- **Plan-Execute 模式**：全部生成后批量审查
+
+QA 严重等级：`high` → `medium` → `low`。每页最多修复 2 次，仍有问题则跳过。
+
+## 工具列表
 
 | 工具 | 文件 | 说明 |
 |------|------|------|
 | Search | `search/search_tool.go` | 互联网内容搜索 |
-| ImageSearch | `search/search_tool.go` | 图片素材搜索（含审批机制） |
-| PPT | `ppt/ppt_tool.go` | 调用 pptx_writer 脚本生成 PPT 文件 |
-| BatchQA | `qa/qa_tool.go` | 批量视觉质量审查 |
-| Bash | `bash_tool.go` | 执行 Shell 命令 |
-| EditFile | `edit_file.go` | 编辑文件内容 |
-| ReadFile | `read_file.go` | 读取文件内容 |
-| SubmitResult | `submit_result.go` | 提交最终结果 |
+| PPT | `ppt/ppt_tool.go` | 调用 python-pptx 生成 PPT |
+| single_qa_review | `qa/qa_tool.go` | 单页视觉质量审查 |
+| batch_qa_review | `qa/qa_tool.go` | 批量视觉审查 |
+| update_progress | `checkpoint_tool.go` | 更新任务进度 |
+| create_ppt_plan | `plan_tool.go` | 创建 PPT 计划 |
+| submit_result | `submit_result.go` | 提交最终结果 |
 | PythonRunner | `python_runner.go` | Python 脚本执行器 |
+| EditFile | `edit_file.go` | 编辑文件 |
+| ReadFile | `read_file.go` | 读取文件 |
+| Bash | `bash_tool.go` | 执行 Shell 命令 |
 
-## 人机交互 (Human-in-the-Loop)
+所有工具均通过 `wrap.go` / `human_in_the_loop.go` 支持人机审批。
 
-基于 eino ADK 的中断机制实现人机交互审批流程。
+## Skill 系统
 
-### 审批工作流程
+Skill 负责将专家知识注入 Agent prompt，引导决策而非替代执行。
 
-```
-Agent 调用工具
-       │
-       ▼
-┌──────────────┐
-│ 工具包装器    │ ──── 中断等待审批
-│ (wrapper)   │
-└──────────────┘
-       │
-       ▼
-┌──────────────┐
-│ 用户审批     │ ──── Y: 执行 │ N: 拒绝 │ E: 编辑参数
-└──────────────┘
-       │
-       ▼
-  ResumeWithParams 恢复执行
-```
+### visual_designer
 
-### 图片搜索审批流程
+视觉设计规范，包含 12 种单页布局模板 + 6 个完整模板，6 种配色系统，NEVER 清单。
 
-```
-需要搜索图片
-       │
-       ▼
-┌──────────────────────────────┐
-│      图片搜索审批对话框       │
-├──────────────────────────────┤
-│ 搜索词: "AI大模型架构图"     │
-│ 用途: PPT第3页配图           │
-│                              │
-│ Y: 执行搜索                  │
-│ N: 使用默认占位图  ◀── 降级   │
-│ E: 编辑搜索词                │
-└──────────────────────────────┘
-       │
-       ▼ (用户选择N)
-┌──────────────────────────────┐
-│ 返回降级信息:                │
-│ {                           │
-│   "status": "fallback",     │
-│   "message": "使用默认图片"  │
-│ }                           │
-└──────────────────────────────┘
-```
+### pptx_writer
 
-### 交互模式
-
-**交互模式（默认）**：
-```bash
-export INTERACTIVE=true  # 默认值
-./ppt-agent.exe
-```
-- 用户手动审批工具调用
-- 图片搜索可选择使用默认图
-
-**自动模式**：
-```bash
-export INTERACTIVE=false
-./ppt-agent.exe
-```
-- 所有工具自动批准
-- 图片搜索自动降级为默认图片
-
-### 审批选项
-
-| 选项 | 说明 | 适用场景 |
-|------|------|---------|
-| Y / YES | 批准执行 | 确认操作 |
-| N / NO | 拒绝执行 | 取消操作 |
-| E / EDIT | 编辑后执行 | 修改参数 |
-| Q / QUIT | 退出程序 | 终止任务 |
-
-## eino ADK 核心用法
-
-### 1. Skill 加载与注入
-
-```go
-import (
-    "github.com/cloudwego/eino-ext/adk/backend/local"
-    "github.com/cloudwego/eino/adk/middlewares/skill"
-    "github.com/cloudwego/ppt-agent/pkg/agent"
-)
-
-// 创建 filesystem backend（参考 eino-examples 方式）
-be, _ := local.NewBackend(ctx, &local.Config{})
-
-skillBackend, _ := skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
-    Backend: be,
-    BaseDir: skillsDir,
-})
-
-// 加载 SKILL.md 内容，注入到 prompt
-loadedSkills, _ := agent.LoadSkillsFromDir(ctx, skillsDir)
-skillsContent := agent.FormatSkillsForPrompt(loadedSkills)
-```
-
-### 2. Plan-Execute-Replan 编排
-
-```go
-entryAgent, _ := planexecute.New(ctx, &planexecute.Config{
-    Planner:       planAgent,
-    Executor:      executeAgent,
-    Replanner:     replanAgent,
-    MaxIterations: 20,
-})
-```
-
-### 3. 带审批的 Tool
-
-```go
-import "github.com/cloudwego/ppt-agent/pkg/tools/wrapper"
-
-searchTool := tools.NewSearchTool()
-
-approvableTool := &wrapper.SearchApprovableTool{
-    InvokableTool: searchTool,
-    UsageScenario:  "PPT内容搜索",
-    FallbackOption: "使用已有内容",
-}
-
-agent, _ := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-    ToolsConfig: adk.ToolsConfig{
-        ToolsNodeConfig: compose.ToolsNodeConfig{
-            Tools: []tool.BaseTool{approvableTool},
-        },
-    },
-})
-```
-
-### 4. 人机交互循环
-
-```go
-hm := human.NewManager(interactive) // true: 交互模式, false: 自动模式
-iter := runner.Query(ctx, query, adk.WithCheckPointID("task-1"))
-
-event, err := hm.RunWithApproval(ctx, runner, "task-1", iter)
-```
+PPTX 操作规程，包含MANDATORY 加载指令和精确操作步骤。
 
 ## 编译运行
 
-### 后端编译
+### 后端
 
 ```bash
 cd backend
@@ -475,24 +200,26 @@ go build -o ppt-agent.exe .
 ./ppt-agent.exe
 ```
 
-### 环境变量
-
-```bash
-# API 配置
-export ARK_API_KEY=your_api_key
-export ARK_MODEL=your_model_name
-
-# 交互模式（可选，默认 true）
-export INTERACTIVE=true
-```
-
-### 前端运行
+### 前端
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev   # 端口 3000，/api 代理到 localhost:8080
 ```
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `ARK_API_KEY` | API 密钥 | 必填 |
+| `ARK_MODEL` | 主模型 | 必填 |
+| `ARK_MODEL_BACKUP1~4` | 备用模型 | 可选 |
+| `AGENT_MODE` | 执行模式：`deep` 或 `planexecute` | `deep` |
+| `INTERACTIVE` | 交互模式：`true`/`false` | `true` |
+| `DEEP_AGENT_CONCURRENCY` | DeepAgent 并发数 | `5` |
+| `COZELOOP_API_TOKEN` | CozeLoop 可观测 | 可选 |
+| `COZELOOP_WORKSPACE_ID` | CozeLoop 工作区 | 可选 |
 
 ## 版本信息
 
@@ -500,6 +227,6 @@ npm run dev
 |------|------|
 | Go | 1.25.0 |
 | eino | v0.8.8 |
-| eino-ext/adk/backend/local | v0.2.1 |
 | python-pptx | >= 0.6.21 |
-| Pillow | >= 9.0.0 |
+| LibreOffice | 用于 PPTX→PDF 转换 |
+| poppler-utils | 用于 PDF→JPEG 转换 |

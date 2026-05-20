@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { TaskItem } from '../types';
 
 const props = defineProps<{
@@ -9,6 +9,96 @@ const props = defineProps<{
   isRunning: boolean;
 }>();
 
+// ── ETA Estimation ─────────────────────────────────────────────────────
+// Track timestamps of each done slide for rate estimation
+const completionTimestamps = ref<number[]>([]);
+const taskStartTime = ref<number>(Date.now());
+const lastDoneCount = ref(0);
+
+// Reset when total count changes (new task)
+watch(() => props.totalCount, (newTotal) => {
+  if (newTotal > 0) {
+    taskStartTime.value = Date.now();
+    lastDoneCount.value = 0;
+    completionTimestamps.value = [];
+  }
+});
+
+// Track when doneCount increases
+watch(() => props.doneCount, (newDone) => {
+  if (newDone > lastDoneCount.value) {
+    const now = Date.now();
+    completionTimestamps.value.push(now);
+    // Keep only last 20 timestamps for rolling average
+    if (completionTimestamps.value.length > 20) {
+      completionTimestamps.value.shift();
+    }
+    lastDoneCount.value = newDone;
+  }
+});
+
+const elapsedMs = computed(() => {
+  if (!props.isRunning && props.doneCount === 0) return 0;
+  return Date.now() - taskStartTime.value;
+});
+
+const etaMs = computed(() => {
+  const pending = props.totalCount - props.doneCount;
+  if (pending <= 0 || props.totalCount <= 0) return 0;
+
+  const timestamps = completionTimestamps.value;
+  if (timestamps.length < 2) return 0;
+
+  // Use the last N intervals for rate calculation
+  const windowSize = Math.min(timestamps.length, 10);
+  const recent = timestamps.slice(-windowSize);
+  const firstTs = recent[0];
+  const lastTs = recent[recent.length - 1];
+  const duration = lastTs - firstTs;
+
+  if (duration <= 0 || recent.length < 2) return 0;
+
+  const slidesPerMs = (recent.length - 1) / duration;
+  const remainingMs = pending / slidesPerMs;
+
+  // Cap ETA at reasonable bounds (max 2 hours, min 5 seconds)
+  if (remainingMs > 2 * 60 * 60 * 1000) return 0;
+  if (remainingMs < 5000) return 0;
+
+  return Math.round(remainingMs);
+});
+
+const etaLabel = computed(() => {
+  const ms = etaMs.value;
+  if (ms === 0) return '';
+  const secs = Math.ceil(ms / 1000);
+  if (secs < 60) return `约 ${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) {
+    return remSecs > 0 ? `约 ${mins}m ${remSecs}s` : `约 ${mins}m`;
+  }
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `约 ${hours}h ${remMins}m`;
+});
+
+const elapsedLabel = computed(() => {
+  const ms = elapsedMs.value;
+  if (ms === 0) return '';
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) {
+    return remSecs > 0 ? `${mins}m ${remSecs}s` : `${mins}m`;
+  }
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h ${remMins}m`;
+});
+
+// ── Progress Stats ────────────────────────────────────────────────────
 const progressPct = computed(() =>
   props.totalCount > 0 ? Math.round((props.doneCount / props.totalCount) * 100) : 0
 );
@@ -25,16 +115,43 @@ const generatingItems = computed(() =>
 const failedItems = computed(() =>
   props.taskItems.filter(t => t.status === 'failed')
 );
+
+// Completion rate: slides per minute
+const slidesPerMinute = computed(() => {
+  const timestamps = completionTimestamps.value;
+  if (timestamps.length < 2) return null;
+  const durationMs = timestamps[timestamps.length - 1] - timestamps[0];
+  if (durationMs <= 0) return null;
+  const rate = ((timestamps.length - 1) / durationMs) * 60 * 1000;
+  return Math.round(rate * 10) / 10;
+});
 </script>
 
 <template>
   <div v-if="totalCount > 0" class="progress-section">
     <div class="progress-header">
       <span>生成进度</span>
-      <span class="progress-num">
-        <strong>{{ doneCount }}</strong> / {{ totalCount }} 页
-        <span class="progress-pct">({{ progressPct }}%)</span>
-      </span>
+      <div class="progress-meta">
+        <span class="progress-num">
+          <strong>{{ doneCount }}</strong> / {{ totalCount }} 页
+          <span class="progress-pct">({{ progressPct }}%)</span>
+        </span>
+        <span v-if="elapsedMs > 0 && isRunning" class="elapsed-time">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="7" cy="7" r="6"/><path d="M7 3.5v3.5l2.5 1.5"/>
+          </svg>
+          {{ elapsedLabel }}
+        </span>
+        <span v-if="etaLabel" class="eta-time">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="7" cy="7" r="6"/><path d="M7 3.5v3.5l2.5 1.5"/>
+          </svg>
+          {{ etaLabel }}
+        </span>
+        <span v-if="slidesPerMinute !== null && isRunning" class="rate-badge">
+          {{ slidesPerMinute }} 页/分钟
+        </span>
+      </div>
     </div>
     <div class="progress-track">
       <div
@@ -76,10 +193,39 @@ const failedItems = computed(() =>
 .progress-header {
   display: flex; justify-content: space-between;
   margin-bottom: 0.5rem; font-size: 0.8rem;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.progress-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 .progress-num { color: var(--c-text-muted); font-size: 0.78rem; }
 .progress-num strong { color: var(--c-primary); font-size: 1rem; }
 .progress-pct { font-size: 0.72rem; color: var(--c-text-muted); }
+
+.elapsed-time, .eta-time {
+  font-size: 0.7rem;
+  color: var(--c-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.eta-time { color: #7c3aed; font-weight: 500; }
+.elapsed-time svg, .eta-time svg { width: 12px; height: 12px; }
+
+.rate-badge {
+  font-size: 0.65rem;
+  color: var(--c-text-muted);
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+}
+
 .progress-track {
   height: 8px; background: var(--c-border-light);
   border-radius: 4px; overflow: hidden;
