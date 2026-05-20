@@ -162,11 +162,20 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		Addr:         addr,
 		BaseDir:      outputBase,
 		FrontendDir:  filepath.Join(pwd, "..", "frontend", "dist"),
+		SkillsDir:    skillsDir,
 		AgentFactory: agentFactory,
 		MakeTaskConfig: func(taskID string) *deep.PPTTaskConfig {
 			return &deep.PPTTaskConfig{
 				TaskID: taskID,
 			}
+		},
+		AIModelFactory: func(ctx context.Context) (interface {
+			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+		}, error) {
+			return agentutils.NewFallbackToolCallingChatModel(ctx,
+				agentutils.WithMaxTokens(4096),
+				agentutils.WithTemperature(0),
+			)
 		},
 	})
 

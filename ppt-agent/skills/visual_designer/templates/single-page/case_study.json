@@ -1,0 +1,13 @@
+{
+  "name": "case_study",
+  "display_name": "案例详解页",
+  "type": "atomic",
+  "description": "案例介绍页面，包含背景、做法、效果三段式结构",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "report_green", "civic_gold"],
+  "fields": [
+    {"name": "title", "label": "案例标题", "type": "text", "required": true},
+    {"name": "background", "label": "案例背景", "type": "textarea", "required": true},
+    {"name": "approach", "label": "主要做法", "type": "textarea", "required": true},
+    {"name": "result", "label": "取得效果", "type": "textarea", "required": true}
+  ]
+}

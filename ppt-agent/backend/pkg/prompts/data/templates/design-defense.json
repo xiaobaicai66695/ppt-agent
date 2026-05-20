@@ -1,0 +1,24 @@
+{
+  "name": "design-defense",
+  "display_name": "毕业答辩",
+  "type": "preset",
+  "description": "课程设计、毕业设计、项目答辩，逻辑清晰，技术扎实",
+  "category": "edu",
+  "default_palette": "education_blue",
+  "tags": ["答辩", "毕业", "学术"],
+  "thumbnail": "/templates/thumbs/design-defense.png",
+  "slide_count": 12,
+  "default_slides": [
+    {"title": "答辩题目", "content_type": "title_slide", "description": "毕业设计题目和答辩人信息"},
+    {"title": "目录", "content_type": "agenda", "description": "答辩内容大纲"},
+    {"title": "研究背景", "content_type": "content_slide", "description": "课题背景和研究意义"},
+    {"title": "技术方案", "content_type": "section_divider", "description": "章节标题：技术方案"},
+    {"title": "需求分析", "content_type": "content_slide", "description": "功能需求和非功能需求"},
+    {"title": "系统设计", "content_type": "image_text", "description": "系统架构和模块设计"},
+    {"title": "实现与测试", "content_type": "section_divider", "description": "章节标题：实现与测试"},
+    {"title": "核心实现", "content_type": "process_flow", "description": "关键技术和实现细节"},
+    {"title": "测试结果", "content_type": "stat_slide", "description": "测试用例和结果数据"},
+    {"title": "总结展望", "content_type": "summary_slide", "description": "总结和未来工作展望"},
+    {"title": "致谢", "content_type": "title_slide", "description": "致谢和问答环节"}
+  ]
+}

@@ -40,6 +40,7 @@ type PPTTaskConfig struct {
 	Skills        string
 	SkillsDir     string // skills 目录的绝对路径，用于构造 read_file 可用的模板路径
 	CompressorOpt CompressorOption
+	Outline       *TaskOutline // 用户编排的大纲，有值时跳过 AI 规划阶段
 }
 
 // CompressorOption 定义上下文压缩中间件的配置
@@ -169,7 +170,20 @@ func ReadTasksManifest(workDir string) (*TasksManifest, error) {
 	return m, nil
 }
 
-type PPTTaskStart struct {
+// TaskOutline 用户编排的大纲结构（用于模板编排模式）
+type TaskOutline struct {
+	Template string          `json:"template"`
+	Theme    string          `json:"theme"`
+	Title    string          `json:"title"`
+	Slides   []SlideOutline `json:"slides"`
+}
+
+// SlideOutline 单页幻灯片大纲
+type SlideOutline struct {
+	Title       string `json:"title"`
+	ContentType string `json:"content_type"`
+	Description string `json:"description"`
+}
 	Runner       *adk.Runner
 	Iter         *adk.AsyncIterator[*adk.AgentEvent]
 	CheckpointID string

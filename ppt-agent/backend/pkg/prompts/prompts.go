@@ -59,13 +59,14 @@ type TemplateData struct {
 	SkillsDir        string // Skills directory absolute path
 	TmplDir          string // Template directory absolute path
 	TasksJSON        string // tasks.json absolute path
-	TemplateCatalog   string // Inline template catalog table (for deep agent)
+	TemplateCatalog  string // Inline template catalog table (for deep agent)
 	UserQuery        string // User query (for planner/replanner)
 	CurrentTime      string // Current time
 	ExecutedCount    string // Number of executed slides
 	TotalCount       string // Total number of slides
 	RemainingPlan    string // Remaining slides plan
 	QASummary        string // QA result summary
+	HasOutline       bool   // True if user provided structured outline (skip planning)
 }
 
 // Render executes a named template with the given data and returns the rendered string.

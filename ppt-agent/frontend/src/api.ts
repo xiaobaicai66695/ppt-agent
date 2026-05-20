@@ -223,3 +223,102 @@ export async function deleteTask(id: string): Promise<void> {
   });
   if (!res.ok) throw new Error('删除失败');
 }
+
+// ── Template API ──────────────────────────────────────────────────────────────
+
+export interface SlideOutline {
+  title: string;
+  content_type: string;
+  description: string;
+}
+
+export interface TaskOutline {
+  template: string;
+  theme: string;
+  title: string;
+  slides: SlideOutline[];
+}
+
+export interface PresetTemplate {
+  name: string;
+  display_name: string;
+  type: string;
+  description: string;
+  category: string;
+  default_palette: string;
+  tags: string[];
+  thumbnail: string;
+  slide_count: number;
+  default_slides: {
+    title: string;
+    content_type: string;
+    description: string;
+  }[];
+}
+
+export interface AtomicLayout {
+  name: string;
+  display_name: string;
+  type: string;
+  description: string;
+  allowed_palettes: string[];
+  fields: {
+    name: string;
+    label: string;
+    type: string;
+    required: boolean;
+  }[];
+}
+
+export interface ThemeInfo {
+  name: string;
+  display_name: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  tags: string[];
+}
+
+export async function fetchPresets(): Promise<PresetTemplate[]> {
+  const res = await apiFetch('/api/templates');
+  const data = await res.json();
+  return data.presets || [];
+}
+
+export async function fetchPreset(name: string): Promise<PresetTemplate | null> {
+  const res = await apiFetch(`/api/templates/${name}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function fetchLayouts(): Promise<AtomicLayout[]> {
+  const res = await apiFetch('/api/templates/layouts');
+  const data = await res.json();
+  return data.layouts || [];
+}
+
+export async function fetchThemes(): Promise<ThemeInfo[]> {
+  const res = await apiFetch('/api/themes');
+  const data = await res.json();
+  return data.themes || [];
+}
+
+export async function createTaskWithOutline(query: string, outline: TaskOutline): Promise<TaskInfo> {
+  const res = await checkResponse(await apiFetch('/api/tasks', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ query, outline }),
+  }));
+  return res.json();
+}
+
+export async function expandWithAI(title: string, contentType: string, description: string, theme: string): Promise<string> {
+  const res = await apiFetch('/api/ai/expand', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ title, content_type: contentType, description, theme }),
+  });
+  const data = await res.json();
+  return data.description || '';
+}

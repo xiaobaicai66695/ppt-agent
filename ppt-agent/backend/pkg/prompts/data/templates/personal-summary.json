@@ -1,0 +1,22 @@
+{
+  "name": "personal-summary",
+  "display_name": "个人总结",
+  "type": "preset",
+  "description": "个人总结、述职报告、年终总结，重点突出，成果可见",
+  "category": "work",
+  "default_palette": "charcoal_light",
+  "tags": ["总结", "述职", "个人"],
+  "thumbnail": "/templates/thumbs/personal-summary.png",
+  "slide_count": 10,
+  "default_slides": [
+    {"title": "个人总结", "content_type": "title_slide", "description": "姓名、岗位、汇报周期"},
+    {"title": "工作概览", "content_type": "content_slide", "description": "本周期工作整体情况"},
+    {"title": "工作成果", "content_type": "section_divider", "description": "章节标题：工作成果"},
+    {"title": "主要业绩", "content_type": "content_slide", "description": "3-5项主要工作成果"},
+    {"title": "数据亮点", "content_type": "stat_slide", "description": "4-6个关键业绩指标"},
+    {"title": "能力提升", "content_type": "section_divider", "description": "章节标题：能力提升"},
+    {"title": "学习成长", "content_type": "content_slide", "description": "技能提升和学习成果"},
+    {"title": "反思改进", "content_type": "content_slide", "description": "问题反思和改进方向"},
+    {"title": "未来规划", "content_type": "summary_slide", "description": "下阶段目标和计划"}
+  ]
+}

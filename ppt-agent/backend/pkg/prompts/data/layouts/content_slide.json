@@ -1,0 +1,11 @@
+{
+  "name": "content_slide",
+  "display_name": "内容页",
+  "type": "atomic",
+  "description": "标准内容页，包含标题和正文要点列表",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta", "berry_cream", "lavender_mist", "civic_gold", "debate_purple", "activity_orange", "report_green", "simple_gray", "medical_blue", "finance_gold"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "bullets", "label": "内容要点", "type": "textarea", "required": true}
+  ]
+}

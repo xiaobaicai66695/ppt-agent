@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,11 +12,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/task"
+	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
 // Server provides REST API + SSE streaming + static frontend via Gin.
@@ -26,6 +29,10 @@ type Server struct {
 	taskIDGen      func() string
 	engine         *gin.Engine
 	addr           string
+	templateLoader    *templates.Loader
+	aiModelFactory  func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error)
 }
 
 // ServerConfig holds configuration for creating a Server.
@@ -33,8 +40,12 @@ type ServerConfig struct {
 	Addr           string
 	BaseDir        string
 	FrontendDir    string
+	SkillsDir      string
 	AgentFactory   task.AgentFactory
 	MakeTaskConfig func(taskID string) *deep.PPTTaskConfig
+	AIModelFactory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error)
 }
 
 // NewServer creates a new Server with Gin routes.
@@ -66,7 +77,13 @@ func NewServer(cfg *ServerConfig) *Server {
 		taskIDGen:      func() string { return uuid.New().String() },
 		engine:         engine,
 		addr:           cfg.Addr,
+		aiModelFactory: cfg.AIModelFactory,
 	}
+
+	// Initialize template loader
+	presetsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "full-decks")
+	layoutsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "single-page")
+	s.templateLoader = templates.NewLoader(presetsDir, layoutsDir)
 
 	// Auth routes (public)
 	auth := engine.Group("/api/auth")
@@ -90,6 +107,23 @@ func NewServer(cfg *ServerConfig) *Server {
 		tasks.GET("/:id/thumb/:filename", s.handleThumbnail)
 		tasks.POST("/:id/cancel", s.handleCancelTask)
 		tasks.DELETE("/:id", s.handleDeleteTask)
+	}
+
+	// Template routes (public)
+	tpls := engine.Group("/api/templates")
+	{
+		tpls.GET("", s.handleListTemplates)
+		tpls.GET("/:name", s.handleGetTemplate)
+		tpls.GET("/layouts", s.handleListLayouts)
+	}
+
+	// Theme routes (public)
+	engine.GET("/api/themes", s.handleListThemes)
+
+	// AI routes (public)
+	ai := engine.Group("/api/ai")
+	{
+		ai.POST("/expand", s.handleAIExpand)
 	}
 
 	// Metrics

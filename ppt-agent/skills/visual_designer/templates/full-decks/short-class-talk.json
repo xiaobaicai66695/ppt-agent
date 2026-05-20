@@ -1,0 +1,18 @@
+{
+  "name": "short-class-talk",
+  "display_name": "课堂短讲",
+  "type": "preset",
+  "description": "课堂5-10分钟短时分享、课题介绍，精简高效，快速传达",
+  "category": "edu",
+  "default_palette": "education_blue",
+  "tags": ["短讲", "课堂", "分享"],
+  "thumbnail": "/templates/thumbs/short-class-talk.png",
+  "slide_count": 6,
+  "default_slides": [
+    {"title": "分享主题", "content_type": "title_slide", "description": "分享标题"},
+    {"title": "核心观点", "content_type": "content_slide", "description": "1-2个核心观点"},
+    {"title": "要点展开", "content_type": "content_slide", "description": "3-4个要点展开"},
+    {"title": "案例说明", "content_type": "content_slide", "description": "1个简短案例"},
+    {"title": "总结升华", "content_type": "summary_slide", "description": "核心结论和启示"}
+  ]
+}

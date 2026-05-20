@@ -1,0 +1,13 @@
+{
+  "name": "title_slide",
+  "display_name": "封面页",
+  "type": "atomic",
+  "description": "演示文稿封面，包含主标题、副标题和演讲者信息",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "government_red", "education_blue"],
+  "fields": [
+    {"name": "title", "label": "主标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "presenter", "label": "演讲者", "type": "text", "required": false},
+    {"name": "date", "label": "日期", "type": "text", "required": false}
+  ]
+}

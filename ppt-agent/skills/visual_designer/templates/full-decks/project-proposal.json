@@ -1,0 +1,25 @@
+{
+  "name": "project-proposal",
+  "display_name": "项目立项",
+  "type": "preset",
+  "description": "新项目立项、项目申请、资源申请，理由充分，方案可行",
+  "category": "work",
+  "default_palette": "charcoal_light",
+  "tags": ["立项", "申请", "项目"],
+  "thumbnail": "/templates/thumbs/project-proposal.png",
+  "slide_count": 12,
+  "default_slides": [
+    {"title": "项目名称", "content_type": "title_slide", "description": "项目名称和申请人"},
+    {"title": "目录", "content_type": "agenda", "description": "立项报告结构"},
+    {"title": "项目背景", "content_type": "content_slide", "description": "项目发起原因和背景"},
+    {"title": "问题分析", "content_type": "content_slide", "description": "当前问题和痛点"},
+    {"title": "建设方案", "content_type": "section_divider", "description": "章节标题：建设方案"},
+    {"title": "目标与范围", "content_type": "content_slide", "description": "项目目标和范围"},
+    {"title": "技术方案", "content_type": "image_text", "description": "技术路线和架构"},
+    {"title": "实施计划", "content_type": "timeline", "description": "实施时间表"},
+    {"title": "资源需求", "content_type": "stat_slide", "description": "4-6个人员和预算指标"},
+    {"title": "预期成果", "content_type": "content_slide", "description": "项目交付物和效果"},
+    {"title": "风险评估", "content_type": "content_slide", "description": "风险点和应对措施"},
+    {"title": "总结申请", "content_type": "summary_slide", "description": "核心价值和申请意见"}
+  ]
+}

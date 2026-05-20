@@ -1,0 +1,26 @@
+{
+  "name": "tech-intro",
+  "display_name": "新技术介绍",
+  "type": "preset",
+  "description": "适用于新技术、新产品的介绍演示，从基础概念到应用实践，适合非技术受众",
+  "category": "tech",
+  "default_palette": "ocean_soft",
+  "tags": ["技术", "科普", "产品"],
+  "thumbnail": "/templates/thumbs/tech-intro.png",
+  "slide_count": 18,
+  "default_slides": [
+    {"title": "封面标题", "content_type": "title_slide", "description": "技术名称和副标题"},
+    {"title": "目录", "content_type": "agenda", "description": "本次分享的内容概览"},
+    {"title": "背景介绍", "content_type": "section_divider", "description": "章节标题：技术背景"},
+    {"title": "什么是XXX", "content_type": "content_slide", "description": "核心概念定义和3-4个关键要点"},
+    {"title": "架构总览", "content_type": "image_text", "description": "技术架构图配文字说明"},
+    {"title": "工作原理", "content_type": "process_flow", "description": "5-7个流程步骤说明"},
+    {"title": "核心优势", "content_type": "card_grid", "description": "3-4个核心优势卡片"},
+    {"title": "应用场景", "content_type": "two_column", "description": "左右两栏应用场景描述"},
+    {"title": "数据指标", "content_type": "stat_slide", "description": "4-6个关键数据指标"},
+    {"title": "案例展示", "content_type": "case_study", "description": "实际应用案例介绍"},
+    {"title": "竞品对比", "content_type": "two_column", "description": "与竞品的对比分析"},
+    {"title": "发展趋势", "content_type": "timeline", "description": "未来发展趋势时间线"},
+    {"title": "总结", "content_type": "summary_slide", "description": "核心要点回顾和展望"}
+  ]
+}

@@ -575,6 +575,18 @@ onUnmounted(() => { disconnectSSE(); });
           </div>
         </div>
 
+        <!-- Template Compose -->
+        <div class="compose-entry">
+          <h3>高级编排 — 自由组合模板</h3>
+          <p>从预设模板或原子布局开始，自由拖拽组合幻灯片，精细控制每页内容</p>
+          <button class="compose-btn" @click="router.push({ name: 'compose' })">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+            </svg>
+            打开模板编排
+          </button>
+        </div>
+
         <!-- Theme showcase -->
         <div class="welcome-themes">
           <h3>内置主题风格</h3>
@@ -776,6 +788,20 @@ onUnmounted(() => { disconnectSSE(); });
   border-color: var(--c-primary); color: var(--c-primary);
   background: var(--c-primary-light); transform: translateY(-1px);
 }
+
+/* Compose entry */
+.compose-entry { max-width: 650px; margin: 0 auto 2rem; text-align: center; }
+.compose-entry h3 { font-size: 0.85rem; font-weight: 600; color: var(--c-text-2); margin-bottom: 0.5rem; }
+.compose-entry p { font-size: 0.78rem; color: var(--c-text-muted); margin-bottom: 0.75rem; }
+.compose-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 20px; border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white; border: none; font-size: 0.85rem; font-weight: 500;
+  cursor: pointer; transition: all 0.2s;
+  font-family: inherit;
+}
+.compose-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4); }
 
 /* Welcome themes */
 .welcome-themes { max-width: 600px; margin: 0 auto; text-align: center; }

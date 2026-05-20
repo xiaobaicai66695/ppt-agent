@@ -1,0 +1,11 @@
+{
+  "name": "agenda",
+  "display_name": "目录页",
+  "type": "atomic",
+  "description": "演示文稿目录，列出各章节标题和内容概览",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue"],
+  "fields": [
+    {"name": "title", "label": "目录标题", "type": "text", "required": true},
+    {"name": "items", "label": "目录项", "type": "textarea", "required": true}
+  ]
+}

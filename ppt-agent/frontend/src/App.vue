@@ -37,6 +37,16 @@
   --shadow-lg: 0 10px 30px rgba(0,0,0,0.08), 0 4px 10px rgba(0,0,0,0.04);
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Compose page aliases */
+  --bg-primary: var(--c-bg);
+  --bg-secondary: var(--c-surface);
+  --border: var(--c-border);
+  --text-primary: var(--c-text);
+  --text-secondary: var(--c-text-2);
+  --text-muted: var(--c-text-muted);
+  --color-primary: var(--c-primary);
+  --bg-hover: #f1f5f9;
 }
 
 body {

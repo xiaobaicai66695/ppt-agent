@@ -27,6 +27,15 @@ const router = createRouter({
         else next();
       },
     },
+    {
+      path: '/compose',
+      name: 'compose',
+      component: () => import('../pages/ComposePage.vue'),
+      beforeEnter: (_to, _from, next) => {
+        if (!isLoggedIn()) next({ name: 'auth', query: { redirect: '/compose' } });
+        else next();
+      },
+    },
   ],
 });
 

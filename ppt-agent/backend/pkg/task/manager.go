@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -246,6 +247,14 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		return nil, err
 	}
 	cfg.WorkDir = workDir
+
+	// 如果用户提供了 outline，先写入 tasks.json，跳过 AI 规划阶段
+	if cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
+		manifest := outlineToManifest(cfg.Outline, workDir)
+		if err := deep.WriteTasksManifest(workDir, manifest); err != nil {
+			return nil, fmt.Errorf("写入大纲失败: %w", err)
+		}
+	}
 
 	agent, err := factory(ctx, cfg)
 	if err != nil {
@@ -612,4 +621,36 @@ func (tm *TaskManager) TaskFilesAsJSON(workDir string) ([]byte, error) {
 	}{
 		Tasks: nil,
 	})
+}
+
+// outlineToManifest 将用户编排的 outline 转换为 TasksManifest
+func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksManifest {
+	tasks := make([]*deep.TaskItem, 0, len(outline.Slides))
+	for i, slide := range outline.Slides {
+		safeTitle := sanitizeFilename(slide.Title)
+		tasks = append(tasks, &deep.TaskItem{
+			TaskID:      fmt.Sprintf("slide-%d", i+1),
+			PageIndex:   i + 1,
+			Title:       slide.Title,
+			ContentType: slide.ContentType,
+			Description: slide.Description,
+			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
+			Status:      deep.StatusPending,
+			CreatedAt:   time.Now().Format(time.RFC3339),
+		})
+	}
+	return &deep.TasksManifest{
+		Title: outline.Title,
+		Theme: outline.Theme,
+		Tasks: tasks,
+	}
+}
+
+// sanitizeFilename removes/replaces characters that are problematic in filenames
+func sanitizeFilename(name string) string {
+	replacer := strings.NewReplacer(
+		"/", "_", "\\", "_", ":", "_", "*", "_", "?", "_",
+		"\"", "_", "<", "_", ">", "_", "|", "_", "\n", "_",
+	)
+	return replacer.Replace(name)
 }

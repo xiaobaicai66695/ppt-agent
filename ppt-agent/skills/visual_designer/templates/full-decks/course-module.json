@@ -1,0 +1,27 @@
+{
+  "name": "course-module",
+  "display_name": "教学课件",
+  "type": "preset",
+  "description": "教学课件、培训材料、知识分享，内容系统化，便于学习理解",
+  "category": "edu",
+  "default_palette": "education_blue",
+  "tags": ["教学", "培训", "课件"],
+  "thumbnail": "/templates/thumbs/course-module.png",
+  "slide_count": 17,
+  "default_slides": [
+    {"title": "课程名称", "content_type": "title_slide", "description": "课程名称和章节信息"},
+    {"title": "学习目标", "content_type": "content_slide", "description": "3-4个学习目标"},
+    {"title": "目录", "content_type": "agenda", "description": "本章内容大纲"},
+    {"title": "知识点一", "content_type": "section_divider", "description": "章节标题：第一部分"},
+    {"title": "概念讲解", "content_type": "content_slide", "description": "核心概念定义"},
+    {"title": "案例分析", "content_type": "two_column", "description": "左右两栏案例展示"},
+    {"title": "知识点二", "content_type": "section_divider", "description": "章节标题：第二部分"},
+    {"title": "原理说明", "content_type": "image_text", "description": "工作原理图解"},
+    {"title": "实践操作", "content_type": "process_flow", "description": "操作步骤流程"},
+    {"title": "知识点三", "content_type": "section_divider", "description": "章节标题：第三部分"},
+    {"title": "进阶内容", "content_type": "content_slide", "description": "扩展知识和深入话题"},
+    {"title": "小结", "content_type": "summary_slide", "description": "本章知识点回顾"},
+    {"title": "思考题", "content_type": "content_slide", "description": "3-4道思考练习题"},
+    {"title": "参考资料", "content_type": "content_slide", "description": "推荐阅读和扩展资料"}
+  ]
+}
