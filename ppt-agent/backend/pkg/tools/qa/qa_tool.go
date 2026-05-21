@@ -38,6 +38,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/generic"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/params"
 )
 
@@ -100,9 +101,19 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 3. 给出具体建议，如颜色 rgb()、排版位置坐标（以左上为原点，向下向右为正方向）
 4. 参照模板规范检查：每种 content_type 对应的模板（templates/single-page/*.json）有明确的元素规范和 NEVER 清单
 
+## 综合评分（必须）
+
+在审查结束后，根据以下标准为该页打出 1-5 分（整数）：
+
+- **1 分** — 不可用：内容空洞（无数据/案例/命名实体），或存在多处 high 问题
+- **2 分** — 较差：有 1-2 个 high 问题，或内容明显单薄，不能直接使用
+- **3 分** — 及格：无 high 问题，内容基本充实，可能有 1-2 个 medium/low 瑕疵，可接受
+- **4 分** — 良好：布局合理，内容充实（含具体数据/案例），仅微小瑕疵
+- **5 分** — 优秀：设计精良，排版精准，内容深度高，无任何问题
+
 ## 输出格式
 
-请用**自然语言**输出审查结果，格式如下：
+请用**自然语言**输出审查结果。**末尾必须单独一行注明评分**，格式如下：
 
 如果有问题：
 【问题1 - high】
@@ -110,11 +121,17 @@ const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片
 - 描述：<问题描述>
 - 修复：<具体可执行的修复指令，包含 python-pptx 代码>
 
-【问题2 - medium】
-...
+【评分】X/5
 
 如果无问题：
-【审查结果】该页检查通过，无视觉问题。`
+【审查结果】该页检查通过，无视觉问题。
+【评分】X/5`
+
+// manifestCacheEntry holds a cached tasks.json manifest for content_type lookup.
+type manifestCacheEntry struct {
+	manifest  *tasksManifestForLookup
+	cachedAt  time.Time
+}
 
 // SingleTool 是单页 QA 视觉审查工具。
 type SingleTool struct {
@@ -124,6 +141,9 @@ type SingleTool struct {
 	cachedModelMu  sync.Mutex
 	cachedModelAt  time.Time
 	cachedModelErr error
+
+	manifestCache   map[string]*manifestCacheEntry // workDir → cached manifest
+	manifestCacheMu sync.Mutex
 }
 
 // modelCacheTTL 模型缓存有效期（超时后重新创建，防止 token 过期或连接断开导致 QA 永久失效）
@@ -394,7 +414,8 @@ func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		return "", fmt.Errorf("创建 LLM 失败: %v", err)
 	}
 
-	result, err := t.doSingleVisualQA(ctx, model, wd, targetImgName, textContent)
+	contentType := t.lookupContentType(wd, pptxFilename)
+		result, err := t.doSingleVisualQA(ctx, model, wd, targetImgName, textContent, contentType)
 	if err != nil {
 		if result != nil {
 		} else {
@@ -462,8 +483,91 @@ func parseSlideIndex(imgName string) string {
 	return extractPageNumFromName(imgName)
 }
 
+// tasksManifestForLookup is a minimal struct for reading content_type from tasks.json.
+type tasksManifestForLookup struct {
+	Tasks []struct {
+		ContentType string `json:"content_type"`
+		OutputFile  string `json:"output_file"`
+	} `json:"tasks"`
+}
+
+// lookupContentType reads tasks.json from workDir and returns the content_type
+// for the given pptx filename. Results are cached per workDir for 30s.
+// Returns empty string if not found.
+func (t *SingleTool) lookupContentType(workDir, pptxFilename string) string {
+	t.manifestCacheMu.Lock()
+	entry, ok := t.manifestCache[workDir]
+	if ok && time.Since(entry.cachedAt) < 30*time.Second {
+		m := entry.manifest
+		t.manifestCacheMu.Unlock()
+		for _, task := range m.Tasks {
+			if task.OutputFile == pptxFilename {
+				return task.ContentType
+			}
+		}
+		return ""
+	}
+	t.manifestCacheMu.Unlock()
+
+	// Cache miss or expired — read from disk.
+	manifestPath := filepath.Join(workDir, "tasks.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return ""
+	}
+	var m tasksManifestForLookup
+	if err := json.Unmarshal(data, &m); err != nil {
+		return ""
+	}
+
+	t.manifestCacheMu.Lock()
+	if t.manifestCache == nil {
+		t.manifestCache = make(map[string]*manifestCacheEntry)
+	}
+	t.manifestCache[workDir] = &manifestCacheEntry{
+		manifest:  &m,
+		cachedAt: time.Now(),
+	}
+	// 清理超过 5 分钟的旧缓存，防止已删除任务的 workDir 残留
+	for k, v := range t.manifestCache {
+		if time.Since(v.cachedAt) > 5*time.Minute {
+			delete(t.manifestCache, k)
+		}
+	}
+	t.manifestCacheMu.Unlock()
+
+	for _, task := range m.Tasks {
+		if task.OutputFile == pptxFilename {
+			return task.ContentType
+		}
+	}
+	return ""
+}
+
+// parseScore extracts the 1-5 score from the QA report text.
+// Uses LastIndex to find the final score line, avoiding false matches
+// from scoring criteria quoted in fix suggestions.
+func parseScore(report string) int {
+	patterns := []string{"【评分】", "评分：", "评分:", "score:", "Score:"}
+	for _, prefix := range patterns {
+		idx := strings.LastIndex(report, prefix)
+		if idx < 0 {
+			continue
+		}
+		rest := report[idx+len(prefix):]
+		rest = strings.TrimSpace(rest)
+		if len(rest) > 0 {
+			c := rest[0]
+			if c >= '1' && c <= '5' {
+				return int(c - '0')
+			}
+		}
+	}
+	return 0
+}
+
 // doSingleVisualQA 对单页图片进行视觉 QA。
-func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCallingChatModel, wd string, imgName string, textContent string) (*generic.QAResult, error) {
+func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCallingChatModel, wd string, imgName string, textContent string, contentType string) (*generic.QAResult, error) {
 	imgDir := filepath.Join(wd, "qa_images")
 	imgPath := filepath.Join(imgDir, imgName)
 
@@ -512,15 +616,46 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 		}, nil
 	}
 
-	// 判断是否有问题：通过关键词检测
+	// 判断问题严重度：仍用关键词（LLM 在报告中会用 high/medium/low 标注）
 	hasHigh := strings.Contains(report, "high") || strings.Contains(report, "【问题")
 	hasMedium := strings.Contains(report, "medium")
-	hasIssues := hasHigh || hasMedium || !strings.Contains(report, "检查通过") && !strings.Contains(report, "无视觉问题")
+
+	score := parseScore(report)
+
+	// 优先用评分判断是否有问题，评分不可用时回退到关键词检测
+	var hasIssues bool
+	if score > 0 {
+		// 评分 1-3 视为有问题，4-5 且有 high 关键词也视为有问题
+		hasIssues = score <= 3 || hasHigh
+	} else {
+		hasIssues = hasHigh || hasMedium || (!strings.Contains(report, "检查通过") && !strings.Contains(report, "无视觉问题"))
+	}
 
 	result := &generic.QAResult{
 		Reports:      []string{slideKey + "|" + report},
 		HasIssues:    hasIssues,
 		HasHighIssue: hasHigh,
+		Score:        score,
+	}
+
+	// Record QA issue severity for Prometheus metrics.
+	if hasHigh {
+		metrics.RecordQAIssue("high")
+	}
+	if hasMedium {
+		metrics.RecordQAIssue("medium")
+	}
+	if hasIssues && !hasHigh && !hasMedium {
+		metrics.RecordQAIssue("low")
+	}
+
+	// Record per-slide quality score for trend analysis.
+	if score > 0 {
+		ct := contentType
+		if ct == "" {
+			ct = "unknown"
+		}
+		metrics.RecordSlideScore(float64(score), ct)
 	}
 
 	return result, nil

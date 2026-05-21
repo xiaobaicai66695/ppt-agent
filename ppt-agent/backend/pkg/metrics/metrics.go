@@ -68,6 +68,18 @@ var (
 		[]string{"severity"}, // high, medium, low
 	)
 
+	// QASlideScore tracks per-slide quality scores (1-5) from visual QA review.
+	QASlideScore = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "ppt_agent",
+			Subsystem: "qa",
+			Name:      "slide_score",
+			Help:     "Per-slide visual quality score (1=unusable, 5=excellent).",
+			Buckets:   []float64{1, 2, 3, 4, 5, 6}, // 6 catches any score>5
+		},
+		[]string{"content_type"}, // title_slide, content_slide, two_column, ...
+	)
+
 	// QAFixesTotal counts how many QA issues were successfully fixed.
 	QAFixesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -207,4 +219,9 @@ func RecordQAFix(success bool) {
 	} else {
 		QAFixesTotal.WithLabelValues("failed").Inc()
 	}
+}
+
+// RecordSlideScore records a per-slide quality score from QA review.
+func RecordSlideScore(score float64, contentType string) {
+	QASlideScore.WithLabelValues(contentType).Observe(score)
 }

@@ -78,7 +78,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		Name:        "PPTTaskDeepAgent",
 		Description: "PPT 任务调度代理，负责规划、并行生成、质检和修复 PPT 幻灯片",
 		ChatModel:   chatModel,
-		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir),
+		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query),
 		SubAgents:   []adk.Agent{slideExecutor, reviewer, fixer},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
@@ -97,7 +97,9 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 }
 
 // buildDeepAgentInstruction loads the deep agent master instruction from template.
-func buildDeepAgentInstruction(workDir string, skillsDir string) string {
+// When outline is provided, tasks.json is already pre-populated with user's slide plan.
+// query provides the user's original topic description for content generation.
+func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string) string {
 	tmplDir := filepath.Join(skillsDir, "visual_designer", "templates", "full-decks")
 	tasksJSON := filepath.Join(workDir, "tasks.json")
 
@@ -122,11 +124,29 @@ func buildDeepAgentInstruction(workDir string, skillsDir string) string {
 | training-course.py | 内部培训、新人入职培训、技能培训，知识系统，互动引导 | 16页 |
 | project-proposal.py | 新项目立项、项目申请、资源申请，理由充分，方案可行 | 12页 |`
 
+	// When user provided an outline, tasks.json already contains template/theme.
+	// Read it so we can tell the agent what to use.
+	outlineTemplate := ""
+	outlineTheme := ""
+	outlineTitle := ""
+	outlineQuery := query // user's original topic description
+	hasOutline := outline != nil && len(outline.Slides) > 0
+	if hasOutline {
+		outlineTemplate = outline.Template
+		outlineTheme = outline.Theme
+		outlineTitle = outline.Title
+	}
+
 	data := &prompts.TemplateData{
-		WorkDir:         workDir,
 		TmplDir:         tmplDir,
 		TasksJSON:       tasksJSON,
 		TemplateCatalog: templateCatalog,
+		StyleContext:    styleContext,
+		HasOutline:      hasOutline,
+		OutlineQuery:    outlineQuery,
+		OutlineTemplate: outlineTemplate,
+		OutlineTheme:    outlineTheme,
+		OutlineTitle:    outlineTitle,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)

@@ -183,8 +183,8 @@ const slidesPerMinute = computed(() => {
 
 <style scoped>
 .progress-section {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.85rem 1.1rem;
   margin-bottom: 1rem;
@@ -203,13 +203,13 @@ const slidesPerMinute = computed(() => {
   gap: 0.75rem;
   flex-wrap: wrap;
 }
-.progress-num { color: var(--c-text-muted); font-size: 0.78rem; }
-.progress-num strong { color: var(--c-primary); font-size: 1rem; }
-.progress-pct { font-size: 0.72rem; color: var(--c-text-muted); }
+.progress-num { color: var(--text-muted); font-size: 0.78rem; }
+.progress-num strong { color: var(--accent); font-size: 1rem; }
+.progress-pct { font-size: 0.72rem; color: var(--text-muted); }
 
 .elapsed-time, .eta-time {
   font-size: 0.7rem;
-  color: var(--c-text-muted);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 0.2rem;
@@ -219,15 +219,15 @@ const slidesPerMinute = computed(() => {
 
 .rate-badge {
   font-size: 0.65rem;
-  color: var(--c-text-muted);
-  background: var(--c-bg);
-  border: 1px solid var(--c-border);
+  color: var(--text-muted);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.1rem 0.4rem;
 }
 
 .progress-track {
-  height: 8px; background: var(--c-border-light);
+  height: 8px; background: var(--border-light);
   border-radius: 4px; overflow: hidden;
 }
 .progress-fill {
@@ -244,15 +244,15 @@ const slidesPerMinute = computed(() => {
   display: flex; gap: 1rem; margin-top: 0.5rem; flex-wrap: wrap;
 }
 .legend-item {
-  font-size: 0.68rem; color: var(--c-text-muted);
+  font-size: 0.68rem; color: var(--text-muted);
   display: flex; align-items: center; gap: 0.25rem;
 }
 .legend-item.active { color: #b45309; font-weight: 500; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
-.legend-dot.done { background: #10b981; }
-.legend-dot.pending { background: #3b82f6; animation: pulse 1.5s infinite; }
-.legend-dot.generating { background: #f59e0b; animation: pulse 0.8s infinite; }
-.legend-dot.failed { background: #ef4444; }
+.legend-dot.done { background: var(--success); }
+.legend-dot.pending { background: var(--accent); animation: pulse 1.5s infinite; }
+.legend-dot.generating { background: var(--warning); animation: pulse 0.8s infinite; }
+.legend-dot.failed { background: var(--danger); }
 
 @keyframes shimmer {
   0% { background-position: -200% 0; }

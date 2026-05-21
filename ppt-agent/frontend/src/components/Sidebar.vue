@@ -17,10 +17,16 @@ const emit = defineEmits<{
   selectTask: [id: string];
   createTask: [query: string];
   deleteTask: [id: string];
+  compose: [];
+  newSession: [];
 }>();
 
 const router = useRouter();
 const query = ref('');
+
+const hasActiveTask = computed(() =>
+  props.tasks.some(t => t.status === 'running')
+);
 
 function fmtTime(iso: string): string {
   if (!iso) return '';
@@ -65,19 +71,16 @@ const taskCount = computed(() => props.tasks.length);
 
 <template>
   <aside class="sidebar">
-    <!-- Animated tech background -->
-    <div class="sidebar-bg"></div>
-
     <div class="sidebar-header" @click="router.push('/')">
       <div class="logo-icon">
         <svg viewBox="0 0 40 40" fill="none">
-          <rect x="5" y="7" width="30" height="22" rx="4" fill="rgba(129,140,248,0.12)" stroke="rgba(129,140,248,0.25)" stroke-width="1.5"/>
-          <rect x="5" y="7" width="30" height="5" rx="4" fill="rgba(129,140,248,0.25)"/>
-          <circle cx="12" cy="15" r="2" fill="rgba(165,180,252,0.5)"/>
-          <circle cx="19" cy="15" r="2" fill="rgba(165,180,252,0.4)"/>
-          <circle cx="26" cy="15" r="2" fill="rgba(165,180,252,0.3)"/>
-          <rect x="10" y="20" width="16" height="1.5" rx="0.75" fill="rgba(165,180,252,0.2)"/>
-          <rect x="10" y="23" width="20" height="1.5" rx="0.75" fill="rgba(165,180,252,0.15)"/>
+          <rect x="5" y="7" width="30" height="22" rx="4" fill="var(--accent-soft)" stroke="var(--accent-border)" stroke-width="1.5"/>
+          <rect x="5" y="7" width="30" height="5" rx="4" fill="var(--accent)"/>
+          <circle cx="12" cy="15" r="2" fill="var(--accent)"/>
+          <circle cx="19" cy="15" r="2" fill="var(--accent)" opacity="0.6"/>
+          <circle cx="26" cy="15" r="2" fill="var(--accent)" opacity="0.4"/>
+          <rect x="10" y="20" width="16" height="1.5" rx="0.75" fill="var(--accent)" opacity="0.4"/>
+          <rect x="10" y="23" width="20" height="1.5" rx="0.75" fill="var(--accent)" opacity="0.25"/>
         </svg>
       </div>
       <div>
@@ -86,73 +89,112 @@ const taskCount = computed(() => props.tasks.length);
       </div>
     </div>
 
-    <!-- User bar (always shown) -->
-    <div class="user-bar">
+    <!-- User bar -->
+    <div class="user-bar" role="region" aria-label="用户信息">
       <template v-if="user">
-        <span class="user-avatar">{{ user.email[0].toUpperCase() }}</span>
-        <span class="user-name">{{ user.email }}</span>
+        <span class="user-avatar" aria-hidden="true">{{ user.email[0].toUpperCase() }}</span>
+        <span class="user-name" :title="user.email">{{ user.email.split('@')[0] }}</span>
         <button class="logout-btn" @click="onLogout" title="退出登录">退出</button>
       </template>
       <template v-else>
-        <span class="user-avatar guest">?</span>
+        <span class="user-avatar guest" aria-hidden="true">?</span>
         <span class="user-name dim">未登录</span>
         <button class="logout-btn" @click="router.push('/auth')">登录</button>
       </template>
     </div>
 
-    <!-- Create form (always shown) -->
+    <!-- Create form -->
     <div class="create-form">
-      <label class="create-label">新建 PPT 任务</label>
+      <label class="create-label" for="create-input">新建 PPT 任务</label>
       <textarea
+        id="create-input"
         class="create-input"
-        placeholder="描述你的 PPT 需求，例如：做一个关于新能源汽车的行业分析报告..."
+        placeholder="描述你的 PPT 需求，例如：做一个关于新能源汽车行业分析报告..."
         v-model="query"
         @keydown="handleKeydown"
         rows="3"
+        :disabled="creating || hasActiveTask"
+        aria-label="PPT 需求描述"
       ></textarea>
       <button
         class="create-btn"
-        :class="{ loading: creating, busy: hasRunningTask }"
-        :disabled="creating || hasRunningTask"
+        :class="{ loading: creating, busy: hasActiveTask }"
+        :disabled="creating || hasActiveTask"
         @click="handleCreate"
+        :aria-disabled="creating || hasActiveTask"
       >
-        <span v-if="hasRunningTask" class="btn-spinner"></span>
-        <span>{{ hasRunningTask ? '任务执行中...' : creating ? '创建中...' : '✦ 生成 PPT' }}</span>
+        <span v-if="creating" class="btn-spinner" aria-hidden="true"></span>
+        <span>{{ creating ? '创建中...' : hasActiveTask ? '任务执行中...' : '✦ 生成 PPT' }}</span>
       </button>
-      <p v-if="hasRunningTask" class="busy-hint">当前有任务正在执行，请等待完成后再创建新任务</p>
+      <p v-if="hasActiveTask && !creating" class="busy-hint" role="status">
+        有任务正在执行中，请稍候
+      </p>
     </div>
 
-    <!-- Task history (always shown) -->
-    <div class="task-list">
-      <h3 class="task-list-title">
-        任务历史
-        <span v-if="taskCount" class="task-count">{{ taskCount }}</span>
-      </h3>
-      <p v-if="tasks.length === 0" class="empty-hint">暂无任务，在上方创建第一个 PPT</p>
-      <TransitionGroup name="task-list" tag="div">
+    <!-- Compose / New Task Action Row -->
+    <div class="action-row">
+      <button class="compose-btn" @click="emit('compose')" title="单页编排 / 单张幻灯片设计">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <rect x="2" y="1" width="12" height="10" rx="2"/>
+          <line x1="5" y1="5" x2="11" y2="5"/>
+          <line x1="5" y1="8" x2="9" y2="8"/>
+        </svg>
+        单页编排
+      </button>
+    </div>
+
+    <!-- Task history -->
+    <div class="task-list" role="region" aria-label="任务历史">
+      <div class="task-list-header">
+        <h3 class="task-list-title">
+          任务历史
+          <span v-if="taskCount" class="task-count" aria-label="任务数量">{{ taskCount }}</span>
+        </h3>
+        <button class="new-session-btn" @click="emit('newSession')" title="新建会话（清空当前选中的任务）">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <line x1="8" y1="3" x2="8" y2="13"/>
+            <line x1="3" y1="8" x2="13" y2="8"/>
+          </svg>
+          新建会话
+        </button>
+      </div>
+      <p v-if="tasks.length === 0" class="empty-hint">暂无任务，在上方输入需求开始</p>
+      <TransitionGroup name="task-list" tag="div" role="list">
         <div
           v-for="t in tasks"
           :key="t.id"
           class="task-item"
-          :class="{ active: t.id === selectedId }"
+          :class="{ active: t.id === selectedId, running: t.status === 'running' }"
           @click="emit('selectTask', t.id)"
+          role="listitem"
+          :aria-current="t.id === selectedId ? 'true' : undefined"
         >
           <div class="task-item-top">
-            <span class="task-item-query">{{ (t.query || '').length > 38 ? (t.query || '').slice(0, 38) + '...' : (t.query || '') }}</span>
-            <button v-if="t.status !== 'running'" class="task-delete-btn" title="删除" @click.stop="emit('deleteTask', t.id)">×</button>
+            <span class="task-item-query" :title="t.query || ''">{{ t.query || '' }}</span>
+            <button
+              v-if="t.status !== 'running'"
+              class="task-delete-btn"
+              :title="'删除: ' + (t.query || t.id)"
+              @click.stop="emit('deleteTask', t.id)"
+              aria-label="删除任务"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>
+              </svg>
+            </button>
           </div>
           <div class="task-item-meta">
-            <span class="task-badge" :class="t.status">
-              <span class="badge-dot"></span>
+            <span class="task-badge" :class="t.status" :aria-label="t.status">
+              <span class="badge-dot" aria-hidden="true"></span>
               {{ t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : t.status === 'cancelled' ? '已中断' : '失败' }}
             </span>
-            <span class="task-item-time">{{ fmtTime(t.created_at) }}</span>
+            <span class="task-item-time" aria-label="创建时间">{{ fmtTime(t.created_at) }}</span>
           </div>
-          <div v-if="t.total_count > 0" class="task-item-progress">
+          <div v-if="t.total_count > 0" class="task-item-progress" role="progressbar" :aria-valuenow="t.done_count" :aria-valuemax="t.total_count">
             <div class="mini-bar"><div class="mini-bar-fill" :class="{ done: t.status === 'completed' }" :style="{ width: Math.round((t.done_count / t.total_count) * 100) + '%' }" /></div>
-            <span class="mini-count">{{ t.done_count }}/{{ t.total_count }}</span>
+            <span class="mini-count" aria-hidden="true">{{ t.done_count }}/{{ t.total_count }}</span>
           </div>
-          <div v-if="(t.total_tokens ?? 0) > 0" class="task-item-tokens">
+          <div v-if="(t.total_tokens ?? 0) > 0" class="task-item-tokens" aria-label="消耗 tokens">
             {{ fmtTokens(t.total_tokens ?? 0) }} tokens
           </div>
         </div>
@@ -162,167 +204,234 @@ const taskCount = computed(() => props.tasks.length);
 </template>
 
 <style scoped>
+/* ═══════════════════════════════════════════════════════════════════ */
+/* Sidebar — Modern Light Theme                                      */
+/* ═══════════════════════════════════════════════════════════════════ */
 .sidebar {
   width: var(--sidebar-w); min-width: var(--sidebar-w);
-  background: linear-gradient(180deg, #0f0d2e 0%, #151345 40%, #0d1137 100%);
-  color: #e2e8f0;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  color: var(--text);
   display: flex; flex-direction: column;
   height: 100vh; position: sticky; top: 0;
   overflow-y: auto; overflow-x: hidden;
-  position: relative;
-}
-.sidebar-bg {
-  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
-  background:
-    radial-gradient(ellipse at 50% 20%, rgba(99,102,241,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 70%, rgba(139,92,246,0.06) 0%, transparent 50%);
-}
-.sidebar-bg::before {
-  content: ''; position: absolute; inset: 0;
-  background-image:
-    linear-gradient(rgba(99,102,241,0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99,102,241,0.02) 1px, transparent 1px);
-  background-size: 40px 40px;
+  background-image: radial-gradient(ellipse at 100% 0%, rgba(99,102,241,0.04) 0%, transparent 60%);
 }
 
+/* ── Header ─────────────────────────────────────────────────────── */
 .sidebar-header {
-  padding: 1.25rem; display: flex; align-items: center; gap: 0.75rem;
-  border-bottom: 1px solid rgba(99,102,241,0.1);
-  cursor: pointer; position: relative;
+  padding: 1.25rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 0.75rem;
 }
-.logo-icon svg { width: 38px; height: 38px; }
-.sidebar-logo { font-size: 1.1rem; font-weight: 700; color: #e0e7ff; letter-spacing: -0.01em; }
-.sidebar-sub { font-size: 0.68rem; color: #6366f1; margin-top: 1px; display: block; opacity: 0.7; }
+.logo-icon svg { width: 36px; height: 36px; flex-shrink: 0; }
+.sidebar-logo { font-size: 1rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.sidebar-sub { font-size: 0.68rem; color: var(--text-muted); display: block; margin-top: 1px; }
 
+/* ── User Bar ───────────────────────────────────────────────────── */
 .user-bar {
-  display: flex; align-items: center; gap: 0.55rem;
-  padding: 0.6rem 1.25rem;
-  border-bottom: 1px solid rgba(99,102,241,0.08);
-  position: relative;
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid var(--border-light);
 }
 .user-avatar {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: rgba(99,102,241,0.2); color: #a5b4fc;
+  width: 28px; height: 28px; border-radius: var(--radius-full);
+  background: var(--accent-soft); color: var(--accent);
   display: flex; align-items: center; justify-content: center;
-  font-size: 0.7rem; font-weight: 700; flex-shrink: 0;
+  font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
 }
-.user-avatar.guest { background: rgba(148,163,184,0.1); color: #64748b; }
-.user-name { font-size: 0.75rem; color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-name.dim { color: #64748b; }
+.user-avatar.guest { background: var(--bg-muted); color: var(--text-muted); }
+.user-name { font-size: 0.75rem; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-name.dim { color: var(--text-muted); }
 .logout-btn {
-  background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.15);
-  color: #818cf8; padding: 0.2rem 0.55rem; border-radius: 5px;
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); padding: 0.18rem 0.55rem; border-radius: var(--radius-sm);
   cursor: pointer; font-size: 0.65rem; font-weight: 500;
   transition: all var(--transition); font-family: inherit;
 }
-.logout-btn:hover { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #f87171; }
+.logout-btn:hover { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger); }
 
+/* ── Action Row (compose shortcut) ────────────────────────────────── */
+.action-row {
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.compose-btn {
+  width: 100%; padding: 0.55rem 0.8rem;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem; font-weight: 600;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  gap: 0.4rem;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+.compose-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.compose-btn:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.compose-btn:active { transform: scale(0.98); }
+
+/* ── Create Form ────────────────────────────────────────────────── */
 .create-form {
-  padding: 1.25rem;
-  border-bottom: 1px solid rgba(99,102,241,0.08);
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
   position: relative;
 }
+/* Decorative top gradient bar on create section */
+.create-form::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  border-radius: 0;
+}
 .create-label {
-  font-size: 0.7rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  color: #818cf8; margin-bottom: 0.5rem; display: block;
-  opacity: 0.8;
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted); margin-bottom: 0.5rem; display: block;
 }
 .create-input {
-  width: 100%; padding: 0.7rem 0.8rem;
-  border: 1px solid rgba(99,102,241,0.12);
-  border-radius: var(--radius); background: rgba(99,102,241,0.04);
-  color: #e2e8f0; font-size: 0.8rem; resize: none; outline: none;
+  width: 100%; padding: 0.65rem 0.8rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-base);
+  color: var(--text); font-size: 0.8rem; resize: none; outline: none;
   font-family: inherit; line-height: 1.5;
   transition: border-color var(--transition), box-shadow var(--transition);
+  box-shadow: var(--shadow-xs);
 }
-.create-input::placeholder { color: #475569; }
+.create-input::placeholder { color: var(--text-disabled); }
 .create-input:focus {
-  border-color: rgba(129,140,248,0.4);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 .create-btn {
-  width: 100%; margin-top: 0.625rem; padding: 0.6rem;
+  width: 100%; margin-top: 0.5rem; padding: 0.6rem;
   border: none; border-radius: var(--radius);
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff; font-size: 0.8rem; font-weight: 600;
+  background: var(--accent);
+  color: #fff; font-size: 0.82rem; font-weight: 600;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   gap: 0.4rem;
-  transition: transform var(--transition), box-shadow var(--transition);
+  transition: transform var(--transition-md), box-shadow var(--transition-md), background var(--transition);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
 }
-.create-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,0.3); }
+.create-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  background: var(--accent-hover);
+}
 .create-btn:active { transform: translateY(0); }
-.create-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.create-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
 .create-btn.loading { pointer-events: none; }
-.create-btn.busy { background: linear-gradient(135deg, #d97706, #b45309); }
-.busy-hint { font-size: 0.63rem; color: #f59e0b; margin-top: 0.4rem; text-align: center; }
+.create-btn.busy { background: var(--warning); box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25); }
+.busy-hint { font-size: 0.63rem; color: var(--warning); margin-top: 0.35rem; text-align: center; }
 .btn-spinner {
-  width: 15px; height: 15px;
+  width: 14px; height: 14px;
   border: 2px solid rgba(255,255,255,0.3);
   border-top-color: #fff; border-radius: 50%;
   animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
 }
 
-.task-list { flex: 1; overflow-y: auto; padding: 0.75rem 1rem; position: relative; }
+/* ── Task List ─────────────────────────────────────────────────── */
+.task-list { flex: 1; overflow-y: auto; padding: 0.6rem 0.75rem; }
+.task-list-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.5rem; padding: 0 0.5rem;
+}
 .task-list-title {
   font-size: 0.68rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  color: #818cf8; margin-bottom: 0.6rem; padding: 0 0.25rem;
-  display: flex; align-items: center; justify-content: space-between;
-  opacity: 0.8;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+  display: flex; align-items: center; gap: 0.4rem;
 }
 .task-count {
-  background: rgba(99,102,241,0.12); color: #818cf8;
-  font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: var(--radius-full);
+  font-weight: 600;
 }
+.new-session-btn {
+  display: flex; align-items: center; gap: 0.25rem;
+  padding: 0.2rem 0.5rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft); color: var(--accent-text);
+  font-size: 0.65rem; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+  font-family: inherit;
+}
+.new-session-btn svg { width: 11px; height: 11px; }
+.new-session-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .task-item {
-  padding: 0.65rem 0.7rem; border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem; border-radius: var(--radius);
   cursor: pointer; margin-bottom: 0.2rem;
   transition: background var(--transition), border-color var(--transition);
-  border-left: 2px solid transparent;
+  border: 1px solid transparent;
 }
-.task-item:hover { background: rgba(99,102,241,0.06); }
+.task-item:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
 .task-item.active {
-  background: rgba(99,102,241,0.1);
-  border-left-color: #818cf8;
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
 }
-.task-item-top { margin-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 0.3rem; }
+.task-item.running {
+  border-left: 3px solid var(--accent);
+  padding-left: calc(0.7rem - 2px);
+}
+
+.task-item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.3rem; }
 .task-delete-btn {
-  background: none; border: none; color: #4b5563; font-size: 0.85rem;
-  cursor: pointer; padding: 0 0.1rem; line-height: 1;
-  flex-shrink: 0; opacity: 0;
+  background: none; border: none; color: var(--text-disabled);
+  cursor: pointer; padding: 0 0.15rem; line-height: 1;
+  flex-shrink: 0; opacity: 0.4;
   transition: opacity var(--transition), color var(--transition);
+  display: flex; align-items: center; justify-content: center;
 }
+.task-delete-btn svg { width: 14px; height: 14px; }
 .task-item:hover .task-delete-btn, .task-item.active .task-delete-btn { opacity: 1; }
-.task-delete-btn:hover { color: #ef4444; }
-.task-item-query { font-size: 0.78rem; color: #cbd5e1; line-height: 1.35; word-break: break-word; }
+.task-delete-btn:hover { color: var(--danger); }
+.task-item-query {
+  font-size: 0.78rem; color: var(--text-secondary); line-height: 1.35;
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  flex: 1; min-width: 0;
+}
 .task-item-meta { display: flex; align-items: center; gap: 0.5rem; }
 .task-badge {
   font-size: 0.6rem; font-weight: 600;
-  padding: 0.12rem 0.4rem; border-radius: 999px;
+  padding: 0.12rem 0.4rem; border-radius: var(--radius-full);
   display: flex; align-items: center; gap: 0.2rem;
 }
-.task-badge.running { background: rgba(59,130,246,0.15); color: #60a5fa; }
-.task-badge.completed { background: rgba(16,185,129,0.12); color: #34d399; }
-.task-badge.cancelled { background: rgba(251,191,36,0.12); color: #fbbf24; }
-.task-badge.failed { background: rgba(239,68,68,0.12); color: #f87171; }
+.task-badge.running { background: var(--info-soft); color: var(--info); }
+.task-badge.completed { background: var(--success-soft); color: var(--success); }
+.task-badge.cancelled { background: var(--warning-soft); color: var(--warning); }
+.task-badge.failed { background: var(--danger-soft); color: var(--danger); }
 .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .task-badge.running .badge-dot { animation: pulse 1.5s infinite; }
-.task-item-time { font-size: 0.6rem; color: #475569; }
-.task-item-progress { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; }
-.mini-bar { flex: 1; height: 3px; background: rgba(99,102,241,0.08); border-radius: 2px; overflow: hidden; }
-.mini-bar-fill { height: 100%; background: #6366f1; border-radius: 2px; transition: width 0.6s; }
-.mini-bar-fill.done { background: #10b981; }
-.mini-count { font-size: 0.6rem; color: #64748b; min-width: 2.5em; text-align: right; }
-.task-item-tokens { font-size: 0.6rem; color: #6366f1; margin-top: 0.25rem; opacity: 0.7; }
-.empty-hint { font-size: 0.75rem; color: #475569; padding: 0.5rem 0.25rem; line-height: 1.5; }
+.task-item-time { font-size: 0.6rem; color: var(--text-muted); }
+.task-item-progress { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; }
+.mini-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.mini-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.6s; }
+.mini-bar-fill.done { background: var(--success); }
+.mini-count { font-size: 0.6rem; color: var(--text-muted); min-width: 2.5em; text-align: right; }
+.task-item-tokens { font-size: 0.6rem; color: var(--accent); margin-top: 0.2rem; opacity: 0.7; }
+.empty-hint { font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0.25rem; line-height: 1.5; }
 
-.task-list-enter-active { transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+.task-list-enter-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .task-list-leave-active { transition: all 0.2s ease-in; }
-.task-list-enter-from { opacity: 0; transform: translateX(-20px); }
-.task-list-leave-to { opacity: 0; transform: translateX(-20px); }
+.task-list-enter-from { opacity: 0; transform: translateX(-16px); }
+.task-list-leave-to { opacity: 0; transform: translateX(-16px); }
 
+/* ═══════════════════════════════════════════════════════════════════ */
+/* Keyframes                                                        */
+/* ═══════════════════════════════════════════════════════════════════ */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>

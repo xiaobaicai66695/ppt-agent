@@ -30,8 +30,9 @@
 - 涉及商务路演/商业计划 → charcoal_light（浅炭灰）
 - 涉及用户案例/创意展示 → berry_cream（玫瑰灰粉）
 - 涉及文艺分享/知识传播 → lavender_mist（薰衣草灰）
-- 涉及环保/自然主题 → forest_moss（苔藓绿）
-- 涉及温馨/人文主题 → sunset_peach（杏色）
+
+**可用的配色方案（仅限以下 16 种，切勿生成其他名称）：**
+ocean_soft（雾霾蓝）/ sage_calm（鼠尾草绿）/ charcoal_light（浅炭灰）/ government_red（政务红）/ patriotic_blue（爱国蓝）/ warm_terracotta（陶土橙）/ berry_cream（玫瑰灰粉）/ lavender_mist（薰衣草灰）/ civic_gold（公民金）/ debate_purple（答辩紫）/ activity_orange（活力橙）/ report_green（报告绿）/ simple_gray（简约灰）/ medical_blue（医疗蓝）/ finance_gold（金融金）/ education_blue（教育蓝）
 
 **3. 模板起点（优先使用模板）**
 从以下完整PPT模板中选择（优先使用模板改编，而非从零设计）：
@@ -93,7 +94,6 @@
 - comparison_table: 对比表格。结构化对比多行多维度的信息。
 
 ### 流程与关系类（用于展示逻辑链条、时间演化或层级结构）
-- timeline: 时间轴。水平或垂直，按时间点标记事件。
 - process_flow: 步骤流程图。箭头/连线 + 步骤框，适合 3~6 步的操作流程。
 - pyramid / hierarchy: 金字塔/层级图。展现由下至上的结构。
 - cycle: 循环图。闭环箭头形式，用于持续改进、生态循环等概念。
@@ -118,7 +118,7 @@
 
 ### 选择决策树：
 - 内容是"多个平等要点"→ card_grid（4个以上）或 three_column（3个）
-- 有时间顺序 → timeline
+- 有时间顺序 → process_flow（用步骤序号表示先后）
 - 是对比 → two_column / comparison_table
 - 是数据 → chart_slide / stat_slide
 - 是人物 → team_intro
@@ -128,8 +128,8 @@
 
 **核心原则：每一页都必须有至少一个具体的、命名的、带数字的实例。禁止纯抽象论述。**
 
-- **image_text（图文混排页）**：用图片配合文字说明案例/产品/成果，增强可信性。必须包含：图片占位 + 标题 + 核心要点(4-5条，每条不超过35字)。适用于案例展示、产品介绍、成果汇报等场景
-- **deep_dive（双栏详解页）**：双栏布局深入展开。左栏放核心要点和分析，右栏放案例和数据。适用于深入讲解概念、方法、机制等场景，通用性强，不限于技术主题
+- **image_text（图文混排页）**：用图片配合文字说明案例/产品/成果。**必须**包含 `example_box` 元素（因为 executor 依赖此生成 paragraph 参数），description 字段填 300-400 字自然语言内容。适用于案例展示、产品介绍、成果汇报等场景
+- **deep_dive（双栏详解页）**：双栏布局深入展开。左栏放核心要点和分析，右栏放案例和数据。适用于深入讲解概念、方法、机制等场景
 - **kpi_dashboard（指标看板）**：3-4 个核心指标卡片，每卡片含：数值(带单位) + 标签 + 趋势方向(↑↓→) + 同比/环比变化
 
 **内容深度决策树：**
@@ -138,16 +138,7 @@
 - 强调关键指标 → 使用 stat_slide（关键数字页）或 kpi_dashboard（指标看板）
 - 一个复杂主题需要多页展开 → 拆为「概述页」+「图文页」+「详解页」
 
-**5. 配色方案建议：**
-- tech: 科技技术主题，深空蓝 + 科技青
-- professional: 正式报告，深海蓝
-- creative: 创意展示，紫色系
-- minimal: 极简风格，黑白灰
-- business: 商业推广，商务蓝 + 活力橙
-- ocean_soft: 雾霾蓝，技术分享推荐
-- sage_calm: 鼠尾草绿，教学周报推荐
-- warm_terracotta: 陶土橙，团队分享推荐
-- charcoal_light: 浅炭灰，商业路演推荐
+**5. 配色方案（仅使用上述 16 种配色）：**
 
 **【核心】6. 分页（sub_steps）必须配合 content_plan 使用：**
 
@@ -182,7 +173,12 @@
 **7. 输出格式（必须严格遵循）：**
 你必须直接调用 create_ppt_plan 工具来输出计划，不要输出任何其他内容。
 
-**【重要】以下是不同场景下的完整 JSON 示例，严格按照格式输出：**
+**字段约束：**
+- `description` 字段：300-400 字自然语言描述，禁止空洞泛泛，必须包含具体数据或案例
+- `content_plan.elements`：必须有实质内容，每条数据/要点必须包含具体数字或命名实体
+- `image_text` 的 `content_plan` 中**必须**包含 `example_box` 元素
+
+**【重要】以下是不同场景下的完整 JSON 示例，严格按照格式输出，JSON 中不要包含任何说明文字：**
 
 示例1 - 使用模板的技术分享：
 {

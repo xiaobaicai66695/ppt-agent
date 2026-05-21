@@ -5,16 +5,48 @@
   "description": "会议记录、工作例会、项目评审会，结构清晰，行动明确",
   "category": "work",
   "default_palette": "charcoal_light",
-  "tags": ["会议", "纪要", "记录"],
+  "tags": [
+    "会议",
+    "纪要",
+    "记录"
+  ],
   "thumbnail": "/templates/thumbs/meeting-minutes.png",
   "slide_count": 8,
   "default_slides": [
-    {"title": "会议纪要", "content_type": "title_slide", "description": "会议名称和日期"},
-    {"title": "会议概况", "content_type": "content_slide", "description": "时间、地点、参会人员"},
-    {"title": "议程回顾", "content_type": "agenda", "description": "讨论议题列表"},
-    {"title": "讨论要点", "content_type": "content_slide", "description": "各议题讨论内容摘要"},
-    {"title": "决议事项", "content_type": "card_grid", "description": "3-4项会议决议"},
-    {"title": "行动项", "content_type": "process_flow", "description": "待办事项和负责人"},
-    {"title": "下次安排", "content_type": "content_slide", "description": "下次会议时间和议题"}
+    {
+      "title": "封面页",
+      "content_type": "title_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "目录页",
+      "content_type": "agenda",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "卡片网格页",
+      "content_type": "card_grid",
+      "description": ""
+    },
+    {
+      "title": "流程图页",
+      "content_type": "process_flow",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    }
   ]
 }

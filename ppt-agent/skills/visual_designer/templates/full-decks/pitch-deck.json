@@ -5,22 +5,73 @@
   "description": "创业路演，投资人演示、商业计划，逻辑严密，数据驱动，说服力强",
   "category": "biz",
   "default_palette": "civic_gold",
-  "tags": ["路演", "创业", "投资"],
+  "tags": [
+    "路演",
+    "创业",
+    "投资"
+  ],
   "thumbnail": "/templates/thumbs/pitch-deck.png",
-  "slide_count": 16,
+  "slide_count": 12,
   "default_slides": [
-    {"title": "项目名称", "content_type": "title_slide", "description": "项目名称和一句话介绍"},
-    {"title": "痛点分析", "content_type": "content_slide", "description": "目标市场痛点"},
-    {"title": "解决方案", "content_type": "section_divider", "description": "章节标题：解决方案"},
-    {"title": "产品介绍", "content_type": "content_slide", "description": "核心产品和功能"},
-    {"title": "核心技术", "content_type": "image_text", "description": "技术架构或核心优势"},
-    {"title": "商业模式", "content_type": "content_slide", "description": "盈利模式和市场策略"},
-    {"title": "市场规模", "content_type": "stat_slide", "description": "TAM、SAM、SOM 数据"},
-    {"title": "竞争分析", "content_type": "two_column", "description": "竞品对比和差异化优势"},
-    {"title": "运营数据", "content_type": "stat_slide", "description": "4-6个核心运营指标"},
-    {"title": "团队介绍", "content_type": "content_slide", "description": "创始团队背景和分工"},
-    {"title": "里程碑", "content_type": "timeline", "description": "发展历程和关键里程碑"},
-    {"title": "融资计划", "content_type": "content_slide", "description": "本轮融资需求和用途"},
-    {"title": "愿景与目标", "content_type": "summary_slide", "description": "公司愿景和长期目标"}
+    {
+      "title": "封面页",
+      "content_type": "title_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "图文排版页",
+      "content_type": "image_text",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "数据指标页",
+      "content_type": "stat_slide",
+      "description": ""
+    },
+    {
+      "title": "双栏对比页",
+      "content_type": "two_column",
+      "description": ""
+    },
+    {
+      "title": "数据指标页",
+      "content_type": "stat_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "总结页",
+      "content_type": "summary_slide",
+      "description": ""
+    }
   ]
 }

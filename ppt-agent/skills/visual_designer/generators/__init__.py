@@ -6,7 +6,6 @@ from .content_slide_generator import generate as generate_content_slide
 from .stat_slide_generator import generate as generate_stat_slide
 from .quote_slide_generator import generate as generate_quote_slide
 from .card_grid_generator import generate as generate_card_grid
-from .timeline_generator import generate as generate_timeline
 from .process_flow_generator import generate as generate_process_flow
 from .two_column_generator import generate as generate_two_column
 from .three_column_generator import generate as generate_three_column
@@ -17,6 +16,8 @@ from .deep_dive_generator import generate as generate_deep_dive
 from .agenda_generator import generate as generate_agenda
 from .case_study_generator import generate as generate_case_study
 from .kpi_dashboard_generator import generate as generate_kpi_dashboard
+from .comparison_table_generator import generate as generate_comparison_table
+from .image_hero_generator import generate as generate_image_hero
 
 __all__ = [
     "PALETTES",
@@ -30,7 +31,6 @@ __all__ = [
     "generate_stat_slide",
     "generate_quote_slide",
     "generate_card_grid",
-    "generate_timeline",
     "generate_process_flow",
     "generate_two_column",
     "generate_three_column",
@@ -41,4 +41,6 @@ __all__ = [
     "generate_agenda",
     "generate_case_study",
     "generate_kpi_dashboard",
+    "generate_comparison_table",
+    "generate_image_hero",
 ]

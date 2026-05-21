@@ -123,8 +123,8 @@ const shortName = computed(() => {
 
 <style scoped>
 .slide-preview {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
@@ -134,13 +134,13 @@ const shortName = computed(() => {
 .slide-preview:not(.placeholder):hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
-  border-color: var(--c-primary);
+  border-color: var(--accent);
 }
 .slide-preview.placeholder {
-  border-style: dashed; background: var(--c-bg); opacity: 0.85;
+  border-style: dashed; background: var(--bg-muted); opacity: 0.85;
 }
 .slide-preview.selected {
-  border-color: var(--c-primary);
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(59,130,246,0.25);
 }
 
@@ -156,11 +156,11 @@ const shortName = computed(() => {
   transition: all var(--transition);
 }
 .check-mark svg { width: 14px; height: 14px; color: #fff; }
-.check-mark.on { border-color: var(--c-primary); background: var(--c-primary); }
+.check-mark.on { border-color: var(--accent); background: var(--accent); }
 
 .preview-thumb {
   width: 100%; aspect-ratio: 16 / 9;
-  background: var(--c-bg);
+  background: var(--bg-muted);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; position: relative;
   cursor: zoom-in;
@@ -173,13 +173,13 @@ const shortName = computed(() => {
 
 .thumb-spinner {
   position: absolute; width: 28px; height: 28px;
-  border: 2px solid var(--c-border); border-top-color: var(--c-primary);
+  border: 2px solid var(--border); border-top-color: var(--accent);
   border-radius: 50%; animation: spin 0.7s linear infinite;
 }
 
 .thumb-fallback {
   display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
-  color: var(--c-text-muted);
+  color: var(--text-muted);
 }
 .thumb-fallback svg { width: 40px; height: 40px; }
 .thumb-note { font-size: 0.7rem; }
@@ -198,7 +198,7 @@ const shortName = computed(() => {
 }
 .preview-idx {
   font-size: 0.72rem; font-weight: 700;
-  color: var(--c-primary); background: var(--c-primary-light);
+  color: var(--accent); background: var(--accent-light);
   padding: 0.15rem 0.5rem; border-radius: 4px; flex-shrink: 0;
 }
 .preview-title {
@@ -207,7 +207,7 @@ const shortName = computed(() => {
   line-height: 1.3; flex: 1;
 }
 .preview-name {
-  font-size: 0.62rem; color: var(--c-text-muted);
+  font-size: 0.62rem; color: var(--text-muted);
   font-family: 'SF Mono', monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 30%; flex-shrink: 0; margin-left: auto;
@@ -216,25 +216,25 @@ const shortName = computed(() => {
 .download-btn {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 4px;
-  color: var(--c-text-muted); text-decoration: none;
+  color: var(--text-muted); text-decoration: none;
   transition: color var(--transition), background var(--transition);
   flex-shrink: 0;
 }
 .download-btn svg { width: 14px; height: 14px; }
-.download-btn:hover { color: var(--c-primary); background: var(--c-primary-light); }
+.download-btn:hover { color: var(--accent); background: var(--accent-light); }
 
 .placeholder-body {
   display: flex; align-items: center; gap: 0.75rem; padding: 1rem 0.75rem; min-height: 72px;
 }
 .ph-idx {
   width: 36px; height: 36px; border-radius: 50%;
-  background: var(--c-border-light); color: var(--c-text-muted);
+  background: var(--border-light); color: var(--text-muted);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
 }
 .ph-info { flex: 1; min-width: 0; }
 .ph-title { font-size: 0.82rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 0.2rem; }
-.ph-status { font-size: 0.65rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; color: var(--c-text-muted); }
+.ph-status { font-size: 0.65rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; color: var(--text-muted); }
 .ph-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .ph-status.generating { color: #d97706; }
 .ph-status.generating .ph-dot { animation: pulse 0.8s infinite; }

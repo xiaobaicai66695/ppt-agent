@@ -49,6 +49,39 @@ type TaskRecord struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// ConversationMessage — a single message in a task's conversation history.
+type ConversationMessage struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	TaskID    string    `gorm:"size:64;index;not null" json:"task_id"`
+	Role      string    `gorm:"size:20;not null" json:"role"` // "user" or "assistant"
+	Content   string    `gorm:"type:text;not null" json:"content"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// UserStyleProfile — persisted user style preferences learned from past tasks.
+type UserStyleProfile struct {
+	UserID            uint      `gorm:"primaryKey" json:"user_id"`
+	PreferredThemes   string    `gorm:"type:text" json:"preferred_themes"`   // JSON array
+	PreferredColors   string    `gorm:"type:text" json:"preferred_colors"`   // JSON array
+	ContentPatterns   string    `gorm:"type:text" json:"content_patterns"` // JSON array
+	LayoutPreferences string    `gorm:"type:text" json:"-"`                // deprecated
+	LanguageTone      string    `gorm:"size:50" json:"language_tone"`
+	TypicalPageCount  int       `gorm:"default:0" json:"typical_page_count"`
+	ContentTypes      string    `gorm:"type:text" json:"content_types"` // JSON map
+	SpecialNotes      string    `gorm:"type:text" json:"special_notes"` // JSON array
+	TaskCount         int       `gorm:"default:0" json:"task_count"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// TaskEvent — a single SSE event persisted for later replay / continue-chat.
+type TaskEvent struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	TaskID    string    `gorm:"size:64;index;not null" json:"task_id"`
+	Type      string    `gorm:"size:32;not null" json:"type"`            // answer, tool_call, progress, file_ready, error, complete, etc.
+	Content   string    `gorm:"type:mediumtext;not null" json:"content"` // JSON of task.SSERichEvent
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ── TaskRecord CRUD ──────────────────────────────────────────────────────
 
 func CreateTaskRecord(r *TaskRecord) error {
@@ -76,6 +109,69 @@ func ListTaskRecordsByUser(userID uint) ([]TaskRecord, error) {
 
 func DeleteTaskRecord(id string) error {
 	return DB.Where("id = ?", id).Delete(&TaskRecord{}).Error
+}
+
+// ── TaskEvent CRUD ─────────────────────────────────────────────────────────
+
+func CreateTaskEvent(e *TaskEvent) error {
+	return DB.Create(e).Error
+}
+
+// BatchCreateTaskEvents inserts multiple events in a single transaction.
+func BatchCreateTaskEvents(events []TaskEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	return DB.Create(&events).Error
+}
+
+func ListTaskEvents(taskID string, limit int) ([]TaskEvent, error) {
+	var events []TaskEvent
+	q := DB.Where("task_id = ?", taskID).Order("id ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&events).Error
+	return events, err
+}
+
+func DeleteTaskEvents(taskID string) error {
+	return DB.Where("task_id = ?", taskID).Delete(&TaskEvent{}).Error
+}
+
+// ── ConversationMessage CRUD ───────────────────────────────────────────────
+
+func CreateConversationMessage(m *ConversationMessage) error {
+	return DB.Create(m).Error
+}
+
+func ListConversationMessages(taskID string) ([]ConversationMessage, error) {
+	var msgs []ConversationMessage
+	err := DB.Where("task_id = ?", taskID).Order("timestamp ASC").Find(&msgs).Error
+	return msgs, err
+}
+
+func DeleteConversationMessages(taskID string) error {
+	return DB.Where("task_id = ?", taskID).Delete(&ConversationMessage{}).Error
+}
+
+// ── UserStyleProfile CRUD ─────────────────────────────────────────────────
+
+func UpsertUserStyleProfile(p *UserStyleProfile) error {
+	return DB.Save(p).Error
+}
+
+func GetUserStyleProfile(userID uint) (*UserStyleProfile, error) {
+	var p UserStyleProfile
+	err := DB.Where("user_id = ?", userID).First(&p).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return &p, err
+}
+
+func DeleteUserStyleProfile(userID uint) error {
+	return DB.Where("user_id = ?", userID).Delete(&UserStyleProfile{}).Error
 }
 
 // MarkZombieTasks sets all tasks with "running" status to "failed"
@@ -111,7 +207,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("DB ping failed: %w", err)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &TaskEvent{}, &ConversationMessage{}, &UserStyleProfile{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 

@@ -14,8 +14,13 @@ const router = createRouter({
       name: 'auth',
       component: () => import('../pages/AuthPage.vue'),
       beforeEnter: (_to, _from, next) => {
-        if (isLoggedIn()) next({ name: 'dashboard' });
-        else next();
+        if (import.meta.env.DEV) {
+          next();
+        } else if (isLoggedIn()) {
+          next({ name: 'dashboard' });
+        } else {
+          next();
+        }
       },
     },
     {
@@ -23,8 +28,13 @@ const router = createRouter({
       name: 'dashboard',
       component: () => import('../pages/DashboardPage.vue'),
       beforeEnter: (_to, _from, next) => {
-        if (!isLoggedIn()) next({ name: 'auth', query: { redirect: '/dashboard' } });
-        else next();
+        if (import.meta.env.DEV) {
+          next();
+        } else if (!isLoggedIn()) {
+          next({ name: 'auth', query: { redirect: '/dashboard' } });
+        } else {
+          next();
+        }
       },
     },
     {
@@ -32,8 +42,13 @@ const router = createRouter({
       name: 'compose',
       component: () => import('../pages/ComposePage.vue'),
       beforeEnter: (_to, _from, next) => {
-        if (!isLoggedIn()) next({ name: 'auth', query: { redirect: '/compose' } });
-        else next();
+        if (import.meta.env.DEV) {
+          next();
+        } else if (!isLoggedIn()) {
+          next({ name: 'auth', query: { redirect: '/compose' } });
+        } else {
+          next();
+        }
       },
     },
   ],

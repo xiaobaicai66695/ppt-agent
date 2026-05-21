@@ -31,12 +31,12 @@ TEMPLATE = {
         {
             "index": 1,
             "type": "title_slide",
-            "title": "Kubernetes架构深度解析",
-            "subtitle": "云原生时代的容器编排之道",
-            "author": "李明 | 基础架构部",
-            "date": "2025年3月10日",
+            "title": "技术主题名称",
+            "subtitle": "副标题",
+            "author": "演讲者姓名 | 部门",
+            "date": "实际日期",
             "notes": "开场标题页，留白充足，标题字体有重量感",
-            "filling_prompt": "必须填入真实内容：title 为本次分享的实际技术主题名称（如'Kubernetes架构深度解析'），author 为演讲者姓名，date 为实际日期。禁止保留花括号占位符。",
+            "filling_prompt": "必须填入真实内容：title 为本次分享的实际技术主题名称，author 为演讲者姓名，date 为实际日期。禁止保留花括号占位符。",
             "visual_suggestions": "可添加抽象的集群拓扑图或容器示意图作为背景"
         },
         {
@@ -60,7 +60,7 @@ TEMPLATE = {
             "type": "section_divider",
             "number": "01",
             "title": "背景与问题",
-            "subtitle": "为什么需要容器编排",
+            "subtitle": "为什么需要这项技术",
             "notes": "章节分隔页，仪式感强",
             "filling_prompt": "章节分隔页，固定内容，无需额外填充。",
             "design_notes": "章节标题使用大字号，与正文形成对比"
@@ -71,18 +71,17 @@ TEMPLATE = {
             "title": "问题背景",
             "content_type": "example_detail",
             "kicker": "实例 · 问题背景",
-            "lede": "传统部署方式难以应对现代互联网业务的高并发、弹性伸缩需求",
-            "context_block": "随着业务规模扩大，单机部署已无法满足需求。公司某核心系统曾因部署周期长达5-7天，错失了两次重要的业务推广窗口期。同时，生产环境故障恢复时间超过2小时，严重影响用户体验。运维成本已占IT预算的35%。",
-            "solution_block": "通过引入Kubernetes，我们实现了：部署周期从5-7天缩短至小时级；故障自动恢复时间从2小时降至5分钟；运维效率提升60%，支撑了从10个服务到200个服务的规模增长。",
+            "lede": "一句话说明问题的严重性",
+            "context_block": "描述行业普遍痛点（1-2句话）。",
+            "solution_block": "具体说明该痛点导致的后果或损失（2-3句话）。",
             "metrics": [
-                {"value": "5-7天", "label": "传统部署周期", "trend": "↑ 严重拖累业务"},
-                {"value": ">2小时", "label": "故障恢复时间", "trend": "↑ SLA难以保障"},
-                {"value": "35%", "label": "运维成本占比", "trend": "↑ 资源浪费严重"}
+                {"value": "数字", "label": "指标1", "trend": "变化趋势"},
+                {"value": "数字", "label": "指标2", "trend": "变化趋势"},
+                {"value": "数字", "label": "指标3", "trend": "变化趋势"}
             ],
-            "takeaway": "启示：容器化和编排是现代云原生架构的必由之路",
+            "takeaway": "一句话总结启示。",
             "notes": "用具体数字说明痛点，不要空泛描述",
-            "filling_prompt": "必须填入真实内容（通过 web_search 获取权威数据，至少2个URL）：lede 一句话说明问题的严重性；context_block 描述行业普遍痛点（1-2句话）；solution_block 具体说明该痛点导致的后果或损失（2-3句话）；metrics_grid 提供3个量化指标（如'部署周期5-7天'、'故障恢复>2小时'、'运维成本占IT预算40%'），每个有 value（数字）、label（说明）、trend（趋势）；takeaway 用一句话总结启示。禁止空泛描述。references 列出 URL。禁止保留花括号。",
-            "speaking_tip": "讲述时可以用亲身经历增加说服力"
+            "filling_prompt": "必须填入真实内容（通过 web_search 获取权威数据，至少2个URL）：lede 一句话说明问题的严重性；context_block 描述行业普遍痛点（1-2句话）；solution_block 具体说明该痛点导致的后果或损失（2-3句话）；metrics_grid 提供3个量化指标，每个有 value（数字）、label（说明）、trend（趋势）；takeaway 用一句话总结启示。禁止空泛描述。references 列出 URL。禁止保留花括号。"
         },
         {
             "index": 5,
@@ -93,28 +92,28 @@ TEMPLATE = {
             "left_header": "传统方案局限性",
             "left_sections": {
                 "analysis": [
-                    "部署效率：手动部署依赖人工操作，环境差异导致'在我机器上能跑'问题频发，部署周期长达5-7天，错过业务推广窗口",
-                    "资源利用：按峰值预留计算资源，平日利用率仅15-25%，造成大量资源浪费，云成本居高不下",
-                    "可用性保障：故障恢复依赖人工介入，平均恢复时间超过2小时，SLA难以保障，影响用户体验和业务口碑"
+                    "现有方案问题1及影响",
+                    "现有方案问题2及影响",
+                    "现有方案问题3及影响"
                 ],
                 "data": [
-                    "部署周期：5-7天/次",
-                    "资源利用率：15-25%",
-                    "故障恢复时间：>2小时"
+                    "效果指标1",
+                    "效果指标2",
+                    "效果指标3"
                 ]
             },
             "right_header": "改进方向",
             "right_sections": {
                 "key_points": [
-                    "声明式配置：用代码管理基础设施，环境一致性问题从源头解决，版本化管理支持回滚",
-                    "自动化编排：减少人工干预，CI/CD流水线实现一键部署，部署时间从数天缩短至分钟级",
-                    "弹性伸缩：根据负载自动调整资源，利用率提升至60%以上，峰值自动扩容、谷值自动缩容",
-                    "服务治理：统一的流量管理、熔断限流、灰度发布，服务可用性从99.5%提升至99.9%"
+                    "改进方案1及效果",
+                    "改进方案2及效果",
+                    "改进方案3及效果",
+                    "改进方案4及效果"
                 ],
                 "data": [
-                    "部署周期：<1小时",
-                    "资源利用率：60%+",
-                    "故障恢复时间：<5分钟"
+                    "效果指标1",
+                    "效果指标2",
+                    "效果指标3"
                 ]
             },
             "notes": "左右对比传统方案的不足与改进方向，每个维度用数据支撑",
@@ -125,9 +124,9 @@ TEMPLATE = {
             "type": "section_divider",
             "number": "02",
             "title": "核心原理",
-            "subtitle": "容器与编排的核心概念",
+            "subtitle": "技术核心概念",
             "filling_prompt": "章节分隔页，固定内容，无需额外填充。",
-            "transition_phrase": "接下来，让我们深入理解Kubernetes的核心概念。"
+            "transition_phrase": "接下来，让我们深入理解核心概念。"
         },
         {
             "index": 7,
@@ -135,13 +134,13 @@ TEMPLATE = {
             "title": "核心概念",
             "content_type": "content_slide",
             "concepts": [
-                {"name": "Pod", "desc": "Kubernetes最小调度单元，一个Pod可包含一个或多个容器"},
-                {"name": "Service", "desc": "服务的抽象，屏蔽Pod动态变化的IP"},
-                {"name": "Namespace", "desc": "资源隔离的逻辑分组，便于多团队协作"},
-                {"name": "Deployment", "desc": "声明式的Pod管理，支持滚动更新和回滚"}
+                {"name": "概念名称", "desc": "概念说明"},
+                {"name": "概念名称", "desc": "概念说明"},
+                {"name": "概念名称", "desc": "概念说明"},
+                {"name": "概念名称", "desc": "概念说明"}
             ],
             "notes": "用简洁的语言解释核心概念，配合示意图（文字描述即可）",
-            "filling_prompt": "必须填入真实内容：用通俗语言解释3-4个核心概念，每条配合一句话说明。可用文字描述示意图内容（如'控制平面负责调度，所有节点上报状态'）。",
+            "filling_prompt": "必须填入真实内容：用通俗语言解释3-4个核心概念，每条配合一句话说明。可用文字描述示意图内容。",
             "visual_suggestions": "配合简单的架构示意图效果更佳"
         },
         {
@@ -151,11 +150,11 @@ TEMPLATE = {
             "content_type": "process_flow",
             "direction": "horizontal",
             "steps": [
-                {"num": "1", "title": "提交请求", "desc": "用户通过kubectl提交Deployment"},
-                {"num": "2", "title": "API Server接收", "desc": "请求经过认证授权入库etcd"},
-                {"num": "3", "title": "调度决策", "desc": "Scheduler根据策略选择最优节点"},
-                {"num": "4", "title": "分配执行", "desc": "Kubelet在目标节点创建容器"},
-                {"num": "5", "title": "状态同步", "desc": "节点状态持续上报至控制平面"}
+                {"num": "1", "title": "步骤1", "desc": "步骤描述"},
+                {"num": "2", "title": "步骤2", "desc": "步骤描述"},
+                {"num": "3", "title": "步骤3", "desc": "步骤描述"},
+                {"num": "4", "title": "步骤4", "desc": "步骤描述"},
+                {"num": "5", "title": "步骤5", "desc": "步骤描述"}
             ],
             "notes": "用流程图展示核心步骤，3-5步为宜",
             "filling_prompt": "必须填入真实内容：提供3-5个核心步骤，每步有名称和一句话描述，展示该技术的工作流程。",
@@ -175,10 +174,10 @@ TEMPLATE = {
             "title": "整体架构",
             "content_type": "image_text",
             "layout_hint": "left-image",
-            "architecture_description": "控制平面（Master）包含API Server、Scheduler、Controller Manager、etcd四个核心组件，负责整个集群的协调和管理。工作节点（Worker）运行Kubelet、kube-proxy和容器运行时（如Docker或containerd），负责实际的工作负载执行。用户通过kubectl与API Server交互，API Server是整个系统的唯一入口。",
+            "architecture_description": "用文字描述系统整体架构（组件名称+组件之间的关系）。",
             "notes": "用文字描述架构图（组件+关系），不要求真实图片",
             "filling_prompt": "必须填入真实内容：用文字描述系统整体架构（组件名称+组件之间的关系，如'API Server接收请求 → Scheduler分配节点 → Kubelet执行 → 状态同步至etcd'）。",
-            "visual_placeholder": "架构图区域：展示Master节点和控制平面组件，以及Worker节点和工作负载的关系"
+            "visual_placeholder": "架构图区域：展示核心组件及其交互关系"
         },
         {
             "index": 11,
@@ -187,13 +186,13 @@ TEMPLATE = {
             "content_type": "card_grid",
             "layout_hint": "2x2",
             "cards": [
-                {"header": "etcd存储层", "body": "高可用的键值存储，保存集群所有状态数据"},
-                {"header": "API Server", "body": "集群统一入口，处理所有REST请求"},
-                {"header": "Scheduler", "body": "负责Pod调度，为新Pod选择最优节点"},
-                {"header": "Controller Manager", "body": "运行各种控制器，维护期望状态"}
+                {"header": "模块名称", "body": "模块功能描述"},
+                {"header": "模块名称", "body": "模块功能描述"},
+                {"header": "模块名称", "body": "模块功能描述"},
+                {"header": "模块名称", "body": "模块功能描述"}
             ],
             "notes": "用卡片展示核心模块，每个模块一句话说明",
-            "filling_prompt": "必须填入真实内容：提供4个核心模块，每个模块有 header（模块名称）和 body（一句话说明功能）。模块名称要具体，如'etcd存储层'、'API Server'、'Scheduler调度器'。"
+            "filling_prompt": "必须填入真实内容：提供4个核心模块，每个模块有 header（模块名称）和 body（一句话说明功能）。模块名称要具体。"
         },
         {
             "index": 12,
@@ -206,20 +205,19 @@ TEMPLATE = {
         {
             "index": 13,
             "type": "image_text",
-            "title": "应用案例：电商平台容器化改造",
+            "title": "应用案例",
             "content_type": "image_text",
             "layout_hint": "right-image",
-            "kicker": "电商行业",
-            "header": "某头部电商平台迁移实践",
-            "sub_header": "日均订单量500万+的大促保障",
-            "paragraph": "该电商平台原有架构采用传统的虚拟机部署方式，在双十一大促期间频繁出现扩容不及时、服务雪崩等问题。通过将核心交易系统迁移至Kubernetes平台，配合HPA自动扩缩容和熔断限流机制，成功应对了峰值流量的考验。实测数据显示，大促期间系统可承载的并发处理能力提升了8倍，资源利用率从25%提升至65%，每年节省云资源成本约800万元。",
+            "kicker": "行业",
+            "header": "案例标题",
+            "sub_header": "项目名称",
+            "paragraph": "详细描述案例背景、技术方案、实施过程和应用效果，用流畅的段落形式呈现，禁止罗列要点。",
             "references": [
-                "https://www.kubernetes.org.cn/",
-                "https://aws.amazon.com/cn/containers/"
+                "https://权威来源URL1",
+                "https://权威来源URL2"
             ],
             "notes": "用图文混排展示具体应用案例，增强可信性",
-            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：kicker 填具体行业领域（如'金融'、'电商'、'医疗'）；title 中的 {客户/项目名称} 替换为真实客户或项目名称；图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为案例标题（如'XX公司智能客服系统'，不超过35字）；sub_header 为合作项目名称（不超过35字）；paragraph 为300-450字的自然语言段落，详细描述案例背景、技术方案、实施过程和应用效果，用流畅的段落形式呈现，禁止罗列要点。references 列出 web_search 获取的 URL（至少2个）。禁止使用'某公司''某系统'等匿名实体；禁止虚构数据。",
-            "key_metrics": ["并发处理能力提升8倍", "资源利用率65%", "年节省成本800万"]
+            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为案例标题（不超过35字）；sub_header 为项目名称；paragraph 为300-450字的自然语言段落，详细描述案例背景、技术方案、实施过程和应用效果，用流畅的段落形式呈现，禁止罗列要点。references 列出 URL。禁止虚构数据。"
         },
         {
             "index": 14,
@@ -229,13 +227,13 @@ TEMPLATE = {
             "layout_hint": "2x2",
             "kicker": "数据 · 核心指标",
             "kpis": [
-                {"value": "↑ 800%", "label": "并发处理能力提升", "delta": "↑ 8倍", "baseline": "vs 迁移前"},
-                {"value": "↑ 160%", "label": "资源利用率提升", "delta": "↑ 2.6倍", "baseline": "vs 迁移前"},
-                {"value": "↓ 800万/年", "label": "云资源成本节省", "delta": "↓ 40%", "baseline": "vs 迁移前"},
-                {"value": "< 30秒", "label": "故障自愈时间", "delta": "↓ 95%", "baseline": "vs 迁移前"}
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 迁移前"},
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 迁移前"},
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 迁移前"},
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 迁移前"}
             ],
             "notes": "4个核心指标，delta 为变化比例，baseline 为对比基准",
-            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：提供4个核心数据指标，每个有 value（具体数字）、label（效果说明）、delta（变化趋势，如'↑ 30%'或'↓ 50%'）、baseline（对比基准，如'vs 传统方案'）。指标要具体且有代表性。references 列出 web_search 获取的 URL（至少2个）。禁止虚构数据。"
+            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：提供4个核心数据指标，每个有 value（具体数字）、label（效果说明）、delta（变化趋势）、baseline（对比基准）。指标要具体且有代表性。references 列出 URL。禁止虚构数据。"
         },
         {
             "index": 15,
@@ -252,15 +250,15 @@ TEMPLATE = {
             "title": "核心要点",
             "content_type": "example_detail",
             "kicker": "实例 · 核心要点",
-            "lede": "Kubernetes是云原生时代的基础设施标准，容器编排是现代DevOps的核心能力",
-            "context_block": "本次分享涵盖了Kubernetes的核心概念、架构设计和实践案例。通过理论结合实践的方式，帮助大家建立对容器编排技术的系统性认知。",
-            "solution_block": "核心要点包括：1）Pod是最小调度单元，理解Pod的生命周期至关重要；2）声明式API是Kubernetes的核心设计理念；3）控制平面负责协调，工作节点负责执行；4）自动扩缩容和自愈能力是Kubernetes的核心优势。",
+            "lede": "一句话概括最核心的信息",
+            "context_block": "回顾分享的核心内容（1-2句话）。",
+            "solution_block": "总结核心要点和关键结论（2-3句话）。",
             "metrics": [
-                {"value": "掌握核心概念", "label": "知识点覆盖", "trend": "vs 分享前"},
-                {"value": "理解架构设计", "label": "架构认知", "trend": "vs 分享前"},
-                {"value": "具备实践能力", "label": "动手能力", "trend": "vs 分享前"}
+                {"value": "程度", "label": "知识点覆盖", "trend": "vs 分享前"},
+                {"value": "程度", "label": "架构认知", "trend": "vs 分享前"},
+                {"value": "程度", "label": "动手能力", "trend": "vs 分享前"}
             ],
-            "takeaway": "启示：容器化和编排能力将成为每个工程师的必备技能",
+            "takeaway": "一句话总结如何将分享应用到实际工作中。",
             "notes": "3-4条核心要点，用加粗序号",
             "filling_prompt": "必须填入真实内容：lede 一句话概括最核心的信息；context_block 回顾分享的核心内容（1-2句话）；solution_block 总结核心要点和关键结论（2-3句话）；metrics_grid 提供3个学习效果指标；takeaway 用一句话总结如何将分享应用到实际工作中。禁止保留花括号。"
         },
@@ -270,15 +268,15 @@ TEMPLATE = {
             "title": "未来方向",
             "content_type": "example_detail",
             "kicker": "实例 · 未来方向",
-            "lede": "Kubernetes生态持续演进，Serverless和GitOps是重要发展方向",
-            "context_block": "当前Kubernetes已在生产环境广泛采用，但技术仍在快速迭代。Operator模式、GitOps、Serveless等新范式不断涌现，Kubernetes正在变得更加智能和自动化。",
-            "solution_block": "未来演进方向包括：1）Kubernetes Operators的普及让自定义资源管理更加便捷；2）GitOps将成为主流的部署运维模式；3）Serverless容器（如AWS Fargate）让用户无需管理节点；4）AIops结合让集群运维更加智能化。",
+            "lede": "一句话概括最重要演进趋势",
+            "context_block": "说明当前现状和局限（1-2句话）。",
+            "solution_block": "详细描述未来演进方向和突破点（2-3句话）。",
             "metrics": [
-                {"value": "持续迭代", "label": "版本更新频率", "trend": "每季度大版本"},
-                {"value": "生态繁荣", "label": "周边工具增长", "trend": "↑ 30%/年"},
-                {"value": "广泛采用", "label": "企业采纳率", "trend": "↑ 覆盖80%云原生项目"}
+                {"value": "频率", "label": "版本更新", "trend": "每季度大版本"},
+                {"value": "数量", "label": "生态工具增长", "trend": "趋势"},
+                {"value": "百分比", "label": "企业采纳率", "trend": "趋势"}
             ],
-            "takeaway": "启示：保持学习，持续跟进云原生技术演进",
+            "takeaway": "一句话总结如何把握未来趋势。",
             "notes": "技术演进方向或后续规划",
             "filling_prompt": "必须填入真实内容：lede 一句话概括最重要演进趋势；context_block 说明当前现状和局限（1-2句话）；solution_block 详细描述未来演进方向和突破点（2-3句话）；metrics_grid 提供3个趋势指标；takeaway 用一句话总结如何把握未来趋势。禁止保留花括号。"
         },
@@ -287,12 +285,12 @@ TEMPLATE = {
             "type": "summary_slide",
             "title": "总结",
             "key_points": [
-                "01 Kubernetes是云原生时代的基础设施标准",
-                "02 声明式API和自动化是核心设计理念",
-                "03 通过实践案例验证了容器化的价值"
+                "01 核心回顾1",
+                "02 核心回顾2",
+                "03 核心回顾3"
             ],
             "thank_you": "感谢聆听",
-            "contact": "联系方式：liming@company.com | 技术交流群：xxx",
+            "contact": "联系方式：邮箱 | 技术交流群",
             "notes": "结尾页，核心回顾 + 感谢",
             "filling_prompt": "必须填入真实内容：key_points 提供3个核心回顾要点；contact 填写真实联系方式。禁止保留花括号。",
             "q_and_a_hint": "预留10-15分钟Q&A，欢迎提问",

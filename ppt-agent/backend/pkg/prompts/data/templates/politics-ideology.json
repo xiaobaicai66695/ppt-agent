@@ -5,21 +5,20 @@
   "description": "思政教育、团课培训、爱国主义教育，价值观明确，结构清晰",
   "category": "gov",
   "default_palette": "government_red",
-  "tags": ["思政", "团课", "爱国"],
   "thumbnail": "/templates/thumbs/politics-ideology.png",
   "slide_count": 16,
   "default_slides": [
-    {"title": "课程标题", "content_type": "title_slide", "description": "课程名称和主讲人"},
-    {"title": "学习目标", "content_type": "content_slide", "description": "3-4个学习目标"},
-    {"title": "目录", "content_type": "agenda", "description": "课程内容概览"},
-    {"title": "理论学习", "content_type": "section_divider", "description": "章节标题：理论学习"},
-    {"title": "核心概念", "content_type": "content_slide", "description": "相关理论和概念"},
-    {"title": "案例分享", "content_type": "case_study", "description": "典型案例介绍"},
-    {"title": "实践指导", "content_type": "section_divider", "description": "章节标题：实践指导"},
-    {"title": "行动指南", "content_type": "process_flow", "description": "具体行动步骤"},
-    {"title": "互动讨论", "content_type": "content_slide", "description": "讨论题目和引导"},
-    {"title": "心得分享", "content_type": "content_slide", "description": "学员心得交流"},
-    {"title": "总结提升", "content_type": "summary_slide", "description": "课程核心要点"},
-    {"title": "课后作业", "content_type": "content_slide", "description": "思考题和实践任务"}
+    {"title": "课程标题", "content_type": "title_slide", "description": ""},
+    {"title": "学习目标", "content_type": "content_slide", "description": ""},
+    {"title": "目录", "content_type": "agenda", "description": ""},
+    {"title": "理论学习", "content_type": "section_divider", "description": ""},
+    {"title": "核心概念", "content_type": "content_slide", "description": ""},
+    {"title": "案例分享", "content_type": "case_study", "description": ""},
+    {"title": "实践指导", "content_type": "section_divider", "description": ""},
+    {"title": "行动指南", "content_type": "process_flow", "description": ""},
+    {"title": "互动讨论", "content_type": "content_slide", "description": ""},
+    {"title": "心得分享", "content_type": "content_slide", "description": ""},
+    {"title": "总结提升", "content_type": "summary_slide", "description": ""},
+    {"title": "课后作业", "content_type": "content_slide", "description": ""}
   ]
 }

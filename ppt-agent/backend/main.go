@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
-	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino-ext/adk/backend/local"
+	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
@@ -26,17 +26,17 @@ import (
 	"github.com/coze-dev/cozeloop-go"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent"
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
-	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	agentplan "github.com/cloudwego/ppt-agent/pkg/agent/planexecute"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/human"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/web"
 	"github.com/cloudwego/ppt-agent/pkg/store"
+	"github.com/cloudwego/ppt-agent/pkg/web"
 )
 
 func main() {
@@ -172,10 +172,35 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		AIModelFactory: func(ctx context.Context) (interface {
 			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 		}, error) {
-			return agentutils.NewFallbackToolCallingChatModel(ctx,
+			m, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 				agentutils.WithMaxTokens(4096),
 				agentutils.WithTemperature(0),
 			)
+			if err != nil {
+				return nil, err
+			}
+			return &aiModelAdapter{model: m}, nil
+		},
+		StyleModelFactory: func(ctx context.Context) (model.ToolCallingChatModel, error) {
+			return agentutils.NewFallbackToolCallingChatModel(ctx,
+				agentutils.WithModel(os.Getenv("ARK_TEXT_MODEL")),
+				agentutils.WithMaxTokens(4096),
+				agentutils.WithTemperature(0),
+			)
+		},
+		// 意图分类 / 偏好总结使用轻量级模型，节省成本
+		TextModelFactory: func(ctx context.Context) (interface {
+			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+		}, error) {
+			m, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+				agentutils.WithModel(os.Getenv("ARK_TEXT_MODEL")),
+				agentutils.WithMaxTokens(2048),
+				agentutils.WithTemperature(0),
+			)
+			if err != nil {
+				return nil, err
+			}
+			return &aiModelAdapter{model: m}, nil
 		},
 	})
 
@@ -366,6 +391,15 @@ func runPlanExecuteCLI(ctx context.Context, query *schema.Message, taskID string
 
 // ---------------------------------------------------------------------------
 // Shared helpers
+
+type aiModelAdapter struct {
+	model model.ToolCallingChatModel
+}
+
+func (a *aiModelAdapter) Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (*schema.Message, error) {
+	return a.model.Generate(ctx, messages)
+}
+
 // ---------------------------------------------------------------------------
 
 func setupCozeLoop() cozeloop.Client {

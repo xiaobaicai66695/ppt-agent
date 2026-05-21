@@ -212,7 +212,6 @@ from generators import (
     generate_stat_slide,
     generate_quote_slide,
     generate_card_grid,
-    generate_timeline,
     generate_process_flow,
     generate_two_column,
     generate_three_column,
@@ -268,12 +267,6 @@ for slide in slides_data:
             title=content.get("title", ""),
             layout=content.get("layout", "2x2"),
             cards=content.get("cards", []))
-    elif slide_type == "timeline":
-        generate_timeline(prs,
-            palette=palette,
-            title=content.get("title", ""),
-            direction=content.get("direction", "horizontal"),
-            nodes=content.get("nodes", []))
     elif slide_type == "process_flow":
         generate_process_flow(prs,
             palette=palette,

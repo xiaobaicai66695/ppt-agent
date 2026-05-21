@@ -230,6 +230,21 @@ export interface SlideOutline {
   title: string;
   content_type: string;
   description: string;
+  content_plan?: ContentPlan;
+}
+
+export interface ContentElement {
+  type: string;
+  items?: string[];
+  text?: string;
+  title?: string;
+  description?: string;
+  layout_hint?: string;
+}
+
+export interface ContentPlan {
+  summary?: string;
+  elements?: ContentElement[];
 }
 
 export interface TaskOutline {
@@ -321,4 +336,68 @@ export async function expandWithAI(title: string, contentType: string, descripti
   });
   const data = await res.json();
   return data.description || '';
+}
+
+export async function generateOutlineWithAI(query: string, outline: TaskOutline): Promise<SlideOutline[]> {
+  try {
+    const res = await apiFetch('/api/ai/generate-outline', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ query, outline }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let errMsg = '生成大纲失败';
+      try { const j = JSON.parse(text); errMsg = j.error || errMsg; } catch { if (text) errMsg = text; }
+      throw new Error(errMsg);
+    }
+    const text = await res.text();
+    if (!text.trim()) throw new Error('服务器返回为空，请重试');
+    const body = JSON.parse(text);
+    if (!body || !Array.isArray(body.slides)) throw new Error('服务器返回格式错误: ' + text.slice(0, 100));
+    return body.slides;
+  } catch (e) {
+    if (e instanceof SyntaxError) {
+      throw new Error('服务器返回格式错误，请重试');
+    }
+    throw e;
+  }
+}
+
+// ── Continue / Session API ──────────────────────────────────────────────────────
+
+export async function continueTask(taskId: string, message: string): Promise<Response> {
+  return apiFetch(`/api/tasks/${taskId}/continue`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function fetchConversation(taskId: string): Promise<import('./types').ConversationSession> {
+  const res = await apiFetch(`/api/tasks/${taskId}/conversation`, { headers: authHeaders() });
+  return res.json();
+}
+
+// ── User profile API ──────────────────────────────────────────────────────────────
+
+export async function fetchUserProfile(): Promise<import('./types').UserStyleProfile> {
+  const res = await apiFetch('/api/users/me/profile', { headers: authHeaders() });
+  const data = await res.json();
+  return data.profile;
+}
+
+export async function updateUserProfile(profile: Partial<import('./types').UserStyleProfile>): Promise<void> {
+  await apiFetch('/api/users/me/profile', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(profile),
+  });
+}
+
+export async function resetUserProfile(): Promise<void> {
+  await apiFetch('/api/users/me/profile/reset', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
 }

@@ -5,19 +5,63 @@
   "description": "产品介绍、客户演示、功能展示，突出价值，增强信任",
   "category": "biz",
   "default_palette": "ocean_soft",
-  "tags": ["产品", "介绍", "演示"],
+  "tags": [
+    "产品",
+    "介绍",
+    "演示"
+  ],
   "thumbnail": "/templates/thumbs/product-intro.png",
   "slide_count": 12,
   "default_slides": [
-    {"title": "产品名称", "content_type": "title_slide", "description": "产品名称和 tagline"},
-    {"title": "用户痛点", "content_type": "content_slide", "description": "目标用户面临的挑战"},
-    {"title": "产品价值", "content_type": "section_divider", "description": "章节标题：产品价值"},
-    {"title": "核心功能", "content_type": "card_grid", "description": "4-6个核心功能"},
-    {"title": "使用流程", "content_type": "process_flow", "description": "用户使用步骤"},
-    {"title": "场景展示", "content_type": "two_column", "description": "典型使用场景"},
-    {"title": "客户案例", "content_type": "case_study", "description": "1-2个客户成功案例"},
-    {"title": "客户评价", "content_type": "content_slide", "description": "2-3条客户评价"},
-    {"title": "服务支持", "content_type": "content_slide", "description": "售后服务和技术支持"},
-    {"title": "合作方式", "content_type": "summary_slide", "description": "合作模式和联系信息"}
+    {
+      "title": "封面页",
+      "content_type": "title_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "卡片网格页",
+      "content_type": "card_grid",
+      "description": ""
+    },
+    {
+      "title": "流程图页",
+      "content_type": "process_flow",
+      "description": ""
+    },
+    {
+      "title": "双栏对比页",
+      "content_type": "two_column",
+      "description": ""
+    },
+    {
+      "title": "案例详解页",
+      "content_type": "case_study",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "总结页",
+      "content_type": "summary_slide",
+      "description": ""
+    }
   ]
 }

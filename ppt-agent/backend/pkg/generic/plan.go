@@ -997,6 +997,7 @@ type QAResult struct {
 	Summary      string   `json:"summary"` // 整体摘要
 	HasIssues    bool     `json:"has_issues"`
 	HasHighIssue bool     `json:"has_high_issue"`
+	Score        int      `json:"score,omitempty"` // 综合评分 1-5，0 表示未评分
 	LastUpdated  string   `json:"last_updated"`
 }
 

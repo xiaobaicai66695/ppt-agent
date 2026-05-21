@@ -5,19 +5,18 @@
   "description": "团建活动、校园活动、节日策划，活泼有创意，执行清晰",
   "category": "other",
   "default_palette": "activity_orange",
-  "tags": ["活动", "策划", "团建"],
   "thumbnail": "/templates/thumbs/activity-plan.png",
   "slide_count": 10,
   "default_slides": [
-    {"title": "活动名称", "content_type": "title_slide", "description": "活动主题和副标题"},
-    {"title": "活动概述", "content_type": "content_slide", "description": "活动背景和目的"},
-    {"title": "基本信息", "content_type": "content_slide", "description": "时间、地点、参与人员"},
-    {"title": "活动流程", "content_type": "section_divider", "description": "章节标题：活动流程"},
-    {"title": "日程安排", "content_type": "process_flow", "description": "各环节时间安排"},
-    {"title": "环节详情", "content_type": "two_column", "description": "主要环节介绍"},
-    {"title": "资源配置", "content_type": "section_divider", "description": "章节标题：资源配置"},
-    {"title": "人员分工", "content_type": "card_grid", "description": "3-4个岗位分工"},
-    {"title": "物资预算", "content_type": "content_slide", "description": "物资清单和预算"},
-    {"title": "应急预案", "content_type": "content_slide", "description": "风险点和应对措施"}
+    {"title": "活动名称", "content_type": "title_slide", "description": ""},
+    {"title": "活动概述", "content_type": "content_slide", "description": ""},
+    {"title": "基本信息", "content_type": "content_slide", "description": ""},
+    {"title": "活动流程", "content_type": "section_divider", "description": ""},
+    {"title": "日程安排", "content_type": "process_flow", "description": ""},
+    {"title": "环节详情", "content_type": "two_column", "description": ""},
+    {"title": "资源配置", "content_type": "section_divider", "description": ""},
+    {"title": "人员分工", "content_type": "card_grid", "description": ""},
+    {"title": "物资预算", "content_type": "content_slide", "description": ""},
+    {"title": "应急预案", "content_type": "content_slide", "description": ""}
   ]
 }

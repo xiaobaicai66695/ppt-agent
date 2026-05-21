@@ -5,20 +5,58 @@
   "description": "时政热点分析、政策解读、国际形势分析，稳重专业，数据支撑强",
   "category": "gov",
   "default_palette": "government_red",
-  "tags": ["时政", "政策", "分析"],
   "thumbnail": "/templates/thumbs/current-affairs.png",
-  "slide_count": 14,
+  "slide_count": 10,
   "default_slides": [
-    {"title": "时政分析报告", "content_type": "title_slide", "description": "报告标题和日期"},
-    {"title": "事件概述", "content_type": "content_slide", "description": "事件背景和基本情况"},
-    {"title": "背景分析", "content_type": "section_divider", "description": "章节标题：背景分析"},
-    {"title": "历史脉络", "content_type": "timeline", "description": "相关事件发展时间线"},
-    {"title": "多方立场", "content_type": "two_column", "description": "各方观点和态度"},
-    {"title": "深度解读", "content_type": "section_divider", "description": "章节标题：深度解读"},
-    {"title": "影响分析", "content_type": "content_slide", "description": "对各领域的影响分析"},
-    {"title": "数据支撑", "content_type": "stat_slide", "description": "4-6个关键数据指标"},
-    {"title": "趋势预测", "content_type": "content_slide", "description": "未来发展趋势研判"},
-    {"title": "对策建议", "content_type": "card_grid", "description": "3-4条对策建议"},
-    {"title": "总结", "content_type": "summary_slide", "description": "核心结论和展望"}
+    {
+      "title": "时政分析报告",
+      "content_type": "title_slide",
+      "description": ""
+    },
+    {
+      "title": "事件概述",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "背景分析",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "多方立场",
+      "content_type": "two_column",
+      "description": ""
+    },
+    {
+      "title": "深度解读",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "影响分析",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "数据支撑",
+      "content_type": "stat_slide",
+      "description": ""
+    },
+    {
+      "title": "趋势预测",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "对策建议",
+      "content_type": "card_grid",
+      "description": ""
+    },
+    {
+      "title": "总结",
+      "content_type": "summary_slide",
+      "description": ""
+    }
   ]
 }

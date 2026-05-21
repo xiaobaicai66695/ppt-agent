@@ -48,10 +48,10 @@ TEMPLATE = {
         {
             "index": 1,
             "type": "title_slide",
-            "title": "智云CRM 3.0",
-            "subtitle": "AI赋能CRM，引领企业销售智能化变革",
-            "author": "智云科技",
-            "date": "2025年3月20日",
+            "title": "产品名称",
+            "subtitle": "一句有冲击力的Slogan",
+            "author": "公司名称",
+            "date": "日期",
             "notes": "开场标题页要有冲击力，Slogan要简短有力",
             "filling_prompt": "必须填入真实内容：title 为实际产品名称，subtitle 为一句有冲击力的Slogan，author 为公司名称，date 为日期。禁止保留花括号。"
         },
@@ -84,17 +84,17 @@ TEMPLATE = {
             "title": "痛点分析",
             "content_type": "example_detail",
             "kicker": "实例 · 痛点分析",
-            "lede": "传统CRM效率低下，销售团队深陷'填系统'泥潭",
-            "context_block": "CRM本应是提升销售效率的利器，但现实中却变成了销售人员的负担。调研显示，70%的销售人员认为CRM是'负担'，每天要花1-2小时录入数据，真正用于客户沟通的时间不到30%。数据质量差、分析滞后、客户流失等问题困扰着企业管理者。",
-            "solution_block": "问题的根源在于：1）传统CRM需要大量人工录入，效率低下；2）数据分析依赖人工，滞后且不准确；3）无法预测客户流失，错失挽回时机；4）系统操作复杂，团队抵触情绪大。企业急需一款真正能提升效率、赋能销售的智能CRM。",
+            "lede": "一句话概括核心挑战",
+            "context_block": "描述市场当前问题和困境（1-2句话）。",
+            "solution_block": "具体说明问题导致的后果和损失（2-3句话）。",
             "metrics": [
-                {"value": "70%", "label": "销售人员认为CRM是负担", "trend": "↑ 令人担忧"},
-                {"value": "1-2小时/天", "label": "数据录入耗时", "trend": "↑ 严重"},
-                {"value": "< 30%", "label": "实际客户沟通时间占比", "trend": "↓ 效率低下"}
+                {"value": "数字", "label": "指标1", "trend": "变化趋势"},
+                {"value": "数字", "label": "指标2", "trend": "变化趋势"},
+                {"value": "数字", "label": "指标3", "trend": "变化趋势"}
             ],
-            "takeaway": "启示：CRM需要从'管控工具'转型为'赋能助手'",
+            "takeaway": "一句话总结紧迫性。",
             "notes": "用数据说明当前市场的痛点和问题，唤起共鸣",
-            "filling_prompt": "必须填入真实内容（通过 web_search 获取权威数据，至少2个URL）：lede 一句话概括核心挑战；context_block 描述市场当前问题和困境（1-2句话）；solution_block 具体说明问题导致的后果和损失（2-3句话）；metrics_grid 提供3个量化指标（如'企业每年因XX损失XX万元'、'XX%用户流失因XX'），每个有 value、label、trend；takeaway 用一句话总结紧迫性。禁止空泛描述。references 列出 URL。"
+            "filling_prompt": "必须填入真实内容（通过 web_search 获取权威数据，至少2个URL）：lede 一句话概括核心挑战；context_block 描述市场当前问题和困境（1-2句话）；solution_block 具体说明问题导致的后果和损失（2-3句话）；metrics_grid 提供3个量化指标，每个有 value、label、trend；takeaway 用一句话总结紧迫性。禁止空泛描述。references 列出 URL。"
         },
         {
             "index": 5,
@@ -109,12 +109,12 @@ TEMPLATE = {
             "type": "content_slide",
             "title": "解决方案",
             "content_type": "content_slide",
-            "value_proposition": "智云CRM 3.0：AI驱动，让销售更聪明",
+            "value_proposition": "一句话概括解决方案的核心价值主张",
             "key_points": [
-                "智能录入：AI自动提取邮件、微信、CRM对话中的客户信息",
-                "智能分析：实时分析客户数据，预测成交概率",
-                "智能提醒：AI识别流失风险，主动推送挽回建议",
-                "智能助手：语音输入、自动生成跟进记录"
+                "支撑要点1",
+                "支撑要点2",
+                "支撑要点3",
+                "支撑要点4"
             ],
             "notes": "一句话说清楚我们的解决方案是什么",
             "filling_prompt": "必须填入真实内容：一句话概括解决方案的核心价值主张，并配合2-3条支撑要点。"
@@ -134,13 +134,13 @@ TEMPLATE = {
             "content_type": "card_grid",
             "layout_hint": "2x2",
             "cards": [
-                {"header": "AI智能录入", "body": "自动从邮件、微信、通话记录中提取客户信息，解放销售双手"},
-                {"header": "成交预测", "body": "基于历史数据训练，预测每个商机成交概率，优先级一目了然"},
-                {"header": "流失预警", "body": "AI识别流失信号，提前预警，主动挽回，避免客户流失"},
-                {"header": "智能助手", "body": "一句话生成跟进记录，自动整理客户画像，工作效率翻倍"}
+                {"header": "功能名称", "body": "功能描述和价值"},
+                {"header": "功能名称", "body": "功能描述和价值"},
+                {"header": "功能名称", "body": "功能描述和价值"},
+                {"header": "功能名称", "body": "功能描述和价值"}
             ],
             "notes": "4个核心功能，用图标+标题+一句话描述",
-            "filling_prompt": "必须填入真实内容：提供4个核心功能，每个有 header（功能名称）和 body（一句话描述功能价值）。功能名称要具体，如'智能推荐'、'实时监控'。"
+            "filling_prompt": "必须填入真实内容：提供4个核心功能，每个有 header（功能名称）和 body（一句话描述功能价值）。功能名称要具体。"
         },
         {
             "index": 9,
@@ -158,13 +158,13 @@ TEMPLATE = {
             "layout_hint": "2x2",
             "kicker": "数据 · 产品价值",
             "kpis": [
-                {"value": "↓ 80%", "label": "数据录入时间减少", "delta": "↓ 80%", "baseline": "vs 传统CRM"},
-                {"value": "↑ 45%", "label": "成单率提升", "delta": "↑ 45%", "baseline": "vs 实施前"},
-                {"value": "↓ 60%", "label": "客户流失率降低", "delta": "↓ 60%", "baseline": "vs 行业平均"},
-                {"value": "↑ 3倍", "label": "销售效率提升", "delta": "↑ 3倍", "baseline": "vs 实施前"}
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 对比基准"},
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 对比基准"},
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 对比基准"},
+                {"value": "数字", "label": "效果指标", "delta": "变化趋势", "baseline": "vs 对比基准"}
             ],
             "notes": "展示4个核心效果指标，须有 delta 趋势和 baseline 对比基准",
-            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：提供4个核心效果指标，每个 KPI 有 value（具体数值）、label（效果说明）、delta（变化趋势，如'↑ 30%'或'↓ 50%'）、baseline（对比基准，如'vs 传统方案'）。指标要具体，如'处理效率提升 3 倍'、'成本降低 40%'。references 列出 web_search 获取的 URL（至少2个）。禁止保留花括号；禁止虚构数据。"
+            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：提供4个核心效果指标，每个 KPI 有 value（具体数值）、label（效果说明）、delta（变化趋势）、baseline（对比基准）。指标要具体。references 列出 URL。禁止虚构数据。"
         },
         {
             "index": 11,
@@ -177,49 +177,49 @@ TEMPLATE = {
         {
             "index": 12,
             "type": "image_text",
-            "title": "客户案例：某知名教育集团",
+            "title": "客户案例",
             "content_type": "image_text",
             "layout_hint": "right-image",
-            "kicker": "教育行业",
-            "header": "某知名教育集团CRM升级案例",
-            "sub_header": "销售团队效率提升3倍",
-            "paragraph": "该教育集团拥有500人销售团队，之前使用某国际品牌CRM，但数据录入繁琐、报表滞后、团队抵触情绪大。引入智云CRM 3.0后，AI自动录入功能让销售人员每天节省1.5小时；成交预测功能帮助团队优先跟进高概率商机；流失预警功能让客户挽回率提升了65%。6个月后，集团整体成单率提升了40%，销售额增加了1.2亿元。销售总监表示：'终于有一款让销售愿意用的CRM了！'",
+            "kicker": "行业",
+            "header": "客户名称或项目名称",
+            "sub_header": "合作项目名称",
+            "paragraph": "详细描述客户背景、合作过程、实施效果和客户评价，用流畅的段落形式呈现，禁止罗列要点。",
             "references": [
-                "https://www.salesforce.com/",
-                "https://www.gartner.com/"
+                "https://权威来源URL1",
+                "https://权威来源URL2"
             ],
             "notes": "用图文混排展示客户成功案例，增强可信性",
-            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：kicker 中的 {行业} 替换为具体行业（如'金融'、'电商'、'医疗'）；title 中的 {客户名称} 替换为真实客户名称；图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为案例标题（如'XX公司数字化转型'，不超过35字）；sub_header 为合作项目名称（不超过35字）；paragraph 为300-450字的自然语言段落，详细描述客户背景、合作过程、实施效果和客户评价，用流畅的段落形式呈现，禁止罗列要点。references 列出 web_search 获取的 URL（至少2个）。禁止使用'某公司'等匿名实体；禁止虚构数据。"
+            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为案例标题（不超过35字）；sub_header 为合作项目名称（不超过35字）；paragraph 为300-450字的自然语言段落，详细描述客户背景、合作过程、实施效果和客户评价，用流畅的段落形式呈现，禁止罗列要点。references 列出 URL。禁止虚构数据。"
         },
         {
             "index": 13,
             "type": "image_text",
-            "title": "实施效果：某科技公司",
+            "title": "实施效果",
             "content_type": "image_text",
             "layout_hint": "left-image",
             "kicker": "实施效果",
-            "header": "某科技公司数字化转型",
-            "sub_header": "3个月快速上线，效果立竿见影",
-            "paragraph": "这家科技公司在实施智云CRM 3.0过程中，遇到了数据迁移、旧系统对接等挑战。我们的实施团队通过标准化的实施方法论，仅用3周就完成了系统部署和人员培训。上线首月，数据录入时间减少了70%；第2个月，AI预测的Top 20高概率商机全部成交；第3个月，通过流失预警功能，成功挽回了即将流失的38个大客户。客户CTO表示：'智云CRM的实施速度和专业度超出预期，效果更是远超预期！'",
+            "header": "项目名称",
+            "sub_header": "项目简介",
+            "paragraph": "详细描述项目实施过程、克服的困难和取得的量化成果，用流畅的段落形式呈现，禁止罗列要点。",
             "references": [
-                "https://www.forrester.com/",
-                "https://www.idc.com/"
+                "https://权威来源URL1",
+                "https://权威来源URL2"
             ],
             "notes": "用图文混排展示实施效果，增强可信性",
-            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：kicker 为'实施效果'；title 中的 {项目名称} 替换为具体项目名称；图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为项目标题（不超过35字）；sub_header 为项目简介（不超过35字）；paragraph 为300-450字的自然语言段落，详细描述项目实施过程、克服的困难和取得的量化成果，用流畅的段落形式呈现，禁止罗列要点。references 列出 web_search 获取的 URL（至少2个）。禁止虚构数据。"
+            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少2个URL），再填入真实内容：图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为项目标题（不超过35字）；sub_header 为项目简介（不超过35字）；paragraph 为300-450字的自然语言段落，详细描述项目实施过程、克服的困难和取得的量化成果，用流畅的段落形式呈现，禁止罗列要点。references 列出 URL。禁止虚构数据。"
         },
         {
             "index": 14,
             "type": "summary_slide",
             "title": "联系我们",
             "key_points": [
-                "01 立即体验：免费试用30天",
-                "02 预约演示：专属顾问1对1服务"
+                "01 立即体验：免费试用说明",
+                "02 预约演示：服务说明"
             ],
             "thank_you": "感谢关注",
-            "contact": "官网：www.zhiyuncrm.com | 热线：400-xxx-xxxx | 扫码咨询",
+            "contact": "官网 | 热线 | 扫码咨询",
             "notes": "结尾页，明确行动号召和联系方式",
-            "filling_prompt": "必须填入真实内容：key_points 提供2个行动号召（如'立即申请试用'、'预约产品演示'）；contact 填写真实联系方式（官网、邮箱、微信等）。禁止保留花括号。"
+            "filling_prompt": "必须填入真实内容：key_points 提供2个行动号召；contact 填写真实联系方式。禁止保留花括号。"
         }
     ],
     "design_tips": [

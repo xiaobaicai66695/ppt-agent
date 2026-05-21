@@ -41,6 +41,7 @@ type ChatModelConfig struct {
 	TopP            *float32
 	DisableThinking *bool
 	JsonSchema      *openai.ChatCompletionResponseFormatJSONSchema
+	Model           *string
 }
 
 // ChatModelOption ChatModel 配置函数
@@ -76,6 +77,16 @@ func WithResponseFormatJsonSchema(schema *openai.ChatCompletionResponseFormatJSO
 	}
 }
 
+// WithModel overrides the model name used by NewToolCallingChatModel / NewFallbackToolCallingChatModel.
+// When set, ARK_MODEL / OPENAI_MODEL env vars are ignored for model selection.
+// Intended for lightweight side-tasks like intent classification or style extraction
+// that should use a smaller/cheaper model than the main agent.
+func WithModel(modelName string) ChatModelOption {
+	return func(c *ChatModelConfig) {
+		c.Model = &modelName
+	}
+}
+
 // NewToolCallingChatModel 创建 ChatModel
 func NewToolCallingChatModel(ctx context.Context, opts ...ChatModelOption) (cm model.ToolCallingChatModel, err error) {
 	o := &ChatModelConfig{}
@@ -83,7 +94,20 @@ func NewToolCallingChatModel(ctx context.Context, opts ...ChatModelOption) (cm m
 		opt(o)
 	}
 
-	if modelName := os.Getenv("ARK_MODEL"); modelName != "" {
+	// WithModel option takes precedence over env vars.
+	// This allows lightweight side-tasks to use a dedicated cheaper model.
+	modelName := ""
+	if o.Model != nil && *o.Model != "" {
+		modelName = *o.Model
+	} else if modelName = os.Getenv("ARK_MODEL"); modelName == "" {
+		modelName = os.Getenv("OPENAI_MODEL")
+	}
+
+	if modelName == "" {
+		return nil, fmt.Errorf("未指定模型名称，请设置 ARK_MODEL、OPENAI_MODEL 或使用 WithModel 选项")
+	}
+
+	if o.Model != nil || os.Getenv("ARK_MODEL") != "" {
 		conf := &ark.ChatModelConfig{
 			APIKey:      os.Getenv("ARK_API_KEY"),
 			BaseURL:     os.Getenv("ARK_BASE_URL"),

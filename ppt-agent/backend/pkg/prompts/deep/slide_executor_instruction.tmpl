@@ -32,9 +32,9 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
   script_dir = Path("{{ .WorkDir }}")
   generators_pkg_dir = (script_dir / ".." / ".." / "skills" / "visual_designer").resolve()
   sys.path.insert(0, str(generators_pkg_dir))
-  from generators import new_presentation, save_slide, generate_timeline
+  from generators import new_presentation, save_slide, generate_process_flow
   prs = new_presentation(palette="ocean_soft")
-  prs = generate_timeline(prs=prs, palette="ocean_soft", ..., source="来源: 新华网 2025年 | https://...")
+  prs = generate_process_flow(prs=prs, palette="ocean_soft", ..., source="来源: 新华网 2025年 | https://...")
   save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
 
   ⚠️ save_slide 的第一个参数必须是 slide 对象（prs.slides[-1]），不是 prs。
@@ -88,16 +88,39 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 4. 用 python3 执行生成代码
 5. **不要修改 tasks.json 状态**，SlideExecutor 只负责生成 PPT 文件
 
-## 内容质量要求
+## 内容质量要求 — 各模板字数限制（必须严格遵守）
 
-详见 {{ .SkillsDir }}/visual_designer/SKILL.md。
+**每条都必须遵守字数限制，超出会被截断或导致排版溢出。**
 
-核心要点：
-- 每个幻灯片必须有实质性信息，不能只是标题罗列
-- content_slide 等使用 bullets 的类型：每条不超过 35 个中文字符，最多 4-6 条，信息密度要高
-- image_text 图文混排：tasks.json 中必须填入 paragraph 字段（300-450 字自然语言段落），禁止拆分为 bullets
-- 案例/数据/指标优先通过 search 工具验证
-- 信息密度优先，避免空洞留白，每页都要有实质内容
+| 模板类型 | 字段 | 字数限制 |
+|---------|------|---------|
+| title_slide | title | 10-20 字 |
+| title_slide | subtitle | 15-30 字 |
+| agenda | 每条 item | 10-20 字 |
+| section_divider | title | 8-15 字 |
+| section_divider | subtitle | 15-25 字 |
+| content_slide | 每条 bullet | 25-35 字（含概念:说明格式），最多 6 条 |
+| image_text | header | 10-15 字 |
+| image_text | paragraph | 300-450 字自然语言段落 |
+| card_grid | header | 8-15 字 |
+| card_grid | body | 40-60 字 |
+| stat_slide | 下方 analysis | 350-400 字 |
+| kpi_dashboard | 下方 analysis | 350-450 字 |
+| deep_dive | 每条 key_point | 15-25 字 |
+| deep_dive | 每条 case/data | 20-35 字 |
+| two_column / three_column | header | 8-12 字 |
+| two_column | 每条 bullet | 15-30 字 |
+| process_flow | title | 8-15 字 / desc | 15-25 字 |
+| quote_slide | quote | 30-100 字 / attribution | 10-30 字 |
+| summary_slide | 每条 key_point | 20-30 字，最多 4 条 |
+| case_study | context | 70-100 字 |
+| case_study | problem | 70-100 字 |
+| case_study | solution | 150-200 字 |
+| comparison_table | 单元格 | 8-20 字 |
+| image_hero | title | 8-20 字 / subtitle | 10-25 字 |
+| example_detail | context_block | 80-120 字 / solution_block | 150-200 字 |
+
+通用规则：禁止花括号占位符、禁止"某公司"等匿名实体、每条 bullet 必须包含具体数据或事实。
 
 ## 【必须使用 content_plan】内容结构使用规则
 
@@ -112,9 +135,8 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 ### image_text（图文混排）:
 - summary → 对应生成器的 lede 参数
-- elements 中 type=bullet_list → 忽略，**必须**只用 elements 中 type=example_box 的 description
-- 如果有 example_box：description → 生成器的 paragraph 参数（300-450 字），header → 生成器的 header 参数，sub_header → 生成器的 sub_header 参数
-- **禁止**将 example_box 的 description 拆分成 bullets，必须以自然语言段落形式传入 paragraph
+- 如果 elements 中有 type=example_box：description → 生成器的 paragraph 参数（300-450 字），header → 生成器的 header 参数，sub_header → 生成器的 sub_header 参数，**禁止**将 example_box 的 description 拆分成 bullets
+- **如果没有 example_box**：将 description 字段的内容（300-400 字自然语言）直接作为 paragraph 参数传入，header 使用 slide title
 
 ### deep_dive（双栏详解）:
 - summary → 对应生成器的 lede 参数

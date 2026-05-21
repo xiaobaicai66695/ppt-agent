@@ -1,5 +1,19 @@
 # Output
 output/
+skills/visual_designer/generators/output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
 
 # Frontend
 frontend/node_modules/

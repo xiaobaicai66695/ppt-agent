@@ -8,15 +8,18 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
+	"github.com/cloudwego/ppt-agent/pkg/session"
+	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/task"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
@@ -24,13 +27,21 @@ import (
 // Server provides REST API + SSE streaming + static frontend via Gin.
 type Server struct {
 	tasks          *task.TaskManager
+	sessionManager *session.SessionManager
+	styleStore     *style.ProfileStore
+	styleExtractor *style.Extractor
 	agentFactory   task.AgentFactory
 	makeTaskConfig func(taskID string) *deep.PPTTaskConfig
 	taskIDGen      func() string
 	engine         *gin.Engine
 	addr           string
-	templateLoader    *templates.Loader
-	aiModelFactory  func(ctx context.Context) (interface {
+	templateLoader *templates.Loader
+	aiModelFactory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error)
+	// textModelFactory creates a lightweight model for side-tasks like intent classification.
+	// Uses ARK_TEXT_MODEL env var to keep costs low. Falls back to AIModelFactory if nil.
+	textModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
 }
@@ -44,6 +55,14 @@ type ServerConfig struct {
 	AgentFactory   task.AgentFactory
 	MakeTaskConfig func(taskID string) *deep.PPTTaskConfig
 	AIModelFactory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error)
+	// StyleModelFactory creates a model for LLM-driven style extraction.
+	// If nil, falls back to rule-based extraction.
+	StyleModelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
+	// TextModelFactory creates a lightweight text model for side-tasks like intent classification.
+	// Uses ARK_TEXT_MODEL env var (cheaper). Falls back to AIModelFactory if nil.
+	TextModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
 }
@@ -71,14 +90,26 @@ func NewServer(cfg *ServerConfig) *Server {
 	}))
 
 	s := &Server{
-		tasks:          task.NewTaskManager(cfg.BaseDir),
-		agentFactory:   cfg.AgentFactory,
-		makeTaskConfig: cfg.MakeTaskConfig,
-		taskIDGen:      func() string { return uuid.New().String() },
-		engine:         engine,
-		addr:           cfg.Addr,
-		aiModelFactory: cfg.AIModelFactory,
+		sessionManager:   session.NewSessionManager(),
+		styleStore:       style.NewProfileStore(cfg.BaseDir),
+		agentFactory:     cfg.AgentFactory,
+		makeTaskConfig:   cfg.MakeTaskConfig,
+		taskIDGen:        func() string { return uuid.New().String() },
+		engine:           engine,
+		addr:             cfg.Addr,
+		aiModelFactory:   cfg.AIModelFactory,
+		textModelFactory: cfg.TextModelFactory,
 	}
+
+	// LLM 驱动的风格提取器（从 PPTX 文本内容分析用户偏好）
+	if cfg.StyleModelFactory != nil {
+		s.styleExtractor = style.NewExtractor(cfg.StyleModelFactory)
+	}
+
+	// Create task manager with style update callback
+	s.tasks = task.NewTaskManager(cfg.BaseDir, func(userID int, workDir, query string) {
+		s.updateUserStyleFromTask(userID, workDir, query)
+	})
 
 	// Initialize template loader
 	presetsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "full-decks")
@@ -107,6 +138,19 @@ func NewServer(cfg *ServerConfig) *Server {
 		tasks.GET("/:id/thumb/:filename", s.handleThumbnail)
 		tasks.POST("/:id/cancel", s.handleCancelTask)
 		tasks.DELETE("/:id", s.handleDeleteTask)
+		// Session/continue routes
+		tasks.POST("/:id/continue", s.handleContinueTask)
+		tasks.GET("/:id/conversation", s.handleGetConversation)
+		tasks.GET("/:id/events", s.handleListTaskEvents)
+	}
+
+	// User profile routes (protected)
+	users := engine.Group("/api/users")
+	users.Use(s.authMiddleware())
+	{
+		users.GET("/me/profile", s.handleGetUserProfile)
+		users.PUT("/me/profile", s.handleUpdateUserProfile)
+		users.POST("/me/profile/reset", s.handleResetUserProfile)
 	}
 
 	// Template routes (public)
@@ -124,6 +168,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	ai := engine.Group("/api/ai")
 	{
 		ai.POST("/expand", s.handleAIExpand)
+		ai.POST("/generate-outline", s.handleAIGenerateOutline)
 	}
 
 	// Metrics

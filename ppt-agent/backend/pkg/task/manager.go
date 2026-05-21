@@ -69,13 +69,29 @@ type TaskInfo struct {
 
 // TaskState holds the internal state of a single task.
 type TaskState struct {
-	Info          TaskInfo
-	Events        []SSERichEvent
-	listeners     map[string]chan SSERichEvent
-	cancel        context.CancelFunc
-	result        *deep.PPTTaskResult
-	reportedFiles map[string]bool
-	Mu            sync.Mutex
+	Info            TaskInfo
+	Events          []SSERichEvent
+	listeners       map[string]chan SSERichEvent
+	cancel          context.CancelFunc
+	result          *deep.PPTTaskResult
+	reportedFiles   map[string]bool
+	pendingDBEvents []SSERichEvent // buffered before batch-write to MySQL
+	Mu              sync.Mutex
+}
+
+// Persist persists the task state to the database.
+func (ts *TaskState) Persist() {
+	ts.persist()
+}
+
+// ReportedFiles returns the set of reported files.
+func (ts *TaskState) ReportedFiles() map[string]bool {
+	return ts.reportedFiles
+}
+
+// SetReportedFile marks a file as reported.
+func (ts *TaskState) SetReportedFile(name string) {
+	ts.reportedFiles[name] = true
 }
 
 func (ts *TaskState) AddListener(id string, ch chan SSERichEvent) {
@@ -107,7 +123,39 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		default:
 		}
 	}
+	// Async persist to MySQL (fire-and-forget, non-blocking)
+	if db.DB != nil && isPersistableEvent(event.Type) {
+		ts.pendingDBEvents = append(ts.pendingDBEvents, event)
+		if len(ts.pendingDBEvents) >= 20 {
+			ts.flushEventsToDB()
+		}
+	}
 	ts.Mu.Unlock()
+}
+
+// pendingDBEvents buffers events before batch-write to MySQL.
+// Access protected by ts.Mu.
+func (ts *TaskState) flushEventsToDB() {
+	if len(ts.pendingDBEvents) == 0 {
+		return
+	}
+	events := make([]db.TaskEvent, len(ts.pendingDBEvents))
+	for i, e := range ts.pendingDBEvents {
+		content, _ := json.Marshal(e)
+		events[i] = db.TaskEvent{
+			TaskID:    ts.Info.ID,
+			Type:      e.Type,
+			Content:   string(content),
+			CreatedAt: time.Now(),
+		}
+	}
+	ts.pendingDBEvents = nil
+	// Write in background goroutine so we don't block the mutex
+	go func() {
+		if err := db.BatchCreateTaskEvents(events); err != nil {
+			logger.Error("flush_events_db_failed", "task_id", ts.Info.ID, "error", err.Error())
+		}
+	}()
 }
 
 func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
@@ -127,24 +175,26 @@ func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
 
 // TaskManager manages the lifecycle of all PPT generation tasks.
 type TaskManager struct {
-	mu      sync.RWMutex
-	tasks   map[string]*TaskState
-	baseDir string
+	mu               sync.RWMutex
+	tasks            map[string]*TaskState
+	baseDir          string
+	onTaskComplete   func(userID int, workDir string, query string)
 }
 
 // NewTaskManager creates a new TaskManager. baseDir is the parent directory
 // under which per-task output directories are created.
 // If a MySQL DB is available, previously running tasks are marked as failed
 // (the owning process no longer exists).
-func NewTaskManager(baseDir string) *TaskManager {
+func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir string, query string)) *TaskManager {
 	if db.DB != nil {
 		if err := db.MarkZombieTasks(); err != nil {
 			logger.Error("mark_zombie_tasks_failed", "error", err.Error())
 		}
 	}
 	return &TaskManager{
-		tasks:   make(map[string]*TaskState),
-		baseDir: baseDir,
+		tasks:          make(map[string]*TaskState),
+		baseDir:        baseDir,
+		onTaskComplete: onTaskComplete,
 	}
 }
 
@@ -309,13 +359,15 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	go tm.pollProgress(progressCtx, ts, cfg.WorkDir)
 
 	result, err := deep.RunPPTTaskDeepAgentWithCallback(ctx, agent, cfg, query, func(event deep.AgentEvent) {
-		ts.Broadcast(SSERichEvent{
-			Type:     event.Type,
-			Content:  event.Content,
-			ToolName: event.ToolName,
-			ToolArgs: event.ToolArgs,
-			Error:    event.Error,
-		})
+		if event.Type != "tool_call" && event.Type != "token_usage" {
+			ts.Broadcast(SSERichEvent{
+				Type:     event.Type,
+				Content:  event.Content,
+				ToolName: event.ToolName,
+				ToolArgs: event.ToolArgs,
+				Error:    event.Error,
+			})
+		}
 	})
 
 	ts.Mu.Lock()
@@ -373,6 +425,11 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		finalEvent.Message = result.Message
 	}
 	ts.Broadcast(finalEvent)
+
+	// 触发任务完成回调，更新用户风格偏好
+	if tm.onTaskComplete != nil && ts.Info.UserID > 0 && ts.Info.Status == TaskStatusCompleted {
+		go tm.onTaskComplete(ts.Info.UserID, ts.Info.WorkDir, ts.Info.Query)
+	}
 }
 
 func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir string) {
@@ -454,7 +511,10 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 
 func (tm *TaskManager) cleanupTask(ts *TaskState) {
 	ts.Mu.Lock()
-	defer ts.Mu.Unlock()
+	// Flush remaining events to DB before cleanup
+	if db.DB != nil && len(ts.pendingDBEvents) > 0 {
+		ts.flushEventsToDB()
+	}
 	for _, ch := range ts.listeners {
 		close(ch)
 	}
@@ -535,9 +595,6 @@ func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
 		}
 	}
 
-	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-		result[i], result[j] = result[j], result[i]
-	}
 	return result
 }
 
@@ -576,8 +633,11 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	delete(tm.tasks, id)
 	tm.mu.Unlock()
 
-	// Delete DB record.
+	// Delete DB records.
 	if db.DB != nil {
+		if err := db.DeleteTaskEvents(id); err != nil {
+			logger.Error("db_delete_events_failed", "task_id", id, "error", err.Error())
+		}
 		if err := db.DeleteTaskRecord(id); err != nil {
 			logger.Error("db_delete_task_failed", "task_id", id, "error", err.Error())
 		}
@@ -628,7 +688,7 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 	tasks := make([]*deep.TaskItem, 0, len(outline.Slides))
 	for i, slide := range outline.Slides {
 		safeTitle := sanitizeFilename(slide.Title)
-		tasks = append(tasks, &deep.TaskItem{
+		item := &deep.TaskItem{
 			TaskID:      fmt.Sprintf("slide-%d", i+1),
 			PageIndex:   i + 1,
 			Title:       slide.Title,
@@ -637,13 +697,90 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
 			Status:      deep.StatusPending,
 			CreatedAt:   time.Now().Format(time.RFC3339),
-		})
+		}
+		// Carry through content_plan if present
+		if slide.ContentPlan != nil {
+			item.ContentPlan = &deep.ContentPlan{
+				Summary:  slide.ContentPlan.Summary,
+				Elements: make([]deep.ContentElement, len(slide.ContentPlan.Elements)),
+			}
+			copy(item.ContentPlan.Elements, slide.ContentPlan.Elements)
+		}
+		tasks = append(tasks, item)
 	}
 	return &deep.TasksManifest{
-		Title: outline.Title,
-		Theme: outline.Theme,
-		Tasks: tasks,
+		Title:    outline.Title,
+		Theme:    outline.Theme,
+		Template: outline.Template,
+		Tasks:    tasks,
 	}
+}
+
+// isPersistableEvent returns true for events worth storing in MySQL.
+// Tool calls, progress ticks, file_ready, token_usage are excluded —
+// they are high-volume execution artifacts with no context value for later queries.
+func isPersistableEvent(typ string) bool {
+	switch typ {
+	case "answer", "error", "complete", "continue_complete":
+		return true
+	}
+	return false
+}
+
+// BuildContinueContext constructs a compact LLM context for task continuation.
+// It includes: task summary → tasks.json snapshot → last conversation turns.
+func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) string {
+	var b strings.Builder
+	ts := tm.GetTaskState(taskID)
+	if ts == nil {
+		return ""
+	}
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+
+	b.WriteString("## 任务摘要\n")
+	b.WriteString(fmt.Sprintf("- 状态: %s | 进度: %d/%d | 耗时: %s\n",
+		ts.Info.Status, ts.Info.DoneCount, ts.Info.TotalCount, ts.Info.Duration))
+	if ts.Info.Error != "" {
+		b.WriteString(fmt.Sprintf("- 错误: %s\n", ts.Info.Error))
+	}
+
+	// tasks.json snapshot
+	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
+	if err == nil && manifest != nil {
+		b.WriteString("\n## 当前页面列表\n")
+		b.WriteString("| # | 标题 | 类型 | 状态 | QA |\n")
+		b.WriteString("|---|------|------|------|----|\n")
+		for _, t := range manifest.Tasks {
+			qa := ""
+			if t.QAReport != "" {
+				qa = "有报告"
+			}
+			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s |\n",
+				t.PageIndex, t.Title, t.ContentType, t.Status, qa))
+		}
+	}
+
+	// Last N conversation turns (answer/error events only)
+	b.WriteString(fmt.Sprintf("\n## 最近 %d 轮对话\n", lastMessages))
+	count := 0
+	for i := len(ts.Events) - 1; i >= 0 && count < lastMessages; i-- {
+		e := ts.Events[i]
+		if e.Type == "answer" || e.Type == "error" {
+			prefix := "assistant"
+			if e.Type == "error" {
+				prefix = "error"
+			}
+			content := e.Content
+			if len(content) > 500 {
+				content = content[:500] + "..."
+			}
+			b.WriteString(fmt.Sprintf("[%s]: %s\n", prefix, content))
+			count++
+		}
+	}
+
+	return b.String()
 }
 
 // sanitizeFilename removes/replaces characters that are problematic in filenames

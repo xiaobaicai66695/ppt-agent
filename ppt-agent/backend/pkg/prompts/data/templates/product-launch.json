@@ -5,20 +5,19 @@
   "description": "新产品发布会、产品宣讲、客户演示，强调价值主张和差异化优势",
   "category": "biz",
   "default_palette": "charcoal_light",
-  "tags": ["产品", "发布", "演示"],
   "thumbnail": "/templates/thumbs/product-launch.png",
   "slide_count": 14,
   "default_slides": [
-    {"title": "产品名称", "content_type": "title_slide", "description": "产品名称和 tagline"},
-    {"title": "市场机会", "content_type": "content_slide", "description": "市场需求和痛点分析"},
-    {"title": "我们的方案", "content_type": "section_divider", "description": "章节标题：我们的方案"},
-    {"title": "产品概述", "content_type": "content_slide", "description": "产品核心功能和定位"},
-    {"title": "核心功能", "content_type": "card_grid", "description": "4-6个核心功能亮点"},
-    {"title": "技术架构", "content_type": "image_text", "description": "产品技术架构图"},
-    {"title": "差异化优势", "content_type": "two_column", "description": "与竞品的对比分析"},
-    {"title": "应用场景", "content_type": "content_slide", "description": "典型使用场景展示"},
-    {"title": "客户价值", "content_type": "stat_slide", "description": "4个核心价值指标"},
-    {"title": "合作方式", "content_type": "content_slide", "description": "合作模式和定价策略"},
-    {"title": "联系我们", "content_type": "title_slide", "description": "联系方式和二维码"}
+    {"title": "产品名称", "content_type": "title_slide", "description": ""},
+    {"title": "市场机会", "content_type": "content_slide", "description": ""},
+    {"title": "我们的方案", "content_type": "section_divider", "description": ""},
+    {"title": "产品概述", "content_type": "content_slide", "description": ""},
+    {"title": "核心功能", "content_type": "card_grid", "description": ""},
+    {"title": "技术架构", "content_type": "image_text", "description": ""},
+    {"title": "差异化优势", "content_type": "two_column", "description": ""},
+    {"title": "应用场景", "content_type": "content_slide", "description": ""},
+    {"title": "客户价值", "content_type": "stat_slide", "description": ""},
+    {"title": "合作方式", "content_type": "content_slide", "description": ""},
+    {"title": "联系我们", "content_type": "title_slide", "description": ""}
   ]
 }

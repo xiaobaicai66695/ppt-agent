@@ -5,22 +5,73 @@
   "description": "大创/挑战杯/互联网+等科创竞赛汇报，创新性强，数据支撑",
   "category": "edu",
   "default_palette": "warm_terracotta",
-  "tags": ["竞赛", "创新", "科创"],
+  "tags": [
+    "竞赛",
+    "创新",
+    "科创"
+  ],
   "thumbnail": "/templates/thumbs/innovation-compete.png",
-  "slide_count": 16,
+  "slide_count": 12,
   "default_slides": [
-    {"title": "项目名称", "content_type": "title_slide", "description": "项目名称和团队信息"},
-    {"title": "项目简介", "content_type": "content_slide", "description": "一句话介绍项目"},
-    {"title": "创新亮点", "content_type": "card_grid", "description": "3-4个核心创新点"},
-    {"title": "问题与方案", "content_type": "section_divider", "description": "章节标题：问题与方案"},
-    {"title": "痛点分析", "content_type": "content_slide", "description": "解决的问题和痛点"},
-    {"title": "解决方案", "content_type": "content_slide", "description": "创新解决方案"},
-    {"title": "技术实现", "content_type": "image_text", "description": "技术架构图"},
-    {"title": "成果展示", "content_type": "section_divider", "description": "章节标题：成果展示"},
-    {"title": "核心功能", "content_type": "content_slide", "description": "主要功能演示"},
-    {"title": "数据成效", "content_type": "stat_slide", "description": "4-6个关键指标"},
-    {"title": "团队协作", "content_type": "content_slide", "description": "团队分工和协作"},
-    {"title": "未来规划", "content_type": "timeline", "description": "发展计划和目标"},
-    {"title": "总结", "content_type": "summary_slide", "description": "项目总结和致谢"}
+    {
+      "title": "封面页",
+      "content_type": "title_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "卡片网格页",
+      "content_type": "card_grid",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "图文排版页",
+      "content_type": "image_text",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "数据指标页",
+      "content_type": "stat_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "总结页",
+      "content_type": "summary_slide",
+      "description": ""
+    }
   ]
 }

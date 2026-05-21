@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -215,6 +216,7 @@ func NewLogHandler() callbacks.Handler {
 			case components.ComponentOfChatModel:
 				logger.Default().Info("llm_call_start", fields...)
 			case adk.ComponentOfAgent:
+				metrics.RecordAgentCall(agentName)
 				logger.Default().Info("agent_start", fields...)
 			}
 			return ctx
@@ -270,6 +272,20 @@ func NewLogHandler() callbacks.Handler {
 				"name", info.Name,
 				"error", err.Error(),
 			)
+
+			if info != nil {
+				errStr := err.Error()
+				switch info.Component {
+				case components.ComponentOfChatModel:
+					if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "RateLimit") {
+						metrics.RecordLLMCall("rate_limit")
+					} else {
+						metrics.RecordLLMCall("error")
+					}
+				case components.ComponentOfTool:
+					metrics.RecordToolCall(info.Name, "error")
+				}
+			}
 			return ctx
 		}).
 		OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {

@@ -9,7 +9,7 @@ generators 包位于 skills/visual_designer/generators/，python3 执行时按�
 2. generators_pkg_dir = (script_dir / ".." / ".." / "skills" / "visual_designer").resolve()
    **注意：添加的是父目录（skills/visual_designer），不是 generators/ 文件夹本身**
 3. sys.path.insert(0, str(generators_pkg_dir))
-4. from generators import { new_presentation, save_presentation, save_slide, generate_title_slide, generate_section_divider, generate_content_slide, generate_stat_slide, generate_quote_slide, generate_card_grid, generate_timeline, generate_process_flow, generate_two_column, generate_three_column, generate_summary_slide, generate_image_text }
+4. from generators import { new_presentation, save_presentation, save_slide, generate_title_slide, generate_section_divider, generate_content_slide, generate_stat_slide, generate_quote_slide, generate_card_grid, generate_process_flow, generate_two_column, generate_three_column, generate_summary_slide, generate_image_text }
 
 ### 调用规范（必须严格遵守）
 
@@ -56,13 +56,29 @@ ocean_soft / sage_calm / warm_terracotta / charcoal_light / berry_cream / lavend
 - update_progress 和 single_qa_review 必须传入该 PPTX 的完整文件名（不含 .pptx 后缀）
 - 当前任务中明确标注了「输出文件」，调用时传入该文件名
 
-## 内容质量 - 核心要求
+## 内容质量 — 各模板字数限制（必须严格遵守）
 
-- Planner 的 content_plan 是最低内容基准，必须在此基础上主动扩充，不能照搬原文或简单翻译
-- 每个子页的 bullet_list items：必须包含具体数据、指标、效果数字（如准确率、延迟、规模、成本）
-- 每个子页的 example_box description：必须包含技术细节、参数指标、实测效果，不能只是"某系统使用了AI"
-- 每个子页的 callout text：必须有数字支撑或具体论据，不能只是空泛的口号
-- 所有案例/数据/指标必须通过 search 工具搜索真实信息验证或补充，禁止凭空捏造
+| 模板类型 | 字段 | 字数限制 |
+|---------|------|---------|
+| title_slide | title | 10-20 字 / subtitle | 15-30 字 |
+| agenda | 每条 item | 10-20 字 |
+| section_divider | title | 8-15 字 / subtitle | 15-25 字 |
+| content_slide | 每条 bullet | 25-35 字，最多 6 条 |
+| image_text | header | 10-15 字 / paragraph | 300-450 字 |
+| card_grid | header | 8-15 字 / body | 40-60 字 |
+| stat_slide | 下方 analysis | 350-400 字 |
+| kpi_dashboard | 下方 analysis | 350-450 字 |
+| deep_dive | key_point | 15-25 字 / case | 20-35 字 |
+| two_column / three_column | header | 8-12 字，每条 bullet | 15-30 字 |
+| process_flow | title | 8-15 字 / desc | 15-25 字 |
+| quote_slide | quote | 30-100 字 / attribution | 10-30 字 |
+| summary_slide | key_point | 20-30 字，最多 4 条 |
+| case_study | context | 70-100 字 / problem | 70-100 字 / solution | 150-200 字 |
+| comparison_table | 单元格 | 8-20 字 |
+| image_hero | title | 8-20 字 / subtitle | 10-25 字 |
+| example_detail | context_block | 80-120 字 / solution_block | 150-200 字 |
+
+通用规则：禁止花括号占位符、禁止"某公司"等匿名实体、每条 bullet 必须包含具体数据或事实。所有案例/数据/指标必须通过 search 工具搜索真实信息验证。
 
 ## 搜索规范（必须严格遵守）
 

@@ -5,23 +5,83 @@
   "description": "内部培训、新人入职培训、技能培训，知识系统，互动引导",
   "category": "work",
   "default_palette": "education_blue",
-  "tags": ["培训", "入职", "技能"],
+  "tags": [
+    "培训",
+    "入职",
+    "技能"
+  ],
   "thumbnail": "/templates/thumbs/training-course.png",
   "slide_count": 16,
   "default_slides": [
-    {"title": "培训主题", "content_type": "title_slide", "description": "培训名称和讲师信息"},
-    {"title": "培训目标", "content_type": "content_slide", "description": "3-4个培训目标"},
-    {"title": "目录", "content_type": "agenda", "description": "培训内容大纲"},
-    {"title": "模块一", "content_type": "section_divider", "description": "章节标题：基础知识"},
-    {"title": "概念介绍", "content_type": "content_slide", "description": "核心概念讲解"},
-    {"title": "基础操作", "content_type": "process_flow", "description": "基本操作步骤"},
-    {"title": "模块二", "content_type": "section_divider", "description": "章节标题：进阶技能"},
-    {"title": "高级功能", "content_type": "content_slide", "description": "进阶功能介绍"},
-    {"title": "实战演练", "content_type": "two_column", "description": "实践练习指导"},
-    {"title": "模块三", "content_type": "section_divider", "description": "章节标题：最佳实践"},
-    {"title": "经验分享", "content_type": "content_slide", "description": "实用技巧和经验"},
-    {"title": "常见问题", "content_type": "content_slide", "description": "FAQ 和解决方案"},
-    {"title": "考核与总结", "content_type": "summary_slide", "description": "考核说明和要点回顾"},
-    {"title": "课后任务", "content_type": "content_slide", "description": "课后练习和作业"}
+    {
+      "title": "封面页",
+      "content_type": "title_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "目录页",
+      "content_type": "agenda",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "流程图页",
+      "content_type": "process_flow",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "双栏对比页",
+      "content_type": "two_column",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "总结页",
+      "content_type": "summary_slide",
+      "description": ""
+    },
+    {
+      "title": "内容页",
+      "content_type": "content_slide",
+      "description": ""
+    }
   ]
 }

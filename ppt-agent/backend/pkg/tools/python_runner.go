@@ -149,13 +149,24 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		wd, _ = os.Getwd()
 	}
 
-	tmpFile := filepath.Join(wd, "temp_script.py")
+	tmpFile := filepath.Join(wd, fmt.Sprintf("temp_script_%d.py", time.Now().UnixNano()))
 
 	// 3. Wrap code with safety guard: redirect dangerous builtins
-	safeCode := wrapWithSafetyGuard(input.Code)
-	if err := os.WriteFile(tmpFile, []byte(safeCode), 0o644); err != nil {
+	// Python-level safety guard is disabled by default — the Go-level
+	// dangerousPatterns regex (os.system, subprocess, exec, eval, curl|sh
+	// etc.) already catches real threats. The Python wrapper was too
+	// aggressive and broke legitimate python-pptx usage (open(), import os).
+	// Set env PYTHON_SAFETY_GUARD=true to re-enable.
+	codeToWrite := input.Code
+	if os.Getenv("PYTHON_SAFETY_GUARD") == "true" {
+		codeToWrite = wrapWithSafetyGuard(input.Code)
+	}
+	if err := os.WriteFile(tmpFile, []byte(codeToWrite), 0o644); err != nil {
 		return fmt.Sprintf("failed to write temp file: %v", err), nil
 	}
+
+	// Ensure cleanup even on concurrent calls to same workDir
+	defer os.Remove(tmpFile)
 
 	// 4. Apply timeout to context
 	execCtx, cancel := context.WithTimeout(ctx, p.timeout)
@@ -167,9 +178,6 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	cmd := []string{pythonBin, tmpFile}
 	o := tool.GetImplSpecificOptions(&options{op: p.op}, opts...)
 	output, err := o.op.RunCommand(execCtx, cmd)
-
-	// Clean up temp file
-	os.Remove(tmpFile)
 
 	if err != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
@@ -208,11 +216,13 @@ func wrapWithSafetyGuard(code string) string {
 # Safety wrapper: restrict dangerous builtins
 import builtins as _b
 
+# ── Step 1: Capture originals BEFORE any replacement ──
+_ORIGINAL_IMPORT = __builtins__.__import__
+
 _FORBIDDEN = frozenset({"system", "popen", "exec", "eval", "compile", "__import__",
     "run", "check_output", "call", "Popen", "getoutput", "getstatusoutput",
-    "mkfifo", "mknod", "open", "file"})
-
-_orig = {k: getattr(_b, k) for k in _FORBIDDEN if hasattr(_b, k)}
+    "mkfifo", "mknod"})
+# NOTE: "open" and "file" are intentionally NOT blocked — pptx/zipfile internals use them.
 
 def _deny(*a, **k):
     raise RuntimeError("Dangerous function call blocked by safety guard")
@@ -225,13 +235,14 @@ for _f in _FORBIDDEN:
 
 import sys
 for _m in list(sys.modules.keys()):
-    if any(_m.startswith(p) for p in ("subprocess", "os", "shutil", "pathlib", "glob", "fnmatch")):
+    if any(_m.startswith(p) for p in ("subprocess", "shutil", "glob", "fnmatch")):
         try:
             del sys.modules[_m]
         except Exception:
             pass
 
-# Allowlist: only these modules are safe to import
+# Allowlist: only these modules are safe to import.
+# os/pathlib/sys/copy are required by generators and pptx internals.
 _ALLOWED_MODULES = frozenset({
     "pptx", "pptx.util", "pptx.dml", "pptx.enum", "pptx.oxml",
     "jinja2", "markupsafe", "PIL", "PIL.Image", "PIL.JpegImagePlugin",
@@ -239,15 +250,14 @@ _ALLOWED_MODULES = frozenset({
     "reportlab", "reportlab.pdfgen", "reportlab.platypus",
     "matplotlib", "numpy", "json", "re", "datetime", "uuid",
     "collections", "functools", "itertools", "math", "random",
-    "typing", "pathlib", "os.path", "shutil",
+    "typing", "os", "os.path", "sys", "copy", "pathlib", "shutil",
 })
 
-_original_import = __builtins__.__import__
 def _safe_import(name, *a, **k):
     base = name.split(".")[0]
     if base not in _ALLOWED_MODULES and base not in dir(_b):
         raise ImportError(f"Import of '{name}' is not allowed in sandboxed mode")
-    return _original_import(name, *a, **k)
+    return _ORIGINAL_IMPORT(name, *a, **k)
 
 if hasattr(__builtins__, '__import__'):
     __builtins__.__import__ = _safe_import
@@ -257,7 +267,7 @@ else:
 # Disable file write outside work dir (will be set by caller)
 # We rely on the work dir restriction from the Go side instead.
 
-`, "python_safety_guard")
+`)
 
 	return guard + "\n# --- User Code ---\n" + code
 }

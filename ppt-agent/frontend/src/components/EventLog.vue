@@ -32,7 +32,7 @@ watch(
 
 <template>
   <div class="event-log-section">
-    <div class="log-header" @click="autoScroll = !autoScroll" style="cursor:pointer">
+    <div class="log-header" @click="autoScroll = !autoScroll" :title="autoScroll ? '点击暂停滚动' : '点击恢复自动滚动'">
       <span class="log-title">事件日志</span>
       <span v-if="lines.length" class="log-badge">{{ lines.length }}</span>
       <span class="log-scroll-state">{{ autoScroll ? '(自动滚动)' : '(已暂停)' }}</span>
@@ -71,21 +71,21 @@ watch(
 .log-header {
   display: flex; align-items: center; gap: 0.4rem;
   margin-bottom: 0.5rem; font-size: 0.8rem; font-weight: 600;
-  user-select: none;
+  user-select: none; cursor: pointer;
 }
-.log-title { color: var(--c-text); }
+.log-title { color: var(--text); }
 .log-badge {
-  font-size: 0.65rem; background: var(--c-bg);
+  font-size: 0.65rem; background: var(--bg-muted);
   padding: 0.1rem 0.4rem; border-radius: 999px;
 }
 .log-scroll-state {
-  font-size: 0.65rem; color: var(--c-text-muted); font-weight: 400;
+  font-size: 0.65rem; color: var(--text-muted); font-weight: 400;
   margin-left: auto;
 }
 .log-box {
   flex: 1; min-height: 0;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.7rem 0.9rem;
   overflow-y: auto;
@@ -95,13 +95,13 @@ watch(
 }
 .log-box::-webkit-scrollbar { width: 4px; }
 .log-box::-webkit-scrollbar-track { background: transparent; }
-.log-box::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+.log-box::-webkit-scrollbar-thumb { background: var(--text-disabled); border-radius: 2px; }
 
 .log-empty {
   display: flex; align-items: center; gap: 0.5rem;
-  color: var(--c-text-muted); font-style: italic; font-family: inherit;
+  color: var(--text-muted); font-style: italic; font-family: inherit;
 }
-.empty-dot { color: #d1d5db; animation: pulse 2s infinite; }
+.empty-dot { color: var(--text-disabled); animation: pulse 2s infinite; }
 
 .log-line {
   display: flex; align-items: baseline; gap: 0.5rem;
@@ -109,60 +109,60 @@ watch(
 }
 .log-line.answer { align-items: flex-start; }
 .log-ts {
-  color: #cbd5e1; flex-shrink: 0;
+  color: var(--text-disabled); flex-shrink: 0;
   font-size: 0.62rem; min-width: 4.5em;
 }
 .log-dot {
   width: 4px; height: 4px; border-radius: 50%;
-  background: #d1d5db; flex-shrink: 0; margin-top: 0.4em;
+  background: var(--text-disabled); flex-shrink: 0; margin-top: 0.4em;
 }
-.log-dot.worker { background: #f59e0b; animation: pulse 1s infinite; }
-.log-dot.file { background: #10b981; }
-.log-dot.tool { background: #a78bfa; }
-.log-dot.error { background: #fca5a5; }
+.log-dot.worker { background: var(--log-worker-bg); animation: pulse 1s infinite; }
+.log-dot.file { background: var(--log-file-bg); }
+.log-dot.tool { background: var(--log-tool-bg); }
+.log-dot.error { background: var(--log-error-bg); }
 
 .log-text {
-  color: var(--c-text-2);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
-.log-line.tool .log-text { color: #6d28d9; }
-.log-line.error .log-text { color: #dc2626; }
-.log-line.worker .log-text { color: #b45309; font-weight: 500; }
-.log-line.file .log-text { color: #059669; }
+.log-line.tool .log-text { color: var(--log-tool-text); }
+.log-line.error .log-text { color: var(--log-error-text); }
+.log-line.worker .log-text { color: var(--log-worker-text); font-weight: 500; }
+.log-line.file .log-text { color: var(--log-file-text); }
 .log-line.divider {
   justify-content: center; padding: 0.3rem 0; font-family: inherit;
 }
 .log-line.divider .log-text {
-  color: #cbd5e1; font-size: 0.62rem;
+  color: var(--text-disabled); font-size: 0.62rem;
 }
 
 /* Markdown styles */
 .log-text :deep(.md-h1) {
   display: block; font-size: 1.1em; font-weight: 700;
-  color: var(--c-text); margin: 0.4em 0 0.2em;
+  color: var(--text); margin: 0.4em 0 0.2em;
 }
 .log-text :deep(.md-h2) {
   display: block; font-size: 1em; font-weight: 700;
-  color: var(--c-text); margin: 0.35em 0 0.15em;
+  color: var(--text); margin: 0.35em 0 0.15em;
 }
 .log-text :deep(.md-h3) {
   display: block; font-size: 0.9em; font-weight: 600;
-  color: var(--c-text-2); margin: 0.3em 0 0.1em;
+  color: var(--text-secondary); margin: 0.3em 0 0.1em;
 }
 .log-text :deep(.md-hr) {
   display: block; height: 0;
-  border-bottom: 1px dashed #e2e8f0; margin: 0.4em 0;
+  border-bottom: 1px dashed var(--border); margin: 0.4em 0;
 }
 .log-text :deep(.md-code) {
-  background: #f1f5f9; padding: 0.1em 0.3em;
+  background: var(--bg-muted); padding: 0.1em 0.3em;
   border-radius: 3px; font-size: 0.9em;
 }
 .log-text :deep(.md-path) {
-  background: var(--c-primary-light); color: var(--c-primary);
+  background: var(--accent-soft); color: var(--accent);
   padding: 0.1em 0.3em; border-radius: 3px;
 }
-.log-text :deep(strong) { font-weight: 600; color: var(--c-text); }
+.log-text :deep(strong) { font-weight: 600; color: var(--text); }
 
 /* Transitions */
 .log-enter-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }

@@ -46,6 +46,7 @@ import (
 //go:embed *.tmpl
 //go:embed deep/*.tmpl
 //go:embed planexecute/*.tmpl
+//go:embed style/*.tmpl
 var FS embed.FS
 
 // TemplateData holds the data fields used across prompt templates.
@@ -67,6 +68,11 @@ type TemplateData struct {
 	RemainingPlan    string // Remaining slides plan
 	QASummary        string // QA result summary
 	HasOutline       bool   // True if user provided structured outline (skip planning)
+	OutlineQuery     string // User's original topic query (used when HasOutline=true for content generation)
+	OutlineTemplate  string // Template name from user's outline (used when HasOutline=true)
+	OutlineTheme    string // Theme name from user's outline (used when HasOutline=true)
+	OutlineTitle    string // PPT title from user's outline (used when HasOutline=true)
+	StyleContext    string // User style preference context for personalized generation
 }
 
 // Render executes a named template with the given data and returns the rendered string.
@@ -97,4 +103,34 @@ func RenderDeepAgent(name string, data *TemplateData) (string, error) {
 // RenderPlanExecute renders planexecute agent templates.
 func RenderPlanExecute(name string, data *TemplateData) (string, error) {
 	return Render("planexecute/"+name, data)
+}
+
+// RenderStyleExtraction renders style extraction prompts.
+func RenderStyleExtraction(system, user string, data *StyleExtractionData) (sysOut, userOut string, err error) {
+	sysTmpl, err := template.ParseFS(FS, "style/"+system)
+	if err != nil {
+		return "", "", fmt.Errorf("prompts: parse style/%s: %w", system, err)
+	}
+	userTmpl, err := template.ParseFS(FS, "style/"+user)
+	if err != nil {
+		return "", "", fmt.Errorf("prompts: parse style/%s: %w", user, err)
+	}
+
+	var sysBuf, userBuf bytes.Buffer
+	if err := sysTmpl.Execute(&sysBuf, data); err != nil {
+		return "", "", fmt.Errorf("prompts: execute style/%s: %w", system, err)
+	}
+	if err := userTmpl.Execute(&userBuf, data); err != nil {
+		return "", "", fmt.Errorf("prompts: execute style/%s: %w", user, err)
+	}
+	return sysBuf.String(), userBuf.String(), nil
+}
+
+// StyleExtractionData holds template data for style extraction prompts.
+type StyleExtractionData struct {
+	UserQuery      string
+	Theme          string
+	PageCount      int
+	ContentTypes   string
+	TextContent    string
 }

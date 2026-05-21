@@ -25,8 +25,8 @@ defineProps<{
 .slide-placeholder {
   display: flex; align-items: center; gap: 0.75rem;
   padding: 1rem;
-  background: var(--c-surface);
-  border: 1px dashed var(--c-border);
+  background: var(--bg-base);
+  border: 1px dashed var(--border);
   border-radius: var(--radius);
   transition: all var(--transition);
 }
@@ -38,8 +38,8 @@ defineProps<{
 }
 .ph-idx {
   width: 36px; height: 36px; border-radius: 50%;
-  background: var(--c-border-light);
-  color: var(--c-text-muted);
+  background: var(--border-light);
+  color: var(--text-muted);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
 }
@@ -56,7 +56,7 @@ defineProps<{
 .ph-status-label {
   font-size: 0.7rem; font-weight: 600;
   display: flex; align-items: center; gap: 0.3rem;
-  color: var(--c-text-muted);
+  color: var(--text-muted);
 }
 .ph-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .ph-status-label .ph-dot { animation: pulse 0.8s infinite; }

@@ -2,8 +2,43 @@
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'error' | 'complete';
+export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'error' | 'complete' | 'continue_complete';
 export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
+
+// ── Session types ────────────────────────────────────────────────────────────
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface ConversationSession {
+  task_id: string;
+  messages: ConversationMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ── User profile types ──────────────────────────────────────────────────────
+
+export interface ContentTypeCount {
+  [key: string]: number;
+}
+
+export interface UserStyleProfile {
+  user_id: number;
+  preferred_themes: string[];
+  preferred_colors: string[];
+  content_patterns: string[];
+  layout_preferences: string[];
+  language_tone: string;
+  typical_page_count: number;
+  content_types: ContentTypeCount;
+  special_notes: string[];
+  task_count: number;
+  updated_at: string;
+}
 
 // ── Task types ──────────────────────────────────────────────────────────────
 

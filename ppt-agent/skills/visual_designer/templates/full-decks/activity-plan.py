@@ -37,10 +37,10 @@ TEMPLATE = {
         {
             "index": 1,
             "type": "title_slide",
-            "title": "\"凝心聚力 逐梦前行\"春季团建活动",
-            "subtitle": "挑战自我，熔炼团队，共创辉煌",
-            "author": "人力资源部",
-            "date": "2025年4月15日",
+            "title": "活动名称",
+            "subtitle": "活动口号/主题标语",
+            "author": "策划团队名称",
+            "date": "计划举办日期",
             "notes": "标题页有活力，吸引眼球",
             "filling_prompt": "必须填入真实内容：title 为活动名称，subtitle 为一句概括性口号，author 为策划团队，date 为计划举办日期。禁止保留花括号。"
         },
@@ -73,15 +73,15 @@ TEMPLATE = {
             "title": "活动背景与目标",
             "content_type": "example_detail",
             "kicker": "实例 · 活动背景",
-            "lede": "通过户外拓展活动，增强团队凝聚力，激发员工活力",
-            "context_block": "公司成立5年来，团队规模从20人发展到150人，但跨部门协作仍有提升空间。通过调研发现，65%的员工表示希望有更多团建活动来增进同事间的了解。同时，Q2季度项目压力大，员工普遍反映工作压力大、缺乏放松机会。",
-            "solution_block": "本次活动策划主题为'凝心聚力 逐梦前行'，目标包括：1）增进不同部门员工间的了解，打破沟通壁垒；2）释放工作压力，提升员工幸福感；3）培养团队协作精神，增强团队凝聚力；4）留下美好回忆，增强员工归属感。",
+            "lede": "通过活动，增强团队凝聚力，激发员工活力",
+            "context_block": "描述活动策划的背景、团队现状和预期效果（1-2句话）。",
+            "solution_block": "具体说明活动核心创意和执行亮点（2-3句话）。",
             "metrics": [
-                {"value": "150人", "label": "预计参与人数", "trend": "全员参与"},
-                {"value": "1天", "label": "活动时长", "trend": "周六整天"},
-                {"value": "8万", "label": "总预算", "trend": "人均约530元"}
+                {"value": "人数", "label": "预计参与人数", "trend": "参与范围"},
+                {"value": "时长", "label": "活动时长", "trend": "时间安排"},
+                {"value": "预算", "label": "总预算", "trend": "人均预算"}
             ],
-            "takeaway": "启示：一次好的团建活动，能够激发团队活力，增强组织粘性",
+            "takeaway": "一句话总结活动意义。",
             "notes": "说明为什么举办这个活动",
             "filling_prompt": "必须填入真实内容：lede 一句话概括活动核心理念；context_block 描述策划背景和预期效果（1-2句话）；solution_block 具体说明活动核心创意和执行亮点（2-3句话）；metrics_grid 提供3个活动指标；takeaway 用一句话总结活动意义。"
         },
@@ -100,13 +100,9 @@ TEMPLATE = {
             "content_type": "timeline",
             "layout_hint": "horizontal",
             "milestones": [
-                {"time": "08:00-08:30", "event": "集合出发", "duration": "30分钟", "location": "公司楼下"},
-                {"time": "08:30-09:30", "event": "车程+热身", "duration": "1小时", "location": "大巴车上"},
-                {"time": "09:30-10:00", "event": "开场仪式", "duration": "30分钟", "location": "营地"},
-                {"time": "10:00-12:00", "event": "团队挑战赛", "duration": "2小时", "location": "营地"},
-                {"time": "12:00-13:30", "event": "午餐+休息", "duration": "1.5小时", "location": "餐厅"},
-                {"time": "13:30-16:30", "event": "自由活动+颁奖", "duration": "3小时", "location": "营地"},
-                {"time": "16:30-17:30", "event": "返程", "duration": "1小时", "location": "大巴车"}
+                {"time": "时间", "event": "环节名称", "duration": "持续时长", "location": "地点"},
+                {"time": "时间", "event": "环节名称", "duration": "持续时长", "location": "地点"},
+                {"time": "时间", "event": "环节名称", "duration": "持续时长", "location": "地点"}
             ],
             "notes": "展示活动当天的流程安排",
             "filling_prompt": "必须填入真实内容：提供活动当天的流程安排，列出4-6个关键时间节点，每个有时间+环节名称+持续时长+负责人。"
@@ -118,9 +114,9 @@ TEMPLATE = {
             "content_type": "image_text",
             "layout_hint": "right-image",
             "kicker": "亮点 · 核心创意",
-            "header": "团队挑战赛：密室逃脱+定向越野",
-            "sub_header": "智慧与体力的双重挑战",
-            "paragraph": "本次活动最独特的亮点是团队挑战赛环节——'拯救总裁'密室逃脱+定向越野。参与者在规定时间内，通过解谜、寻找线索、定向任务等方式，完成挑战并'拯救'被困的'总裁'。这个设计既考验团队的智慧，也考验协作能力，同时增加了趣味性和话题性。往期类似活动反馈显示，这种沉浸式体验深受员工欢迎，参与满意度达95%以上。",
+            "header": "核心亮点名称",
+            "sub_header": "亮点预期效果",
+            "paragraph": "详细描述活动亮点的创意来源、实施方式和预期效果，用流畅的段落形式呈现，禁止罗列要点。",
             "notes": "右侧配往期活动照片/场地效果图/创意展示图，左侧列亮点",
             "filling_prompt": "必须填入真实内容：图片占位由生成器自动渲染（灰色虚线框+文字提示），无需传入 image_placeholder 参数；header 为最具特色的亮点名称（不超过35字）；sub_header 为该亮点的预期效果（不超过35字）；paragraph 为300-450字的自然语言段落，详细描述活动亮点的创意来源、实施方式和预期效果，用流畅的段落形式呈现，禁止罗列要点。如果参考了外部案例，通过 web_search 获取相关资料并在 references 列出 URL。"
         },
@@ -131,12 +127,13 @@ TEMPLATE = {
             "content_type": "card_grid",
             "layout_hint": "2x2",
             "cards": [
-                {"header": "破冰环节", "body": "分组+团建小游戏，快速打破尴尬氛围"},
-                {"header": "团队挑战赛", "body": "密室逃脱+定向越野，考验团队协作"},
-                {"header": "野炊/BBQ", "body": "自己动手做午餐，体验团队合作的乐趣"},
-                {"header": "自由交流", "body": "下午茶时间，自由交流，增进感情"}
+                {"header": "环节名称", "body": "环节描述和价值"},
+                {"header": "环节名称", "body": "环节描述和价值"},
+                {"header": "环节名称", "body": "环节描述和价值"},
+                {"header": "环节名称", "body": "环节描述和价值"}
             ],
-            "notes": "展示活动项目安排"
+            "notes": "展示活动项目安排",
+            "filling_prompt": "必须填入真实内容：提供4个活动环节，每个有 header（环节名称）和 body（环节描述和价值）。"
         },
         {
             "index": 9,
@@ -152,14 +149,11 @@ TEMPLATE = {
             "title": "组织架构与分工",
             "content_type": "content_slide",
             "structure": [
-                {"role": "总指挥", "name": "张三（HR总监）", "responsibility": "整体统筹，协调资源"},
-                {"role": "策划组", "name": "李四（HR经理）+2人", "responsibility": "活动方案设计，流程策划"},
-                {"role": "执行组", "name": "王五（行政主管）+4人", "responsibility": "现场执行，物资管理"},
-                {"role": "后勤组", "name": "赵六（行政专员）+3人", "responsibility": "车辆、餐饮、住宿安排"},
-                {"role": "安全组", "name": "保安队长+2人", "responsibility": "安全保障，紧急预案"}
+                {"role": "角色名称", "name": "负责人姓名", "responsibility": "职责描述"},
+                {"role": "角色名称", "name": "负责人姓名", "responsibility": "职责描述"}
             ],
             "notes": "展示团队分工和职责",
-            "filling_prompt": "必须填入真实内容：说明活动组织架构，列出各小组（如策划组、执行组、后勤组、宣传组等）及每个小组的职责和负责人。"
+            "filling_prompt": "必须填入真实内容：说明活动组织架构，列出各小组及每个小组的职责和负责人。"
         },
         {
             "index": 11,
@@ -177,13 +171,13 @@ TEMPLATE = {
             "layout_hint": "2x2",
             "kicker": "预算 · 费用明细",
             "kpis": [
-                {"value": "3.2万", "label": "场地及活动费", "delta": "占比40%", "baseline": "含教练+物资"},
-                {"value": "2.4万", "label": "餐饮费", "delta": "占比30%", "baseline": "含午餐+下午茶"},
-                {"value": "1.6万", "label": "交通费", "delta": "占比20%", "baseline": "含大巴+保险"},
-                {"value": "8000", "label": "其他费用", "delta": "占比10%", "baseline": "含奖品+备用金"}
+                {"value": "金额", "label": "预算类别", "delta": "占比", "baseline": "说明"},
+                {"value": "金额", "label": "预算类别", "delta": "占比", "baseline": "说明"},
+                {"value": "金额", "label": "预算类别", "delta": "占比", "baseline": "说明"},
+                {"value": "金额", "label": "预算类别", "delta": "占比", "baseline": "说明"}
             ],
             "notes": "展示预算分配",
-            "filling_prompt": "必须填入真实内容：提供4个预算类别（如场地费用、餐饮费用、物料费用、人员费用等），每个有 value（金额）、label（类别名称）、delta（占比）、baseline（总预算）。"
+            "filling_prompt": "必须填入真实内容：提供4个预算类别，每个有 value（金额）、label（类别名称）、delta（占比）、baseline（总预算）。"
         },
         {
             "index": 13,
@@ -200,14 +194,14 @@ TEMPLATE = {
             "content_type": "example_detail",
             "kicker": "实例 · 风险预案",
             "lede": "提前识别风险，有备无患，确保活动顺利进行",
-            "context_block": "户外活动存在多种潜在风险，包括天气变化、人员安全、突发状况等。需要提前做好预案，确保活动安全顺利进行。",
-            "solution_block": "主要风险及应对措施包括：1）天气风险：关注天气预报，提前准备雨具；如遇恶劣天气，延期举行。2）人员安全：购买意外保险，准备急救药箱；活动区域设置安全员。3）健康风险：提前收集参与者的健康信息；避免高强度运动。4）紧急预案：提前联系最近的医院；安排备用车辆。",
+            "context_block": "描述风险具体表现和发生场景（1-2句话）。",
+            "solution_block": "针对每个风险提供预防措施和应急预案（2-3句话）。",
             "metrics": [
-                {"value": "已购买", "label": "意外保险", "trend": "全员覆盖"},
-                {"value": "2家", "label": "备用医院", "trend": "15分钟车程"},
-                {"value": "5人", "label": "安全员配置", "trend": "活动全程"}
+                {"value": "已购买", "label": "保险覆盖", "trend": "覆盖情况"},
+                {"value": "数量", "label": "备用资源", "trend": "保障情况"},
+                {"value": "人数", "label": "安全员配置", "trend": "配置情况"}
             ],
-            "takeaway": "启示：安全是活动的底线，风险预案是安全的保障",
+            "takeaway": "一句话总结风险管理核心原则。",
             "notes": "识别风险并准备预案",
             "filling_prompt": "必须填入真实内容：lede 一句话概括最需要关注的风险点；context_block 描述风险具体表现和发生场景（1-2句话）；solution_block 针对每个风险提供预防措施和应急预案（2-3句话）；metrics_grid 提供3个风险相关指标；takeaway 用一句话总结风险管理核心原则。"
         },
@@ -216,9 +210,9 @@ TEMPLATE = {
             "type": "summary_slide",
             "title": "总结",
             "key_points": [
-                "01 主题：凝心聚力 逐梦前行",
-                "02 亮点：沉浸式团队挑战赛",
-                "03 预期效果：增进了解，提升凝聚力"
+                "01 核心主题：活动名称",
+                "02 核心亮点：亮点描述",
+                "03 预期效果：效果描述"
             ],
             "thank_you": "期待您的支持！",
             "notes": "简洁有力的结尾",
