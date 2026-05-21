@@ -32,5 +32,18 @@ backend/ppt-agent.exe
 Thumbs.db
 
 # Env
+.env
 .env.local
 .env.*.local
+
+# Archives
+*.zip
+*.tar.gz
+*.7z
+
+# Test output
+test/
+
+# Build artifacts
+*.tsbuildinfo
+.claude/
