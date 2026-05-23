@@ -16,62 +16,82 @@
     {
       "title": "封面页",
       "content_type": "title_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "description": "坚定理想信念，勇担时代重任"
     },
     {
       "title": "目录页",
       "content_type": "agenda",
-      "description": ""
+      "description": "理论学习、案例分析、实践要求、总结提升"
     },
     {
-      "title": "章节分隔页",
+      "title": "理论学习",
       "content_type": "section_divider",
-      "description": ""
+      "description": "第一部分：核心思想与理论基础"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "五四精神与青年担当",
+      "content_type": "example_detail",
+      "description": "深入解读五四精神的核心内涵及其对当代青年的启示"
     },
     {
-      "title": "案例详解页",
-      "content_type": "case_study",
-      "description": ""
+      "title": "重要论述",
+      "content_type": "quote_slide",
+      "description": "领导人关于青年成长的重要论述"
     },
     {
-      "title": "章节分隔页",
+      "title": "典型案例",
+      "content_type": "image_text",
+      "description": "戍边英雄祁发宝：寸土不让，用生命捍卫祖国领土"
+    },
+    {
+      "title": "榜样人物",
+      "content_type": "card_grid",
+      "description": "2x2卡片展示4位时代楷模的感人事迹"
+    },
+    {
+      "title": "案例分析",
       "content_type": "section_divider",
-      "description": ""
+      "description": "第二部分：典型案例与榜样力量"
     },
     {
-      "title": "流程图页",
+      "title": "实践路径",
       "content_type": "process_flow",
-      "description": ""
+      "description": "从思想到行动的四个关键步骤"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "时间轴",
+      "content_type": "timeline",
+      "description": "从一大到二十大：党史重要里程碑"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "行动指南",
+      "content_type": "deep_dive",
+      "description": "如何将思想认识转化为具体行动"
     },
     {
-      "title": "总结页",
+      "title": "实践要求",
+      "content_type": "section_divider",
+      "description": "第三部分：如何将思想落实到行动"
+    },
+    {
+      "title": "学习要点回顾",
+      "content_type": "example_detail",
+      "description": "本节课核心要点总结与反思"
+    },
+    {
+      "title": "心得体会",
+      "content_type": "case_study",
+      "description": "学员学习感悟与行动计划"
+    },
+    {
+      "title": "学习效果自评",
+      "content_type": "kpi_dashboard",
+      "description": "2x2仪表盘：理论理解、情感认同、行动意愿"
+    },
+    {
+      "title": "总结",
       "content_type": "summary_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "description": "核心要点回顾与行动承诺"
     }
   ]
 }

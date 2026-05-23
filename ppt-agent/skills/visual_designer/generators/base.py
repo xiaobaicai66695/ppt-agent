@@ -240,14 +240,20 @@ def _clone_xml(el):
 def save_slide(slide, output_path: str):
     """
     Save a single slide as a standalone PPTX file.
-    Creates a new presentation, clones the slide into it, and saves.
+    Creates a new presentation, clones the slide (including chart parts) into it, and saves.
+
+    Handles chart shapes by copying their relationship parts.
     """
+    from copy import deepcopy
+    from lxml import etree
     from pptx.oxml.ns import qn
 
+    # --- Build new (empty) presentation, matching slide size ---
     new_prs = Presentation()
     new_prs.slide_width = slide.part.package.presentation_part.presentation.slide_width
     new_prs.slide_height = slide.part.package.presentation_part.presentation.slide_height
 
+    # --- Add a blank slide to the new presentation ---
     blank_layout = None
     for lo in new_prs.slide_layouts:
         if "blank" in lo.name.lower():
@@ -258,36 +264,52 @@ def save_slide(slide, output_path: str):
 
     dest_slide = new_prs.slides.add_slide(blank_layout)
 
-    # Remove placeholder shapes from the blank layout
+    # Remove all placeholder shapes added by the blank layout
     for shape in list(dest_slide.shapes):
         sp = shape.element
         sp.getparent().remove(sp)
 
-    # Clone shapes from source slide. Use _clone_xml instead of deepcopy
-    # to avoid namespace-reference issues across different lxml trees.
-    spTree = dest_slide.shapes._spTree
-    extLst = spTree.find(qn("p:extLst"))
-
-    for shape in slide.shapes:
-        el = _clone_xml(shape.element)
-        if extLst is not None:
-            extLst.addprevious(el)
-        else:
-            spTree.append(el)
-
-    # Clone background if present
+    # --- Clone slide background ---
     bg_src = slide.background
     if bg_src is not None:
         try:
-            bg_el = _clone_xml(bg_src.element)
             p_cSld = dest_slide._element.find(qn("p:cSld"))
             existing_bg = p_cSld.find(qn("p:bg"))
             if existing_bg is not None:
-                p_cSld.replace(existing_bg, bg_el)
-            else:
-                p_cSld.insert(0, bg_el)
+                p_cSld.remove(existing_bg)
+            # Insert background at the very beginning of cSld
+            p_cSld.insert(0, deepcopy(bg_src.element))
         except Exception:
             pass
+
+    # --- Clone all shape elements, handling charts ---
+    src_spTree = slide.shapes._spTree
+    dest_spTree = dest_slide.shapes._spTree
+
+    # Collect the rId -> target pairs from the source slide's relationships
+    src_rels = slide.part.rels
+
+    for shape in slide.shapes:
+        el = deepcopy(shape.element)
+
+        # Check if this shape references a chart (c:chart in namespace)
+        chart_ns = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+        chart_el = el.find(qn("c:chart"))
+        if chart_el is not None:
+            # Get the relationship ID referenced by this chart shape
+            r_embed = chart_el.get("{" + "http://schemas.openxmlformats.org/officeDocument/2006/relationships" + "}embed")
+            if r_embed and r_embed in src_rels:
+                # The chart part target in the source presentation
+                chart_part = src_rels[r_embed].target_part
+                # Add the chart part to the destination presentation
+                new_rid = new_prs.part.relate_to(chart_part)
+                # Update the rId in the cloned element to point to the new relationship
+                chart_el.set(
+                    "{" + "http://schemas.openxmlformats.org/officeDocument/2006/relationships" + "}embed",
+                    new_rid
+                )
+
+        dest_spTree.append(el)
 
     save_presentation(new_prs, output_path)
 

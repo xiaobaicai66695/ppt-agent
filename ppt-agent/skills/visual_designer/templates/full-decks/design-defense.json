@@ -11,62 +11,87 @@
     "学术"
   ],
   "thumbnail": "/templates/thumbs/design-defense.png",
-  "slide_count": 12,
+  "slide_count": 16,
   "default_slides": [
     {
-      "title": "封面页",
+      "title": "基于深度学习的工业零件表面缺陷检测系统",
       "content_type": "title_slide",
-      "description": ""
+      "description": "毕业答辩封面"
     },
     {
-      "title": "目录页",
+      "title": "目录",
       "content_type": "agenda",
-      "description": ""
+      "description": "答辩结构概览"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "01 研究背景",
       "content_type": "section_divider",
-      "description": ""
+      "description": "第一章节：背景与问题"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "图文排版页",
+      "title": "工业零件表面缺陷检测现状分析",
       "content_type": "image_text",
-      "description": ""
+      "description": "左侧文字背景介绍，右侧缺陷场景图"
     },
     {
-      "title": "章节分隔页",
+      "title": "传统检测方法的局限性",
+      "content_type": "card_grid",
+      "description": "2x2卡片：人工目检、机器视觉规则、传统ML方法、深度学习方法对比"
+    },
+    {
+      "title": "02 相关工作",
       "content_type": "section_divider",
-      "description": ""
+      "description": "第二章节：文献综述"
     },
     {
-      "title": "流程图页",
+      "title": "缺陷检测算法技术演进",
+      "content_type": "timeline",
+      "description": "从传统图像处理到CNN、Transformer的技术演进时间线"
+    },
+    {
+      "title": "主流方法对比分析",
+      "content_type": "two_column",
+      "description": "左栏现有方案，右栏本方案优势"
+    },
+    {
+      "title": "03 系统设计",
+      "content_type": "section_divider",
+      "description": "第三章节：架构设计"
+    },
+    {
+      "title": "系统整体架构",
       "content_type": "process_flow",
-      "description": ""
+      "description": "图像采集→预处理→特征提取→缺陷分类→结果输出"
     },
     {
-      "title": "数据指标页",
-      "content_type": "stat_slide",
-      "description": ""
+      "title": "核心检测模块详解",
+      "content_type": "deep_dive",
+      "description": "双栏布局：左栏设计要点，右栏案例数据"
     },
     {
-      "title": "总结页",
+      "title": "轻量化模型设计",
+      "content_type": "content_slide",
+      "description": "模型压缩技术细节：剪枝、量化、知识蒸馏"
+    },
+    {
+      "title": "04 实验验证",
+      "content_type": "section_divider",
+      "description": "第四章节：测试结果"
+    },
+    {
+      "title": "测试结果与性能分析",
+      "content_type": "kpi_dashboard",
+      "description": "2x2布局：准确率、召回率、F1值、推理速度"
+    },
+    {
+      "title": "消融实验结果",
+      "content_type": "bar_chart",
+      "description": "柱状图展示各模块贡献度"
+    },
+    {
+      "title": "总结与展望",
       "content_type": "summary_slide",
-      "description": ""
-    },
-    {
-      "title": "封面页",
-      "content_type": "title_slide",
-      "description": ""
+      "description": "核心贡献、实验结论、后续方向"
     }
   ]
 }

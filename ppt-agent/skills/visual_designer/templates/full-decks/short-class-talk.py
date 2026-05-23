@@ -5,7 +5,7 @@ TEMPLATE = {
     "target_audience": "老师、同学",
     "typical_slides": 6,
     "typical_duration": "5-10分钟",
-    "palette": "simple_gray",
+    "palette": "education_blue",
     "typography": {
         "header": "Georgia",
         "body": "Calibri",
@@ -36,103 +36,93 @@ TEMPLATE = {
         {
             "index": 1,
             "type": "title_slide",
-            "title": "分享主题名称",
-            "subtitle": "副标题（如有）",
-            "author": "分享人姓名",
-            "date": "分享日期",
-            "notes": "标题页简洁，一目了然",
-            "filling_prompt": "必须填入真实内容：title 为分享主题名称，subtitle 为副标题（如有），author 为分享人姓名，date 为分享日期。禁止保留花括号。"
+            "title": "Goroutine与并发基础",
+            "subtitle": "5分钟快速入门Go语言并发",
+            "author": "李华",
+            "date": "2026年5月23日",
+            "notes": "标题页简洁，一目了然，标题有视觉冲击力",
+            "filling_prompt": "必须填入真实内容：title为分享主题名称，subtitle为副标题，author为分享人姓名，date为分享日期。禁止保留花括号。"
         },
         {
             "index": 2,
             "type": "example_detail",
-            "title": "背景介绍",
+            "title": "为什么需要并发",
             "content_type": "example_detail",
             "kicker": "实例 · 背景",
-            "lede": "一句话概括分享主题的核心价值",
-            "context_block": "描述分享主题在当前环境/行业中的背景（1-2句话）。",
-            "solution_block": "具体说明为什么这个主题值得分享（2-3句话）。",
+            "lede": "单线程顺序执行导致现代多核CPU利用率不足30%",
+            "context_block": "在多核处理器时代，顺序执行的程序只能使用一个核心，导致其他核心闲置。实际测试表明：一个处理10个独立任务的顺序程序，在8核CPU上利用率仅约12%。",
+            "solution_block": "并发编程让多个任务同时执行，充分挖掘多核潜力。Go语言的Goroutine使得并发编程变得极其简单，只需一个go关键字即可启动并发任务。",
             "metrics": [
-                {"value": "数字", "label": "背景数据1", "trend": "说明"},
-                {"value": "数字", "label": "背景数据2", "trend": "说明"},
-                {"value": "数字", "label": "背景数据3", "trend": "说明"}
+                {"value": "<30%", "label": "顺序程序CPU利用率", "trend": "多核严重闲置"},
+                {"value": "10万+", "label": "Go单进程并发上限", "trend": "goroutine轻松支撑"},
+                {"value": "1行代码", "label": "启动并发的语法", "trend": "go func()即可"}
             ],
-            "takeaway": "一句话总结听众的收获。",
-            "notes": "一句话介绍背景，快速切入主题",
-            "filling_prompt": "必须填入真实内容：lede 一句话概括分享主题的核心价值；context_block 描述分享主题在当前环境/行业中的背景（1-2句话）；solution_block 具体说明为什么这个主题值得分享（2-3句话）；metrics_grid 提供3个背景数据指标，每个有 value、label、trend；takeaway 用一句话总结听众的收获。禁止保留花括号。"
+            "takeaway": "并发是充分利用多核CPU、提升程序效率的必由之路。",
+            "notes": "用具体数字说明并发的必要性，快速切入主题",
+            "filling_prompt": "必须填入真实数据：lede一句话概括分享主题的核心价值；context_block描述背景（1-2句）；solution_block说明为什么这个主题值得分享（2-3句）；metrics_grid提供3个背景数据指标；takeaway一句话总结听众的收获。禁止保留花括号。"
         },
         {
             "index": 3,
-            "type": "example_detail",
-            "title": "核心内容",
-            "content_type": "example_detail",
-            "kicker": "实例 · 核心内容",
-            "lede": "一句话概括最核心的信息",
-            "context_block": "说明为什么这个内容重要（1-2句话）。",
-            "solution_block": "详细展开核心内容的具体内涵（2-3句话）。",
-            "metrics": [
-                {"value": "要点1", "label": "核心要点1", "trend": "关联效果"},
-                {"value": "要点2", "label": "核心要点2", "trend": "关联效果"},
-                {"value": "要点3", "label": "核心要点3", "trend": "关联效果"}
-            ],
-            "takeaway": "一句话总结实践意义。",
-            "notes": "展示3-4个核心要点",
-            "filling_prompt": "必须填入真实内容：lede 一句话概括最核心的信息；context_block 说明为什么这个内容重要（1-2句话）；solution_block 详细展开核心内容的具体内涵（2-3句话）；metrics_grid 提供3个核心要点指标，每个有 value（要点名称）、label（解释说明）、trend（关联效果）；takeaway 用一句话总结实践意义。要点要精炼，每条不超过30字。禁止保留花括号。"
+            "type": "quote_slide",
+            "title": "大师金句",
+            "content_type": "quote_slide",
+            "quote": "Concurrency is about dealing with lots of things at once. Parallelism is about doing lots of things at once.",
+            "attribution": "Rob Pike，Go语言联合创始人",
+            "kicker": "金句 · 并发哲学",
+            "notes": "用一句引言过渡到核心概念，增加分享深度",
+            "filling_prompt": "必须填入真实内容：quote为经典引言，attribution为出处。引言应准确反映并发与并行的区别。禁止虚构。"
         },
         {
             "index": 4,
-            "type": "example_detail",
-            "title": "案例/应用",
-            "content_type": "example_detail",
-            "kicker": "实例 · 案例应用",
-            "lede": "一句话概括案例的核心成果",
-            "context_block": "描述案例背景和应用场景（1-2句话）。",
-            "solution_block": "具体说明案例的具体做法和关键过程（2-3句话）。",
-            "metrics": [
-                {"value": "数字", "label": "成果指标1", "trend": "对比基准"},
-                {"value": "数字", "label": "成果指标2", "trend": "对比基准"},
-                {"value": "数字", "label": "成果指标3", "trend": "对比基准"}
+            "type": "card_grid",
+            "title": "快速开始并发编程",
+            "content_type": "card_grid",
+            "layout_hint": "1x3",
+            "kicker": "要点 · 三步上手",
+            "cards": [
+                {"header": "第一步：启动协程", "body": "使用go关键字：go func(){ /* 并发执行的代码 */ }()", "icon": "01", "footer": "一行代码搞定并发"},
+                {"header": "第二步：通信协调", "body": "用Channel在goroutine之间传递数据：ch := make(chan int)", "icon": "02", "footer": "线程安全 · 无需锁"},
+                {"header": "第三步：等待完成", "body": "用WaitGroup等待所有协程结束：wg.Add() / wg.Done() / wg.Wait()", "icon": "03", "footer": "优雅同步"}
             ],
-            "takeaway": "一句话总结借鉴意义。",
-            "notes": "用一个具体案例或应用场景加深理解",
-            "filling_prompt": "必须先通过 web_search 获取权威参考资料（至少1个URL），再填入真实内容：lede 一句话概括案例的核心成果；context_block 描述案例背景和应用场景（1-2句话）；solution_block 具体说明案例的具体做法和关键过程（2-3句话）；metrics_grid 提供3个成果指标，每个有 value（数字）、label（说明）、trend（对比基准）；takeaway 用一句话总结借鉴意义。references 列出 URL。禁止虚构数据；禁止保留花括号。"
+            "notes": "3个步骤的卡片网格，每步清晰简洁，配合简短代码片段",
+            "filling_prompt": "必须填入真实内容：提供3个步骤卡片，每个卡片有header（步骤名称）、body（一句话说明+简短代码示例）、footer（效果标注）。步骤要精炼，代码示例要真实可运行。"
         },
         {
             "index": 5,
-            "type": "example_detail",
-            "title": "要点回顾",
-            "content_type": "example_detail",
-            "kicker": "实例 · 要点回顾",
-            "lede": "一句话概括核心收获",
-            "context_block": "回顾分享中的关键信息和亮点（1-2句话）。",
-            "solution_block": "总结核心要点和实践建议（2-3句话）。",
-            "metrics": [
-                {"value": "数字", "label": "核心要点数", "trend": "覆盖核心"},
-                {"value": "数字", "label": "可行动建议", "trend": "可操作性"},
-                {"value": "数字", "label": "延伸阅读", "trend": "推荐资源"}
+            "type": "content_slide",
+            "title": "核心要点回顾",
+            "content_type": "content_slide",
+            "kicker": "要点 · 核心总结",
+            "section_header": "记住这3点",
+            "lede": "Go并发只需要掌握三个核心概念：goroutine、channel、waitgroup",
+            "bullets": [
+                "goroutine：用go func()启动轻量级并发，由Go运行时自动调度",
+                "channel：用ch <- val和<-ch进行goroutine间的安全通信",
+                "waitgroup：用wg.Add/Done/Wait管理协程的生命周期"
             ],
-            "takeaway": "一句话总结听众下一步可以做什么。",
-            "notes": "快速回顾核心要点，加深印象",
-            "filling_prompt": "必须填入真实内容：lede 一句话概括核心收获；context_block 回顾分享中的关键信息和亮点（1-2句话）；solution_block 总结核心要点和实践建议（2-3句话）；metrics_grid 提供3个回顾指标，每个有 value、label、trend；takeaway 用一句话总结听众下一步可以做什么。禁止保留花括号。"
+            "notes": "3个精炼要点，1分钟内讲完",
+            "filling_prompt": "必须填入真实内容：lede一句话概括核心；bullets列出3个精炼要点，每条不超过30字，配合一句话说明。禁止保留花括号。"
         },
         {
             "index": 6,
             "type": "summary_slide",
             "title": "总结",
+            "kicker": "总结",
             "key_points": [
-                "01 核心收获1",
-                "02 核心收获2",
-                "03 行动建议：描述"
+                "01 并发是多核时代的必由之路，让程序充分利用硬件",
+                "02 Go语言用goroutine让并发编程变得简单高效",
+                "03 记住三剑客：go启动、channel通信、waitgroup等待"
             ],
             "thank_you": "感谢聆听！",
+            "contact": "欢迎提问 | 课后答疑",
             "notes": "简洁结尾，可加Q&A提示",
-            "filling_prompt": "必须填入真实内容：key_points 提供2-3个要点（核心收获+行动建议）。禁止保留花括号。"
+            "filling_prompt": "必须填入真实内容：key_points提供3个要点（核心收获），thank_you为感谢语，contact为联系方式或Q&A提示。禁止保留花括号。"
         }
     ],
     "design_tips": [
         "课堂分享要精简，每页只讲一个要点",
         "文字要少，多用图表和关键词",
-        "时间控制在5-10分钟，6-8页为宜",
+        "时间控制在5-10分钟，6页为宜",
         "留出时间回答问题",
         "注意与听众的眼神交流",
         "用故事或案例吸引注意力",

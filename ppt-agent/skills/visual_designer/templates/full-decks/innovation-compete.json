@@ -11,67 +11,87 @@
     "科创"
   ],
   "thumbnail": "/templates/thumbs/innovation-compete.png",
-  "slide_count": 12,
+  "slide_count": 16,
   "default_slides": [
     {
       "title": "封面页",
       "content_type": "title_slide",
-      "description": ""
+      "description": "项目名称、团队、口号"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "目录",
+      "content_type": "agenda",
+      "description": "六章内容结构"
     },
     {
-      "title": "卡片网格页",
-      "content_type": "card_grid",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "市场分析",
       "content_type": "section_divider",
-      "description": ""
+      "description": "第一章分隔页"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "图文排版页",
+      "title": "市场需求",
       "content_type": "image_text",
-      "description": ""
+      "description": "市场需求分析与痛点图文页"
     },
     {
-      "title": "章节分隔页",
-      "content_type": "section_divider",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "数据指标页",
+      "title": "市场规模",
       "content_type": "stat_slide",
-      "description": ""
+      "description": "市场数据大数字展示"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "产品介绍",
+      "content_type": "section_divider",
+      "description": "第二章分隔页"
+    },
+    {
+      "title": "核心功能",
+      "content_type": "card_grid",
+      "description": "四大核心功能卡片"
+    },
+    {
+      "title": "技术方案",
+      "content_type": "section_divider",
+      "description": "第三章分隔页"
+    },
+    {
+      "title": "技术架构",
+      "content_type": "deep_dive",
+      "description": "核心技术方案双栏深度页"
+    },
+    {
+      "title": "商业模式",
+      "content_type": "section_divider",
+      "description": "第四章分隔页"
+    },
+    {
+      "title": "运营数据",
+      "content_type": "kpi_dashboard",
+      "description": "四项运营指标仪表盘"
+    },
+    {
+      "title": "团队介绍",
+      "content_type": "section_divider",
+      "description": "第五章分隔页"
+    },
+    {
+      "title": "团队成员",
+      "content_type": "card_grid",
+      "description": "四位核心成员卡片"
+    },
+    {
+      "title": "应用场景",
+      "content_type": "case_study",
+      "description": "典型应用场景案例页"
+    },
+    {
+      "title": "未来展望",
+      "content_type": "process_flow",
+      "description": "发展规划流程图"
     },
     {
       "title": "总结页",
       "content_type": "summary_slide",
-      "description": ""
+      "description": "感谢聆听与联系方式"
     }
   ]
 }

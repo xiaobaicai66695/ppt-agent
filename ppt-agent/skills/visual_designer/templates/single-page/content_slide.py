@@ -1,8 +1,8 @@
 TEMPLATE = {
     "type": "content_slide",
     "name": "普通内容页",
-    "description": "通用兜底类型。用清晰的小标题 + 3~5 条要点，配合适度留白。",
-    "layout_hint": "left",
+    "description": "通用兜底类型。用清晰的小标题 + 3~5 条要点，配合适度留白。适合左侧内容+右侧装饰图形的布局。",
+    "layout_hint": "left_content + right_decoration",
     "elements": {
         "kicker": {
             "font_size": "12pt",
@@ -43,9 +43,11 @@ TEMPLATE = {
     "visual_elements": [
         "左侧竖向色条装饰（primary 色，3pt 宽，从标题区延伸至底部）",
         "标题前用竖线色块作为视觉锚点（primary 色，4pt 宽，0.2in 高）",
-        "右侧或底部可添加小型几何色块装饰（accent 色，透明度 10%）",
+        "右侧可添加装饰性图形（如信息卡片、统计数字块）",
         "bullet 点可用 accent 色小方块代替实心圆，区分度更强",
-        "要点之间可用细线分隔（secondary 色，0.5pt），增加层次感"
+        "要点之间可用细线分隔（secondary 色，0.5pt），增加层次感",
+        "可选：右侧添加小统计卡片（如「98%满意」「3x效率」）",
+        "可选：底部添加整体进度条或汇总统计"
     ],
     "example": {
         "kicker": "技术背景",

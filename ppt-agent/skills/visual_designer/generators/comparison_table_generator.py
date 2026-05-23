@@ -1,4 +1,4 @@
-"""Generator for comparison_table - 结构对比表 (70%×60% 居中)."""
+"""Generator for comparison_table - 结构对比表."""
 from typing import Optional, List
 from pptx import Presentation
 from .base import (
@@ -18,20 +18,19 @@ def generate(
     set_slide_background(slide, palette)
     n_cols = len(headers); n_rows = min(len(rows), 8)
 
-    y_t = 0.2
+    y_t = 0.5
     if kicker:
-        add_text(slide, text=kicker, left=0.5, top=0.04, width=12.0, height=0.16,
-            font_size=9, bold=False, color="text_muted", alignment="left", palette=palette)
-        y_t = 0.16
-    add_text(slide, text=title, left=0.5, top=y_t, width=12.0, height=0.38,
+        add_text(slide, text=kicker, left=0.5, top=0.2, width=12.0, height=0.2,
+            font_size=10, bold=False, color="text_muted", alignment="left", palette=palette)
+        y_t = 0.35
+    add_text(slide, text=title, left=0.5, top=y_t, width=12.0, height=0.4,
         font_size=24, bold=True, color="text", alignment="left", palette=palette)
 
-    # Table: 70% width, 60% height, centered
-    tbl_w = 13.333 * 0.70
-    tbl_h = 7.5 * 0.60
-    tbl_x = (13.333 - tbl_w) / 2
-    header_h = 0.38; row_h = (tbl_h - header_h) / n_rows
-    tbl_y = y_t + 0.5 + max(0, (7.5 - (y_t + 0.5) - tbl_h) / 2)
+    # Table: 70% width, centered
+    tbl_w = 13.333 * 0.70; tbl_x = (13.333 - tbl_w) / 2
+    header_h = 0.38; row_h = 0.42
+    tbl_h = header_h + row_h * n_rows
+    tbl_y = y_t + 0.55 + max(0, (7.5 - (y_t + 0.55) - tbl_h) / 2)
 
     col_weights = [1.8] + [1.0] * (n_cols - 1); total_w = sum(col_weights)
     col_widths = [tbl_w * w / total_w for w in col_weights]

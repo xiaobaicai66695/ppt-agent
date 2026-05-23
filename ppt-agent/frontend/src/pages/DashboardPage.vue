@@ -107,6 +107,7 @@ function connectChatSSE(taskId: string) {
     } else if (evt.type === 'error') {
       addLog('error', evt.error || '');
     } else if (evt.type === 'continue_complete' || evt.type === 'complete') {
+      stopPolling();
       // Extract assistant reply from log
       const lastAnswer = logLines.value.filter(l => l.kind === 'answer').pop();
       chatHistory.value = [...chatHistory.value, {
@@ -444,6 +445,39 @@ function connectSSE(taskId: string) {
 
 function disconnectSSE() {
   if (es) { es.close(); es = null; }
+  stopPolling();
+}
+
+// ── Polling fallback ────────────────────────────────────────────────────
+// Polls task state every 3s to fill gaps when SSE events are lost.
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function startPolling(taskId: string) {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    try {
+      const info = await fetchTask(taskId);
+      if (!info) return;
+      // Update file list from API (catches files missed by SSE file_ready)
+      if (info.files?.length) {
+        for (const f of info.files) {
+          if (!finalFiles.value.includes(f)) {
+            finalFiles.value = [...finalFiles.value, f];
+          }
+        }
+      }
+      doneCount.value = info.done_count;
+      totalCount.value = info.total_count;
+      // Stop polling when task finishes
+      if (info.status !== 'running') {
+        stopPolling();
+      }
+    } catch { /* ignore fetch errors during polling */ }
+  }, 3000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
 // Cache PPT files and thumbnails via Cache API (service worker storage)
@@ -574,6 +608,7 @@ function selectTask(id: string) {
   selectedSlides.value = new Set();
   if (t.status !== 'failed') {
     connectSSE(id);
+    if (t.status === 'running') startPolling(id);
   }
 }
 
@@ -652,7 +687,7 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => { disconnectSSE(); if (chatEs) { chatEs.close(); chatEs = null; } });
+onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close(); chatEs = null; } });
 </script>
 
 <template>
@@ -962,7 +997,7 @@ onUnmounted(() => { disconnectSSE(); if (chatEs) { chatEs.close(); chatEs = null
 </template>
 
 <style scoped>
-.layout { display: flex; min-height: 100vh; }
+.layout { display: flex; height: 100vh; overflow: hidden; }
 .main {
   flex: 1;
   background: var(--bg-muted);

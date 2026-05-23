@@ -1,12 +1,13 @@
-"""Generator for card_grid - 卡片阵列 (2-8 cards, auto-layout)."""
+"""Generator for card_grid - 卡片阵列 (4~8 cards)."""
 from typing import Optional, List, Dict
 
 from pptx import Presentation
 
 from .base import (
-    add_source_line, new_presentation,
-    PALETTES, add_text, add_round_rect,
-    set_slide_background,
+    add_source_line,
+    new_presentation,
+    PALETTES, add_text, add_rect, add_round_rect,
+    set_slide_background, add_text_in_shape,
 )
 
 
@@ -16,26 +17,33 @@ def generate(
     source: str = "",
     title: str = "{能力标题}",
     cards: List[Dict[str, str]] = None,
-    layout: str = "auto",
+    layout: str = "2x2",
     kicker: str = "",
     subtitle: str = "",
 ) -> Presentation:
-    """Generate a card grid slide with rounded cards.
+    """
+    Generate a card grid slide.
 
-    layout="auto" picks the best grid for the card count:
-      2 cards → 2x1  3 cards → 3x1  4 cards → 2x2
-      5 cards → 3+2  6 cards → 3x2  7 cards → 4+3  8 cards → 4x2
+    Args:
+        prs: Existing Presentation object. If None, creates a new one.
+        palette: Color palette name.
+        title: Slide title.
+        cards: List of dicts with keys: header, body, icon (optional), footer (optional).
+               Example: [{"header": "智能问答", "body": "基于大模型的自然语言交互", "icon": "01", "footer": "↑ 3倍"}]
+        layout: Grid layout, e.g. "2x2", "2x3", "3x2".
+        kicker: Small label above title (e.g. "能力 · 核心模块").
+        subtitle: Optional subtitle below title.
+
+    Returns:
+        The Presentation object.
     """
     if cards is None:
         cards = [
-            {"header": "{能力1}", "body": "{能力描述}"},
-            {"header": "{能力2}", "body": "{能力描述}"},
-            {"header": "{能力3}", "body": "{能力描述}"},
-            {"header": "{能力4}", "body": "{能力描述}"},
+            {"header": "{能力1}", "body": "{能力描述}", "icon": "01"},
+            {"header": "{能力2}", "body": "{能力描述}", "icon": "02"},
+            {"header": "{能力3}", "body": "{能力描述}", "icon": "03"},
+            {"header": "{能力4}", "body": "{能力描述}", "icon": "04"},
         ]
-
-    n = max(2, min(8, len(cards)))
-    cards = cards[:n]
 
     if prs is None:
         prs = new_presentation(palette=palette)
@@ -44,96 +52,140 @@ def generate(
     slide = prs.slides.add_slide(blank_layout)
     set_slide_background(slide, palette)
 
-    # ── Layout auto-selection ──
-    if layout == "auto":
-        if n <= 3:           cols = n;  rows = 1
-        elif n == 4:         cols = 2;  rows = 2
-        elif n == 5:         cols = 3;  rows = 2
-        elif n == 6:         cols = 3;  rows = 2
-        elif n == 7:         cols = 4;  rows = 2
-        else:                cols = 4;  rows = 2
-    else:
-        rows, cols = map(int, layout.split("x"))
+    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
-    # ── Header ──
-    y_head = 0.28
+    # Kicker (above title)
+    y_title = 0.4
     if kicker:
-        add_text(slide, text=kicker,
-            left=0.5, top=0.08, width=12.0, height=0.22,
-            font_size=11, bold=False, color="text_muted", alignment="left",
-            palette=palette)
-        y_head = 0.22
+        add_text(
+            slide,
+            text=kicker,
+            left=0.5, top=0.1, width=12.0, height=0.3,
+            font_size=12, bold=False,
+            color="secondary", alignment="left",
+            palette=palette,
+        )
+        y_title = 0.35
 
-    add_text(slide, text=title,
-        left=0.5, top=y_head, width=12.0, height=0.55,
-        font_size=30, bold=True, color="text", alignment="left",
-        palette=palette)
+    # Title
+    add_text(
+        slide,
+        text=title,
+        left=0.5, top=y_title, width=12.0, height=0.7,
+        font_size=36, bold=True,
+        color="text", alignment="left",
+        palette=palette,
+    )
 
-    card_start_y = y_head + 0.7
+    # Subtitle
+    y_cards = 1.3 if not kicker else 1.15
     if subtitle:
-        add_text(slide, text=subtitle,
-            left=0.5, top=y_head + 0.5, width=12.0, height=0.25,
-            font_size=13, bold=False, color="secondary", alignment="left",
-            palette=palette)
-        card_start_y += 0.3
+        add_text(
+            slide,
+            text=subtitle,
+            left=0.5, top=y_title + 0.7, width=12.0, height=0.4,
+            font_size=16, bold=False,
+            color="secondary", alignment="left",
+            palette=palette,
+        )
+        y_cards += 0.45
 
-    # ── Grid ──
-    gap_x, gap_y = 0.2, 0.2
-    margin_x = 0.5
-    available_w = 12.4
-    available_h = 6.2 - card_start_y
-    card_w = (available_w - gap_x * (cols - 1)) / cols
-    card_h = (available_h - gap_y * (rows - 1)) / rows
+    # Parse layout
+    rows, cols = map(int, layout.split("x"))
+    total_cards = len(cards)
+    card_rows = min(rows, (total_cards + cols - 1) // cols)
 
-    # Accent colors for variety
-    accent_colors = ["primary", "secondary", "accent", "primary", "secondary", "accent", "primary", "secondary"]
+    # Grid dimensions
+    margin_x = 0.6
+    margin_top = y_cards
+    gap = 0.25
+    card_area_w = 12.133 - margin_x * 2
+    card_area_h = 5.2
+    card_w = (card_area_w - gap * (cols - 1)) / cols
+    card_h = (card_area_h - gap * (card_rows - 1)) / card_rows
 
-    for idx, card in enumerate(cards):
-        if n == 5 and idx >= 3:  # bottom row of 3+2
-            row = 1
-            col = idx - 3
-            bot_cols = 2
-            offset_x = (available_w - (bot_cols * card_w + gap_x * (bot_cols - 1))) / 2
-            x = margin_x + offset_x + col * (card_w + gap_x)
-        elif n == 7 and idx >= 4:  # bottom row of 4+3
-            row = 1
-            col = idx - 4
-            bot_cols = 3
-            offset_x = (available_w - (bot_cols * card_w + gap_x * (bot_cols - 1))) / 2
-            x = margin_x + offset_x + col * (card_w + gap_x)
-        else:
-            row = idx // cols
-            col = idx % cols
-            x = margin_x + col * (card_w + gap_x)
+    # Clamp card count based on grid
+    visible_cards = cards[:rows * cols]
 
-        y = card_start_y + row * (card_h + gap_y)
-        accent = accent_colors[idx % len(accent_colors)]
+    for idx, card in enumerate(visible_cards):
+        row = idx // cols
+        col = idx % cols
 
-        # Rounded card background
-        add_round_rect(slide,
+        x = margin_x + col * (card_w + gap)
+        y = margin_top + row * (card_h + gap)
+
+        header = card.get("header", "")
+        body = card.get("body", "")
+        icon = card.get("icon", f"{idx+1:02d}")
+        footer = card.get("footer", "")
+
+        # Card background
+        add_rect(
+            slide,
             left=x, top=y, width=card_w, height=card_h,
-            fill_color="light_bg", palette=palette)
+            fill_color="light_bg", palette=palette,
+        )
 
-        # Top accent strip
-        add_round_rect(slide,
-            left=x, top=y, width=card_w, height=0.04,
-            fill_color=accent, palette=palette)
+        # Card left accent bar
+        add_rect(
+            slide,
+            left=x, top=y, width=0.06, height=card_h,
+            fill_color="primary", palette=palette,
+        )
 
-        # Card header
-        add_text(slide, text=card.get("header", ""),
-            left=x + 0.18, top=y + 0.15, width=card_w - 0.36, height=0.4,
-            font_size=15, bold=True, color="primary", alignment="left",
-            palette=palette)
+        # Circular number badge
+        badge_size = 0.45
+        badge_x = x + 0.2
+        badge_y = y + 0.15
+        add_round_rect(
+            slide,
+            left=badge_x, top=badge_y, width=badge_size, height=badge_size,
+            fill_color="primary", palette=palette,
+        )
+        add_text(
+            slide,
+            text=icon,
+            left=badge_x, top=badge_y + 0.05,
+            width=badge_size, height=badge_size - 0.05,
+            font_size=14, bold=True,
+            color="background", alignment="center",
+            palette=palette,
+        )
+
+        # Card header (next to badge)
+        add_text(
+            slide,
+            text=header,
+            left=badge_x + badge_size + 0.1, top=badge_y + 0.05,
+            width=card_w - badge_size - 0.5, height=0.45,
+            font_size=16, bold=True,
+            color="primary", alignment="left",
+            palette=palette,
+        )
 
         # Card body
-        add_text(slide, text=card.get("body", ""),
-            left=x + 0.18, top=y + 0.6, width=card_w - 0.36, height=card_h - 0.8,
-            font_size=12, bold=False, color="text", alignment="left",
-            palette=palette)
+        body_top = badge_y + badge_size + 0.15
+        add_text(
+            slide,
+            text=body,
+            left=x + 0.2, top=body_top,
+            width=card_w - 0.4, height=card_h - (body_top - y) - 0.5,
+            font_size=14, bold=False,
+            color="text", alignment="left",
+            palette=palette,
+        )
 
-    # Soft decoration
-    add_round_rect(slide, left=12.2, top=0.12, width=0.06, height=0.06,
-        fill_color="accent", palette=palette)
+        # Card footer (trend label)
+        if footer:
+            add_text(
+                slide,
+                text=footer,
+                left=x + 0.2, top=y + card_h - 0.45,
+                width=card_w - 0.4, height=0.35,
+                font_size=12, bold=True,
+                color="secondary", alignment="left",
+                palette=palette,
+            )
 
     add_source_line(slide, source, palette)
     return prs

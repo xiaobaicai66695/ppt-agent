@@ -19,68 +19,83 @@
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
       "title": "目录页",
       "content_type": "agenda",
       "description": ""
     },
     {
-      "title": "章节分隔页",
+      "title": "基础知识",
       "content_type": "section_divider",
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
+      "title": "学习目标",
+      "content_type": "example_detail",
       "description": ""
     },
     {
-      "title": "双栏对比页",
+      "title": "核心机制详解",
+      "content_type": "deep_dive",
+      "description": ""
+    },
+    {
+      "title": "知识点对比",
       "content_type": "two_column",
       "description": ""
     },
     {
-      "title": "章节分隔页",
+      "title": "进阶应用",
       "content_type": "section_divider",
       "description": ""
     },
     {
-      "title": "图文排版页",
+      "title": "应用场景",
+      "content_type": "card_grid",
+      "description": ""
+    },
+    {
+      "title": "行业案例",
       "content_type": "image_text",
       "description": ""
     },
     {
-      "title": "流程图页",
-      "content_type": "process_flow",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "实践操作",
       "content_type": "section_divider",
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
+      "title": "操作步骤",
+      "content_type": "process_flow",
       "description": ""
     },
     {
-      "title": "总结页",
+      "title": "效果数据",
+      "content_type": "kpi_dashboard",
+      "description": ""
+    },
+    {
+      "title": "代码示例",
+      "content_type": "example_detail",
+      "description": ""
+    },
+    {
+      "title": "注意事项",
+      "content_type": "example_detail",
+      "description": ""
+    },
+    {
+      "title": "总结回顾",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "知识要点",
+      "content_type": "three_column",
+      "description": ""
+    },
+    {
+      "title": "下课了",
       "content_type": "summary_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
       "description": ""
     }
   ]

@@ -63,8 +63,9 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 func buildFixerInstruction(workDir, skillsDir string) (string, error) {
 	tmplDir := skillsDir + "/visual_designer/templates"
 	data := &prompts.TemplateData{
-		WorkDir: workDir,
-		TmplDir: tmplDir,
+		WorkDir:   workDir,
+		SkillsDir: skillsDir,
+		TmplDir:   tmplDir,
 	}
 	return prompts.RenderDeepAgent("fixer_instruction", data)
 }

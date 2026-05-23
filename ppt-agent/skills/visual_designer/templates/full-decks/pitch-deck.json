@@ -11,67 +11,87 @@
     "投资"
   ],
   "thumbnail": "/templates/thumbs/pitch-deck.png",
-  "slide_count": 12,
+  "slide_count": 16,
   "default_slides": [
     {
       "title": "封面页",
       "content_type": "title_slide",
-      "description": ""
+      "description": "公司名称、创始人、口号"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "目录",
+      "content_type": "agenda",
+      "description": "八章内容结构"
     },
     {
-      "title": "章节分隔页",
+      "title": "痛点与机会",
       "content_type": "section_divider",
-      "description": ""
+      "description": "第一章分隔页"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "行业痛点",
+      "content_type": "example_detail",
+      "description": "目标市场的普遍困境与数据支撑"
     },
     {
-      "title": "图文排版页",
-      "content_type": "image_text",
-      "description": ""
+      "title": "解决方案",
+      "content_type": "section_divider",
+      "description": "第二章分隔页"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "产品方案",
+      "content_type": "example_detail",
+      "description": "解决方案核心价值与差异化"
     },
     {
-      "title": "数据指标页",
+      "title": "市场分析",
+      "content_type": "section_divider",
+      "description": "第三章分隔页"
+    },
+    {
+      "title": "市场规模",
       "content_type": "stat_slide",
-      "description": ""
+      "description": "TAM/SAM/SOM 三层市场数据"
     },
     {
-      "title": "双栏对比页",
-      "content_type": "two_column",
-      "description": ""
+      "title": "商业模式",
+      "content_type": "section_divider",
+      "description": "第四章分隔页"
     },
     {
-      "title": "数据指标页",
-      "content_type": "stat_slide",
-      "description": ""
+      "title": "核心优势",
+      "content_type": "card_grid",
+      "description": "四大护城河与竞争壁垒"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "运营数据",
+      "content_type": "kpi_dashboard",
+      "description": "四项关键运营指标仪表盘"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "竞争优势",
+      "content_type": "section_divider",
+      "description": "第五章分隔页"
     },
     {
-      "title": "总结页",
+      "title": "客户案例",
+      "content_type": "case_study",
+      "description": "典型客户案例与效果数据"
+    },
+    {
+      "title": "团队介绍",
+      "content_type": "card_grid",
+      "description": "四位核心团队成员"
+    },
+    {
+      "title": "融资计划",
+      "content_type": "process_flow",
+      "description": "融资金额与资金用途"
+    },
+    {
+      "title": "愿景",
       "content_type": "summary_slide",
-      "description": ""
+      "description": "愿景、联系方式与结语"
     }
   ]
 }

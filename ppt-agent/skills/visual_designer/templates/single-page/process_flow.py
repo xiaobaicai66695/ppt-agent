@@ -39,14 +39,13 @@ TEMPLATE = {
         "steps_max": 6
     },
     "visual_elements": [
-        "步骤框用 rounded rectangle（radius 0.08in），背景 light_bg 色，边框 primary 色（2pt）",
-        "序号用大号字体（24pt）放在框内左上角或左侧（primary 色，bold）",
+        "步骤框用圆角矩形（light_bg 色背景），左侧色条（3pt 宽）",
+        "序号用大号字体（18-20pt）放在框内左侧（primary 色，bold）",
         "步骤之间用箭头连接，箭头颜色 secondary",
         "可交替上下排列（zigzag）以节省空间，箭头转向",
-        "步骤框顶部可有 3pt 强调线（primary 色）",
-        "可选：最后一个步骤用 accent 色边框表示完成状态",
+        "可选：连接线用细线+箭头符号，代替粗箭头图形",
         "流程上方或下方可添加流程名称标签（如「主流程」「异常处理」）",
-        "整体背景可添加极淡的连接虚线网格（secondary 色，透明度 5%）"
+        "可选：底部添加流程说明或备注"
     ],
     "example": {
         "kicker": "工程实践",

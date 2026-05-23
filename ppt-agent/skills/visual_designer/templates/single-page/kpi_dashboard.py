@@ -60,15 +60,13 @@ TEMPLATE = {
         }
     },
     "visual_elements": [
-        "每张 KPI 卡片使用 light_bg 浅底色，圆角边框（radius 0.1in）",
-        "卡片顶部 primary 色强调线（3pt）",
+        "每张 KPI 卡片使用 light_bg 浅底色，左侧色条（3pt 宽）",
         "数值使用 primary 色加粗大字体（40pt）",
         "趋势向上（↑）用 secondary 色，趋势向下（↓）用 accent/warm 色",
         "对比基准用小字 text_muted 色置于卡片底部",
         "四张卡片整体形成 2x2 网格，间距均匀（0.2in）",
-        "整体背景可添加极淡的网格线（secondary 色，透明度 3-5%）衬托仪表盘感",
-        "如果数据为同比/环比变化，可在数值旁边添加小箭头图标",
-        "底部可添加数据来源注释（text_muted，10pt）"
+        "可选：底部进度条（展示整体完成度）和汇总统计",
+        "可选：底部添加数据来源注释（text_muted，10pt）"
     ],
     "example": {
         "kicker": "数据 · 年度总结",

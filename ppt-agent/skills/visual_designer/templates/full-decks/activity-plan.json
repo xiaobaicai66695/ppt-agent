@@ -11,7 +11,7 @@
     "团建"
   ],
   "thumbnail": "/templates/thumbs/activity-plan.png",
-  "slide_count": 10,
+  "slide_count": 15,
   "default_slides": [
     {
       "title": "封面页",
@@ -19,48 +19,73 @@
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
+      "title": "目录页",
+      "content_type": "agenda",
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "活动概述",
       "content_type": "section_divider",
       "description": ""
     },
     {
-      "title": "流程图页",
-      "content_type": "process_flow",
+      "title": "活动背景与目标",
+      "content_type": "example_detail",
       "description": ""
     },
     {
-      "title": "双栏对比页",
-      "content_type": "two_column",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "活动详情",
       "content_type": "section_divider",
       "description": ""
     },
     {
-      "title": "卡片网格页",
+      "title": "活动流程",
+      "content_type": "timeline",
+      "description": ""
+    },
+    {
+      "title": "活动亮点",
+      "content_type": "image_text",
+      "description": ""
+    },
+    {
+      "title": "活动项目",
       "content_type": "card_grid",
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
+      "title": "人员分工",
+      "content_type": "section_divider",
       "description": ""
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
+      "title": "组织架构与分工",
+      "content_type": "two_column",
+      "description": ""
+    },
+    {
+      "title": "预算安排",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "预算概览",
+      "content_type": "kpi_dashboard",
+      "description": ""
+    },
+    {
+      "title": "风险预案",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "风险识别与预案",
+      "content_type": "case_study",
+      "description": ""
+    },
+    {
+      "title": "总结",
+      "content_type": "summary_slide",
       "description": ""
     }
   ]

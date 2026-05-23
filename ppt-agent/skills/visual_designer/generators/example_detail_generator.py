@@ -19,10 +19,10 @@ from .base import (
 )
 
 # card_spec: metric card dimensions
-CARD_W = 3.8
-CARD_H = 1.4
-CARD_Y = 3.6
-CARD_GAP = 0.3
+CARD_W = 2.85
+CARD_H = 1.1
+CARD_Y = 4.35
+CARD_GAP = 0.25
 
 
 def generate(

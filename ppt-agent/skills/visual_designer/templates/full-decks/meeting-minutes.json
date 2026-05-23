@@ -11,16 +11,11 @@
     "记录"
   ],
   "thumbnail": "/templates/thumbs/meeting-minutes.png",
-  "slide_count": 8,
+  "slide_count": 16,
   "default_slides": [
     {
       "title": "封面页",
       "content_type": "title_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
       "description": ""
     },
     {
@@ -29,23 +24,73 @@
       "description": ""
     },
     {
-      "title": "内容页",
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "会议背景",
+      "content_type": "example_detail",
+      "description": ""
+    },
+    {
+      "title": "数据概览",
+      "content_type": "kpi_dashboard",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "讨论要点",
+      "content_type": "two_column",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "决议事项",
       "content_type": "content_slide",
       "description": ""
     },
     {
-      "title": "卡片网格页",
+      "title": "引用页",
+      "content_type": "quote_slide",
+      "description": ""
+    },
+    {
+      "title": "章节分隔页",
+      "content_type": "section_divider",
+      "description": ""
+    },
+    {
+      "title": "行动项清单",
       "content_type": "card_grid",
       "description": ""
     },
     {
-      "title": "流程图页",
+      "title": "资源分配",
       "content_type": "process_flow",
       "description": ""
     },
     {
-      "title": "内容页",
+      "title": "下次会议安排",
       "content_type": "content_slide",
+      "description": ""
+    },
+    {
+      "title": "会议要点",
+      "content_type": "stat_slide",
+      "description": ""
+    },
+    {
+      "title": "总结页",
+      "content_type": "summary_slide",
       "description": ""
     }
   ]

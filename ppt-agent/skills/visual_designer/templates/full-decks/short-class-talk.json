@@ -14,29 +14,34 @@
   "slide_count": 6,
   "default_slides": [
     {
-      "title": "封面页",
+      "title": "Goroutine与并发基础",
       "content_type": "title_slide",
-      "description": ""
+      "description": "封面：主标题 + 副标题 + 演讲者 + 日期"
     },
     {
-      "title": "内容页",
+      "title": "为什么需要并发",
+      "content_type": "example_detail",
+      "description": "实例详解：背景介绍 + 量化指标 + 启示"
+    },
+    {
+      "title": "什么是Goroutine",
+      "content_type": "quote_slide",
+      "description": "金句页：Rob Pike 并发经典定义"
+    },
+    {
+      "title": "快速开始并发编程",
+      "content_type": "card_grid",
+      "description": "卡片网格：3个快速上手要点"
+    },
+    {
+      "title": "核心要点回顾",
       "content_type": "content_slide",
-      "description": ""
+      "description": "内容页：3个关键要点精炼总结"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "总结页",
+      "title": "总结",
       "content_type": "summary_slide",
-      "description": ""
+      "description": "总结页：核心收获 + 行动建议 + 感谢"
     }
   ]
 }

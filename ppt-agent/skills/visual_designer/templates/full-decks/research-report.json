@@ -11,62 +11,87 @@
     "市场"
   ],
   "thumbnail": "/templates/thumbs/research-report.png",
-  "slide_count": 11,
+  "slide_count": 16,
   "default_slides": [
     {
-      "title": "封面页",
+      "title": "中国智能客服行业发展现状调研",
       "content_type": "title_slide",
-      "description": ""
+      "description": "封面页，展示报告名称、副标题、调研团队和日期"
     },
     {
-      "title": "目录页",
+      "title": "目录",
       "content_type": "agenda",
-      "description": ""
+      "description": "调研报告目录，六个章节概览"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "执行摘要",
+      "content_type": "example_detail",
+      "description": "一页概括报告核心发现和建议"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "调研背景",
       "content_type": "section_divider",
-      "description": ""
+      "description": "章节分隔页，标注第一章开始"
     },
     {
-      "title": "数据指标页",
-      "content_type": "stat_slide",
-      "description": ""
+      "title": "调研背景与研究目的",
+      "content_type": "image_text",
+      "description": "说明调研的行业背景、政策环境和研究目标"
     },
     {
-      "title": "双栏对比页",
-      "content_type": "two_column",
-      "description": ""
-    },
-    {
-      "title": "章节分隔页",
+      "title": "调研方法",
       "content_type": "section_divider",
-      "description": ""
+      "description": "章节分隔页，标注第二章开始"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "数据来源与研究方法",
+      "content_type": "process_flow",
+      "description": "展示问卷调查、深度访谈、公开数据等研究方法"
     },
     {
-      "title": "内容页",
-      "content_type": "content_slide",
-      "description": ""
+      "title": "现状分析",
+      "content_type": "section_divider",
+      "description": "章节分隔页，标注第三章开始"
     },
     {
-      "title": "总结页",
+      "title": "智能客服市场规模",
+      "content_type": "kpi_dashboard",
+      "description": "以KPI卡片展示2024年市场规模、增长率、渗透率等关键数据"
+    },
+    {
+      "title": "竞争格局分析",
+      "content_type": "bar_chart",
+      "description": "以条形图展示头部厂商市场份额对比"
+    },
+    {
+      "title": "典型企业案例",
+      "content_type": "case_study",
+      "description": "以案例研究形式展示标杆企业的实践"
+    },
+    {
+      "title": "问题诊断",
+      "content_type": "section_divider",
+      "description": "章节分隔页，标注第四章开始"
+    },
+    {
+      "title": "行业面临的主要挑战",
+      "content_type": "card_grid",
+      "description": "以四宫格卡片展示四大核心痛点"
+    },
+    {
+      "title": "对策建议",
+      "content_type": "section_divider",
+      "description": "章节分隔页，标注第五章开始"
+    },
+    {
+      "title": "战略建议与行动计划",
+      "content_type": "deep_dive",
+      "description": "深入剖析三条战略建议及其实施路径"
+    },
+    {
+      "title": "结论与展望",
       "content_type": "summary_slide",
-      "description": ""
+      "description": "总结核心结论、主要建议和未来展望"
     }
   ]
 }

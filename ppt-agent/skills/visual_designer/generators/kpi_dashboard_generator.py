@@ -1,107 +1,192 @@
-"""Generator for kpi_dashboard - KPI 看板 (居中 | 丰富分析)."""
+"""Generator for kpi_dashboard - KPI 仪表盘页.
+
+Displays a set of KPI metric cards in a 2x2 grid layout.
+Each card contains a large value, metric label, delta trend, and baseline.
+"""
 from typing import List, Optional
+
 from pptx import Presentation
+
 from .base import (
-    add_source_line, PALETTES, add_rect, add_round_rect, add_text,
-    new_presentation, set_slide_background,
+    add_source_line,
+    PALETTES,
+    add_rect,
+    add_text,
+    new_presentation,
+    set_slide_background,
 )
 
+
 def generate(
-    prs: Optional[Presentation] = None, palette: str = "ocean_soft", source: str = "",
-    kicker: str = "数据 · {效果}", title: str = "{指标标题}",
-    kpis: Optional[List[dict]] = None, subtitle: str = "",
-    analysis: str = "",
+    prs: Optional[Presentation] = None,
+    palette: str = "ocean_soft",
+    source: str = "",
+    kicker: str = "数据 · {效果}",
+    title: str = "{指标标题}",
+    kpis: Optional[List[dict]] = None,
+    subtitle: str = "",
+    show_progress: bool = True,
+    progress_value: int = 80,
 ) -> Presentation:
-    """KPI cards (compact) + rich analysis. Cards center when few, analysis fills space."""
+    """Generate a kpi_dashboard slide with metric cards in 2x2 grid layout.
+
+    Args:
+        prs: Existing Presentation object. If None, creates a new one.
+        palette: Color palette name.
+        kicker: Small label above title.
+        title: Slide title.
+        kpis: List of dicts with keys: value, label, delta, baseline.
+        subtitle: Optional subtitle below title.
+        show_progress: Whether to show progress bar at bottom.
+        progress_value: Progress percentage (0-100).
+    """
     if kpis is None:
-        kpis = [{"value":"{值}","label":"{说明}","delta":"{趋势}","baseline":"{基准}"}] * 4
-    if prs is None: prs = new_presentation(palette=palette)
-    blank_layout = prs.slide_layouts[6]; slide = prs.slides.add_slide(blank_layout)
+        kpis = [
+            {"value": "{数值}", "label": "{说明}", "delta": "{趋势}", "baseline": "{基准}"},
+            {"value": "{数值}", "label": "{说明}", "delta": "{趋势}", "baseline": "{基准}"},
+            {"value": "{数值}", "label": "{说明}", "delta": "{趋势}", "baseline": "{基准}"},
+            {"value": "{数值}", "label": "{说明}", "delta": "{趋势}", "baseline": "{基准}"},
+        ]
+
+    if prs is None:
+        prs = new_presentation(palette=palette)
+
+    blank_layout = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank_layout)
     set_slide_background(slide, palette)
-    n = max(2, min(6, len(kpis)))
 
-    # ── Header ──
-    y_h = 0.18
-    if kicker:
-        add_text(slide, text=kicker, left=0.5, top=0.04, width=12.0, height=0.15,
-            font_size=9, bold=False, color="text_muted", alignment="left", palette=palette)
-        y_h = 0.16
-    add_text(slide, text=title, left=0.5, top=y_h, width=12.0, height=0.35,
-        font_size=22, bold=True, color="text", alignment="left", palette=palette)
+    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
-    # Layout
-    if n <= 3: cols = n; rows = 1
-    elif n == 4: cols = 2; rows = 2
-    elif n == 5: cols = 3; rows = 2
-    else: cols = 3; rows = 2
+    # Kicker
+    add_text(
+        slide, text=kicker,
+        left=0.5, top=0.25, width=12.0, height=0.3,
+        font_size=12, bold=False,
+        color="text_muted", alignment="left",
+        palette=palette,
+    )
 
-    gap_x, gap_y = 0.16, 0.14; margin_x = 0.5
-    avail_w = 13.333 - margin_x * 2
-    card_w = (avail_w - gap_x * (cols - 1)) / cols
-    card_h = 1.45
+    # Title
+    add_text(
+        slide, text=title,
+        left=0.5, top=0.55, width=12.0, height=0.55,
+        font_size=28, bold=True,
+        color="text", alignment="left",
+        palette=palette,
+    )
 
-    # Total card block height
-    total_card_h = rows * card_h + (rows - 1) * gap_y
-    has_analysis = bool(analysis)
+    # Subtitle
+    card_start_y = 1.55
+    if subtitle:
+        add_text(
+            slide, text=subtitle,
+            left=0.5, top=1.1, width=12.0, height=0.3,
+            font_size=13, bold=False,
+            color="secondary", alignment="left",
+            palette=palette,
+        )
+        card_start_y = 1.8
 
-    if has_analysis:
-        # When analysis is present, cards go top, analysis fills remaining
-        card_y = y_h + 0.5
-    else:
-        # No analysis: vertically center the card grid
-        avail_space = 7.5 - (y_h + 0.5)
-        card_y = y_h + 0.5 + max(0, (avail_space - total_card_h) / 2)
+    # 2x2 grid dimensions
+    cols = 2
+    rows = 2
+    gap_x = 0.35
+    gap_y = 0.3
+    margin_x = 0.5
+    card_area_w = 13.333 - margin_x * 2
+    card_w = (card_area_w - gap_x) / cols
+    card_h = 2.0
 
-    card_accents = ["primary", "secondary", "accent", "primary", "secondary", "primary"]
+    # Build the 2x2 position list (row-major: top-left, top-right, bottom-left, bottom-right)
+    positions = []
+    for r in range(rows):
+        for c in range(cols):
+            x = margin_x + c * (card_w + gap_x)
+            y = card_start_y + r * (card_h + gap_y)
+            positions.append((x, y))
 
-    for idx, kpi in enumerate(kpis[:n]):
-        col = idx % cols; row = idx // cols
-        if n == 5 and row == 1:
-            x_off = (avail_w - (2 * card_w + gap_x)) / 2
-            x = margin_x + x_off + col * (card_w + gap_x)
-        else:
-            x = margin_x + col * (card_w + gap_x)
-        y = card_y + row * (card_h + gap_y)
-        ac = card_accents[idx % len(card_accents)]
+    # Draw up to 4 KPI cards
+    for idx, kpi in enumerate(kpis[:4]):
+        x, y = positions[idx]
 
-        add_round_rect(slide, left=x, top=y, width=card_w, height=card_h,
-            fill_color="light_bg", palette=palette)
-        add_round_rect(slide, left=x, top=y, width=card_w, height=0.04,
-            fill_color=ac, palette=palette)
-        add_text(slide, text=kpi.get("value",""),
-            left=x + 0.15, top=y + 0.12, width=card_w - 0.3, height=0.42,
-            font_size=28 if n <= 4 else 22, bold=True, color="primary",
-            alignment="left", palette=palette)
-        lbl = kpi.get("label","")
-        if lbl:
-            add_text(slide, text=lbl, left=x + 0.15, top=y + 0.58,
-                width=card_w - 0.3, height=0.24, font_size=9, bold=True,
-                color="text", alignment="left", palette=palette)
-        delta = kpi.get("delta",""); baseline = kpi.get("baseline","")
-        dy = y + 0.82
+        # Card background (use light_bg)
+        add_rect(
+            slide,
+            left=x, top=y, width=card_w, height=card_h,
+            fill_color="light_bg", palette=palette,
+        )
+
+        # Left accent bar
+        add_rect(
+            slide,
+            left=x, top=y, width=0.06, height=card_h,
+            fill_color="primary", palette=palette,
+        )
+
+        # Value — large and prominent
+        add_text(
+            slide, text=kpi.get("value", ""),
+            left=x + 0.2, top=y + 0.15, width=card_w - 0.4, height=0.7,
+            font_size=44, bold=True,
+            color="primary", alignment="left",
+            palette=palette,
+        )
+
+        # Label
+        add_text(
+            slide, text=kpi.get("label", ""),
+            left=x + 0.2, top=y + 0.88, width=card_w - 0.4, height=0.4,
+            font_size=13, bold=True,
+            color="text", alignment="left",
+            palette=palette,
+        )
+
+        # Delta — colored by direction
+        delta = kpi.get("delta", "")
+        delta_color = "secondary"
+        if delta.startswith("\u2193"):  # down arrow
+            delta_color = "accent"
+
         if delta:
-            add_text(slide, text=delta, left=x + 0.15, top=dy, width=card_w - 0.3, height=0.18,
-                font_size=10, bold=True,
-                color="secondary" if any(c in delta for c in ("↑","+")) else "accent",
-                alignment="left", palette=palette)
-        if baseline:
-            add_text(slide, text=baseline, left=x + 0.15, top=dy + 0.2 if delta else dy,
-                width=card_w - 0.3, height=0.16, font_size=7, bold=False,
-                color="text_muted", alignment="left", palette=palette)
+            add_text(
+                slide, text=delta,
+                left=x + 0.2, top=y + 1.32, width=card_w - 0.4, height=0.3,
+                font_size=14, bold=True,
+                color=delta_color, alignment="left",
+                palette=palette,
+            )
 
-    # ── Analysis area: fills remaining height ──
-    analysis_y = card_y + total_card_h + 0.15
-    if analysis:
-        rem_h = 7.35 - analysis_y
-        if rem_h > 0.5:
-            add_round_rect(slide, left=0.5, top=analysis_y, width=0.04, height=0.3,
-                fill_color="primary", palette=palette)
-            add_text(slide, text="分析解读", left=0.75, top=analysis_y + 0.02,
-                width=11.5, height=0.2, font_size=10, bold=True, color="text_muted",
-                alignment="left", palette=palette)
-            add_text(slide, text=analysis, left=0.75, top=analysis_y + 0.26,
-                width=11.5, height=rem_h - 0.3, font_size=10, bold=False, color="text",
-                alignment="left", palette=palette)
+        # Baseline
+        baseline = kpi.get("baseline", "")
+        if baseline:
+            add_text(
+                slide, text=baseline,
+                left=x + 0.2, top=y + 1.65, width=card_w - 0.4, height=0.35,
+                font_size=10, bold=False,
+                color="text_muted", alignment="left",
+                palette=palette,
+            )
+
+    # Bottom progress bar
+    if show_progress:
+        progress_y = 6.0
+        add_rect(
+            slide,
+            left=0.5, top=progress_y, width=12.333, height=0.1,
+            fill_color="background", palette=palette,
+        )
+        add_rect(
+            slide,
+            left=0.5, top=progress_y, width=12.333 * progress_value / 100, height=0.1,
+            fill_color="primary", palette=palette,
+        )
+        add_text(
+            slide, text=f"整体完成度：{progress_value}%",
+            left=0.5, top=progress_y + 0.18, width=12.333, height=0.3,
+            font_size=11, bold=False,
+            color="text_muted", alignment="center",
+            palette=palette,
+        )
 
     add_source_line(slide, source, palette)
     return prs

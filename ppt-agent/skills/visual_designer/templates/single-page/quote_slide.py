@@ -26,7 +26,7 @@ TEMPLATE = {
             "format": "—— {引言者}，{来源/职位}"
         },
         "quote_mark": {
-            "type": "「" or """,
+            "type": "quot",
             "font_size": "72pt",
             "color": "primary",
             "opacity": 0.15,
@@ -48,7 +48,7 @@ TEMPLATE = {
         "decoration": {
             "quote_mark_top_left": "「",
             "quote_mark_bottom_right": "」",
-            "vertical_bar": true
+            "vertical_bar": True
         }
     },
     "example_2": {
@@ -56,7 +56,7 @@ TEMPLATE = {
         "quote": "数据是新时代的石油，但只有精炼后才能释放价值。",
         "attribution": "—— {高管姓名}，{公司名称} CEO",
         "decoration": {
-            "vertical_bar": true,
+            "vertical_bar": True,
             "background_gradient": "light_bg → background"
         }
     },

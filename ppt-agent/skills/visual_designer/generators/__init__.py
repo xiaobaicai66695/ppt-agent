@@ -6,6 +6,8 @@ from .content_slide_generator import generate as generate_content_slide
 from .stat_slide_generator import generate as generate_stat_slide
 from .quote_slide_generator import generate as generate_quote_slide
 from .card_grid_generator import generate as generate_card_grid
+from .comparison_table_generator import generate as generate_comparison_table
+from .image_hero_generator import generate as generate_image_hero
 from .process_flow_generator import generate as generate_process_flow
 from .two_column_generator import generate as generate_two_column
 from .three_column_generator import generate as generate_three_column
@@ -16,8 +18,19 @@ from .deep_dive_generator import generate as generate_deep_dive
 from .agenda_generator import generate as generate_agenda
 from .case_study_generator import generate as generate_case_study
 from .kpi_dashboard_generator import generate as generate_kpi_dashboard
-from .comparison_table_generator import generate as generate_comparison_table
-from .image_hero_generator import generate as generate_image_hero
+from .kanban_generator import generate as generate_kanban
+from .brand_focus_generator import generate as generate_brand_focus
+from .region_map_generator import generate as generate_region_map
+from .timeline_generator import generate as generate_timeline
+from .chart_generator import (
+    create_bar_chart_slide,
+    create_line_chart_slide,
+    create_pie_chart_slide,
+    create_table_slide,
+    create_handdrawn_style_slide,
+    create_icon_combo_slide,
+    create_smart_layout_slide,
+)
 
 __all__ = [
     "PALETTES",
@@ -43,4 +56,15 @@ __all__ = [
     "generate_kpi_dashboard",
     "generate_comparison_table",
     "generate_image_hero",
+    "generate_kanban",
+    "generate_brand_focus",
+    "generate_region_map",
+    "generate_timeline",
+    "create_bar_chart_slide",
+    "create_line_chart_slide",
+    "create_pie_chart_slide",
+    "create_table_slide",
+    "create_handdrawn_style_slide",
+    "create_icon_combo_slide",
+    "create_smart_layout_slide",
 ]
