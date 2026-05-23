@@ -163,6 +163,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		BaseDir:      outputBase,
 		FrontendDir:  filepath.Join(pwd, "..", "frontend", "dist"),
 		SkillsDir:    skillsDir,
+		Operator:     operator,
 		AgentFactory: agentFactory,
 		MakeTaskConfig: func(taskID string) *deep.PPTTaskConfig {
 			return &deep.PPTTaskConfig{

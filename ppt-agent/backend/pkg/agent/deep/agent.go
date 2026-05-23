@@ -64,7 +64,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建 Reviewer 子代理失败: %w", err)
 	}
 
-	fixer, err := newFixerAgent(ctx, cfg)
+	fixer, err := newFixerAgent(ctx, cfg, "")
 	if err != nil {
 		return nil, fmt.Errorf("创建 Fixer 子代理失败: %w", err)
 	}

@@ -23,11 +23,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/human"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/prompts"
+	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
 // AgentEventType constants for streaming events.
@@ -257,3 +263,222 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 	}
 }
 
+// RunFixerAgentWithCallback runs a single Fixer agent task and streams events via onEvent.
+// It creates a fresh Fixer agent, sends the fix request as a user message,
+// and consumes all agent events until completion.
+func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
+	operator commandline.Operator, fixRequest string, onEvent AgentEventCallback) error {
+
+	cfg := &PPTTaskConfig{
+		WorkDir:   workDir,
+		SkillsDir: skillsDir,
+		Operator:  operator,
+	}
+
+	agent, err := newFixerAgent(ctx, cfg, fixRequest)
+	if err != nil {
+		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 Fixer Agent 失败: " + err.Error()})
+		return err
+	}
+
+	startTime := time.Now()
+
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{
+		Agent:           agent,
+		EnableStreaming: true,
+	})
+
+	iter := runner.Run(ctx, []adk.Message{
+		schema.UserMessage(fixRequest),
+	})
+
+	var lastMessage adk.Message
+	var lastMessageStream *schema.StreamReader[adk.Message]
+	answerBuf := strings.Builder{}
+
+	for {
+		if ctx.Err() != nil {
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+			return ctx.Err()
+		}
+
+		event, ok := iter.Next()
+		if !ok {
+			break
+		}
+
+		if event.Output != nil && event.Output.MessageOutput != nil {
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+
+			if event.Output.MessageOutput.IsStreaming {
+				cpStream := event.Output.MessageOutput.MessageStream.Copy(2)
+				event.Output.MessageOutput.MessageStream = cpStream[0]
+				lastMessage = nil
+				lastMessageStream = cpStream[1]
+				processStreamingMessage(lastMessageStream, onEvent, &answerBuf)
+			} else {
+				lastMessage = event.Output.MessageOutput.Message
+				lastMessageStream = nil
+				if lastMessage != nil && lastMessage.Content != "" {
+					onEvent(AgentEvent{
+						Type:    AgentEventAnswer,
+						Content: lastMessage.Content,
+					})
+				}
+			}
+		}
+
+		if event.Output != nil && event.Output.MessageOutput != nil {
+			if m := event.Output.MessageOutput.Message; m != nil {
+				for _, tc := range m.ToolCalls {
+					onEvent(AgentEvent{
+						Type:     AgentEventToolCall,
+						ToolName: tc.Function.Name,
+						ToolArgs: tc.Function.Arguments,
+					})
+				}
+			}
+		}
+
+		if event.Err != nil {
+			onEvent(AgentEvent{
+				Type:  AgentEventError,
+				Error: event.Err.Error(),
+			})
+		}
+	}
+
+	if lastMessageStream != nil {
+		lastMessageStream.Close()
+	}
+
+	logger.Info("fixer_agent_completed", "duration", time.Since(startTime).String())
+	return nil
+}
+
+// RunSlideExecutorContinueWithCallback runs SlideExecutor in continue mode for specified pending pages.
+// It creates a fresh agent with the continue-specific prompt, processes the given pages,
+// and streams events via onEvent.
+func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDir string,
+	operator commandline.Operator, userMessage string, targetPages []int, onEvent AgentEventCallback) error {
+
+	cfg := &PPTTaskConfig{
+		WorkDir:   workDir,
+		SkillsDir: skillsDir,
+		Operator:  operator,
+	}
+
+	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+		agentutils.WithMaxTokens(8192),
+		agentutils.WithTemperature(0),
+		agentutils.WithTopP(0),
+	)
+	if err != nil {
+		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 SlideExecutor 模型失败: " + err.Error()})
+		return err
+	}
+
+	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
+	readTool := tools.NewReadFileTool(cfg.Operator)
+	searchTool := tools.NewSearchTool()
+
+	promptData := &prompts.TemplateData{
+		WorkDir:    workDir,
+		SkillsDir:  skillsDir,
+		UserMessage: userMessage,
+		TargetPages: targetPages,
+	}
+	instruction, err := prompts.RenderSlideExecutorContinueInstruction(promptData)
+	if err != nil {
+		onEvent(AgentEvent{Type: AgentEventError, Error: "渲染 SlideExecutor continue prompt 失败: " + err.Error()})
+		return err
+	}
+
+	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "SlideExecutor",
+		Description: "幻灯片生成专家，负责读取任务清单并生成指定页码的 PPT 幻灯片。",
+		Instruction: instruction,
+		Model:       cm,
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools: []tool.BaseTool{pythonTool, readTool, searchTool},
+			},
+		},
+		MaxIterations: 30,
+	})
+	if err != nil {
+		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 SlideExecutor Agent 失败: " + err.Error()})
+		return err
+	}
+
+	return runAgentWithCallback(ctx, agent, "", onEvent)
+}
+
+// runAgentWithCallback is a generic agent runner that streams events via onEvent.
+func runAgentWithCallback(ctx context.Context, agent adk.Agent, userInput string, onEvent AgentEventCallback) error {
+	startTime := time.Now()
+
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{
+		Agent:           agent,
+		EnableStreaming: true,
+	})
+
+	var messages []adk.Message
+	if userInput != "" {
+		messages = []adk.Message{schema.UserMessage(userInput)}
+	}
+	iter := runner.Run(ctx, messages)
+
+	err := streamAgentEvents(ctx, iter, onEvent)
+	logger.Info("agent_stream_completed", "duration", time.Since(startTime).String())
+	return err
+}
+
+// streamAgentEvents consumes all agent events and forwards them via onEvent.
+func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent], onEvent AgentEventCallback) error {
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		event, ok := iter.Next()
+		if !ok {
+			break
+		}
+
+		if event.Output != nil && event.Output.MessageOutput != nil {
+			if event.Output.MessageOutput.IsStreaming {
+				cpStream := event.Output.MessageOutput.MessageStream.Copy(2)
+				event.Output.MessageOutput.MessageStream = cpStream[0]
+				lastMsgStream := cpStream[1]
+				defer lastMsgStream.Close()
+
+				answerBuf := strings.Builder{}
+				processStreamingMessage(lastMsgStream, onEvent, &answerBuf)
+			} else {
+				if msg := event.Output.MessageOutput.Message; msg != nil {
+					if msg.Content != "" {
+						onEvent(AgentEvent{Type: AgentEventAnswer, Content: msg.Content})
+					}
+					for _, tc := range msg.ToolCalls {
+						onEvent(AgentEvent{
+							Type:     AgentEventToolCall,
+							ToolName: tc.Function.Name,
+							ToolArgs: tc.Function.Arguments,
+						})
+					}
+				}
+			}
+		}
+
+		if event.Err != nil {
+			onEvent(AgentEvent{Type: AgentEventError, Error: event.Err.Error()})
+		}
+	}
+
+	return nil
+}

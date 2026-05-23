@@ -28,6 +28,10 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
+func NewSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
+	return newSlideExecutorAgent(ctx, cfg)
+}
+
 func newSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(8192),
@@ -54,6 +58,10 @@ func newSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, 
 		},
 		MaxIterations: 30,
 	})
+}
+
+func BuildSlideExecutorInstruction(workDir, skillsDir string) string {
+	return buildSlideExecutorInstruction(workDir, skillsDir)
 }
 
 func buildSlideExecutorInstruction(workDir, skillsDir string) string {

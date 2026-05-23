@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-contrib/cors"
@@ -36,6 +37,8 @@ type Server struct {
 	engine         *gin.Engine
 	addr           string
 	templateLoader *templates.Loader
+	skillDir       string
+	operator       commandline.Operator
 	aiModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
@@ -52,6 +55,7 @@ type ServerConfig struct {
 	BaseDir        string
 	FrontendDir    string
 	SkillsDir      string
+	Operator       commandline.Operator
 	AgentFactory   task.AgentFactory
 	MakeTaskConfig func(taskID string) *deep.PPTTaskConfig
 	AIModelFactory func(ctx context.Context) (interface {
@@ -99,6 +103,8 @@ func NewServer(cfg *ServerConfig) *Server {
 		addr:             cfg.Addr,
 		aiModelFactory:   cfg.AIModelFactory,
 		textModelFactory: cfg.TextModelFactory,
+		skillDir:        cfg.SkillsDir,
+		operator:        cfg.Operator,
 	}
 
 	// LLM 驱动的风格提取器（从 PPTX 文本内容分析用户偏好）

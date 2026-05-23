@@ -73,6 +73,8 @@ type TemplateData struct {
 	OutlineTheme    string // Theme name from user's outline (used when HasOutline=true)
 	OutlineTitle    string // PPT title from user's outline (used when HasOutline=true)
 	StyleContext    string // User style preference context for personalized generation
+	UserMessage     string // User's fix/repair request message (for Fixer agent)
+	TargetPages     []int  // Specific page indices to process (for continue mode)
 }
 
 // Render executes a named template with the given data and returns the rendered string.
@@ -98,6 +100,11 @@ func RenderExecutorUserPrompt(data *TemplateData) (string, error) {
 // RenderDeepAgent renders deep agent templates.
 func RenderDeepAgent(name string, data *TemplateData) (string, error) {
 	return Render("deep/"+name, data)
+}
+
+// RenderSlideExecutorContinueInstruction renders the continue-mode slide executor instruction.
+func RenderSlideExecutorContinueInstruction(data *TemplateData) (string, error) {
+	return Render("deep/slide_executor_continue_instruction", data)
 }
 
 // RenderPlanExecute renders planexecute agent templates.

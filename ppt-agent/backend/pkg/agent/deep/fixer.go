@@ -28,7 +28,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
-func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
+func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(8192),
 		agentutils.WithTemperature(0),
@@ -41,7 +41,7 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)
 
-	instruction, err := buildFixerInstruction(cfg.WorkDir, cfg.SkillsDir)
+	instruction, err := buildFixerInstruction(cfg.WorkDir, cfg.SkillsDir, userMessage)
 	if err != nil {
 		panic("failed to render fixer instruction template: " + err.Error())
 	}
@@ -60,12 +60,13 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	})
 }
 
-func buildFixerInstruction(workDir, skillsDir string) (string, error) {
+func buildFixerInstruction(workDir, skillsDir, userMessage string) (string, error) {
 	tmplDir := skillsDir + "/visual_designer/templates"
 	data := &prompts.TemplateData{
-		WorkDir:   workDir,
-		SkillsDir: skillsDir,
-		TmplDir:   tmplDir,
+		WorkDir:    workDir,
+		SkillsDir:  skillsDir,
+		TmplDir:    tmplDir,
+		UserMessage: userMessage,
 	}
 	return prompts.RenderDeepAgent("fixer_instruction", data)
 }
