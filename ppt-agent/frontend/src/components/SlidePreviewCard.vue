@@ -115,6 +115,11 @@ const shortName = computed(() => {
             <span class="ph-dot"></span>
             {{ task.status === 'generating' ? '生成中...' : task.status === 'pending' ? '等待中' : task.status }}
           </div>
+          <!-- Show QA report details when the slide has issues -->
+          <div v-if="task.qa_report" class="qa-report-summary" :class="{ failed: task.status === 'failed' }">
+            <span class="qa-badge">QA 报告</span>
+            <span class="qa-preview">{{ task.qa_report.slice(0, 150) }}{{ task.qa_report.length > 150 ? '...' : '' }}</span>
+          </div>
         </div>
       </div>
     </template>
@@ -238,6 +243,33 @@ const shortName = computed(() => {
 .ph-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .ph-status.generating { color: #d97706; }
 .ph-status.generating .ph-dot { animation: pulse 0.8s infinite; }
+.ph-status.failed { color: var(--error); }
+.ph-status.failed .ph-dot { background: var(--error); }
+.qa-report-summary {
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.35rem;
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  border-radius: 3px;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.qa-badge {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--error);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.qa-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }

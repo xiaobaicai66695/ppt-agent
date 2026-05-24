@@ -10,6 +10,7 @@ const props = defineProps<{
   selectedId: string | null;
   hasRunningTask: boolean;
   creating: boolean;
+  error?: string;
 }>();
 
 const emit = defineEmits<{
@@ -128,6 +129,9 @@ const taskCount = computed(() => props.tasks.length);
       </button>
       <p v-if="hasActiveTask && !creating" class="busy-hint" role="status">
         有任务正在执行中，请稍候
+      </p>
+      <p v-if="error" class="error-hint" role="alert">
+        {{ error }}
       </p>
     </div>
 
@@ -330,6 +334,7 @@ const taskCount = computed(() => props.tasks.length);
 .create-btn.loading { pointer-events: none; }
 .create-btn.busy { background: var(--warning); box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25); }
 .busy-hint { font-size: 0.63rem; color: var(--warning); margin-top: 0.35rem; text-align: center; }
+.error-hint { font-size: 0.63rem; color: var(--error); margin-top: 0.35rem; text-align: center; padding: 0.25rem 0.5rem; background: color-mix(in srgb, var(--error) 10%, transparent); border-radius: 4px; }
 .btn-spinner {
   width: 14px; height: 14px;
   border: 2px solid rgba(255,255,255,0.3);

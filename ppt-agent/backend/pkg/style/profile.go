@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
 
 // ContentTypeCount tracks usage frequency of content types.
@@ -287,11 +288,26 @@ func NewProfileStore(_ string) *ProfileStore {
 }
 
 func (ps *ProfileStore) toDBRecord(p *UserProfile) *db.UserStyleProfile {
-	themes, _ := json.Marshal(p.PreferredThemes)
-	colors, _ := json.Marshal(p.PreferredColors)
-	patterns, _ := json.Marshal(p.ContentPatterns)
-	contentTypes, _ := json.Marshal(p.ContentTypes)
-	notes, _ := json.Marshal(p.SpecialNotes)
+	themes, err := json.Marshal(p.PreferredThemes)
+	if err != nil {
+		logger.Warn("profile_marshal_failed", "field", "PreferredThemes", "error", err.Error())
+	}
+	colors, err := json.Marshal(p.PreferredColors)
+	if err != nil {
+		logger.Warn("profile_marshal_failed", "field", "PreferredColors", "error", err.Error())
+	}
+	patterns, err := json.Marshal(p.ContentPatterns)
+	if err != nil {
+		logger.Warn("profile_marshal_failed", "field", "ContentPatterns", "error", err.Error())
+	}
+	contentTypes, err := json.Marshal(p.ContentTypes)
+	if err != nil {
+		logger.Warn("profile_marshal_failed", "field", "ContentTypes", "error", err.Error())
+	}
+	notes, err := json.Marshal(p.SpecialNotes)
+	if err != nil {
+		logger.Warn("profile_marshal_failed", "field", "SpecialNotes", "error", err.Error())
+	}
 
 	return &db.UserStyleProfile{
 		UserID:            uint(p.UserID),
@@ -316,11 +332,21 @@ func (ps *ProfileStore) fromDBRecord(r *db.UserStyleProfile) *UserProfile {
 		UpdatedAt:        r.UpdatedAt,
 	}
 
-	json.Unmarshal([]byte(r.PreferredThemes), &p.PreferredThemes)
-	json.Unmarshal([]byte(r.PreferredColors), &p.PreferredColors)
-	json.Unmarshal([]byte(r.ContentPatterns), &p.ContentPatterns)
-	json.Unmarshal([]byte(r.ContentTypes), &p.ContentTypes)
-	json.Unmarshal([]byte(r.SpecialNotes), &p.SpecialNotes)
+	if err := json.Unmarshal([]byte(r.PreferredThemes), &p.PreferredThemes); err != nil {
+		logger.Warn("profile_unmarshal_failed", "field", "PreferredThemes", "error", err.Error())
+	}
+	if err := json.Unmarshal([]byte(r.PreferredColors), &p.PreferredColors); err != nil {
+		logger.Warn("profile_unmarshal_failed", "field", "PreferredColors", "error", err.Error())
+	}
+	if err := json.Unmarshal([]byte(r.ContentPatterns), &p.ContentPatterns); err != nil {
+		logger.Warn("profile_unmarshal_failed", "field", "ContentPatterns", "error", err.Error())
+	}
+	if err := json.Unmarshal([]byte(r.ContentTypes), &p.ContentTypes); err != nil {
+		logger.Warn("profile_unmarshal_failed", "field", "ContentTypes", "error", err.Error())
+	}
+	if err := json.Unmarshal([]byte(r.SpecialNotes), &p.SpecialNotes); err != nil {
+		logger.Warn("profile_unmarshal_failed", "field", "SpecialNotes", "error", err.Error())
+	}
 
 	return p
 }
@@ -396,11 +422,4 @@ func mergeStringSliceWeighted(existing, new []string, ew, nw float64) []string {
 		result = append(result, pairs[i].s)
 	}
 	return result
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

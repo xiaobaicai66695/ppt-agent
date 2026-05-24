@@ -26,6 +26,7 @@ const duration = ref('');
 const activeWorkers = ref(0);
 const cancelling = ref(false);
 const creating = ref(false);
+const loadError = ref('');
 
 // ── Chat bar state ─────────────────────────────────────────────────────────────
 const showChatInput = ref(false);
@@ -286,8 +287,6 @@ function connectSSE(taskId: string) {
   if (es) es.close();
   es = new EventSource(`/api/tasks/${taskId}/stream`);
   activeWorkers.value = 0;
-  sseRetryCount = 0;
-  sseCompleted = false;
 
   es.onerror = () => {
     es!.close();
@@ -590,6 +589,8 @@ function selectTask(id: string) {
       logLines.value = [];
       taskItems.value = [];
       batches.value = [];
+      sseRetryCount = 0;
+      sseCompleted = false;
       connectSSE(id);
     }
     return;
@@ -606,6 +607,8 @@ function selectTask(id: string) {
   activeWorkers.value = 0;
   batches.value = [];
   selectedSlides.value = new Set();
+  sseRetryCount = 0;
+  sseCompleted = false;
   if (t.status !== 'failed') {
     connectSSE(id);
     if (t.status === 'running') startPolling(id);
@@ -615,12 +618,13 @@ function selectTask(id: string) {
 async function handleCreateTask(query: string) {
   if (creating.value) return;
   creating.value = true;
+  loadError.value = '';
   try {
     const info = await createTask(query);
     tasks.value = [info, ...tasks.value];
     selectTask(info.id);
   } catch (e: any) {
-    console.error('创建任务失败:', e);
+    loadError.value = e?.message || '创建任务失败，请重试';
   } finally {
     creating.value = false;
   }
@@ -634,8 +638,8 @@ async function handleCancel() {
     const idx = tasks.value.findIndex(t => t.id === info.id);
     if (idx >= 0) tasks.value[idx] = info;
     disconnectSSE();
-  } catch (e) {
-    console.error('取消失败:', e);
+  } catch (e: any) {
+    loadError.value = e?.message || '取消任务失败';
   } finally {
     cancelling.value = false;
   }
@@ -669,7 +673,12 @@ async function handleDeleteTask(id: string) {
 
 // ── Lifecycle ──────────────────────────────────────────────────────────
 async function loadTasks() {
-  try { tasks.value = await fetchTasks(); } catch { /* noop */ }
+  try {
+    tasks.value = await fetchTasks();
+    loadError.value = '';
+  } catch (e: any) {
+    loadError.value = e?.message || '加载任务列表失败，请刷新重试';
+  }
 }
 
 onMounted(async () => {
@@ -698,6 +707,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
       :selected-id="selectedId"
       :has-running-task="hasRunningTask"
       :creating="creating"
+      :error="loadError"
       @logout="auth.logout(); router.push('/')"
       @select-task="selectTask"
       @create-task="handleCreateTask"

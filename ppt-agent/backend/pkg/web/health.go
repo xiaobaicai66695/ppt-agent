@@ -27,6 +27,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
 // HealthStatus represents the result of a single health check.
@@ -167,12 +168,5 @@ func (s *Server) checkLibreOffice(ctx context.Context) HealthStatus {
 
 // getPythonBin returns the configured Python binary path.
 func getPythonBin() string {
-	// Use env override if set
-	if bin := os.Getenv("PYTHON_BIN"); bin != "" {
-		return bin
-	}
-	if runtime.GOOS == "windows" {
-		return "python"
-	}
-	return "/root/pptx_env/bin/python"
+	return pythonutil.GetPythonBinary()
 }

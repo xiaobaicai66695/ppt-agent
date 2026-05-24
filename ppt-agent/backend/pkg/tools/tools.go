@@ -67,8 +67,8 @@ func NewPythonRunnerTool(op commandline.Operator) tool.InvokableTool {
 	return NewPythonRunnerToolImpl(op)
 }
 
-// NewSingleQATool 创建一个单页 QA 视觉审查工具。
-// modelFn 用于创建支持多模态（图片输入）的 LLM，通常是视觉模型。
-func NewSingleQATool(op commandline.Operator, modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)) tool.InvokableTool {
-	return qa.NewSingleTool(op, modelFn)
+// NewBatchPDFTool 创建一个批量 PDF QA 视觉审查工具。
+// 将所有幻灯片合并为 PDF 后，一次发给多模态 LLM 审查（一次调用替代 N 次）。
+func NewBatchPDFTool(op commandline.Operator, modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)) tool.InvokableTool {
+	return qa.NewBatchPDFTool(op, modelFn)
 }

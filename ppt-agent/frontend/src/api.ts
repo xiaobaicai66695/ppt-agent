@@ -1,3 +1,5 @@
+import type { TaskInfo } from './types';
+
 // ── Token management ──────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'ppt_agent_token';

@@ -30,7 +30,7 @@ import (
 
 func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(8192),
+		agentutils.WithMaxTokens(16384),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)
@@ -56,7 +56,7 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) 
 				Tools: []tool.BaseTool{pythonTool, readTool},
 			},
 		},
-		MaxIterations: 15,
+		MaxIterations: agentutils.EnvInt("FIXER_MAX_ITERATIONS", 30),
 	})
 }
 

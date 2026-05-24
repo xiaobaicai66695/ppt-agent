@@ -15,23 +15,17 @@
  */
 
 // Package prompts loads agent prompt templates from .tmpl files on disk.
-// Prompt files are organized by execution mode under the prompts/ directory:
+// Prompt files are organized under the prompts/ directory:
 //
 //	prompts/
-//	├── prompts.go                # 本文件，通用加载函数
-//	├── executor_user_prompt.tmpl # PlanExecute executor 用户提示词（根目录）
-//	├── deep/                     # DeepAgent 模式模板
+//	├── prompts.go                       # 本文件，通用加载函数
+//	├── deep/                            # DeepAgent 模式模板
 //	│   ├── master_instruction.tmpl
 //	│   ├── slide_executor_instruction.tmpl
 //	│   ├── reviewer_instruction.tmpl
-//	│   └── fixer_instruction.tmpl
-//	└── planexecute/              # PlanExecute 模式模板
-//	    ├── planner_system.tmpl
-//	    ├── planner_user.tmpl
-//	    ├── executor_system.tmpl
-//	    ├── executor_user.tmpl
-//	    ├── replanner_system.tmpl
-//	    └── replanner_user.tmpl
+//	│   ├── fixer_instruction.tmpl
+//	│   └── slide_executor_continue_instruction.tmpl
+//	└── style/                          # Style extraction templates
 //
 // 每个模板通过 Render*(data) 系列函数加载并渲染。
 package prompts
@@ -43,10 +37,7 @@ import (
 	"text/template"
 )
 
-//go:embed *.tmpl
-//go:embed deep/*.tmpl
-//go:embed planexecute/*.tmpl
-//go:embed style/*.tmpl
+//go:embed deep/*.tmpl style/*.tmpl
 var FS embed.FS
 
 // TemplateData holds the data fields used across prompt templates.
@@ -92,11 +83,6 @@ func Render(name string, data *TemplateData) (string, error) {
 	return buf.String(), nil
 }
 
-// RenderExecutorUserPrompt renders the executor's user prompt template (root level).
-func RenderExecutorUserPrompt(data *TemplateData) (string, error) {
-	return Render("executor_user_prompt", data)
-}
-
 // RenderDeepAgent renders deep agent templates.
 func RenderDeepAgent(name string, data *TemplateData) (string, error) {
 	return Render("deep/"+name, data)
@@ -105,11 +91,6 @@ func RenderDeepAgent(name string, data *TemplateData) (string, error) {
 // RenderSlideExecutorContinueInstruction renders the continue-mode slide executor instruction.
 func RenderSlideExecutorContinueInstruction(data *TemplateData) (string, error) {
 	return Render("deep/slide_executor_continue_instruction", data)
-}
-
-// RenderPlanExecute renders planexecute agent templates.
-func RenderPlanExecute(name string, data *TemplateData) (string, error) {
-	return Render("planexecute/"+name, data)
 }
 
 // RenderStyleExtraction renders style extraction prompts.

@@ -353,6 +353,20 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	cfg *deep.PPTTaskConfig, query string) {
 
 	defer tm.cleanupTask(ts)
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("agent_panic", "task_id", ts.Info.ID, "panic", fmt.Sprintf("%v", r))
+			ts.Mu.Lock()
+			ts.Info.Status = TaskStatusFailed
+			ts.Info.Error = fmt.Sprintf("agent internal panic: %v", r)
+			ts.Mu.Unlock()
+			ts.Broadcast(SSERichEvent{
+				Type:   "complete",
+				Status: ts.Info.Status,
+				Error:  ts.Info.Error,
+			})
+		}
+	}()
 
 	progressCtx, progressCancel := context.WithCancel(ctx)
 	defer progressCancel()

@@ -64,12 +64,16 @@ func WithPreserveCount(n int) CompressorOption {
 	}
 }
 
-// DefaultCompressorConfig 返回默认压缩配置
+// DefaultCompressorConfig returns default compression settings.
+// Values can be overridden via environment variables:
+//   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: message count threshold (default 12)
+//   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token estimate threshold (default 30000)
+//   - MASTER_COMPRESSOR_PRESERVE_COUNT: number of message pairs to preserve (default 4)
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold: 12,
-		TokenThreshold:  30000,
-		PreserveCount:   4,
+		MessageThreshold: EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 8),
+		TokenThreshold:  EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 20000),
+		PreserveCount:   EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 4),
 	}
 }
 
@@ -79,11 +83,11 @@ func DefaultCompressorConfig() *CompressorConfig {
 type CompressionSummary struct {
 	// KeyDecisions 关键决策，结构化保留，不会被 LLM 自由文本丢失
 	KeyDecisions struct {
-		Template     string   `json:"template,omitempty"`      // 模板名称
-		ColorScheme  string   `json:"color_scheme,omitempty"` // 配色方案
-		Theme        string   `json:"theme,omitempty"`        // 主题
-		TotalPages   int      `json:"total_pages,omitempty"`  // 总页数
-		SlideTypes   []string `json:"slide_types,omitempty"`  // 内容类型列表
+		Template       string   `json:"template,omitempty"`        // 模板名称
+		ColorScheme    string   `json:"color_scheme,omitempty"`    // 配色方案
+		Theme          string   `json:"theme,omitempty"`           // 主题
+		TotalPages     int      `json:"total_pages,omitempty"`     // 总页数
+		SlideTypes     []string `json:"slide_types,omitempty"`     // 内容类型列表
 		OtherDecisions []string `json:"other_decisions,omitempty"` // 其他关键决策
 	} `json:"key_decisions"`
 
@@ -156,7 +160,7 @@ func ExtractKeyDecisions(messages []*schema.Message) *CompressionSummary {
 
 // conversationToSummary 调用 LLM 将中间对话压缩为自由摘要
 func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChatModel,
-	keyDecisions *CompressionSummary, conversationText string, inputTokens int) (string, error) {
+	keyDecisions *CompressionSummary, conversationText string) (string, string, error) {
 
 	keyDecisionsJSON, _ := json.Marshal(keyDecisions)
 
@@ -182,7 +186,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 		schema.UserMessage(summaryPrompt),
 	})
 	if err != nil {
-		return "", fmt.Errorf("summarizer 调用失败: %w", err)
+		return "", summaryPrompt, fmt.Errorf("summarizer 调用失败: %w", err)
 	}
 
 	raw := resp.Content
@@ -198,10 +202,10 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 	}
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		logger.Warn("summarizer_json_parse_failed", "raw", truncateString(raw, 200), "error", err.Error())
-		return strings.TrimSpace(raw), nil
+		return strings.TrimSpace(raw), summaryPrompt, nil
 	}
 
-	return parsed.ConversationSummary, nil
+	return parsed.ConversationSummary, summaryPrompt, nil
 }
 
 // ChatModelCompressor 包装 ChatModel，在调用前对消息历史进行上下文压缩。
@@ -215,6 +219,7 @@ type ChatModelCompressor struct {
 	inner      model.ToolCallingChatModel
 	summarizer model.ToolCallingChatModel
 	cfg        *CompressorConfig
+	tracker    *TokenTracker // optional; if set, summarizer calls are tracked
 }
 
 // NewChatModelCompressor 创建上下文压缩包装器
@@ -223,16 +228,39 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	return &ChatModelCompressor{
+	c := &ChatModelCompressor{
 		inner:      inner,
 		summarizer: summarizer,
 		cfg:        cfg,
 	}
+	// If the inner model is a FallbackChatModel, store the compressor config so that
+	// WithTools can re-apply the compressor after rebinding tools.
+	if fcm, ok := inner.(*FallbackChatModel); ok {
+		fcm.mu.Lock()
+		fcm.compressorCfg = &compressorConfig{
+			summarizerFactory: func() (model.ToolCallingChatModel, error) {
+				return summarizer, nil
+			},
+			messageThreshold: cfg.MessageThreshold,
+			tokenThreshold:  cfg.TokenThreshold,
+			preserveCount:   cfg.PreserveCount,
+		}
+		fcm.mu.Unlock()
+	}
+	return c
+}
+
+// SetTracker attaches a TokenTracker so that summarizer calls are tracked
+// alongside main model calls, giving accurate per-task token accounting.
+func (c *ChatModelCompressor) SetTracker(tracker *TokenTracker) {
+	c.tracker = tracker
 }
 
 // Generate 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	estimatedTokens := totalTokenEstimate(messages)
+	// Skip compression only when BOTH message count AND token estimate are below threshold.
+	// Compression is triggered when EITHER threshold is exceeded.
 	if len(messages) <= c.cfg.MessageThreshold && estimatedTokens <= c.cfg.TokenThreshold {
 		return c.inner.Generate(ctx, messages, opts...)
 	}
@@ -260,6 +288,8 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 // Stream 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	estimatedTokens := totalTokenEstimate(messages)
+	// Skip compression only when BOTH message count AND token estimate are below threshold.
+	// Compression is triggered when EITHER threshold is exceeded.
 	if len(messages) <= c.cfg.MessageThreshold && estimatedTokens <= c.cfg.TokenThreshold {
 		return c.inner.Stream(ctx, messages, opts...)
 	}
@@ -396,7 +426,12 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	}
 
 	// 调用 summarizer 生成自由摘要
-	convSummary, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String(), tokenEstimate(convText.String()))
+	convSummary, summaryPrompt, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String())
+	if c.tracker != nil && (err == nil || convSummary != "") {
+		promptTokens := tokenEstimate(summaryPrompt)
+		completionTokens := tokenEstimate(convSummary)
+		c.tracker.Add(promptTokens, completionTokens, promptTokens+completionTokens)
+	}
 	if err != nil {
 		logger.Warn("conversation_summary_failed", "error", err.Error())
 		convSummary = "[早期对话已压缩省略]"
@@ -405,11 +440,11 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	// 第三步：构建结构化摘要消息
 	summaryData := struct {
 		KeyDecisions struct {
-			Template   string   `json:"template,omitempty"`
+			Template    string   `json:"template,omitempty"`
 			ColorScheme string   `json:"color_scheme,omitempty"`
-			Theme     string   `json:"theme,omitempty"`
-			TotalPages int      `json:"total_pages,omitempty"`
-			SlideTypes []string `json:"slide_types,omitempty"`
+			Theme       string   `json:"theme,omitempty"`
+			TotalPages  int      `json:"total_pages,omitempty"`
+			SlideTypes  []string `json:"slide_types,omitempty"`
 		} `json:"key_decisions"`
 		ProgressSummary     string `json:"progress_summary"`
 		ConversationSummary string `json:"conversation_summary"`
@@ -432,7 +467,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	// 构建压缩后的消息列表
 	compressed := []*schema.Message{systemMsg}
 	compressed = append(compressed, &schema.Message{
-		Role:    schema.User,
+		Role: schema.User,
 		Content: fmt.Sprintf("【对话压缩摘要 | 已完成 %d/%d 轮】\n```json\n%s\n```\n%s",
 			len(headPairs), len(pairs), summaryJSON, progressPart),
 	})
@@ -455,8 +490,8 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 
 // pairWithToolCalls 描述一轮 user+assistant 对话及其 tool result
 type pairWithToolCalls struct {
-	user       *schema.Message
-	assistant  *schema.Message
+	user        *schema.Message
+	assistant   *schema.Message
 	toolResults []*schema.Message // 紧跟在这轮 assistant 后的 tool result
 }
 
@@ -479,14 +514,22 @@ func totalTokenEstimate(messages []*schema.Message) int {
 
 // tokenEstimate 估算单个字符串的 token 数量
 func tokenEstimate(s string) int {
-	// 粗略估算：中文每个字约 1.5 token，英文每字符约 0.25 token（含空格和标点约 0.75）
-	chars := 0
+	// 估算策略：按字符类别分别统计后求和
+	// - CJK 字符（中文/日文/韩文等 Unicode 扩展-B 区）：每个 ≈ 1.5 token
+	// - 英文字母/数字：每个 ≈ 0.75 token（接近 GPT 实际分配）
+	// - 标点/空格/控制符：每个 ≈ 0.25 token（极低权重）
+	var cjk, ascii, other int
 	for _, r := range s {
-		if r > 127 {
-			chars += 2 // 中文字符权重高
-		} else {
-			chars++ // ASCII
+		switch {
+		case r >= 0x4E00 && r <= 0x9FFF, // CJK Unified Ideographs
+			r >= 0x3000 && r <= 0x303F, // CJK Symbols
+			r >= 0xFF00 && r <= 0xFFEF: // Halfwidth/Fullwidth Forms
+			cjk++
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			ascii++
+		default:
+			other++
 		}
 	}
-	return chars * 3 / 4 // 近似 token（中文 ≈1.5，英文 ≈0.75）
+	return cjk*3/2 + ascii*3/4 + other/4
 }

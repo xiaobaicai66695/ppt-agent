@@ -18,6 +18,7 @@ package deep
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -126,7 +127,14 @@ func RunPPTTaskDeepAgentWithCallback(ctx context.Context, agent adk.Agent, cfg *
 }
 
 func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
-	userQuery string, onEvent AgentEventCallback) (*PPTTaskResult, error) {
+	userQuery string, onEvent AgentEventCallback) (result *PPTTaskResult, err error) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			onEvent(AgentEvent{Type: AgentEventError, Error: fmt.Sprintf("agent internal panic: %v", r)})
+			err = fmt.Errorf("agent internal panic: %v", r)
+		}
+	}()
 
 	start, err := StartPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
 	if err != nil {
@@ -168,16 +176,15 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 			} else {
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
-				if lastMessage != nil && lastMessage.Content != "" {
+				// Only emit text content for non-tool-result messages.
+				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
 					onEvent(AgentEvent{
 						Type:    AgentEventAnswer,
 						Content: lastMessage.Content,
 					})
 				}
 			}
-		}
 
-		if event.Output != nil && event.Output.MessageOutput != nil {
 			if m := event.Output.MessageOutput.Message; m != nil {
 				for _, tc := range m.ToolCalls {
 					onEvent(AgentEvent{
@@ -208,13 +215,13 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 		lastMsg = answerBuf.String()
 	}
 
-	manifest, err := ReadTasksManifest(cfg.WorkDir)
-	result := &PPTTaskResult{
+	manifest, manifestErr := ReadTasksManifest(cfg.WorkDir)
+	result = &PPTTaskResult{
 		Message:  lastMsg,
 		Duration: time.Since(start.StartTime),
 	}
 
-	if err == nil && manifest != nil {
+	if manifestErr == nil && manifest != nil {
 		result.TotalSlides = len(manifest.Tasks)
 		result.DoneSlides = manifest.CompletedCount()
 		for _, t := range manifest.Tasks {
@@ -240,6 +247,26 @@ func makePrintCallback() AgentEventCallback {
 	}
 }
 
+// isChunkEmittable returns true if the stream chunk should be emitted as an LLM answer token.
+// Tool result chunks (Role=="tool" or ToolCallID!="" or ToolCalls non-empty) are skipped
+// because they are execution metadata, not LLM text output.
+func isChunkEmittable(chunk *schema.Message) bool {
+	if chunk == nil {
+		return false
+	}
+	// Skip tool result chunks: these are tool execution outputs, not LLM text
+	if chunk.Role == schema.Tool {
+		return false
+	}
+	if chunk.ToolCallID != "" {
+		return false
+	}
+	if len(chunk.ToolCalls) > 0 {
+		return false
+	}
+	return true
+}
+
 func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent AgentEventCallback, buf *strings.Builder) {
 	if stream == nil {
 		return
@@ -251,6 +278,10 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 				onEvent(AgentEvent{Type: AgentEventError, Error: err.Error()})
 			}
 			return
+		}
+		// Skip tool result chunks and tool-call intent chunks — they are not LLM text tokens
+		if !isChunkEmittable(chunk) {
+			continue
 		}
 		if chunk.Content == "" {
 			continue
@@ -323,16 +354,17 @@ func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 			} else {
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
-				if lastMessage != nil && lastMessage.Content != "" {
+				// Only emit text content for non-tool-result messages.
+				// Tool-result messages (Role==tool or ToolCallID!="") have their output
+				// carried by the ToolCalls field; emitting Content would duplicate it.
+				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
 					onEvent(AgentEvent{
 						Type:    AgentEventAnswer,
 						Content: lastMessage.Content,
 					})
 				}
 			}
-		}
 
-		if event.Output != nil && event.Output.MessageOutput != nil {
 			if m := event.Output.MessageOutput.Message; m != nil {
 				for _, tc := range m.ToolCalls {
 					onEvent(AgentEvent{
@@ -373,7 +405,7 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 	}
 
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(8192),
+		agentutils.WithMaxTokens(16384),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)
@@ -381,14 +413,15 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 SlideExecutor 模型失败: " + err.Error()})
 		return err
 	}
+	cm = wrapSlideExecutorCompressor(ctx, cm)
 
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)
 	searchTool := tools.NewSearchTool()
 
 	promptData := &prompts.TemplateData{
-		WorkDir:    workDir,
-		SkillsDir:  skillsDir,
+		WorkDir:     workDir,
+		SkillsDir:   skillsDir,
 		UserMessage: userMessage,
 		TargetPages: targetPages,
 	}
@@ -408,7 +441,7 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 				Tools: []tool.BaseTool{pythonTool, readTool, searchTool},
 			},
 		},
-		MaxIterations: 30,
+		MaxIterations: agentutils.EnvInt("SLIDE_EXECUTOR_MAX_ITERATIONS", 50),
 	})
 	if err != nil {
 		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 SlideExecutor Agent 失败: " + err.Error()})
@@ -461,7 +494,8 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 				processStreamingMessage(lastMsgStream, onEvent, &answerBuf)
 			} else {
 				if msg := event.Output.MessageOutput.Message; msg != nil {
-					if msg.Content != "" {
+					// Only emit text content for non-tool-result messages.
+					if isChunkEmittable(msg) && msg.Content != "" {
 						onEvent(AgentEvent{Type: AgentEventAnswer, Content: msg.Content})
 					}
 					for _, tc := range msg.ToolCalls {

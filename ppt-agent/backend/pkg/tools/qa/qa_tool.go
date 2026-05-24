@@ -22,8 +22,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,511 +35,204 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/generic"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/params"
+	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
-var singleQAToolInfo = &schema.ToolInfo{
-	Name: "single_qa_review",
-	Desc: `执行单页视觉质量审查。每生成一页幻灯片后，立即使用此工具进行该页的 QA 检查。
+var batchPDFToolInfo = &schema.ToolInfo{
+	Name: "batch_pdf_review",
+	Desc: `批量 PDF 视觉质量审查。将所有幻灯片合并后的 PDF 一次性发给视觉 AI 模型审查。
 
 该工具会：
-1. 查找指定 PPTX 文件对应的图片
-2. 使用视觉 AI 模型审查该页幻灯片
-3. 返回该页的 QA 报告，包含问题描述和具体修复建议（必须包含 python-pptx 代码片段）
+1. 将 workDir 下的所有 PPTX 合并并转换为单个 PDF
+2. 将 PDF 作为附件发给多模态视觉模型，一次性审查所有页
+3. 返回按页分组的 QA 报告，包含问题描述和具体修复建议
 
-传入参数 pptx_filename（PPTX 文件名），工具会自动查找对应的图片文件。`,
-	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"pptx_filename": {
-			Type:     schema.String,
-			Desc:     "PPTX 文件名，如 4_标题页.pptx 或 4.1_金融与法律.pptx",
-			Required: true,
-		},
-	}),
+推荐优先使用此工具，一次 LLM 调用替代逐页审查的多次调用。`,
+	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
 }
 
-// qaSystemPrompt 是视觉 QA 的系统提示词。
-const qaSystemPrompt = `你是 PPT 视觉质量审查专家，负责对幻灯片进行严格检查，并给出可执行的修复指令。
-
-## 你的职责
-
-你的审查结果将直接交给另一个 AI Agent 执行修复。因此：
-- 如果发现问题，给出**具体、可执行**的修复指令
-- 如果没有发现问题，明确说明"该页检查通过"
-- 不要泛泛而谈，必须精确到形状对象、颜色值、坐标、字号等
-
-## 必须检查的问题类型
-
-1. **overlap（重叠）** — 文字与形状/图片重叠、线条穿过文字
-2. **overflow（溢出）** — 文字超出文本框边界被截断、超出幻灯片边界
-3. **contrast（对比度）** — 浅色文字在浅色背景上、深色文字在深色背景上
-4. **spacing（间距）** — 元素间距不一致、元素过于靠近（<0.3英寸）、边距不足（<0.5英寸）
-5. **alignment（对齐）** — 同一列的元素没有对齐、视觉重心不稳
-6. **placeholder（占位符残留）** — 包含 "xxxx"、"lorem"、"ipsum"、"placeholder" 等占位符文本
-7. **ai_style（AI感特征）** — 标题下有装饰线、紫色渐变科技风、过于均匀的配色
-8. **layout_monotony（布局单调）** — 所有元素机械式均匀排列，缺乏视觉节奏变化。具体表现：多条 bullet 间距完全一致且无任何装饰元素打破单调；页面所有文字块大小/颜色完全相同无层次；元素集中在上半部分而下半部分空洞；整体看起来像"填空题模板"而非精心设计的页面
-9. **content_emptiness（内容空洞）** — 文字内容缺乏深度，仅有标题级别的空洞罗列。具体表现：
-   - bullet 列表中每条只有1-3个词（如「AI」「深度学习」「机器学习」），无冒号分隔的概念+说明
-   - 段落文本少于50字或明显是空洞套话（如「AI在各行业有广泛应用」「效果显著」「体验良好」）
-   - 数值占位符残留（如"{数值}"、"xxx"、"{要点}"）
-   - 缺少具体数字、缺少命名实体（公司/系统/人物名称）、缺少技术细节
-   - 同一页中出现超过3个不同的空洞描述而无任何量化数据
-
-## 严重程度定义
-
-- **high** — 明显影响阅读或观感，必须修复（如文字被截断、重叠、内容空洞无实质信息）
-- **medium** — 视觉上不够精致，建议修复（如间距不均、对比度略低）
-- **low** — 微小瑕疵，不影响整体
-
-## 审查规则
-
-1. 假设有错，不要因为"看起来还行"就跳过
-2. 发现了问题一定要报告，不要遗漏
-3. 给出具体建议，如颜色 rgb()、排版位置坐标（以左上为原点，向下向右为正方向）
-4. 参照模板规范检查：每种 content_type 对应的模板（templates/single-page/*.json）有明确的元素规范和 NEVER 清单
-
-## 综合评分（必须）
-
-在审查结束后，根据以下标准为该页打出 1-5 分（整数）：
-
-- **1 分** — 不可用：内容空洞（无数据/案例/命名实体），或存在多处 high 问题
-- **2 分** — 较差：有 1-2 个 high 问题，或内容明显单薄，不能直接使用
-- **3 分** — 及格：无 high 问题，内容基本充实，可能有 1-2 个 medium/low 瑕疵，可接受
-- **4 分** — 良好：布局合理，内容充实（含具体数据/案例），仅微小瑕疵
-- **5 分** — 优秀：设计精良，排版精准，内容深度高，无任何问题
-
-## 输出格式
-
-请用**自然语言**输出审查结果。**末尾必须单独一行注明评分**，格式如下：
-
-如果有问题：
-【问题1 - high】
-- 页面：<页码标识>
-- 描述：<问题描述>
-- 修复：<具体可执行的修复指令，包含 python-pptx 代码>
-
-【评分】X/5
-
-如果无问题：
-【审查结果】该页检查通过，无视觉问题。
-【评分】X/5`
-
-// manifestCacheEntry holds a cached tasks.json manifest for content_type lookup.
-type manifestCacheEntry struct {
-	manifest  *tasksManifestForLookup
-	cachedAt  time.Time
-}
-
-// SingleTool 是单页 QA 视觉审查工具。
-type SingleTool struct {
+// BatchPDFTool 是批量 PDF 视觉审查工具。
+// 将所有幻灯片合并为 PDF 后，一次发给多模态 LLM 审查（一次调用替代 N 次）。
+type BatchPDFTool struct {
 	op      commandline.Operator
 	modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)
+
 	cachedModel    model.ToolCallingChatModel
 	cachedModelMu  sync.Mutex
 	cachedModelAt  time.Time
 	cachedModelErr error
 
-	manifestCache   map[string]*manifestCacheEntry // workDir → cached manifest
-	manifestCacheMu sync.Mutex
+	conversionCache   map[string]*conversionCacheEntry
+	conversionCacheMu sync.Mutex
 }
 
 // modelCacheTTL 模型缓存有效期（超时后重新创建，防止 token 过期或连接断开导致 QA 永久失效）
 const modelCacheTTL = 10 * time.Minute
 
-// NewSingleTool 创建一个单页 QA Tool 实例。
-func NewSingleTool(op commandline.Operator, modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)) tool.InvokableTool {
-	return &SingleTool{op: op, modelFn: modelFn}
+// conversionCacheTTL 转换结果缓存有效期（5 分钟足够完成一次批量 QA）
+const conversionCacheTTL = 5 * time.Minute
+
+type conversionCacheEntry struct {
+	Result    map[string]any
+	ExpiredAt time.Time
 }
 
-func (t *SingleTool) Info(_ context.Context) (*schema.ToolInfo, error) {
-	return singleQAToolInfo, nil
+// NewBatchPDFTool 创建一个批量 PDF QA Tool 实例。
+func NewBatchPDFTool(op commandline.Operator, modelFn func(ctx context.Context) (model.ToolCallingChatModel, error)) tool.InvokableTool {
+	return &BatchPDFTool{op: op, modelFn: modelFn}
 }
 
-// getOrCreateModel 返回缓存的模型，若缓存未初始化或已过期则重新创建。
-// TTL 机制防止 token 过期或连接断开导致 QA 功能永久失效。
-func (t *SingleTool) getOrCreateModel(ctx context.Context) (model.ToolCallingChatModel, error) {
-	t.cachedModelMu.Lock()
-	defer t.cachedModelMu.Unlock()
-
-	if t.cachedModel != nil && t.cachedModelErr == nil {
-		if time.Since(t.cachedModelAt) < modelCacheTTL {
-			return t.cachedModel, nil
-		}
-	}
-
-	t.cachedModel, t.cachedModelErr = t.modelFn(ctx)
-	if t.cachedModelErr == nil {
-		t.cachedModelAt = time.Now()
-	}
-	return t.cachedModel, t.cachedModelErr
+func (t *BatchPDFTool) Info(_ context.Context) (*schema.ToolInfo, error) {
+	return batchPDFToolInfo, nil
 }
 
-// runConverter 执行 Python 脚本将 PPTX 转换为图片。
-func (t *SingleTool) runConverter(ctx context.Context, wd string) (map[string]any, error) {
-	// 优先使用 PROJECT_ROOT 环境变量定位项目根目录（wd 是输出目录，可能在项目外）
-	projectRoot := os.Getenv("PROJECT_ROOT")
-	var converter string
-	if projectRoot != "" {
-		converter = filepath.Join(projectRoot, "pkg", "tools", "qa", "pptx_qa_converter.py")
-		if _, err := os.Stat(converter); err == nil {
-			// 找到则直接使用
-		} else {
-			converter = ""
-		}
+// runPDFConverter generates merged PDF for the workDir using the converter script.
+// Caches the result to avoid redundant conversion on concurrent calls.
+func (t *BatchPDFTool) runPDFConverter(ctx context.Context, wd string) (string, string, error) {
+	t.conversionCacheMu.Lock()
+	if t.conversionCache == nil {
+		t.conversionCache = make(map[string]*conversionCacheEntry)
 	}
+	entry, ok := t.conversionCache[wd]
+	if ok && time.Now().Before(entry.ExpiredAt) {
+		t.conversionCacheMu.Unlock()
+		pdfPath, _ := entry.Result["pdf_path"].(string)
+		textContent, _ := entry.Result["text_content"].(string)
+		return pdfPath, textContent, nil
+	}
+	t.conversionCacheMu.Unlock()
+
+	// Find converter script using shared utility
+	converter := pythonutil.FindConverterPy(wd)
 	if converter == "" {
-		// 回退：向上搜索 converter 脚本，最多搜索 8 级，并尝试可能的子目录结构
-		for i := 1; i <= 8; i++ {
-			up := strings.Repeat("../", i)
-			// 尝试多种可能的路径结构
-			for _, subPath := range []string{
-				"pkg/tools/qa/pptx_qa_converter.py",
-				"backend/pkg/tools/qa/pptx_qa_converter.py",
-			} {
-				c := filepath.Join(wd, up, subPath)
-				if _, err := os.Stat(c); err == nil {
-					converter = c
-					break
-				}
-			}
-			if converter != "" {
-				break
-			}
-		}
-	}
-	if converter == "" {
-		return nil, fmt.Errorf("找不到 pptx_qa_converter.py（PROJECT_ROOT 未设置，wd=%s）", wd)
-	}
-	imgDir := filepath.Join(wd, "qa_images")
-	if err := os.MkdirAll(imgDir, 0o755); err != nil {
-		return nil, fmt.Errorf("创建 QA 图片目录失败: %v", err)
+		return "", "", fmt.Errorf("找不到 pptx_qa_converter.py")
 	}
 
-
-	// Skip conversion only if ALL pptx files have matching jpg already (from thumbnails)
-	pptxEntries, _ := os.ReadDir(wd)
-	allExist := false
-	for _, e := range pptxEntries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pptx") {
-			continue
+	// Check if PDF already exists
+	existingPDF := filepath.Join(wd, "merged.pdf")
+	if _, err := os.Stat(existingPDF); err == nil {
+		textContent := t.extractTextFromPPTXFiles(wd)
+		t.conversionCacheMu.Lock()
+		t.conversionCache[wd] = &conversionCacheEntry{
+			Result:    map[string]any{"pdf_path": existingPDF, "text_content": textContent},
+			ExpiredAt: time.Now().Add(conversionCacheTTL),
 		}
-		jpgName := strings.TrimSuffix(e.Name(), ".pptx") + ".jpg"
-		if _, err := os.Stat(filepath.Join(imgDir, jpgName)); err == nil {
-			allExist = true
-		} else {
-			allExist = false
-			break
-		}
-	}
-	if allExist {
-		return map[string]any{"total_slides": float64(0), "text_content": "", "skipped": true}, nil
+		t.conversionCacheMu.Unlock()
+		return existingPDF, textContent, nil
 	}
 
-	pythonBin := "/root/pptx_env/bin/python"
-	cmd := exec.CommandContext(ctx, pythonBin, converter,
+	pythonBin := pythonutil.GetPythonBinary()
+	cmdArgs := []string{
+		converter,
 		"--pptx-dir", wd,
-		"--output-dir", imgDir,
-		"--dpi", "150")
+		"--output-dir", wd,
+		"--pdf-only",
+	}
+	cmd := exec.CommandContext(ctx, pythonBin, cmdArgs...)
 	cmd.Dir = wd
-	cmd.Env = append(os.Environ(), "PATH="+os.Getenv("PATH"))
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("PPTX 转换失败: %v, stderr: %s", err, stderr.String())
+		return "", "", fmt.Errorf("PDF 生成失败: %v, stderr: %s", err, stderr.String())
 	}
 
 	var result map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		return nil, fmt.Errorf("解析转换结果失败: %v", err)
+		return "", "", fmt.Errorf("解析 PDF 生成结果失败: %v", err)
 	}
-	return result, nil
+
+	if errMsg, ok := result["error"].(string); ok && errMsg != "" {
+		return "", "", fmt.Errorf("%s", errMsg)
+	}
+
+	pdfPath, _ := result["pdf_path"].(string)
+	textContent, _ := result["text_content"].(string)
+
+	t.conversionCacheMu.Lock()
+	t.conversionCache[wd] = &conversionCacheEntry{
+		Result:    result,
+		ExpiredAt: time.Now().Add(conversionCacheTTL),
+	}
+	t.conversionCacheMu.Unlock()
+
+	return pdfPath, textContent, nil
 }
 
-// findTargetImage 查找对应 PPTX 文件名的图片。
-// 支持多种命名格式：
-//   - {N.M}.jpg：例如 4.1.jpg（子页，N.M 格式）
-//   - {N_MM}.jpg：例如 4_01.jpg（普通页，N_MM 格式）
-//   - {stem}.jpg：直接匹配文件名（不含扩展名）
-func findTargetImage(imgDir string, pptxFilename string) (string, bool) {
-	entries, err := os.ReadDir(imgDir)
+// extractTextFromPPTXFiles extracts text content from all PPTX files in the directory.
+// Uses a single Python subprocess call for efficiency (avoids N process spawns for N files).
+func (t *BatchPDFTool) extractTextFromPPTXFiles(wd string) string {
+	entries, err := os.ReadDir(wd)
 	if err != nil {
-		return "", false
+		return ""
 	}
 
-	// 提取待查找的 stem（如 "4.1"、"4_01"）
-	stem := strings.TrimSuffix(pptxFilename, ".pptx")
-
-	for _, entry := range entries {
-		if entry.IsDir() {
+	var pptxFiles []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pptx") {
 			continue
 		}
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".jpg" && ext != ".png" && ext != ".jpeg" {
+		pptxFiles = append(pptxFiles, filepath.Join(wd, e.Name()))
+	}
+
+	if len(pptxFiles) == 0 {
+		return ""
+	}
+
+	// Build a single Python script that processes all files at once
+	script := `
+import sys
+import json
+from pptx import Presentation
+
+results = []
+for pptx_path in sys.argv[1:]:
+    try:
+        prs = Presentation(pptx_path)
+        texts = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    texts.append(shape.text.strip())
+        results.append({"path": pptx_path, "text": "\n".join(texts)})
+    except Exception:
+        results.append({"path": pptx_path, "text": ""})
+
+print(json.dumps(results, ensure_ascii=False))
+`
+
+	cmdArgs := make([]string, 0, 2+len(pptxFiles))
+	cmdArgs = append(cmdArgs, "-c", script)
+	cmdArgs = append(cmdArgs, pptxFiles...)
+	cmd := exec.Command(pythonutil.GetPythonBinary(), cmdArgs...)
+	cmd.Dir = wd
+	out, _ := cmd.Output()
+	if len(out) == 0 {
+		return ""
+	}
+
+	var results []struct {
+		Path string `json:"path"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		return ""
+	}
+
+	var allText []string
+	for _, r := range results {
+		if r.Text == "" {
 			continue
 		}
-
-		// 匹配：去掉扩展名后等于 stem
-		candidateStem := strings.TrimSuffix(name, filepath.Ext(name))
-		if candidateStem == stem {
-			return name, true
-		}
+		stem := filepath.Base(r.Path)
+		stem = strings.TrimSuffix(stem, ".pptx")
+		allText = append(allText, fmt.Sprintf("[%s]\n%s", stem, r.Text))
 	}
-
-	return "", false
-}
-
-// extractPageNumFromName 从图片文件名中提取页码标识（用于 QA 结果中的 slide 字段）。
-// 支持格式：
-//   - {N.M}.jpg：子页，如 4.1
-//   - {N_MM}.jpg：普通页，如 4_01
-//   - {stem}.jpg：直接返回 stem
-func extractPageNumFromName(name string) string {
-	stem := strings.TrimSuffix(name, filepath.Ext(name))
-	return stem
-}
-
-// mergeQAResult 将新结果合并到现有 QA 结果中。
-// 直接追加 Reports 列表。
-func mergeQAResult(existing *generic.QAResult, new *generic.QAResult) *generic.QAResult {
-	if existing == nil {
-		return new
-	}
-	if new == nil {
-		return existing
-	}
-
-	merged := &generic.QAResult{
-		TotalSlides: new.TotalSlides,
-		Reports:     append(existing.Reports, new.Reports...),
-		HasIssues:   existing.HasIssues || new.HasIssues,
-		HasHighIssue: existing.HasHighIssue || new.HasHighIssue,
-	}
-
-	return merged
-}
-
-func (t *SingleTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-	wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
-	if !ok || wd == "" {
-		// 兜底：Eino sub-agent 可能不继承父 context 的自定义值，从 operator 实例读取
-		type workDirGetter interface{ GetWorkDir(context.Context) string }
-		if getter, ok := t.op.(workDirGetter); ok {
-			wd = getter.GetWorkDir(ctx)
-		}
-	}
-	if wd == "" {
-		return "", fmt.Errorf("无法获取工作目录")
-	}
-
-	// 解析 pptx_filename 参数
-	var args struct {
-		PPTXFilename string `json:"pptx_filename"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
-		return "", fmt.Errorf("解析参数失败: %v", err)
-	}
-	pptxFilename := args.PPTXFilename
-	if pptxFilename == "" {
-		return "", fmt.Errorf("pptx_filename 参数不能为空")
-	}
-
-	// 检查 QA 尝试次数，每页最多 2 次
-	attemptCount, _ := generic.IncrementQAAttempt(wd, pptxFilename)
-	if attemptCount > 2 {
-		existingResult, _ := generic.LoadQAResult(wd)
-		if existingResult != nil {
-			b, _ := json.Marshal(existingResult)
-			return string(b), nil
-		}
-		// 没有历史结果，返回已超过次数限制
-		emptyResult := generic.QAResult{
-			TotalSlides: 0,
-			Reports:     []string{},
-			Summary:     fmt.Sprintf("%s QA 已达到最大尝试次数（2次），跳过后续审查", pptxFilename),
-		}
-		b, _ := json.Marshal(emptyResult)
-		return string(b), nil
-	}
-
-	// Step 1: 将工作目录下所有 PPTX 转换为图片
-	convResult, err := t.runConverter(ctx, wd)
-	if err != nil {
-		emptyResult := generic.QAResult{TotalSlides: 0, Reports: []string{}, Summary: "转换出错: " + err.Error()}
-		b, _ := json.Marshal(emptyResult)
-		return string(b), nil
-	}
-
-	if errMsg, ok := convResult["error"].(string); ok && errMsg != "" {
-		emptyResult := generic.QAResult{TotalSlides: 0, Reports: []string{}, Summary: "转换出错: " + errMsg}
-		b, _ := json.Marshal(emptyResult)
-		return string(b), nil
-	}
-
-	textContent, _ := convResult["text_content"].(string)
-	totalSlides := int(converterResultToFloat(convResult["total_slides"]))
-
-	// Step 2: 找到对应 PPTX 文件名的图片
-	imgDir := filepath.Join(wd, "qa_images")
-	targetImgName, found := findTargetImage(imgDir, pptxFilename)
-
-	if !found {
-		// 尝试列出目录中的图片文件以便调试
-		existingFiles := []string{}
-		if entries, err := os.ReadDir(imgDir); err == nil {
-			for _, e := range entries {
-				if !e.IsDir() {
-					existingFiles = append(existingFiles, e.Name())
-				}
-			}
-		}
-		emptyResult := generic.QAResult{
-			TotalSlides: totalSlides,
-			Reports:     []string{},
-			Summary:     fmt.Sprintf("未找到 %s 对应的图片文件（目录: %s，文件: %v）", pptxFilename, imgDir, existingFiles),
-		}
-		b, _ := json.Marshal(emptyResult)
-		return string(b), nil
-	}
-
-	// Step 3: 调用 LLM 进行单页视觉 QA（带 TTL 的模型缓存，过期自动重建）
-	model, err := t.getOrCreateModel(ctx)
-	if err != nil {
-		return "", fmt.Errorf("创建 LLM 失败: %v", err)
-	}
-
-	contentType := t.lookupContentType(wd, pptxFilename)
-		result, err := t.doSingleVisualQA(ctx, model, wd, targetImgName, textContent, contentType)
-	if err != nil {
-		if result != nil {
-		} else {
-			emptyResult := generic.QAResult{
-				TotalSlides: totalSlides,
-				Reports:     []string{},
-				Summary:     "QA 执行失败: " + err.Error(),
-			}
-			b, _ := json.Marshal(emptyResult)
-			return string(b), nil
-		}
-	}
-	result.TotalSlides = totalSlides
-
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("序列化 QA 结果失败: %v", err)
-	}
-
-	// Step 4: 追加到现有 QA 结果（而非覆盖）
-	existingResult, _ := generic.LoadQAResult(wd)
-	mergedResult := mergeQAResult(existingResult, result)
-	if err := generic.SaveQAResult(wd, mergedResult); err != nil {
-		logger.Warn("qa_result_save_failed", "error", err.Error())
-	}
-
-	return string(resultJSON), nil
-}
-
-// converterResultToFloat 安全地将 interface{} 转换为 float64。
-func converterResultToFloat(v any) float64 {
-	if f, ok := v.(float64); ok {
-		return f
-	}
-	return 0
-}
-
-// loadImageAsBase64 加载图片并返回 mimeType 和 data URI。
-func loadImageAsBase64(imgPath string) (string, string, error) {
-	f, err := os.Open(imgPath)
-	if err != nil {
-		return "", "", err
-	}
-	defer f.Close()
-	fc, err := io.ReadAll(f)
-	if err != nil {
-		return "", "", err
-	}
-	mimeType := http.DetectContentType(fc)
-	if mimeType == "application/octet-stream" {
-		ext := strings.ToLower(filepath.Ext(imgPath))
-		if ext == ".jpg" || ext == ".jpeg" {
-			mimeType = "image/jpeg"
-		} else if ext == ".png" {
-			mimeType = "image/png"
-		} else {
-			mimeType = "image/jpeg"
-		}
-	}
-	return mimeType, fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(fc)), nil
-}
-
-// parseSlideIndex 从图片文件名中解析页码标识（用于 QA 结果中的 slide 字段）。
-func parseSlideIndex(imgName string) string {
-	return extractPageNumFromName(imgName)
-}
-
-// tasksManifestForLookup is a minimal struct for reading content_type from tasks.json.
-type tasksManifestForLookup struct {
-	Tasks []struct {
-		ContentType string `json:"content_type"`
-		OutputFile  string `json:"output_file"`
-	} `json:"tasks"`
-}
-
-// lookupContentType reads tasks.json from workDir and returns the content_type
-// for the given pptx filename. Results are cached per workDir for 30s.
-// Returns empty string if not found.
-func (t *SingleTool) lookupContentType(workDir, pptxFilename string) string {
-	t.manifestCacheMu.Lock()
-	entry, ok := t.manifestCache[workDir]
-	if ok && time.Since(entry.cachedAt) < 30*time.Second {
-		m := entry.manifest
-		t.manifestCacheMu.Unlock()
-		for _, task := range m.Tasks {
-			if task.OutputFile == pptxFilename {
-				return task.ContentType
-			}
-		}
-		return ""
-	}
-	t.manifestCacheMu.Unlock()
-
-	// Cache miss or expired — read from disk.
-	manifestPath := filepath.Join(workDir, "tasks.json")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return ""
-	}
-	var m tasksManifestForLookup
-	if err := json.Unmarshal(data, &m); err != nil {
-		return ""
-	}
-
-	t.manifestCacheMu.Lock()
-	if t.manifestCache == nil {
-		t.manifestCache = make(map[string]*manifestCacheEntry)
-	}
-	t.manifestCache[workDir] = &manifestCacheEntry{
-		manifest:  &m,
-		cachedAt: time.Now(),
-	}
-	// 清理超过 5 分钟的旧缓存，防止已删除任务的 workDir 残留
-	for k, v := range t.manifestCache {
-		if time.Since(v.cachedAt) > 5*time.Minute {
-			delete(t.manifestCache, k)
-		}
-	}
-	t.manifestCacheMu.Unlock()
-
-	for _, task := range m.Tasks {
-		if task.OutputFile == pptxFilename {
-			return task.ContentType
-		}
-	}
-	return ""
+	return strings.Join(allText, "\n\n")
 }
 
 // parseScore extracts the 1-5 score from the QA report text.
@@ -566,41 +257,88 @@ func parseScore(report string) int {
 	return 0
 }
 
-// doSingleVisualQA 对单页图片进行视觉 QA。
-func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCallingChatModel, wd string, imgName string, textContent string, contentType string) (*generic.QAResult, error) {
-	imgDir := filepath.Join(wd, "qa_images")
-	imgPath := filepath.Join(imgDir, imgName)
-
-	slideKey := parseSlideIndex(imgName) // 现在返回 PPTX 文件名 stem
-
-	mimeType, dataURI, err := loadImageAsBase64(imgPath)
+// doBatchVisualQA sends the merged PDF as a base64 data URI to the multimodal LLM
+// for a single-shot review of all slides.
+func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCallingChatModel, wd string) (*generic.QAResult, error) {
+	pdfPath, textContent, err := t.runPDFConverter(ctx, wd)
 	if err != nil {
-		return nil, fmt.Errorf("加载图片失败: %v", err)
+		return nil, err
 	}
 
-	var parts []schema.MessageInputPart
-	parts = append(parts, schema.MessageInputPart{
-		Type: schema.ChatMessagePartTypeText,
-		Text: qaSystemPrompt + "\n\n## 幻灯片文本内容（参考）\n" + textContent,
-	})
-	parts = append(parts, schema.MessageInputPart{
-		Type: schema.ChatMessagePartTypeImageURL,
-		Image: &schema.MessageInputImage{
-			MessagePartCommon: schema.MessagePartCommon{
-				URL:      &dataURI,
-				MIMEType: mimeType,
-			},
-			Detail: "",
-		},
-	})
-	parts = append(parts, schema.MessageInputPart{
-		Type: schema.ChatMessagePartTypeText,
-		Text: fmt.Sprintf("\n请仔细审查幻灯片图片 %s，以自然语言输出审查结果。", slideKey),
-	})
+	pdfBytes, err := os.ReadFile(pdfPath)
+	if err != nil {
+		return nil, fmt.Errorf("读取 PDF 文件失败: %v", err)
+	}
+	pdfBase64 := base64.StdEncoding.EncodeToString(pdfBytes)
+
+	batchPrompt := `你是 PPT 视觉质量审查专家，负责对一份包含多页幻灯片的 PDF 进行严格检查，并给出可执行的修复指令。
+
+## 你的职责
+
+你的审查结果将直接交给另一个 AI Agent 执行修复。因此：
+- 如果发现问题，给出**具体、可执行**的修复指令
+- 如果没有问题，明确说明"该页检查通过"
+
+## 必须检查的问题类型
+
+1. **overlap（重叠）** — 文字与形状/图片重叠、线条穿过文字
+2. **overflow（溢出）** — 文字超出文本框边界被截断、超出幻灯片边界
+3. **contrast（对比度）** — 浅色文字在浅色背景上、深色文字在深色背景上
+4. **spacing（间距）** — 元素间距不一致、元素过于靠近（<0.3英寸）、边距不足（<0.5英寸）
+5. **alignment（对齐）** — 同一列的元素没有对齐、视觉重心不稳
+6. **placeholder（占位符残留）** — 包含 "xxxx"、"lorem"、"ipsum"、"placeholder" 等占位符文本
+7. **ai_style（AI感特征）** — 标题下有装饰线、紫色渐变科技风、过于均匀的配色
+8. **layout_monotony（布局单调）** — 所有元素机械式均匀排列，缺乏视觉节奏变化
+9. **content_emptiness（内容空洞）** — 文字内容缺乏深度，仅有标题级别的空洞罗列
+
+## 严重程度定义
+
+- **high** — 明显影响阅读或观感，必须修复（如文字被截断、重叠、内容空洞无实质信息）
+- **medium** — 视觉上不够精致，建议修复（如间距不均、对比度略低）
+- **low** — 微小瑕疵，不影响整体
+
+## 综合评分（必须）
+
+在审查结束后，为整体打出 1-5 分：
+- **1 分** — 不可用：内容空洞或存在多处 high 问题
+- **2 分** — 较差：有 high 问题或内容明显单薄
+- **3 分** — 及格：无 high 问题，内容基本充实
+- **4 分** — 良好：布局合理，内容充实
+- **5 分** — 优秀：设计精良，无任何问题
+
+## 输出格式
+
+必须为**每一页**单独输出审查结果：
+
+【第 N 页】
+- 状态：pass / fail
+- 问题（若有）：<问题描述> | 严重度：high/medium/low | 修复：<具体可执行的修复指令>
+- 评分：X/5
+
+【整体评分】X/5
+
+以下是该 PDF 各页的文本内容（仅供参考）：
+
+` + textContent
 
 	msg := &schema.Message{
-		Role:                  schema.User,
-		UserInputMultiContent: parts,
+		Role: schema.User,
+		UserInputMultiContent: []schema.MessageInputPart{
+			{
+				Type: schema.ChatMessagePartTypeText,
+				Text: batchPrompt,
+			},
+			{
+				Type: schema.ChatMessagePartTypeImageURL,
+				Image: &schema.MessageInputImage{
+					MessagePartCommon: schema.MessagePartCommon{
+						URL:      strPtr("data:application/pdf;base64," + pdfBase64),
+						MIMEType: "application/pdf",
+					},
+					Detail: "",
+				},
+			},
+		},
 	}
 
 	resp, err := model.Generate(ctx, []*schema.Message{msg})
@@ -611,34 +349,29 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 	report := strings.TrimSpace(resp.Content)
 	if report == "" {
 		return &generic.QAResult{
-			Reports: []string{slideKey + "|（LLM 返回为空）"},
+			Reports: []string{"merged.pdf|（LLM 返回为空）"},
 			Summary: "LLM 返回为空",
 		}, nil
 	}
 
-	// 判断问题严重度：仍用关键词（LLM 在报告中会用 high/medium/low 标注）
-	hasHigh := strings.Contains(report, "high") || strings.Contains(report, "【问题")
+	hasHigh := strings.Contains(report, "high")
 	hasMedium := strings.Contains(report, "medium")
-
 	score := parseScore(report)
 
-	// 优先用评分判断是否有问题，评分不可用时回退到关键词检测
 	var hasIssues bool
 	if score > 0 {
-		// 评分 1-3 视为有问题，4-5 且有 high 关键词也视为有问题
 		hasIssues = score <= 3 || hasHigh
 	} else {
-		hasIssues = hasHigh || hasMedium || (!strings.Contains(report, "检查通过") && !strings.Contains(report, "无视觉问题"))
+		hasIssues = hasHigh || hasMedium
 	}
 
 	result := &generic.QAResult{
-		Reports:      []string{slideKey + "|" + report},
+		Reports:      []string{"merged.pdf|" + report},
 		HasIssues:    hasIssues,
 		HasHighIssue: hasHigh,
 		Score:        score,
 	}
 
-	// Record QA issue severity for Prometheus metrics.
 	if hasHigh {
 		metrics.RecordQAIssue("high")
 	}
@@ -648,16 +381,63 @@ func (t *SingleTool) doSingleVisualQA(ctx context.Context, model model.ToolCalli
 	if hasIssues && !hasHigh && !hasMedium {
 		metrics.RecordQAIssue("low")
 	}
-
-	// Record per-slide quality score for trend analysis.
 	if score > 0 {
-		ct := contentType
-		if ct == "" {
-			ct = "unknown"
-		}
-		metrics.RecordSlideScore(float64(score), ct)
+		metrics.RecordSlideScore(float64(score), "batch_pdf")
 	}
 
 	return result, nil
 }
 
+func strPtr(s string) *string { return &s }
+
+// InvokableRun implements tool.InvokableTool for BatchPDFTool.
+func (t *BatchPDFTool) InvokableRun(ctx context.Context, _ string, _ ...tool.Option) (string, error) {
+	wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
+	if !ok || wd == "" {
+		type workDirGetter interface{ GetWorkDir(context.Context) string }
+		if getter, ok := t.op.(workDirGetter); ok {
+			wd = getter.GetWorkDir(ctx)
+		}
+	}
+	if wd == "" {
+		return "", fmt.Errorf("无法获取工作目录")
+	}
+
+	model, err := t.getOrCreateModelPDF(ctx)
+	if err != nil {
+		return "", fmt.Errorf("创建 QA 模型失败: %v", err)
+	}
+
+	result, err := t.doBatchVisualQA(ctx, model, wd)
+	if err != nil {
+		return "", err
+	}
+
+	b, _ := json.Marshal(result)
+	return string(b), nil
+}
+
+func (t *BatchPDFTool) getOrCreateModelPDF(ctx context.Context) (model.ToolCallingChatModel, error) {
+	t.cachedModelMu.Lock()
+	defer t.cachedModelMu.Unlock()
+
+	// If a cached model exists and is not in an error state, check TTL.
+	if t.cachedModel != nil && t.cachedModelErr == nil {
+		if time.Since(t.cachedModelAt) < modelCacheTTL {
+			return t.cachedModel, nil
+		}
+	}
+
+	// Cache expired or errored — clear stale model before retrying to avoid
+	// tight retry loops when the model factory persistently fails.
+	if t.cachedModel != nil && t.cachedModelErr != nil {
+		t.cachedModel = nil
+		t.cachedModelErr = nil
+	}
+
+	t.cachedModel, t.cachedModelErr = t.modelFn(ctx)
+	if t.cachedModelErr == nil {
+		t.cachedModelAt = time.Now()
+	}
+	return t.cachedModel, t.cachedModelErr
+}

@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
@@ -34,13 +35,15 @@ func NewSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, 
 
 func newSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(8192),
+		agentutils.WithMaxTokens(16384),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	cm = wrapSlideExecutorCompressor(ctx, cm)
 
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)
@@ -56,8 +59,28 @@ func newSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, 
 				Tools: []tool.BaseTool{pythonTool, readTool, searchTool},
 			},
 		},
-		MaxIterations: 30,
+		MaxIterations: agentutils.EnvInt("SLIDE_EXECUTOR_MAX_ITERATIONS", 50),
 	})
+}
+
+// wrapSlideExecutorCompressor wraps the chat model with a lightweight compressor.
+// The summarizer uses a separate fallback model with a lower token threshold (15000)
+// because SlideExecutor's conversation is simpler (read tasks → search → generate → report).
+// Thresholds can be overridden via SLIDE_EXECUTOR_COMPRESSOR_MESSAGE_THRESHOLD,
+// SLIDE_EXECUTOR_COMPRESSOR_TOKEN_THRESHOLD, SLIDE_EXECUTOR_COMPRESSOR_PRESERVE_COUNT.
+func wrapSlideExecutorCompressor(ctx context.Context, inner model.ToolCallingChatModel) model.ToolCallingChatModel {
+	summarizer, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+		agentutils.WithMaxTokens(4096),
+		agentutils.WithTemperature(0),
+	)
+	if err != nil {
+		return inner
+	}
+	return agentutils.NewChatModelCompressor(inner, summarizer,
+		agentutils.WithCompressThreshold(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_MESSAGE_THRESHOLD", 15)),
+		agentutils.WithTokenThreshold(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_TOKEN_THRESHOLD", 15000)),
+		agentutils.WithPreserveCount(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_PRESERVE_COUNT", 3)),
+	)
 }
 
 func BuildSlideExecutorInstruction(workDir, skillsDir string) string {

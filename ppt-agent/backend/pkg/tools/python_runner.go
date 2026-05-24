@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +34,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/params"
+	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
 var pythonRunnerToolInfo = &schema.ToolInfo{
@@ -58,6 +58,10 @@ const MaxPythonTimeout = 5 * time.Minute
 
 // MaxCodeSize is the maximum allowed code size (100 KB).
 const MaxCodeSize = 100 * 1024
+
+// MaxOutputSize is the maximum output size returned from Python execution (1 MB).
+// Prevents memory exhaustion from malicious or buggy scripts emitting large output.
+const MaxOutputSize = 1024 * 1024
 
 // Dangerous patterns that should not appear in user-generated code.
 // This catches common attack patterns even when wrapped.
@@ -152,16 +156,15 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	tmpFile := filepath.Join(wd, fmt.Sprintf("temp_script_%d.py", time.Now().UnixNano()))
 
 	// 3. Wrap code with safety guard: redirect dangerous builtins
-	// Python-level safety guard is disabled by default — the Go-level
-	// dangerousPatterns regex (os.system, subprocess, exec, eval, curl|sh
-	// etc.) already catches real threats. The Python wrapper was too
-	// aggressive and broke legitimate python-pptx usage (open(), import os).
-	// Set env PYTHON_SAFETY_GUARD=true to re-enable.
+	// The Go-level dangerousPatterns regex (os.system, subprocess, exec, eval, curl|sh)
+	// catches real threats. The Python wrapper was too aggressive and broke legitimate
+	// python-pptx usage (open(), import os). Enable via PYTHON_SAFETY_GUARD=true.
+	// WARNING: This guard is not yet production-ready. Do not enable by default.
 	codeToWrite := input.Code
 	if os.Getenv("PYTHON_SAFETY_GUARD") == "true" {
 		codeToWrite = wrapWithSafetyGuard(input.Code)
 	}
-	if err := os.WriteFile(tmpFile, []byte(codeToWrite), 0o644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(codeToWrite), 0o600); err != nil {
 		return fmt.Sprintf("failed to write temp file: %v", err), nil
 	}
 
@@ -173,7 +176,7 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	defer cancel()
 
 	// 5. Determine Python binary
-	pythonBin := getPythonBinary()
+	pythonBin := pythonutil.GetPythonBinary()
 
 	cmd := []string{pythonBin, tmpFile}
 	o := tool.GetImplSpecificOptions(&options{op: p.op}, opts...)
@@ -196,17 +199,6 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	return formatPythonOutput(output), nil
 }
 
-// getPythonBinary returns the Python binary path.
-// Uses PYTHON_BIN env var if set, falls back to platform-specific defaults.
-func getPythonBinary() string {
-	if bin := os.Getenv("PYTHON_BIN"); bin != "" {
-		return bin
-	}
-	if runtime.GOOS == "windows" {
-		return "python"
-	}
-	return "/root/pptx_env/bin/python"
-}
 
 // wrapWithSafetyGuard prepends a safety wrapper that restricts dangerous
 // builtins during execution. This catches subprocess, system calls, etc.
@@ -282,6 +274,9 @@ func formatPythonOutput(output *commandline.CommandOutput) string {
 	}
 	if result == "" {
 		result = "(no output)"
+	}
+	if len(result) > MaxOutputSize {
+		result = result[:MaxOutputSize] + fmt.Sprintf("\n...(output truncated, total %d bytes)", len(result))
 	}
 	return result
 }

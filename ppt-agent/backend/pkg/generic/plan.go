@@ -1,10 +1,8 @@
 package generic
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,7 +11,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -348,125 +345,6 @@ var PlanToolInfo = &schema.ToolInfo{
 	),
 }
 
-// FullPlan 完整的计划结构
-type FullPlan struct {
-	TaskID     int           `json:"task_id,omitempty"`
-	Status     PlanStatus    `json:"status,omitempty"`
-	AgentName  string        `json:"agent_name,omitempty"`
-	Desc       string        `json:"desc,omitempty"`
-	ExecResult *SubmitResult `json:"exec_result,omitempty"`
-}
-
-// PlanStatus 计划状态
-type PlanStatus string
-
-const (
-	PlanStatusTodo    PlanStatus = "todo"
-	PlanStatusDoing   PlanStatus = "doing"
-	PlanStatusDone    PlanStatus = "done"
-	PlanStatusFailed  PlanStatus = "failed"
-	PlanStatusSkipped PlanStatus = "skipped"
-)
-
-var PlanStatusMapping = map[PlanStatus]string{
-	PlanStatusTodo:    "待执行",
-	PlanStatusDoing:   "执行中",
-	PlanStatusDone:    "已完成",
-	PlanStatusFailed:  "执行失败",
-	PlanStatusSkipped: "已跳过",
-}
-
-func (p *FullPlan) String() string {
-	status, ok := PlanStatusMapping[p.Status]
-	if !ok {
-		status = string(p.Status)
-	}
-	res := fmt.Sprintf("%d. **[%s]** %s", p.TaskID, status, p.Desc)
-	if p.ExecResult != nil {
-		res += fmt.Sprintf("\n%s", p.ExecResult.String())
-	}
-	return res
-}
-
-func (p *FullPlan) PlanString(n int) string {
-	if p.Status != PlanStatusDoing && p.Status != PlanStatusTodo {
-		return fmt.Sprintf("- [x] %d. %s", n, p.Desc)
-	}
-	return fmt.Sprintf("- [ ] %d. %s", n, p.Desc)
-}
-
-func FullPlan2String(plan []*FullPlan) string {
-	planStr := "### PPT 制作计划\n\n"
-	for i, p := range plan {
-		planStr += p.PlanString(i+1) + "\n"
-	}
-	return planStr
-}
-
-func Write2PlanMD(ctx context.Context, op commandline.Operator, wd string, plan []*FullPlan) error {
-	planStr := FullPlan2String(plan)
-	filePath := filepath.Join(wd, "plan.md")
-	return op.WriteFile(ctx, filePath, planStr)
-}
-
-// SubmitResult 提交结果
-type SubmitResult struct {
-	IsSuccess *bool               `json:"is_success,omitempty"`
-	Result    string              `json:"result,omitempty"`
-	Files     []*SubmitResultFile `json:"files,omitempty"`
-}
-
-// SubmitResultFile 提交结果文件
-type SubmitResultFile struct {
-	Path string `json:"path,omitempty"`
-	Desc string `json:"desc,omitempty"`
-}
-
-func (s *SubmitResult) String() string {
-	res := fmt.Sprintf("### 执行结果\n%s", s.Result)
-	if len(s.Files) > 0 {
-		res += "\n#### 生成的文件"
-	}
-	for _, f := range s.Files {
-		res += fmt.Sprintf("\n- 描述：%s, 路径：%s", f.Desc, f.Path)
-	}
-	return res
-}
-
-func ListDir(dir string) ([]*SubmitResultFile, error) {
-	var resp []*SubmitResultFile
-
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if strings.HasPrefix(d.Name(), ".") {
-			return nil
-		}
-		if path == dir {
-			return nil
-		}
-		if d.IsDir() {
-			next := filepath.Join(dir, d.Name())
-			nextResp, err := ListDir(next)
-			if err != nil {
-				return err
-			}
-			resp = append(resp, nextResp...)
-			return nil
-		}
-		resp = append(resp, &SubmitResultFile{
-			Path: filepath.Join(filepath.Dir(dir), d.Name()),
-		})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return resp, nil
-}
-
 // SanitizeFilename 将标题转换为安全的文件名
 // 规则：保留字母数字汉字，空格转下划线，移除特殊字符
 func SanitizeFilename(title string) string {
@@ -676,7 +554,7 @@ func FormatBatchSlidesForRequest(slides []Step, batchNum, totalBatches int, work
 	sb.WriteString("- 必须为每个幻灯片（包括分页组中的每个子页）生成独立的 .pptx 文件\n")
 	sb.WriteString("- 分页组子页命名格式：{页码}.{子页码}_{标题}.pptx\n")
 	sb.WriteString("- 普通页面命名格式：{页码}_{标题}.pptx\n")
-	sb.WriteString("- 每生成一页后，必须调用 update_progress 和 single_qa_review\n")
+	sb.WriteString("- 每生成一页后，必须调用 update_progress\n")
 	sb.WriteString("- 所有文件保存到工作目录\n")
 	sb.WriteString("- 完成后列出所有生成的文件\n")
 
@@ -766,7 +644,7 @@ func FormatBatchStepsForRequest(slides []Step, workDir string) string {
 	sb.WriteString("\n- 以上为本次需要生成的幻灯片列表（含分页组子页）")
 	sb.WriteString("\n- 分页组子页命名格式：{页码}.{子页码}_{标题}.pptx")
 	sb.WriteString("\n- 普通页面命名格式：{页码}_{标题}.pptx")
-	sb.WriteString("\n- 每生成一页后，必须调用 update_progress 和 single_qa_review")
+	sb.WriteString("\n- 每生成一页后，必须调用 update_progress")
 
 	return sb.String()
 }
@@ -838,7 +716,7 @@ func FormatAllSlidesForRequest(slides []Step, workDir string) string {
 	sb.WriteString("- 必须为每个幻灯片（包括分页组子页）生成独立的 .pptx 文件\n")
 	sb.WriteString("- 分页组子页命名格式：{页码}.{子页码}_{标题}.pptx\n")
 	sb.WriteString("- 普通页面命名格式：{页码}_{标题}.pptx\n")
-	sb.WriteString("- 每生成一页后，必须调用 update_progress 和 single_qa_review\n")
+	sb.WriteString("- 每生成一页后，必须调用 update_progress\n")
 	sb.WriteString("- 所有文件保存到工作目录\n")
 	sb.WriteString("- 完成后列出所有生成的文件\n")
 

@@ -24,6 +24,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
@@ -34,7 +35,7 @@ func newReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error
 		return nil, fmt.Errorf("创建 QA 模型失败: %w", err)
 	}
 
-	qaTool := tools.NewSingleQATool(cfg.Operator, cfg.QAModelFn)
+	batchPDFTool := tools.NewBatchPDFTool(cfg.Operator, cfg.QAModelFn)
 	readTool := tools.NewReadFileTool(cfg.Operator)
 
 	instruction, err := buildReviewerInstruction(cfg.WorkDir)
@@ -44,15 +45,15 @@ func newReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "Reviewer",
-		Description: "视觉质量批量审查专家，一次性检查所有已完成幻灯片的排版、溢出、重叠、对比度等问题，汇总输出 QA 结果。",
+		Description: "视觉质量审查专家，通过批量 PDF 审查工具一次性审查所有幻灯片的排版、溢出、重叠、对比度等问题，汇总输出 QA 结果。",
 		Instruction: instruction,
 		Model:       cm,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: []tool.BaseTool{qaTool, readTool},
+				Tools: []tool.BaseTool{batchPDFTool, readTool},
 			},
 		},
-		MaxIterations: 15,
+		MaxIterations: agentutils.EnvInt("REVIEWER_MAX_ITERATIONS", 30),
 	})
 }
 

@@ -19,7 +19,6 @@ import (
 	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
-	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -28,14 +27,12 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
-	agentplan "github.com/cloudwego/ppt-agent/pkg/agent/planexecute"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/human"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/store"
 	"github.com/cloudwego/ppt-agent/pkg/web"
 )
 
@@ -142,7 +139,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 
 	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
 		return agentutils.NewFallbackToolCallingChatModel(ctx,
-			agentutils.WithMaxTokens(8192),
+			agentutils.WithMaxTokens(16384),
 			agentutils.WithTemperature(0),
 			agentutils.WithTopP(0),
 		)
@@ -251,16 +248,9 @@ func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
 	fmt.Println("========================================")
 	fmt.Println()
 
-	agentMode := os.Getenv("AGENT_MODE")
+	logger.Info("agent_mode_selected", "mode", "deep")
 	hm := human.NewManager(interactive)
-
-	if agentMode == "deep" {
-		logger.Info("agent_mode_selected", "mode", "deep")
-		runDeepAgentCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
-	} else {
-		query := schema.UserMessage(queryContent)
-		runPlanExecuteCLI(ctx, query, taskID, operator, skillsContent, hm)
-	}
+	runDeepAgentCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
 }
 
 func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
@@ -276,7 +266,7 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 
 	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
 		return agentutils.NewFallbackToolCallingChatModel(ctx,
-			agentutils.WithMaxTokens(8192),
+			agentutils.WithMaxTokens(16384),
 			agentutils.WithTemperature(0),
 			agentutils.WithTopP(0),
 		)
@@ -322,70 +312,6 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 			for _, f := range result.Files {
 				fmt.Printf("  - %s\n", f)
 			}
-		}
-	}
-}
-
-func runPlanExecuteCLI(ctx context.Context, query *schema.Message, taskID string,
-	operator *command.LocalOperator, skillsContent string, hm *human.Manager) {
-
-	fmt.Println("[启动] 创建 planner agent...")
-	planAgent, err := agentplan.NewPlanner(ctx, operator, skillsContent)
-	if err != nil {
-		fmt.Printf("planner.NewPlanner failed, err: %v\n", err)
-		return
-	}
-	fmt.Println("[启动] planner 创建成功")
-
-	fmt.Println("[启动] 创建 executor agent...")
-	executeAgent, err := agentplan.NewExecutor(ctx, operator, skillsContent)
-	if err != nil {
-		fmt.Printf("executor.NewExecutor failed, err: %v\n", err)
-		return
-	}
-	fmt.Println("[启动] executor 创建成功")
-
-	fmt.Println("[启动] 创建 replanner agent...")
-	replanAgent, err := agentplan.NewReplanner(ctx, operator)
-	if err != nil {
-		fmt.Printf("replanner.NewReplanner failed, err: %v\n", err)
-		return
-	}
-	fmt.Println("[启动] replanner 创建成功")
-
-	fmt.Println("[启动] 创建 plan-execute agent...")
-	entryAgent, err := planexecute.New(ctx, &planexecute.Config{
-		Planner:       planAgent,
-		Executor:      executeAgent,
-		Replanner:     replanAgent,
-		MaxIterations: 150,
-	})
-	if err != nil {
-		fmt.Printf("planexecute.New failed, err: %v\n", err)
-		return
-	}
-	fmt.Println("[启动] plan-execute agent 创建成功")
-
-	fmt.Println("[启动] 创建 runner...")
-	r := adk.NewRunner(ctx, adk.RunnerConfig{
-		Agent:           entryAgent,
-		EnableStreaming: true,
-		CheckPointStore: store.NewInMemoryStore(),
-	})
-	fmt.Println("[启动] runner 创建成功")
-
-	fmt.Println("[执行] 启动 ADK Query...")
-	iter := r.Query(ctx, query.Content, adk.WithCheckPointID(taskID))
-	fmt.Println("[执行] Query 已启动，开始处理事件...")
-
-	event, err := hm.RunWithApproval(ctx, r, taskID, iter)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-	}
-
-	if event != nil && event.Output != nil {
-		if msg, _, getErr := adk.GetMessage(event); getErr == nil && msg != nil {
-			fmt.Printf("\n=== 最终结果 ===\n%s\n", msg.Content)
 		}
 	}
 }

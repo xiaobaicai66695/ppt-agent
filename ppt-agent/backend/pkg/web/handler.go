@@ -565,7 +565,7 @@ func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, 
 
 	route := s.routeContinueIntent(ctx, message, ts.Info.WorkDir)
 
-	ch <- task.SSERichEvent{Type: "tool_call", ToolName: "intent_classifier", ToolArgs: fmt.Sprintf(`{"intent":"%s","reason":"%s","target_pages":%v}`, route.Intent, route.Reason, route.TargetPages)}
+	ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("识别意图: %s (%s)\n", route.Intent, route.Reason)}
 
 	switch route.Intent {
 	case "fix":
@@ -929,8 +929,6 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 				switch event.Type {
 				case deep.AgentEventAnswer:
 					ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
-				case deep.AgentEventToolCall:
-					ch <- task.SSERichEvent{Type: "tool_call", ToolName: event.ToolName, ToolArgs: event.ToolArgs}
 				case deep.AgentEventError:
 					ch <- task.SSERichEvent{Type: "error", Error: event.Error}
 				}
@@ -1070,8 +1068,6 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 			switch event.Type {
 			case deep.AgentEventAnswer:
 				ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
-			case deep.AgentEventToolCall:
-				ch <- task.SSERichEvent{Type: "tool_call", ToolName: event.ToolName, ToolArgs: event.ToolArgs}
 			case deep.AgentEventError:
 				ch <- task.SSERichEvent{Type: "error", Error: event.Error}
 			}

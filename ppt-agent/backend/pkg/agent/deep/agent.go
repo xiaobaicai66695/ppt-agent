@@ -33,7 +33,7 @@ import (
 
 func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(8192),
+		agentutils.WithMaxTokens(16384),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)
@@ -49,10 +49,15 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建压缩器模型失败: %w", err)
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
-		agentutils.WithCompressThreshold(12),
-		agentutils.WithTokenThreshold(30000),
+		agentutils.WithCompressThreshold(8),
+		agentutils.WithTokenThreshold(20000),
 		agentutils.WithPreserveCount(4),
 	)
+	if cfg.CompressorTracker != nil {
+		if compressor, ok := chatModel.(*agentutils.ChatModelCompressor); ok {
+			compressor.SetTracker(cfg.CompressorTracker)
+		}
+	}
 
 	slideExecutor, err := newSlideExecutorAgent(ctx, cfg)
 	if err != nil {
@@ -73,6 +78,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
 	searchTool := tools.NewSearchTool()
 	bashTool := tools.NewBashTool(cfg.Operator)
+	batchConvertTool := tools.NewBatchConvertTool(cfg.Operator)
 
 	deepAgent, err := deep.New(ctx, &deep.Config{
 		Name:        "PPTTaskDeepAgent",
@@ -82,12 +88,12 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		SubAgents:   []adk.Agent{slideExecutor, reviewer, fixer},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: []tool.BaseTool{editFileTool, readFileTool, searchTool, bashTool},
+				Tools: []tool.BaseTool{editFileTool, readFileTool, searchTool, bashTool, batchConvertTool},
 			},
 		},
 		WithoutWriteTodos:      true,
 		WithoutGeneralSubAgent: true,
-		MaxIteration:           60,
+		MaxIteration:           agentutils.EnvInt("MASTER_MAX_ITERATIONS", 120),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("创建 Deep Agent 失败: %w", err)
@@ -147,6 +153,7 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		OutlineTemplate: outlineTemplate,
 		OutlineTheme:    outlineTheme,
 		OutlineTitle:    outlineTitle,
+		SkillsDir:       skillsDir,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)

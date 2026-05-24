@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,7 @@ func WithResponseFormatJsonSchema(schema *openai.ChatCompletionResponseFormatJSO
 	}
 }
 
-// WithModel overrides the model name used by NewToolCallingChatModel / NewFallbackToolCallingChatModel.
+// WithModel overrides the model name used by NewFallbackToolCallingChatModel.
 // When set, ARK_MODEL / OPENAI_MODEL env vars are ignored for model selection.
 // Intended for lightweight side-tasks like intent classification or style extraction
 // that should use a smaller/cheaper model than the main agent.
@@ -85,81 +86,6 @@ func WithModel(modelName string) ChatModelOption {
 	return func(c *ChatModelConfig) {
 		c.Model = &modelName
 	}
-}
-
-// NewToolCallingChatModel 创建 ChatModel
-func NewToolCallingChatModel(ctx context.Context, opts ...ChatModelOption) (cm model.ToolCallingChatModel, err error) {
-	o := &ChatModelConfig{}
-	for _, opt := range opts {
-		opt(o)
-	}
-
-	// WithModel option takes precedence over env vars.
-	// This allows lightweight side-tasks to use a dedicated cheaper model.
-	modelName := ""
-	if o.Model != nil && *o.Model != "" {
-		modelName = *o.Model
-	} else if modelName = os.Getenv("ARK_MODEL"); modelName == "" {
-		modelName = os.Getenv("OPENAI_MODEL")
-	}
-
-	if modelName == "" {
-		return nil, fmt.Errorf("未指定模型名称，请设置 ARK_MODEL、OPENAI_MODEL 或使用 WithModel 选项")
-	}
-
-	if o.Model != nil || os.Getenv("ARK_MODEL") != "" {
-		conf := &ark.ChatModelConfig{
-			APIKey:      os.Getenv("ARK_API_KEY"),
-			BaseURL:     os.Getenv("ARK_BASE_URL"),
-			Region:      os.Getenv("ARK_REGION"),
-			Model:       modelName,
-			MaxTokens:   o.MaxTokens,
-			Temperature: o.Temperature,
-			TopP:        o.TopP,
-		}
-		if o.DisableThinking != nil && *o.DisableThinking {
-			conf.Thinking = &arkmodel.Thinking{
-				Type: arkmodel.ThinkingTypeDisabled,
-			}
-		}
-		if o.JsonSchema != nil {
-			conf.ResponseFormat = &ark.ResponseFormat{
-				Type: arkmodel.ResponseFormatJSONSchema,
-				JSONSchema: &arkmodel.ResponseFormatJSONSchemaJSONSchemaParam{
-					Name:        o.JsonSchema.Name,
-					Description: o.JsonSchema.Description,
-					Schema:      o.JsonSchema.JSONSchema,
-					Strict:      o.JsonSchema.Strict,
-				},
-			}
-		}
-		cm, err = ark.NewChatModel(ctx, conf)
-
-	} else if modelName := os.Getenv("OPENAI_MODEL"); modelName != "" {
-		conf := &openai.ChatModelConfig{
-			APIKey: os.Getenv("OPENAI_API_KEY"),
-			ByAzure: func() bool {
-				return os.Getenv("OPENAI_BY_AZURE") == "true"
-			}(),
-			BaseURL:     os.Getenv("OPENAI_BASE_URL"),
-			Model:       modelName,
-			MaxTokens:   o.MaxTokens,
-			Temperature: o.Temperature,
-			TopP:        o.TopP,
-		}
-		if o.JsonSchema != nil {
-			conf.ResponseFormat = &openai.ChatCompletionResponseFormat{
-				Type:       openai.ChatCompletionResponseFormatTypeJSONSchema,
-				JSONSchema: o.JsonSchema,
-			}
-		}
-		cm, err = openai.NewChatModel(ctx, conf)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return cm, nil
 }
 
 func GetCurrentTime() string {
@@ -172,6 +98,16 @@ func GetCurrentTime() string {
 const (
 	fallbackPauseDuration = 30 * time.Second
 )
+
+// EnvInt reads an integer from an environment variable, returning the default if unset or invalid.
+func EnvInt(key string, defaultVal int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultVal
+}
 
 // isRateLimitError 判断错误是否为 429 限流错误
 func isRateLimitError(err error) bool {
@@ -187,6 +123,10 @@ func isRateLimitError(err error) bool {
 
 // globalRateLimitTracker 全局 429 限流协调器，所有 FallbackChatModel 实例共享。
 // 当任一 Agent 触发 429 后，所有使用相同 modelName 的 Agent 一起等待，避免惊群效应。
+// NOTE: Two FallbackChatModel instances using the same raw model name share pause state
+// even if they have different configurations (MaxTokens, Temperature, etc.). This means
+// a rate limit on a lower-priority task can delay a higher-priority one. If strict
+// isolation is needed, prefix the model name with a scope tag.
 type globalRateLimitTracker struct {
 	mu            sync.Mutex
 	pauseEndTimes map[string]time.Time // key: 原始 modelName（如 Qwen/Qwen3.5-122B-A10B）
@@ -229,6 +169,9 @@ type FallbackChatModel struct {
 	rawNames      []string // 原始 modelName，用于全局追踪（如 Qwen/Qwen3.5-122B-A10B）
 	mu            sync.Mutex
 	pauseDuration time.Duration
+	// compressorCfg is stored when a FallbackChatModel is wrapped by ChatModelCompressor.
+	// When WithTools is called, the compressor is re-applied to the new model instances.
+	compressorCfg *compressorConfig
 }
 
 // NewFallbackToolCallingChatModel 创建支持降级的 ChatModel
@@ -277,15 +220,6 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		rawNames:      rawNames,
 		pauseDuration: fallbackPauseDuration,
 	}, nil
-}
-
-// NewSingleChatModel 根据模型名称创建单个模型（无降级链）。用于压缩器等不需要高可用的场景。
-func NewSingleChatModel(ctx context.Context, modelName string, opts ...ChatModelOption) (model.ToolCallingChatModel, error) {
-	o := &ChatModelConfig{}
-	for _, opt := range opts {
-		opt(o)
-	}
-	return newSingleModel(ctx, modelName, o)
 }
 
 // newSingleModel 根据模型名称创建单个模型
@@ -453,8 +387,11 @@ func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Messa
 	return nil, fmt.Errorf("所有模型均失败")
 }
 
-// WithTools 实现 model.ToolCallingChatModel 接口
-// 每个底层模型都绑定相同的工具列表
+// WithTools implements model.ToolCallingChatModel interface
+// Each underlying model is bound to the same tool list.
+// If this FallbackChatModel was created via WithTools from a compressor-wrapped model,
+// the compressor wrapper is preserved by wrapping the new models with the stored compressor config.
+// If there is no compressor config stored, returns a plain FallbackChatModel.
 func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -468,10 +405,52 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 		modelsWithTools = append(modelsWithTools, wm)
 	}
 
-	return &FallbackChatModel{
+	newModel := &FallbackChatModel{
 		models:        modelsWithTools,
 		modelNames:    f.modelNames,
 		rawNames:      f.rawNames,
 		pauseDuration: f.pauseDuration,
-	}, nil
+	}
+
+	// Preserve compressor wrapper if this model was created by a ChatModelCompressor.
+	// The compressor stores itself in the FallbackChatModel so that WithTools can
+	// re-wrap the new models with the same compressor config.
+	if f.compressorCfg != nil {
+		return newChatModelCompressorFromConfig(newModel, f.compressorCfg), nil
+	}
+
+	return newModel, nil
+}
+
+// compressorCfg is stored in FallbackChatModel so that WithTools can re-apply
+// the compressor after the underlying models are rebound to tools.
+type compressorConfig struct {
+	summarizerFactory func() (model.ToolCallingChatModel, error)
+	messageThreshold  int
+	tokenThreshold    int
+	preserveCount     int
+}
+
+// newChatModelCompressorFromConfig creates a ChatModelCompressor from stored config.
+// This is used by FallbackChatModel.WithTools to preserve compression across tool binding.
+func newChatModelCompressorFromConfig(inner model.ToolCallingChatModel, cfg *compressorConfig) *ChatModelCompressor {
+	summarizer, err := cfg.summarizerFactory()
+	if err != nil {
+		// Cannot recreate compressor — fall back to no compression
+		return nil
+	}
+	return newChatModelCompressor(inner, summarizer, cfg.messageThreshold, cfg.tokenThreshold, cfg.preserveCount)
+}
+
+// newChatModelCompressor is the internal constructor that takes raw threshold values.
+func newChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.ToolCallingChatModel, msgThresh, tokenThresh, preserve int) *ChatModelCompressor {
+	return &ChatModelCompressor{
+		inner: inner,
+		summarizer: summarizer,
+		cfg: &CompressorConfig{
+			MessageThreshold: msgThresh,
+			TokenThreshold:   tokenThresh,
+			PreserveCount:    preserve,
+		},
+	}
 }

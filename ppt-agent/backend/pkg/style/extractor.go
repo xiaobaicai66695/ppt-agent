@@ -28,6 +28,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
+	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
 // Extractor 从 PPTX 文本内容中提取用户风格偏好，核心逻辑由 LLM 完成。
@@ -141,7 +142,7 @@ func (e *Extractor) ExtractFromPPTX(ctx context.Context, workDir, query, theme s
 // extractPPTXText 从 workDir 中的所有 PPTX 文件提取纯文本。
 // 通过调用 python-pptx 读取每个 PPTX，提取所有 shape 的文本内容。
 func extractPPTXText(workDir string) (string, int, error) {
-	pythonBin := "/root/pptx_env/bin/python"
+	pythonBin := pythonutil.GetPythonBinary()
 
 	script := `
 import sys
