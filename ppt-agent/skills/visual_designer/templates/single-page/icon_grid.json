@@ -1,0 +1,14 @@
+{
+  "name": "icon_grid",
+  "display_name": "图标网格页",
+  "type": "atomic",
+  "description": "用图标+文字网格展示核心要点，视觉冲击力强。适合展示功能特性、服务内容、方法步骤等",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "layout", "label": "布局方式", "type": "select", "required": true, "options": ["3x2", "3x3", "2x3"]},
+    {"name": "icons", "label": "图标数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"icon\":\"研\",\"label\":\"基础研究\",\"color\":\"primary\"},...]"}
+  ]
+}

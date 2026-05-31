@@ -39,32 +39,32 @@ import (
 
 var pythonRunnerToolInfo = &schema.ToolInfo{
 	Name: "python3",
-	Desc: `Execute Python code. The code will be saved to a temporary .py file and executed.
-* Use this tool to run Python scripts for PPT generation.`,
+	Desc: `执行 Python 代码。代码将被保存到临时 .py 文件并执行。
+* 使用此工具运行 PPT 生成的 Python 脚本。`,
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"code": {
 			Type:     "string",
-			Desc:     "Python code to execute",
+			Desc:     "要执行的 Python 代码",
 			Required: true,
 		},
 	}),
 }
 
-// Default timeout for Python execution (60 seconds).
+// Python 执行的默认超时时间（60 秒）。
 const defaultPythonTimeout = 60 * time.Second
 
-// MaxPythonTimeout is the hard upper limit (5 minutes).
+// MaxPythonTimeout 是硬性上限（5 分钟）。
 const MaxPythonTimeout = 5 * time.Minute
 
-// MaxCodeSize is the maximum allowed code size (100 KB).
+// MaxCodeSize 是允许的最大代码大小（100 KB）。
 const MaxCodeSize = 100 * 1024
 
-// MaxOutputSize is the maximum output size returned from Python execution (1 MB).
-// Prevents memory exhaustion from malicious or buggy scripts emitting large output.
+// MaxOutputSize 是 Python 执行返回的最大输出大小（1 MB）。
+// 防止恶意或错误脚本产生大量输出导致内存耗尽。
 const MaxOutputSize = 1024 * 1024
 
-// Dangerous patterns that should not appear in user-generated code.
-// This catches common attack patterns even when wrapped.
+// 不应出现在用户生成代码中的危险模式。
+// 即使被包装也能捕获常见的攻击模式。
 var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`os\.system\s*\(`),
 	regexp.MustCompile(`subprocess\s*\.\s*(run|call|Popen|check_output|shell)\s*\(`),
@@ -88,7 +88,7 @@ type pythonInput struct {
 	Code string `json:"code"`
 }
 
-// NewPythonRunnerToolImpl creates a Python runner tool with safety limits.
+// NewPythonRunnerToolImpl 创建一个带有安全限制的 Python 运行工具。
 func NewPythonRunnerToolImpl(op commandline.Operator) tool.InvokableTool {
 	return newPythonRunnerToolImpl(op, defaultPythonTimeout)
 }
@@ -101,7 +101,7 @@ func newPythonRunnerToolImpl(op commandline.Operator, timeout time.Duration) too
 		timeout = MaxPythonTimeout
 	}
 
-	// Allow env override: PYTHON_TIMEOUT_SECS=30
+	// 允许通过环境变量覆盖：PYTHON_TIMEOUT_SECS=30
 	if secs := os.Getenv("PYTHON_TIMEOUT_SECS"); secs != "" {
 		if s, err := strconv.Atoi(secs); err == nil && s > 0 {
 			timeout = time.Duration(s) * time.Second
@@ -128,7 +128,7 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "code cannot be empty", nil
 	}
 
-	// 1. Code size limit
+	// 1. 代码大小限制
 	if len(input.Code) > MaxCodeSize {
 		logger.Warn("python_code_rejected_size",
 			"size_bytes", len(input.Code),
@@ -137,7 +137,7 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return fmt.Sprintf("code size %d exceeds limit %d bytes", len(input.Code), MaxCodeSize), nil
 	}
 
-	// 2. Dangerous command detection
+	// 2. 危险命令检测
 	for _, pattern := range dangerousPatterns {
 		if pattern.MatchString(input.Code) {
 			logger.Warn("python_code_rejected_dangerous",
@@ -155,11 +155,11 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 
 	tmpFile := filepath.Join(wd, fmt.Sprintf("temp_script_%d.py", time.Now().UnixNano()))
 
-	// 3. Wrap code with safety guard: redirect dangerous builtins
-	// The Go-level dangerousPatterns regex (os.system, subprocess, exec, eval, curl|sh)
-	// catches real threats. The Python wrapper was too aggressive and broke legitimate
-	// python-pptx usage (open(), import os). Enable via PYTHON_SAFETY_GUARD=true.
-	// WARNING: This guard is not yet production-ready. Do not enable by default.
+	// 3. 用安全包装器包装代码：重定向危险的内置函数
+	// Go 级别的 dangerousPatterns 正则（os.system、subprocess、exec、eval、curl|sh）
+	// 可以捕获真正的威胁。Python 包装器过于激进，破坏了合法的
+	// python-pptx 使用（open()、import os）。通过 PYTHON_SAFETY_GUARD=true 启用。
+	// 警告：此包装器尚未准备好用于生产环境。默认不启用。
 	codeToWrite := input.Code
 	if os.Getenv("PYTHON_SAFETY_GUARD") == "true" {
 		codeToWrite = wrapWithSafetyGuard(input.Code)
@@ -168,14 +168,14 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return fmt.Sprintf("failed to write temp file: %v", err), nil
 	}
 
-	// Ensure cleanup even on concurrent calls to same workDir
+	// 确保即使对同一 workDir 的并发调用也能清理
 	defer os.Remove(tmpFile)
 
-	// 4. Apply timeout to context
+	// 4. 对上下文应用超时
 	execCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	// 5. Determine Python binary
+	// 5. 确定 Python 二进制文件
 	pythonBin := pythonutil.GetPythonBinary()
 
 	cmd := []string{pythonBin, tmpFile}
@@ -199,10 +199,8 @@ func (p *pythonRunnerTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	return formatPythonOutput(output), nil
 }
 
-
-// wrapWithSafetyGuard prepends a safety wrapper that restricts dangerous
-// builtins during execution. This catches subprocess, system calls, etc.
-// without requiring sandboxing (which needs root/cgroups on Linux).
+// wrapWithSafetyGuard 添加一个安全包装器，在执行期间限制危险的内置函数。
+// 这可以捕获 subprocess、system 调用等，而不需要沙箱（Linux 上需要 root/cgroups）。
 func wrapWithSafetyGuard(code string) string {
 	guard := fmt.Sprintf(`# -*- coding: utf-8 -*-
 # Safety wrapper: restrict dangerous builtins
@@ -281,8 +279,7 @@ func formatPythonOutput(output *commandline.CommandOutput) string {
 	return result
 }
 
-// CheckCodeSafety performs static analysis on Python code and returns
-// a human-readable list of any issues found.
+// CheckCodeSafety 对 Python 代码进行静态分析，返回发现的问题列表。
 func CheckCodeSafety(code string) []string {
 	var issues []string
 
@@ -299,14 +296,14 @@ func CheckCodeSafety(code string) []string {
 	return issues
 }
 
-// ParsePythonTimeout parses a timeout string like "60s", "2m", "120".
+// ParsePythonTimeout 解析超时字符串，如 "60s"、"2m"、"120"。
 func ParsePythonTimeout(s string) (time.Duration, error) {
 	if s == "" {
 		return defaultPythonTimeout, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		// Try parsing as plain seconds
+		// 尝试直接解析为秒数
 		secs, parseErr := strconv.Atoi(strings.TrimSpace(s))
 		if parseErr != nil {
 			return 0, fmt.Errorf("invalid timeout '%s': %w", s, err)

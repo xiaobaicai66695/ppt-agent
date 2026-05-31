@@ -33,17 +33,17 @@ var readToolInfo = &schema.ToolInfo{
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"path": {
 			Type:     "string",
-			Desc:     "File path (relative to working directory)",
+			Desc:     "文件路径（相对于工作目录）",
 			Required: true,
 		},
 		"start_row": {
 			Type:     "integer",
-			Desc:     "Start row (0-indexed)",
+			Desc:     "起始行号（0索引）",
 			Required: false,
 		},
 		"n_rows": {
 			Type:     "integer",
-			Desc:     "Number of rows to read",
+			Desc:     "要读取的行数",
 			Required: false,
 		},
 	}),

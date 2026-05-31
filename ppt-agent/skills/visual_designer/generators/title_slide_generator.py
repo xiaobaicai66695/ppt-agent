@@ -1,4 +1,5 @@
 """Generator for title_slide -开场标题页."""
+import os
 from typing import Optional
 
 from pptx import Presentation
@@ -8,7 +9,8 @@ from .base import (
     add_source_line,
     PALETTES, rgb, add_text, add_ellipse, add_rect,
     set_slide_background, add_text_in_shape,
-    new_presentation,
+    new_presentation, resolve_background,
+    set_image_background,
 )
 
 
@@ -21,6 +23,9 @@ def generate(
     author: str = "{演讲者}",
     date: str = "{日期}",
     kicker: str = "",
+    background: str = None,
+    background_brightness: float = 0.25,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a title slide.
@@ -33,6 +38,12 @@ def generate(
         author: Author/department name (bottom left).
         date: Date text (bottom right).
         kicker: Small label above title (e.g. "产品发布 · 2025").
+        background: 背景配置，支持：
+                   - 主题名: "party_government", "minimalist_blue"
+                   - 场景描述: "党建汇报", "商务演示"
+                   - 图片路径: "D:/path/to/image.jpg"
+                   - 默认: None (纯色背景)
+        background_brightness: 背景亮度 (0.0-1.0)
 
     Returns:
         The Presentation object.
@@ -42,9 +53,14 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
 
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    # 设置背景
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=background_brightness, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     if kicker:
@@ -55,6 +71,7 @@ def generate(
             font_size=14, bold=False,
             color="secondary", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
     # Decorative bottom-left corner rounded rect
@@ -86,6 +103,7 @@ def generate(
         font_size=44, bold=True,
         color="text", alignment="center",
         palette=palette,
+        colors=colors,
     )
 
     # Subtitle
@@ -96,6 +114,7 @@ def generate(
         font_size=20, bold=False,
         color="secondary", alignment="center",
         palette=palette,
+        colors=colors,
     )
 
     # Author (bottom left)
@@ -106,6 +125,7 @@ def generate(
         font_size=14, bold=False,
         color="background", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Date (bottom right)
@@ -116,6 +136,7 @@ def generate(
         font_size=12, bold=False,
         color="text_muted", alignment="right",
         palette=palette,
+        colors=colors,
     )
 
     add_source_line(slide, source, palette)

@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect, add_text_in_shape,
     set_slide_background, add_paragraph,
+    resolve_background, set_image_background,
 )
 
 
@@ -21,6 +22,8 @@ def generate(
     kicker: str = "",
     lede: str = "",
     highlight_stats: List[dict] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a content slide with title, optional section header, and bullet list.
@@ -51,9 +54,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.75
@@ -65,6 +71,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.7
 
@@ -83,6 +90,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Section header
@@ -95,6 +103,7 @@ def generate(
             font_size=20, bold=True,
             color="primary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_offset += 0.6
 
@@ -107,6 +116,7 @@ def generate(
             font_size=14, bold=False,
             color="text_muted", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_offset += 0.6
 
@@ -130,6 +140,7 @@ def generate(
             font_size=16, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     # Right-side highlight stats (if provided)
@@ -162,6 +173,7 @@ def generate(
                 font_size=28, bold=True,
                 color="primary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
             # Label
             add_text(
@@ -172,6 +184,7 @@ def generate(
                 font_size=12, bold=False,
                 color="text_muted", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     # Bottom-right decorative geometric shape

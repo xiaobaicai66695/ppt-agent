@@ -184,13 +184,15 @@ func (t *pptTool) getWorkDir(ctx context.Context) string {
 
 // buildPythonCode 根据请求构建完整的 Python 执行代码
 func buildPythonCode(workDir string, outputPath string, req PPTRequest) string {
-	// 将请求序列化为 JSON，注入 Python 代码
-	specJSON, _ := json.Marshal(req.Slides)
-	palette := "ocean_soft"
+	slidesJSON, _ := json.Marshal(req.Slides)
 
+	// 配色：优先从 GlobalStyle 读取，否则默认 ocean_soft
+	palette := "ocean_soft"
 	if req.GlobalStyle.ColorScheme.Primary != "" {
-		palette = "" // 用户提供了自定义配色
+		palette = req.GlobalStyle.ColorScheme.Primary
 	}
+	// 也可以直接从 PrimaryLight / Accent / Background / TextMain 覆盖
+	// 但这里简化为只取 Primary 作为 palette 名
 
 	code := fmt.Sprintf(`
 # -*- coding: utf-8 -*-
@@ -222,8 +224,10 @@ from generators import (
 # 反序列化幻灯片数据
 slides_data = json.loads(%q)
 
-# 创建演示文稿
+# 配色方案
 palette = %q
+
+# 创建演示文稿
 prs = new_presentation(palette=palette)
 
 # 遍历每页数据，调用对应的生成器
@@ -231,6 +235,7 @@ for slide in slides_data:
     slide_type = slide.get("type", "content_slide")
     content = slide.get("content", {})
     style = slide.get("style", {})
+    background = slide.get("background") or None
 
     if slide_type == "title_slide":
         generate_title_slide(prs,
@@ -238,41 +243,48 @@ for slide in slides_data:
             title=content.get("title", ""),
             subtitle=content.get("subtitle", ""),
             author=content.get("author", ""),
-            date=content.get("date", ""))
+            date=content.get("date", ""),
+            background=background)
     elif slide_type == "section_divider":
         generate_section_divider(prs,
             palette=palette,
             number=content.get("number", "01"),
             title=content.get("title", ""),
-            subtitle=content.get("subtitle", ""))
+            subtitle=content.get("subtitle", ""),
+            background=background)
     elif slide_type == "content_slide":
         generate_content_slide(prs,
             palette=palette,
             title=content.get("title", ""),
             section_header=content.get("section_header", ""),
-            bullets=content.get("bullets", []))
+            bullets=content.get("bullets", []),
+            background=background)
     elif slide_type == "stat_slide":
         generate_stat_slide(prs,
             palette=palette,
             title=content.get("title", ""),
-            stats=content.get("stats", []))
+            stats=content.get("stats", []),
+            background=background)
     elif slide_type == "quote_slide":
         generate_quote_slide(prs,
             palette=palette,
             quote=content.get("quote", ""),
-            attribution=content.get("attribution", ""))
+            attribution=content.get("attribution", ""),
+            background=background)
     elif slide_type == "card_grid":
         generate_card_grid(prs,
             palette=palette,
             title=content.get("title", ""),
             layout=content.get("layout", "2x2"),
-            cards=content.get("cards", []))
+            cards=content.get("cards", []),
+            background=background)
     elif slide_type == "process_flow":
         generate_process_flow(prs,
             palette=palette,
             title=content.get("title", ""),
             direction=content.get("direction", "horizontal_zigzag"),
-            steps=content.get("steps", []))
+            steps=content.get("steps", []),
+            background=background)
     elif slide_type == "two_column":
         refs = content.get("references", [])
         source = content.get("source", "")
@@ -292,19 +304,22 @@ for slide in slides_data:
             left_sections=content.get("left_sections", {}),
             right_sections=content.get("right_sections", {}),
             left_items=content.get("left_items", []),
-            right_items=content.get("right_items", []))
+            right_items=content.get("right_items", []),
+            background=background)
     elif slide_type == "three_column":
         generate_three_column(prs,
             palette=palette,
             title=content.get("title", ""),
-            columns=content.get("columns", []))
+            columns=content.get("columns", []),
+            background=background)
     elif slide_type == "summary_slide":
         generate_summary_slide(prs,
             palette=palette,
             title=content.get("title", ""),
             key_points=content.get("key_points", []),
             thank_you=content.get("thank_you", ""),
-            contact=content.get("contact", ""))
+            contact=content.get("contact", ""),
+            background=background)
     elif slide_type == "image_text":
         generate_image_text(prs,
             palette=palette,
@@ -314,13 +329,15 @@ for slide in slides_data:
             header=content.get("header", ""),
             paragraph=content.get("paragraph", ""),
             kicker=content.get("kicker", ""),
-            sub_header=content.get("sub_header", ""))
+            sub_header=content.get("sub_header", ""),
+            background=background)
     else:
         # 兜底：默认使用 content_slide
         generate_content_slide(prs,
             palette=palette,
             title=content.get("title", ""),
-            bullets=content.get("bullets", []))
+            bullets=content.get("bullets", []),
+            background=background)
 
 # 保存
 output_path = %q
@@ -336,7 +353,7 @@ result = {
     "message": "PPT生成成功"
 }
 print(_json.dumps(result, ensure_ascii=False))
-`, workDir, string(specJSON), palette, outputPath)
+`, workDir, string(slidesJSON), palette, outputPath)
 
 	return code
 }

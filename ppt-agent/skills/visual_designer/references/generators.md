@@ -19,7 +19,9 @@ from generators import (
     generate_timeline, generate_process_flow, generate_two_column,
     generate_three_column, generate_summary_slide, generate_image_text,
     generate_example_detail, generate_deep_dive, generate_agenda,
-    generate_case_study, generate_kpi_dashboard,
+    generate_case_study, generate_kpi_dashboard, generate_chart_slide,
+    generate_icon_grid, generate_swot_analysis, generate_comparison_table,
+    generate_image_hero, generate_kanban, generate_brand_focus, generate_region_map,
 )
 ```
 
@@ -42,6 +44,8 @@ from generators import (
 | `palette` | `str` | `"ocean_soft"` | 配色方案名，见 palettes.md |
 | `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
 
+| `background` | `str` | `""` | 背景图片主题，传入 `"artistic"`、`"party_government"`、`"minimalist_blue"` 等主题名即启用图片背景（留空则用纯色背景）。可取值见 `background_templates/SKILL.md` |
+
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
 ## 生成器函数参数
@@ -56,6 +60,7 @@ from generators import (
 | author | str | `"张三"` |
 | date | str | `"2025年1月"` |
 | kicker | str | `"产品发布 · 2025"` (可选，标题上方小标签) |
+| background | str | `"artistic"` (可选，背景图片主题，为空则用纯色) |
 
 #### generate_section_divider — 章节分隔页
 | 参数 | 类型 | 示例 |
@@ -64,6 +69,7 @@ from generators import (
 | title | str | `"技术背景"` |
 | subtitle | str | `"从感知机到大模型"` |
 | kicker | str | `"第三章"` (可选，编号上方小标签) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_agenda — 目录页
 | 参数 | 类型 | 示例 |
@@ -71,6 +77,7 @@ from generators import (
 | kicker | str | `"目录"` |
 | title | str | `"内容概览"` |
 | items | `List[str]` | `["01  背景", "02  方法", "03  结论"]` |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_summary_slide — 总结页
 | 参数 | 类型 | 示例 |
@@ -80,6 +87,7 @@ from generators import (
 | thank_you | str | `"感谢聆听"` |
 | contact | str | `"{联系方式}"` |
 | kicker | str | `"总结"` (可选，标题上方小标签) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 ### 内容陈述类
 
@@ -98,6 +106,7 @@ from generators import (
 | quote | str | `"弱小和无知不是生存的障碍，傲慢才是"` |
 | attribution | str | `"— 刘慈欣《三体》"` |
 | kicker | str | `"金句"` (可选，引言上方小标签) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_image_text — 图文混排页
 | 参数 | 类型 | 示例 |
@@ -110,6 +119,7 @@ from generators import (
 | kicker | str | `"功能 · 核心"` (可选，标题上方小标签) |
 | sub_header | str | `"能力亮点"` (可选，header 与内容之间的次级标题) |
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 > **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。
 
@@ -130,6 +140,7 @@ from generators import (
 | right_sections | `Dict[str, List[str]]` | 同上 (可选，多区块结构) |
 | left_items | `List[dict]` | `[{"title": "...", "desc": "...", "metric": "↑ 30%"}, ...]` (可选，逐项卡片模式) |
 | right_items | `List[dict]` | 同上 (可选，逐项卡片模式) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 > **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。
 
@@ -139,6 +150,7 @@ from generators import (
 | title | str | `"三种方案对比"` |
 | columns | `List[dict]` | `[{"header": "方案A", "bullets": ["优点1", "优点2"]}, ...]` ×3 |
 | kicker | str | `"能力矩阵"` (可选，标题上方小标签) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_card_grid — 卡片阵列
 | 参数 | 类型 | 示例 |
@@ -148,6 +160,7 @@ from generators import (
 | cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话..."}, ...]` ×4-8 (body 为 100-120 字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 ### 流程与关系类
 
@@ -159,6 +172,7 @@ from generators import (
 | nodes | `List[dict]` | `[{"year": "2017", "event": "Transformer论文发表", "icon": "01"}, ...]` ×4-6 |
 | kicker | str | `"技术演进"` (可选，标题上方小标签) |
 | subtitle | str | `"从深度学习到大模型的时代跨越"` (可选，标题下方副标题) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_process_flow — 步骤流程图
 | 参数 | 类型 | 示例 |
@@ -168,6 +182,7 @@ from generators import (
 | steps | `List[dict]` | `[{"num": "01", "title": "数据收集", "desc": "采集多源数据"}, ...]` ×3-6 |
 | kicker | str | `"工程实践"` (可选，标题上方小标签) |
 | subtitle | str | `"端到端自动化训练流水线"` (可选，标题下方副标题) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 ### 数据与指标类
 
@@ -178,6 +193,7 @@ from generators import (
 | stats | `List[dict]` | `[{"number": "99.99", "unit": "%", "label": "系统可用性"}, ...]` ×2-4 |
 | kicker | str | `"年度成果"` (可选，标题上方小标签) |
 | subtitle | str | `"2025财年关键数据一览"` (可选，标题下方副标题) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_kpi_dashboard — 指标看板（固定 2x2 布局，最多 4 个 KPI）
 | 参数 | 类型 | 示例 |
@@ -186,6 +202,7 @@ from generators import (
 | title | str | `"核心业务指标"` |
 | kpis | `List[dict]` | `[{"value": "1248K", "label": "月活用户", "delta": "↑38% YoY", "baseline": "去年902K"}, ...]` ×4（固定 2x2 网格，最多 4 个） |
 | subtitle | str | `"业务线关键绩效数据"` (可选，标题下方副标题) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 > **强制规则**：每个 KPI 字典必须包含全部 4 个字段：`value`（具体数值+单位）、`label`（效果说明）、`delta`（变化趋势，如 ↑38%）、`baseline`（对比基准，如 vs 传统方案）。禁止使用占位符如 `"{数值}"`。数据必须真实（通过 search 获取）。
 
@@ -201,6 +218,7 @@ from generators import (
 | solution_block | str | `"基于深度图学习的实时检测..."` (2-3句方案) |
 | metrics | `List[dict]` | `[{"value": "99.99%", "label": "准确率", "trend": "↑"}, ...]` ×3 |
 | takeaway | str | `"图学习是风控的核心技术方向"` |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_deep_dive — 深入详解页（双栏）
 | 参数 | 类型 | 示例 |
@@ -215,6 +233,7 @@ from generators import (
 | case_example | `List[str]` | `["GPT-4：万亿参数，MMLU 86.4%", ...]` (3-4条) |
 | data_evidence | `List[str]` | `["推理延迟：320ms→18ms", "训练成本：$63M", ...]` (3条) |
 | supplement | `List[str]` | 可选补充信息 (0-2条) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_case_study — 案例研究页
 | 参数 | 类型 | 示例 |
@@ -225,6 +244,90 @@ from generators import (
 | problem | str | `"日均10万+咨询，人工应答率仅60%"` (痛点) |
 | solution | str | `"基于RAG+大模型的智能问答..."` (方案) |
 | results | `List[dict]` | `[{"metric": "应答率", "value": "95%", "comparison": "提升35%"}, ...]` ×4 |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+### 数据与可视化类
+
+#### generate_chart_slide — 图表专页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"数据分析"` |
+| title | str | `"季度营收对比"` |
+| subtitle | str | `"2025年各季度数据"` (可选) |
+| chart_type | str | `"bar"`, `"pie"`, `"line"`, `"doughnut"`, `"stacked_bar"` |
+| data | `Dict` | `{"labels": ["Q1","Q2","Q3"], "datasets": [{"name": "2025", "values": [100,200,300]}]}` |
+| show_legend | bool | `True` (是否显示图例) |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_icon_grid — 图标网格页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"核心能力"` |
+| title | str | `"六大技术支柱"` |
+| subtitle | str | `"构建完整AI技术体系"` (可选) |
+| layout | str | `"3x2"` 或 `"3x3"` 或 `"2x3"` |
+| icons | `List[dict]` | `[{"icon": "研", "label": "基础研究", "color": "primary"}, ...]` |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_swot_analysis — SWOT分析页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"战略分析"` |
+| title | str | `"AI产品战略SWOT分析"` |
+| subtitle | str | `"基于市场与竞争格局"` (可选) |
+| swot | `Dict` | 包含 strengths/weaknesses/opportunities/threats，每个有 label/items |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_comparison_table — 对比表格页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"选型对比"` |
+| title | str | `"AI平台选型对比"` |
+| subtitle | str | `"三大云厂商AI能力对比"` (可选) |
+| headers | `List[str]` | `["对比维度", "方案A", "方案B", "方案C"]` |
+| rows | `List[List[str]]` | `[["功能丰富度", "★★★☆☆", "★★★★☆"], ...]` |
+| recommendation | str | `"综合考虑，建议选择 Azure ML"` (可选) |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_image_hero — 视觉冲击页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| title | str | `"震撼标题"` |
+| subtitle | str | `"副标题说明"` (可选) |
+| description | str | `"描述文字"` (可选) |
+| overlay_color | str | `"primary"` (可选，颜色主题) |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_kanban — 看板进度页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"项目进度"` |
+| title | str | `"迭代看板"` |
+| subtitle | str | `"版本规划"` (可选) |
+| columns | `List[dict]` | `[{"title": "待办", "cards": [{"title": "任务1", "priority": "high"}, ...]}, ...]` |
+| progress | int | `65` (整体进度百分比 0-100) |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_brand_focus — 品牌价值聚焦页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"品牌战略"` |
+| title | str | `"核心价值观"` |
+| subtitle | str | `"品牌体系"` (可选) |
+| center_text | str | `"核心\n理念"` (中心圆文字) |
+| surrounding_points | `List[dict]` | `[{"title": "创新", "desc": "持续创新驱动发展"}, ...]` (围绕中心的点) |
+| principles | `List[dict]` | `[{"title": "原则1", "desc": "描述"}, ...]` (右侧面板内容) |
+| background | str | `"artistic"` (可选，背景图片主题) |
+
+#### generate_region_map — 区域版图页
+| 参数 | 类型 | 示例 |
+|------|------|------|
+| kicker | str | `"市场布局"` |
+| title | str | `"全球业务版图"` |
+| subtitle | str | `"区域覆盖"` (可选) |
+| regions | `List[dict]` | `[{"label": "华东", "fill": "primary", "active": true}, ...]` (地图区域) |
+| regions_detail | `List[dict]` | `[{"title": "华东", "metrics": [{"label": "营收", "value": "12亿"}]}, ...]` (右侧详情) |
+| background | str | `"artistic"` (可选，背景图片主题) |
 
 ## 常见错误
 

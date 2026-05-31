@@ -39,20 +39,28 @@ type SlideInfo struct {
 	Title       string `json:"title"`
 	ContentType string `json:"content_type"`
 	Description string `json:"description"`
+	Background  string `json:"background"`
+}
+
+// BackgroundOptions 背景选项配置
+type BackgroundOptions struct {
+	Themes []string `json:"themes"`
+	Labels []string `json:"labels"`
 }
 
 // TemplateInfo 预设模板信息
 type TemplateInfo struct {
-	Name           string      `json:"name"`
-	DisplayName   string      `json:"display_name"`
-	Type           TemplateType `json:"type"`
-	Description   string      `json:"description"`
-	Category      string      `json:"category"`
-	DefaultPalette string     `json:"default_palette"`
-	Tags          []string    `json:"tags"`
-	Thumbnail     string      `json:"thumbnail"`
-	SlideCount    int         `json:"slide_count"`
-	DefaultSlides []SlideInfo `json:"default_slides"`
+	Name             string           `json:"name"`
+	DisplayName      string           `json:"display_name"`
+	Type             TemplateType     `json:"type"`
+	Description      string           `json:"description"`
+	Category         string           `json:"category"`
+	DefaultPalette   string           `json:"default_palette"`
+	Tags             []string         `json:"tags"`
+	Thumbnail        string           `json:"thumbnail"`
+	SlideCount       int              `json:"slide_count"`
+	DefaultSlides    []SlideInfo      `json:"default_slides"`
+	BackgroundOpts   *BackgroundOptions `json:"background_options,omitempty"`
 }
 
 // ThemeInfo 配色方案信息
@@ -66,20 +74,32 @@ type ThemeInfo struct {
 	Tags        []string `json:"tags"`
 }
 
+// BackgroundThemeInfo 背景图片主题信息
+type BackgroundThemeInfo struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name"`
+	Description string   `json:"description"`
+	Scenarios   []string `json:"scenarios"`
+	PreviewPath string   `json:"preview_path"`
+}
+
 // Loader 模板加载器
 type Loader struct {
-	presetsDir string
-	layoutsDir string
-	presets    []TemplateInfo
-	layouts    []LayoutInfo
-	themes     []ThemeInfo
+	presetsDir     string
+	layoutsDir     string
+	bgTemplatesDir string
+	presets        []TemplateInfo
+	layouts        []LayoutInfo
+	themes         []ThemeInfo
+	backgrounds    []BackgroundThemeInfo
 }
 
 // NewLoader 创建模板加载器
-func NewLoader(presetsDir, layoutsDir string) *Loader {
+func NewLoader(presetsDir, layoutsDir, bgTemplatesDir string) *Loader {
 	l := &Loader{
-		presetsDir: presetsDir,
-		layoutsDir: layoutsDir,
+		presetsDir:     presetsDir,
+		layoutsDir:     layoutsDir,
+		bgTemplatesDir: bgTemplatesDir,
 	}
 	l.load()
 	return l
@@ -89,6 +109,7 @@ func (l *Loader) load() {
 	l.presets = l.loadPresets()
 	l.layouts = l.loadLayouts()
 	l.themes = l.loadThemes()
+	l.backgrounds = l.loadBackgrounds()
 }
 
 func (l *Loader) loadPresets() []TemplateInfo {
@@ -201,13 +222,80 @@ func (l *Loader) GetLayout(name string) *LayoutInfo {
 	return nil
 }
 
-// GetPresetByCategory 返回指定分类的模板
+// GetPresetByCategory 返回按类别筛选的模板（不区分大小写）
 func (l *Loader) GetPresetByCategory(category string) []TemplateInfo {
 	var result []TemplateInfo
 	for i := range l.presets {
 		if strings.EqualFold(l.presets[i].Category, category) {
 			result = append(result, l.presets[i])
 		}
+	}
+	return result
+}
+
+// ListBackgrounds 返回所有可用的背景主题
+func (l *Loader) ListBackgrounds() []BackgroundThemeInfo {
+	return l.backgrounds
+}
+
+// GetBackgroundTemplatesDir 返回 background_templates 目录路径
+func (l *Loader) GetBackgroundTemplatesDir() string {
+	return l.bgTemplatesDir
+}
+
+func (l *Loader) loadBackgrounds() []BackgroundThemeInfo {
+	themes := []struct {
+		Name        string
+		DisplayName string
+		Description string
+		Scenarios   []string
+	}{
+		{
+			Name:        "party_government",
+			DisplayName: "党政办公",
+			Description: "红色系庄重风格，适合党建、政府汇报等正式场景",
+			Scenarios:   []string{"党建", "政府", "政务", "机关", "党委", "党支部", "红色"},
+		},
+		{
+			Name:        "minimalist_blue",
+			DisplayName: "简约蓝白",
+			Description: "简洁现代的蓝白配色，适合商务、科技、产品演示",
+			Scenarios:   []string{"商务", "企业", "科技", "现代", "简约", "专业", "会议", "方案", "产品"},
+		},
+		{
+			Name:        "ink_wash_mountain",
+			DisplayName: "水墨山水",
+			Description: "水墨画风格，清雅脱俗，适合文化艺术类演示",
+			Scenarios:   []string{"水墨", "山水", "艺术", "自然", "中国风", "文艺"},
+		},
+		{
+			Name:        "vintage_chinese",
+			DisplayName: "复古中国风",
+			Description: "传统中式设计元素，适合传统文化、历史类内容",
+			Scenarios:   []string{"中国风", "传统", "文化", "国风", "古风", "复古"},
+		},
+		{
+			Name:        "snowy_mountain",
+			DisplayName: "雪山风景",
+			Description: "清新自然的雪山背景，适合户外、旅行、环保主题",
+			Scenarios:   []string{"自然", "风景", "户外", "雪山", "山川", "旅行", "环保"},
+		},
+		{
+			Name:        "artistic",
+			DisplayName: "艺术涂鸦",
+			Description: "充满创意的艺术风格，适合时尚、创意类展示",
+			Scenarios:   []string{"艺术", "创意", "涂鸦", "个性", "时尚", "现代艺术"},
+		},
+	}
+	var result []BackgroundThemeInfo
+	for _, t := range themes {
+		result = append(result, BackgroundThemeInfo{
+			Name:        t.Name,
+			DisplayName: t.DisplayName,
+			Description: t.Description,
+			Scenarios:   t.Scenarios,
+			PreviewPath: "/api/backgrounds/" + t.Name + "/preview",
+		})
 	}
 	return result
 }

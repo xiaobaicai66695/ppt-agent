@@ -1,0 +1,14 @@
+{
+  "name": "brand_focus",
+  "display_name": "品牌价值聚焦",
+  "type": "atomic",
+  "description": "中心聚焦+周围价值点布局，适合展示品牌核心价值、企业理念或核心能力",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "warm_terracotta"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "center_text", "label": "中心核心文字", "type": "text", "required": true},
+    {"name": "surrounding_points", "label": "周围价值点(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"title\":\"价值1\",\"description\":\"描述1\",\"color\":\"secondary\"},...]"}
+  ]
+}

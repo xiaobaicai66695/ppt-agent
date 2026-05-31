@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,13 +15,14 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 )
 
-// TaskStatus represents the overall status of a PPT generation task.
+// TaskStatus 表示 PPT 生成任务的总体状态。
 type TaskStatus string
 
 const (
@@ -29,8 +32,8 @@ const (
 	TaskStatusCancelled TaskStatus = "cancelled"
 )
 
-// SSERichEvent is an enriched event for SSE streaming. It wraps agent-level
-// AgentEvent with additional progress and lifecycle information.
+// SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
+// AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
 	Type     string          `json:"type"`
 	Content  string          `json:"content,omitempty"`
@@ -49,7 +52,7 @@ type SSERichEvent struct {
 	TotalTokens      int64           `json:"total_tokens,omitempty"`
 }
 
-// TaskInfo is the public-facing summary of a task.
+// TaskInfo 是任务的公开可见摘要。
 type TaskInfo struct {
 	ID         string     `json:"id"`
 	UserID     int        `json:"user_id"`
@@ -65,31 +68,31 @@ type TaskInfo struct {
 	PromptTokens     int64      `json:"prompt_tokens"`
 	CompletionTokens int64      `json:"completion_tokens"`
 	TotalTokens      int64      `json:"total_tokens"`
+	ConversationContent string   `json:"conversation_content,omitempty"` // 拼接后的对话内容
 }
 
-// TaskState holds the internal state of a single task.
+// TaskState 保存单个任务的内部状态。
 type TaskState struct {
-	Info            TaskInfo
-	Events          []SSERichEvent
-	listeners       map[string]chan SSERichEvent
-	cancel          context.CancelFunc
-	result          *deep.PPTTaskResult
-	reportedFiles   map[string]bool
-	pendingDBEvents []SSERichEvent // buffered before batch-write to MySQL
-	Mu              sync.Mutex
+	Info                 TaskInfo
+	Events               []SSERichEvent
+	listeners            map[string]chan SSERichEvent
+	cancel               context.CancelFunc
+	result               *deep.PPTTaskResult
+	reportedFiles        map[string]bool
+	Mu                   sync.Mutex
 }
 
-// Persist persists the task state to the database.
+// Persist 将任务状态持久化到数据库。
 func (ts *TaskState) Persist() {
 	ts.persist()
 }
 
-// ReportedFiles returns the set of reported files.
+// ReportedFiles 返回已上报文件的集合。
 func (ts *TaskState) ReportedFiles() map[string]bool {
 	return ts.reportedFiles
 }
 
-// SetReportedFile marks a file as reported.
+// SetReportedFile 将文件标记为已上报。
 func (ts *TaskState) SetReportedFile(name string) {
 	ts.reportedFiles[name] = true
 }
@@ -123,39 +126,7 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		default:
 		}
 	}
-	// Async persist to MySQL (fire-and-forget, non-blocking)
-	if db.DB != nil && isPersistableEvent(event.Type) {
-		ts.pendingDBEvents = append(ts.pendingDBEvents, event)
-		if len(ts.pendingDBEvents) >= 20 {
-			ts.flushEventsToDB()
-		}
-	}
 	ts.Mu.Unlock()
-}
-
-// pendingDBEvents buffers events before batch-write to MySQL.
-// Access protected by ts.Mu.
-func (ts *TaskState) flushEventsToDB() {
-	if len(ts.pendingDBEvents) == 0 {
-		return
-	}
-	events := make([]db.TaskEvent, len(ts.pendingDBEvents))
-	for i, e := range ts.pendingDBEvents {
-		content, _ := json.Marshal(e)
-		events[i] = db.TaskEvent{
-			TaskID:    ts.Info.ID,
-			Type:      e.Type,
-			Content:   string(content),
-			CreatedAt: time.Now(),
-		}
-	}
-	ts.pendingDBEvents = nil
-	// Write in background goroutine so we don't block the mutex
-	go func() {
-		if err := db.BatchCreateTaskEvents(events); err != nil {
-			logger.Error("flush_events_db_failed", "task_id", ts.Info.ID, "error", err.Error())
-		}
-	}()
 }
 
 func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
@@ -173,19 +144,20 @@ func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
 	}
 }
 
-// TaskManager manages the lifecycle of all PPT generation tasks.
+// TaskManager 管理所有 PPT 生成任务的生命周期。
 type TaskManager struct {
 	mu               sync.RWMutex
 	tasks            map[string]*TaskState
 	baseDir          string
 	onTaskComplete   func(userID int, workDir string, query string)
+	onTaskFailed     func(taskID string)
 }
 
-// NewTaskManager creates a new TaskManager. baseDir is the parent directory
-// under which per-task output directories are created.
-// If a MySQL DB is available, previously running tasks are marked as failed
-// (the owning process no longer exists).
-func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir string, query string)) *TaskManager {
+// NewTaskManager 创建一个新的 TaskManager。baseDir 是父目录，
+// 每个任务的输出目录都创建在其下。
+// 如果 MySQL 数据库可用，之前运行中的任务会被标记为失败
+// （因为拥有它们的进程已不存在）。
+func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir string, query string), onTaskFailed func(taskID string)) *TaskManager {
 	if db.DB != nil {
 		if err := db.MarkZombieTasks(); err != nil {
 			logger.Error("mark_zombie_tasks_failed", "error", err.Error())
@@ -195,10 +167,11 @@ func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir stri
 		tasks:          make(map[string]*TaskState),
 		baseDir:        baseDir,
 		onTaskComplete: onTaskComplete,
+		onTaskFailed:   onTaskFailed,
 	}
 }
 
-// ── DB conversion helpers ────────────────────────────────────────────────
+// ── 数据库转换辅助函数 ────────────────────────────────────────────────
 
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(info.Files)
@@ -216,6 +189,7 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		PromptTokens:     info.PromptTokens,
 		CompletionTokens: info.CompletionTokens,
 		TotalTokens:      info.TotalTokens,
+		ConversationContent: info.ConversationContent,
 	}
 }
 
@@ -240,6 +214,7 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		PromptTokens:     r.PromptTokens,
 		CompletionTokens: r.CompletionTokens,
 		TotalTokens:      r.TotalTokens,
+		ConversationContent: r.ConversationContent,
 	}
 }
 
@@ -251,27 +226,28 @@ func (ts *TaskState) persist() {
 	r := taskInfoToRecord(&ts.Info)
 	ts.Mu.Unlock()
 	if err := db.UpdateTaskRecord(r.ID, map[string]any{
-		"status":            r.Status,
-		"done_count":        r.DoneCount,
-		"total_count":       r.TotalCount,
-		"duration":          r.Duration,
-		"error":             r.Error,
-		"files":             r.Files,
-		"prompt_tokens":     r.PromptTokens,
-		"completion_tokens": r.CompletionTokens,
-		"total_tokens":      r.TotalTokens,
+		"status":                r.Status,
+		"done_count":            r.DoneCount,
+		"total_count":           r.TotalCount,
+		"duration":              r.Duration,
+		"error":                 r.Error,
+		"files":                 r.Files,
+		"prompt_tokens":          r.PromptTokens,
+		"completion_tokens":      r.CompletionTokens,
+		"total_tokens":           r.TotalTokens,
+		"conversation_content":   r.ConversationContent,
 	}); err != nil {
 		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}
 }
 
-// AgentFactory creates an agent for a specific task configuration.
+// AgentFactory 为特定任务配置创建 agent。
 type AgentFactory func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent, error)
 
-// ErrTaskAlreadyRunning is returned when trying to create a task while another is running.
+// ErrTaskAlreadyRunning 当尝试创建任务时如果另一个任务正在运行，则返回此错误。
 var ErrTaskAlreadyRunning = fmt.Errorf("已有任务正在执行，请等待当前任务完成后再创建新任务")
 
-// HasRunningTask returns true if the given user already has a running task.
+// HasRunningTask 如果给定用户已有运行中的任务则返回 true。
 func (tm *TaskManager) HasRunningTask(userID int) bool {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -283,13 +259,53 @@ func (tm *TaskManager) HasRunningTask(userID int) bool {
 	return false
 }
 
-// CreateTask creates a new task, starts agent execution in a goroutine, and
-// returns the task info.
+// HasRunningTasks 如果有任何任务正在运行则返回 true。
+func (tm *TaskManager) HasRunningTasks() bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	for _, ts := range tm.tasks {
+		if ts.Info.Status == TaskStatusRunning {
+			return true
+		}
+	}
+	return false
+}
+
+// CreateTask 创建一个新任务，启动 agent 执行（在一个 goroutine 中），
+// 并返回任务信息。
 func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	factory AgentFactory, cfg *deep.PPTTaskConfig) (*TaskInfo, error) {
 
 	if tm.HasRunningTask(userID) {
 		return nil, ErrTaskAlreadyRunning
+	}
+
+	// ── 意图识别与路由 ──
+	// 如果配置中没有意图结果，进行意图识别
+	if cfg.IntentResult == nil {
+		intentCfg, err := deep.ProcessUserIntent(ctx, query, userID)
+		if err != nil {
+			logger.Warn("intent_process_failed", "error", err.Error())
+		} else if intentCfg != nil {
+			// 合并意图识别结果
+			if intentCfg.IntentResult != nil {
+				cfg.IntentResult = intentCfg.IntentResult
+			}
+			if intentCfg.RoutingDecision != nil {
+				cfg.RoutingDecision = intentCfg.RoutingDecision
+			}
+			if intentCfg.EnhancedProfile != nil {
+				cfg.EnhancedProfile = intentCfg.EnhancedProfile
+			}
+			// 如果有推荐的样式上下文，追加到现有上下文
+			if intentCfg.StyleContext != "" {
+				if cfg.StyleContext != "" {
+					cfg.StyleContext += "\n" + intentCfg.StyleContext
+				} else {
+					cfg.StyleContext = intentCfg.StyleContext
+				}
+			}
+		}
 	}
 
 	workDir := filepath.Join(tm.baseDir, fmt.Sprintf("%d-%s", userID, cfg.TaskID))
@@ -389,6 +405,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	ts.Mu.Unlock()
 
 	ts.Info.Status = TaskStatusCompleted
+	var taskFailed bool
 	if err != nil {
 		if ctx.Err() == context.Canceled {
 			ts.Info.Status = TaskStatusCancelled
@@ -396,6 +413,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		} else {
 			ts.Info.Status = TaskStatusFailed
 			ts.Info.Error = err.Error()
+			taskFailed = true
 		}
 	}
 
@@ -406,14 +424,14 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.Files = result.Files
 	}
 
-	// Record Prometheus metrics for task completion.
+	// 记录任务完成的 Prometheus 指标。
 	durationSeconds := 0.0
 	if result != nil {
 		durationSeconds = result.Duration.Seconds()
 	}
 	metrics.RecordTaskCompleted(durationSeconds, ts.Info.DoneCount, ts.Info.TotalCount, string(ts.Info.Status))
 
-	// Collect accumulated token usage from callbacks.
+	// 从回调中收集累积的 token 使用量。
 	if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
 		p, c, t := tt.TokenTotals()
 		ts.Info.PromptTokens = p
@@ -422,6 +440,14 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 
 	ts.persist()
+
+	// 触发失败日志分析（异步，不阻塞任务完成通知）
+	if taskFailed && tm.onTaskFailed != nil {
+		go tm.onTaskFailed(ts.Info.ID)
+	}
+
+	// 提取对话内容用于存储（包含任务摘要、幻灯片概览、有意义的对话）
+	ts.persistConversationContent()
 
 	finalEvent := SSERichEvent{
 		Type:            "complete",
@@ -444,6 +470,19 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	if tm.onTaskComplete != nil && ts.Info.UserID > 0 && ts.Info.Status == TaskStatusCompleted {
 		go tm.onTaskComplete(ts.Info.UserID, ts.Info.WorkDir, ts.Info.Query)
 	}
+
+	// ── 记录学习信号 ──
+	// 从 tasks.json 中收集 QA 结果，计算真实质量分数
+	qualityScore := calculateQualityScoreFromQA(ts.Info.WorkDir)
+
+	deep.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
+		TaskID:       ts.Info.ID,
+		UserID:      ts.Info.UserID,
+		Duration:    result.Duration,
+		Success:     ts.Info.Status == TaskStatusCompleted,
+		QualityScore: qualityScore,
+		PageCount:   ts.Info.TotalCount,
+	})
 }
 
 func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir string) {
@@ -525,14 +564,21 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 
 func (tm *TaskManager) cleanupTask(ts *TaskState) {
 	ts.Mu.Lock()
-	// Flush remaining events to DB before cleanup
-	if db.DB != nil && len(ts.pendingDBEvents) > 0 {
-		ts.flushEventsToDB()
-	}
 	for _, ch := range ts.listeners {
 		close(ch)
 	}
 	ts.listeners = nil
+
+	// Flush conversation content to DB (once, on task end — not mid-stream)
+	if db.DB != nil && ts.Info.ConversationContent != "" {
+		go func() {
+			if err := db.UpdateTaskRecord(ts.Info.ID, map[string]any{
+				"conversation_content": ts.Info.ConversationContent,
+			}); err != nil {
+				logger.Error("persist_conversation_content_failed", "task_id", ts.Info.ID, "error", err.Error())
+			}
+		}()
+	}
 
 	// Schedule removal from memory after 1 hour (MySQL + NewColdTaskState handles replay after that)
 	id := ts.Info.ID
@@ -545,7 +591,7 @@ func (tm *TaskManager) cleanupTask(ts *TaskState) {
 	})
 }
 
-// GetTask returns the stored task info, or nil if not found.
+// GetTask 返回存储的任务信息，如果未找到则返回 nil。
 func (tm *TaskManager) GetTask(id string) *TaskInfo {
 	tm.mu.RLock()
 	ts := tm.tasks[id]
@@ -563,15 +609,15 @@ func (tm *TaskManager) GetTask(id string) *TaskInfo {
 	return nil
 }
 
-// GetTaskState returns the internal task state, or nil if not found.
+// GetTaskState 返回内部任务状态，如果未找到则返回 nil。
 func (tm *TaskManager) GetTaskState(id string) *TaskState {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.tasks[id]
 }
 
-// NewColdTaskState creates a minimal TaskState from a TaskInfo (no events, no cancel).
-// Used to restore tasks from MySQL after a backend restart.
+// NewColdTaskState 从 TaskInfo 创建一个最小的 TaskState（无 events，无 cancel）。
+// 用于在服务器重启后从 MySQL 恢复任务。
 func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
 	ts := &TaskState{
 		Info:          info,
@@ -584,7 +630,7 @@ func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
 	return ts
 }
 
-// ListTasks returns summaries of tasks for the given user, newest first.
+// ListTasks 返回给定用户任务的摘要列表，按最新时间排序。
 func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
 	seen := make(map[string]bool)
 	var result []TaskInfo
@@ -612,7 +658,7 @@ func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
 	return result
 }
 
-// CancelTask cancels a running task. Returns true if the task was found and running.
+// CancelTask 取消一个运行中的任务。如果任务被找到且正在运行则返回 true。
 func (tm *TaskManager) CancelTask(id string) bool {
 	tm.mu.RLock()
 	ts := tm.tasks[id]
@@ -630,39 +676,36 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	return true
 }
 
-// DeleteTask removes a task from memory, the DB record, and its output directory.
-// Running tasks are cancelled before deletion.
+// DeleteTask 从内存、数据库记录和输出目录中删除任务。
+// 删除前会先取消运行中的任务。
 func (tm *TaskManager) DeleteTask(id string) error {
 	ts := tm.GetTaskState(id)
 
-	// If running, cancel first.
+	// 如果正在运行，先取消。
 	if ts != nil && ts.Info.Status == TaskStatusRunning {
 		tm.CancelTask(id)
-		// Wait briefly for the goroutine to wind down.
+		// 短暂等待，让 goroutine 关闭。
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Remove from in-memory map.
+	// 从内存 map 中移除。
 	tm.mu.Lock()
 	delete(tm.tasks, id)
 	tm.mu.Unlock()
 
-	// Delete DB records.
+	// 删除数据库记录。
 	if db.DB != nil {
-		if err := db.DeleteTaskEvents(id); err != nil {
-			logger.Error("db_delete_events_failed", "task_id", id, "error", err.Error())
-		}
 		if err := db.DeleteTaskRecord(id); err != nil {
 			logger.Error("db_delete_task_failed", "task_id", id, "error", err.Error())
 		}
 	}
 
-	// Remove output directory.
+	// 删除输出目录。
 	var workDir string
 	if ts != nil {
 		workDir = ts.Info.WorkDir
 	} else {
-		// Task no longer in memory (e.g., server restarted). Look up from DB.
+		// 任务不在内存中（例如服务器重启了）。从数据库查找。
 		if db.DB != nil {
 			if r, err := db.GetTaskRecord(id); err == nil {
 				workDir = r.WorkDir
@@ -679,7 +722,7 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	return nil
 }
 
-// ReadTasksManifestFile reads and returns the tasks.json for a task.
+// ReadTasksManifestFile 读取并返回任务的 tasks.json。
 func (tm *TaskManager) ReadTasksManifestFile(id string) (*deep.TasksManifest, error) {
 	ts := tm.GetTaskState(id)
 	if ts == nil {
@@ -688,7 +731,7 @@ func (tm *TaskManager) ReadTasksManifestFile(id string) (*deep.TasksManifest, er
 	return deep.ReadTasksManifest(ts.Info.WorkDir)
 }
 
-// TaskFilesAsJSON returns the task's tasks.json as raw JSON bytes.
+// TaskFilesAsJSON 返回任务的 tasks.json 作为原始 JSON 字节。
 func (tm *TaskManager) TaskFilesAsJSON(workDir string) ([]byte, error) {
 	return json.Marshal(struct {
 		Tasks []*deep.TaskItem `json:"tasks"`
@@ -711,6 +754,7 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
 			Status:      deep.StatusPending,
 			CreatedAt:   time.Now().Format(time.RFC3339),
+			Background:  slide.Background,
 		}
 		// Carry through content_plan if present
 		if slide.ContentPlan != nil {
@@ -730,19 +774,105 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 	}
 }
 
-// isPersistableEvent returns true for events worth storing in MySQL.
-// Tool calls, progress ticks, file_ready, token_usage are excluded —
-// they are high-volume execution artifacts with no context value for later queries.
-func isPersistableEvent(typ string) bool {
-	switch typ {
-	case "answer", "error", "complete", "continue_complete":
-		return true
+// persistConversationContent 从对话消息表（数据库）和内存中的 SSE 事件流中提取有意义的内容，
+// 将它们合并为可读的对话文本，并存储到 ts.Info 中以便后续持久化到数据库。
+// 在任务结束时调用（成功、取消或错误）。
+func (ts *TaskState) persistConversationContent() {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+
+	// 从数据库加载所有对话消息（覆盖 continue 轮次）
+	var dbMessages []db.ConversationMessage
+	if db.DB != nil {
+		var err error
+		dbMessages, err = db.ListConversationMessages(ts.Info.ID)
+		if err != nil {
+			logger.Warn("load_conversation_messages_failed", "task_id", ts.Info.ID, "error", err.Error())
+		}
 	}
-	return false
+
+	var b strings.Builder
+	b.WriteString("## 任务信息\n")
+	b.WriteString(fmt.Sprintf("- 状态: %s | 进度: %d/%d | 耗时: %s\n",
+		ts.Info.Status, ts.Info.DoneCount, ts.Info.TotalCount, ts.Info.Duration))
+	if ts.Info.Error != "" {
+		b.WriteString(fmt.Sprintf("- 错误: %s\n", ts.Info.Error))
+	}
+
+	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
+	if err == nil && manifest != nil && len(manifest.Tasks) > 0 {
+		b.WriteString("\n## 幻灯片概览\n")
+		b.WriteString("| # | 标题 | 类型 | 状态 | QA |\n")
+		b.WriteString("|---|------|------|------|----|\n")
+		for _, t := range manifest.Tasks {
+			qa := ""
+			if t.QAReport != "" {
+				qa = "有"
+			}
+			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s |\n",
+				t.PageIndex, t.Title, t.ContentType, t.Status, qa))
+		}
+	}
+
+	b.WriteString("\n## 对话内容\n")
+
+	// 构建一个集合，追踪已从 SSE 添加的答案/错误内容（与数据库去重）
+	sseAdded := make(map[string]bool)
+
+	// 1. 先追加内存中的 SSE 事件（当前轮次，可能尚未写入数据库）
+	for _, e := range ts.Events {
+		switch e.Type {
+		case "answer":
+			trimmed := strings.TrimSpace(e.Content)
+			if trimmed == "" || trimmed == "..." || trimmed == "……" {
+				continue
+			}
+			if len(trimmed) > 2000 {
+				trimmed = trimmed[:2000] + "\n...(内容已截断)"
+			}
+			sseAdded[trimmed] = true
+			b.WriteString(fmt.Sprintf("\n**助手**: %s\n", trimmed))
+		case "error":
+			trimmed := strings.TrimSpace(e.Content)
+			if trimmed != "" {
+				sseAdded[trimmed] = true
+				b.WriteString(fmt.Sprintf("\n**错误**: %s\n", trimmed))
+			}
+		case "complete":
+			if e.Message != "" && e.Message != ts.Info.Error {
+				b.WriteString(fmt.Sprintf("\n**完成摘要**: %s\n", e.Message))
+			}
+			if len(e.Files) > 0 {
+				b.WriteString(fmt.Sprintf("\n**生成文件** (%d个): %s\n", len(e.Files), strings.Join(e.Files, ", ")))
+			}
+		}
+	}
+
+	// 2. 追加不在 SSE 事件中的数据库消息
+	for _, m := range dbMessages {
+		trimmed := strings.TrimSpace(m.Content)
+		if trimmed == "" || trimmed == "..." || trimmed == "……" {
+			continue
+		}
+		// 如果此确切内容已从 SSE 添加，则跳过
+		if sseAdded[trimmed] {
+			continue
+		}
+		if len(trimmed) > 2000 {
+			trimmed = trimmed[:2000] + "\n...(内容已截断)"
+		}
+		roleTag := "**助手**"
+		if m.Role == "user" {
+			roleTag = "**用户**"
+		}
+		b.WriteString(fmt.Sprintf("\n%s: %s\n", roleTag, trimmed))
+	}
+
+	ts.Info.ConversationContent = b.String()
 }
 
-// BuildContinueContext constructs a compact LLM context for task continuation.
-// It includes: task summary → tasks.json snapshot → last conversation turns.
+// BuildContinueContext 构建用于任务继续的紧凑 LLM 上下文。
+// 它包括：任务摘要 → tasks.json 快照 → 最后几轮对话。
 func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) string {
 	var b strings.Builder
 	ts := tm.GetTaskState(taskID)
@@ -759,7 +889,7 @@ func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) str
 		b.WriteString(fmt.Sprintf("- 错误: %s\n", ts.Info.Error))
 	}
 
-	// tasks.json snapshot
+	// tasks.json 快照
 	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
 	if err == nil && manifest != nil {
 		b.WriteString("\n## 当前页面列表\n")
@@ -775,7 +905,7 @@ func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) str
 		}
 	}
 
-	// Last N conversation turns (answer/error events only)
+	// 最近 N 轮对话（仅答案/错误事件）
 	b.WriteString(fmt.Sprintf("\n## 最近 %d 轮对话\n", lastMessages))
 	count := 0
 	for i := len(ts.Events) - 1; i >= 0 && count < lastMessages; i-- {
@@ -797,11 +927,97 @@ func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) str
 	return b.String()
 }
 
-// sanitizeFilename removes/replaces characters that are problematic in filenames
+// sanitizeFilename 移除/替换文件名中有问题的字符
 func sanitizeFilename(name string) string {
 	replacer := strings.NewReplacer(
 		"/", "_", "\\", "_", ":", "_", "*", "_", "?", "_",
 		"\"", "_", "<", "_", ">", "_", "|", "_", "\n", "_",
 	)
 	return replacer.Replace(name)
+}
+
+// calculateQualityScoreFromQA 从 tasks.json 中的 QA 结果计算质量分数
+// 返回 0-5 的分数，0 表示没有 QA 结果
+func calculateQualityScoreFromQA(workDir string) float64 {
+	manifest, err := deep.ReadTasksManifest(workDir)
+	if err != nil || manifest == nil || len(manifest.Tasks) == 0 {
+		return 4.0 // 没有 QA 结果时返回默认值
+	}
+
+	var totalScore float64
+	var qaCount int
+	var highIssueCount int
+
+	for _, task := range manifest.Tasks {
+		// 只处理已 QA 的任务
+		if task.QAReport == "" {
+			continue
+		}
+
+		// 从 QA 报告中提取评分信息
+		score := extractScoreFromQAReport(task.QAReport)
+		if score > 0 {
+			totalScore += score
+			qaCount++
+		}
+
+		// 检查是否有 high 级别问题
+		if strings.Contains(task.QAReport, "high") || strings.Contains(task.QAReport, "严重") {
+			highIssueCount++
+		}
+	}
+
+	if qaCount == 0 {
+		return 4.0 // 没有有效的 QA 结果
+	}
+
+	// 计算平均分
+	avgScore := totalScore / float64(qaCount)
+
+	// 如果有 high 级别问题，降低分数
+	if highIssueCount > 0 {
+		penalty := float64(highIssueCount) * 0.5
+		if penalty > 2.0 {
+			penalty = 2.0
+		}
+		avgScore -= penalty
+	}
+
+	// 确保分数在有效范围内
+	if avgScore < 1.0 {
+		avgScore = 1.0
+	}
+	if avgScore > 5.0 {
+		avgScore = 5.0
+	}
+
+	return avgScore
+}
+
+// extractScoreFromQAReport 从 QA 报告文本中提取评分
+// 报告格式可能是自然语言，需要从中提取 1-5 的评分
+func extractScoreFromQAReport(report string) float64 {
+	// 尝试匹配常见的评分模式
+	patterns := []string{
+		`(?i)score[:\s]*(\d+(?:\.\d+)?)`,                          // score: 4.5 或 score 4
+		`(?i)评分[:\s]*(\d+(?:\.\d+)?)`,                            // 评分: 4
+		`(?i)rating[:\s]*(\d+(?:\.\d+)?)`,                          // rating: 4
+		`(?i)quality[:\s]*(\d+(?:\.\d+)?)`,                         // quality: 4
+		`(?i)质量[:\s]*(\d+(?:\.\d+)?)`,                            // 质量: 4
+		`(?i)(\d+(?:\.\d+)?)\s*(?:分|分制)`,                        // 4分 或 4.5分
+		`(?i)(?:优秀|good|excellent).*?(\d+(?:\.\d+)?)`,          // 优秀 4.5
+		`(?i)(\d+(?:\.\d+)?).*?(?:优秀|good|excellent)`,          // 4.5 优秀
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		if matches := re.FindStringSubmatch(report); len(matches) > 1 {
+			score, err := strconv.ParseFloat(matches[1], 64)
+			if err == nil && score >= 1 && score <= 5 {
+				return score
+			}
+		}
+	}
+
+	return 0 // 无法提取评分
 }

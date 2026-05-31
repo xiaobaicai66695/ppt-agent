@@ -14,6 +14,7 @@ from .base import (
     add_text,
     new_presentation,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -24,6 +25,8 @@ def generate(
     kicker: str = "目录",
     title: str = "内容概览",
     items: Optional[List[str]] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate an agenda slide with structured two-column chapter listing."""
     if items is None:
@@ -41,9 +44,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker
     add_text(
@@ -52,6 +58,7 @@ def generate(
         font_size=12, bold=False,
         color="text_muted", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Title
@@ -61,6 +68,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Split items into two columns
@@ -90,6 +98,7 @@ def generate(
             font_size=16, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     for i, item in enumerate(right_items):
@@ -106,6 +115,7 @@ def generate(
             font_size=16, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     add_source_line(slide, source, palette)

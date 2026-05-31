@@ -14,6 +14,7 @@ from .base import (
     add_text,
     new_presentation,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -33,6 +34,8 @@ def generate(
     case_example: Optional[List[str]] = None,
     data_evidence: Optional[List[str]] = None,
     supplement: Optional[List[str]] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate a deep_dive slide with dual-column layout."""
     if key_points is None:
@@ -67,9 +70,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker
     add_text(
@@ -78,6 +84,7 @@ def generate(
         font_size=12, bold=False,
         color="text_muted", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Title
@@ -87,6 +94,7 @@ def generate(
         font_size=30, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Lede
@@ -97,6 +105,7 @@ def generate(
         color="text_muted", alignment="left",
         palette=palette,
         italic=True,
+        colors=colors,
     )
 
     # ── Two-column layout ──
@@ -126,6 +135,7 @@ def generate(
         font_size=18, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     cur_y = col_y + 0.65
@@ -137,6 +147,7 @@ def generate(
         font_size=13, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
     cur_y += 0.35
     for point in key_points[:5]:
@@ -146,6 +157,7 @@ def generate(
             font_size=11, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         cur_y += 0.4
 
@@ -158,6 +170,7 @@ def generate(
             font_size=13, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         cur_y += 0.35
         for item in analysis[:3]:
@@ -167,6 +180,7 @@ def generate(
                 font_size=11, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
             cur_y += 0.4
 
@@ -189,6 +203,7 @@ def generate(
         font_size=18, bold=True,
         color="accent", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     cur_y = col_y + 0.65
@@ -200,6 +215,7 @@ def generate(
         font_size=13, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
     cur_y += 0.35
     for item in case_example[:4]:
@@ -209,6 +225,7 @@ def generate(
             font_size=11, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         cur_y += 0.35
 
@@ -221,6 +238,7 @@ def generate(
             font_size=13, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         cur_y += 0.35
         for item in data_evidence[:3]:
@@ -230,6 +248,7 @@ def generate(
                 font_size=11, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
             cur_y += 0.35
 
@@ -242,6 +261,7 @@ def generate(
             font_size=13, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         cur_y += 0.35
         for item in supplement[:2]:
@@ -251,6 +271,7 @@ def generate(
                 font_size=11, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
             cur_y += 0.35
 

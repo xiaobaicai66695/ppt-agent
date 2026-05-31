@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// SendVerificationCode sends a 6-digit verification code to the given email.
+// SendVerificationCode 发送6位验证码到指定邮箱
 func SendVerificationCode(email, code string) error {
 	host := getEnv("SMTP_HOST", "smtp.qq.com")
 	port := getEnv("SMTP_PORT", "587")

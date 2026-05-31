@@ -30,7 +30,7 @@ type jwtClaims struct {
 	jwt.RegisteredClaims
 }
 
-// SendCode generates a 6-digit code, stores it, and emails it.
+// SendCode 生成6位验证码，存储并发送邮件
 func SendCode(email string) error {
 	if email == "" || !looksLikeEmail(email) {
 		return errors.New("请输入有效的邮箱地址")
@@ -61,8 +61,8 @@ func SendCode(email string) error {
 	return nil
 }
 
-// LoginWithCode verifies the code and returns a JWT token.
-// If the user doesn't exist, it auto-registers them.
+// LoginWithCode 验证验证码并返回 JWT 令牌
+// 如果用户不存在则自动注册
 func LoginWithCode(email, code string) (token string, user *db.User, isNew bool, err error) {
 	if email == "" || code == "" {
 		return "", nil, false, errors.New("邮箱和验证码不能为空")
@@ -114,7 +114,7 @@ func createToken(user *db.User) (string, error) {
 	return token.SignedString(jwtSecret)
 }
 
-// ValidateSession validates a JWT token and returns the embedded user.
+// ValidateSession 验证 JWT 令牌并返回嵌入的用户信息
 func ValidateSession(tokenString string) (*db.User, error) {
 	if tokenString == "" {
 		return nil, errors.New("未提供会话令牌")
@@ -135,7 +135,7 @@ func ValidateSession(tokenString string) (*db.User, error) {
 	}, nil
 }
 
-// LoginWithPassword logs in with email + password.
+// LoginWithPassword 使用邮箱和密码登录
 func LoginWithPassword(email, password string) (token string, user *db.User, err error) {
 	if email == "" || password == "" {
 		return "", nil, errors.New("邮箱和密码不能为空")
@@ -160,7 +160,7 @@ func LoginWithPassword(email, password string) (token string, user *db.User, err
 	return token, u, nil
 }
 
-// SetPassword sets or changes the password for a user.
+// SetPassword 为用户设置或更改密码
 func SetPassword(userID int, password string) error {
 	if len(password) < 4 {
 		return errors.New("密码长度不能少于 4 个字符")
@@ -172,7 +172,7 @@ func SetPassword(userID int, password string) error {
 	return db.DB.Model(&db.User{}).Where("id = ?", userID).Update("password", string(hash)).Error
 }
 
-// SeedRootUser creates the default root account with password if it doesn't exist.
+// SeedRootUser 如果不存在则创建带密码的默认 root 账户
 func SeedRootUser(email, password string) {
 	var count int64
 	db.DB.Model(&db.User{}).Where("email = ?", email).Count(&count)
@@ -188,7 +188,7 @@ func SeedRootUser(email, password string) {
 	logger.Info("seed_root_user_created", "email", email)
 }
 
-// Logout is a no-op for JWT-based auth. The client discards the token.
+// Logout 对于基于 JWT 的认证是空操作。客户端丢弃令牌
 func Logout(token string) error {
 	return nil
 }

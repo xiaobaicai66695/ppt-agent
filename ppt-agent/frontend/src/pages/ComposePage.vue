@@ -1,19 +1,33 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { fetchPresets, fetchLayouts, fetchThemes, createTaskWithOutline, expandWithAI, generateOutlineWithAI } from '../api';
-import type { PresetTemplate, AtomicLayout, ThemeInfo, TaskOutline, SlideOutline } from '../api';
+import { fetchPresets, fetchLayouts, fetchThemes, fetchBackgrounds, createTaskWithOutline, expandWithAI, generateOutlineWithAI } from '../api';
+import type { PresetTemplate, AtomicLayout, ThemeInfo, BackgroundTheme, TaskOutline, SlideOutline } from '../api';
 import { authState } from '../stores/auth';
 
 const router = useRouter();
 const auth = authState;
 
 // State
-const activeTab = ref<'presets' | 'layouts'>('presets');
+const activeTab = ref<'presets' | 'layouts' | 'backgrounds'>('presets');
 const presets = ref<PresetTemplate[]>([]);
 const layouts = ref<AtomicLayout[]>([]);
 const themes = ref<ThemeInfo[]>([]);
+const backgrounds = ref<BackgroundTheme[]>([]);
 const loading = ref(false);
+
+// Background category filter
+const bgCategories = ['全部', '商务', '科技', '教育', '党政', '生活', '自然'];
+const bgCategoryMap: Record<string, string[]> = {
+  '全部': [],
+  '商务': ['biz', 'office', 'meeting', 'report'],
+  '科技': ['tech', 'digital', 'data', 'ai'],
+  '教育': ['edu', 'school', 'learning', 'knowledge'],
+  '党政': ['gov', 'party', 'official', 'ceremony'],
+  '生活': ['life', 'lifestyle', 'travel', 'food'],
+  '自然': ['nature', 'landscape', 'environment', 'green'],
+};
+const selectedBgCategory = ref('全部');
 
 // Editing state
 const selectedTheme = ref('ocean_soft');
@@ -96,6 +110,16 @@ const filteredPresets = computed(() => {
   return presets.value.filter(p => p.category === selectedCategory.value);
 });
 
+// Filter backgrounds by category/scenario
+const filteredBackgrounds = computed(() => {
+  const cats = bgCategoryMap[selectedBgCategory.value] || [];
+  if (selectedBgCategory.value === '全部' || cats.length === 0) return backgrounds.value;
+  return backgrounds.value.filter(bg => {
+    const scenarios = bg.scenarios || [];
+    return cats.some(c => scenarios.some(s => s.toLowerCase().includes(c.toLowerCase())));
+  });
+});
+
 const selectedPreset = ref<PresetTemplate | null>(null);
 
 // Layout category groups
@@ -123,6 +147,36 @@ const contentTypeLabels: Record<string, string> = {
   deep_dive: '深度解析',
 };
 
+function getBackgroundPreview(name: string): string {
+  const bg = backgrounds.value.find(b => b.name === name);
+  return bg?.preview_path || '';
+}
+
+function getBgScenarios(name: string): string[] {
+  const bg = backgrounds.value.find(b => b.name === name);
+  return bg?.scenarios?.slice(0, 4) || [];
+}
+
+function getBgDescription(name: string): string {
+  const bg = backgrounds.value.find(b => b.name === name);
+  return bg?.description || '';
+}
+
+function getBgDisplayName(name: string): string {
+  const bg = backgrounds.value.find(b => b.name === name);
+  return bg?.display_name || name;
+}
+
+function applyBackgroundToSlide(bgName: string) {
+  if (selectedSlideIndex.value >= 0 && editingSlide.value) {
+    editingSlide.value.background = bgName;
+    saveSlideEdit();
+  } else if (selectedSlideIndex.value >= 0) {
+    // Apply directly without opening editor
+    slides.value[selectedSlideIndex.value].background = bgName;
+  }
+}
+
 // Count of slides with empty descriptions
 const emptyDescCount = computed(() => {
   return slides.value.filter(s => !s.description || !s.description.trim()).length;
@@ -134,14 +188,16 @@ const hasEmptyDescriptions = computed(() => emptyDescCount.value > 0);
 onMounted(async () => {
   loading.value = true;
   try {
-    const [p, l, t] = await Promise.all([
+    const [p, l, t, b] = await Promise.all([
       fetchPresets(),
       fetchLayouts(),
       fetchThemes(),
+      fetchBackgrounds(),
     ]);
     presets.value = p;
     layouts.value = l;
     themes.value = t;
+    backgrounds.value = b;
   } catch (e) {
     console.error('Failed to load templates:', e);
   } finally {
@@ -235,13 +291,13 @@ async function handleAIBatchFill() {
     };
     const enriched = await generateOutlineWithAI(topicTrimmed.value, outline);
     if (enriched && enriched.length > 0) {
-      // Merge enriched data back into slides, preserving title and content_type
+      // Merge enriched data back into slides, preserving title, content_type, and background
       for (let i = 0; i < slides.value.length && i < enriched.length; i++) {
         const e = enriched[i];
-        // Always update description and content_plan from AI result
         slides.value[i] = {
-          title: slides.value[i].title,       // keep original title
-          content_type: slides.value[i].content_type, // keep original content_type
+          title: slides.value[i].title,
+          content_type: slides.value[i].content_type,
+          background: slides.value[i].background,
           description: e.description || slides.value[i].description,
           content_plan: e.content_plan,
         };
@@ -400,6 +456,10 @@ async function startGeneration() {
             :class="['tab-btn', { active: activeTab === 'layouts' }]"
             @click="activeTab = 'layouts'"
           >原子布局</button>
+          <button
+            :class="['tab-btn', { active: activeTab === 'backgrounds' }]"
+            @click="activeTab = 'backgrounds'"
+          >背景图片</button>
         </div>
 
         <!-- Presets Tab -->
@@ -452,6 +512,54 @@ async function startGeneration() {
             </div>
           </div>
         </div>
+
+        <!-- Backgrounds Tab -->
+        <div v-if="activeTab === 'backgrounds'" class="background-section">
+          <div class="bg-category-filter">
+            <button
+              v-for="cat in bgCategories"
+              :key="cat"
+              :class="['cat-btn', { active: selectedBgCategory === cat }]"
+              @click="selectedBgCategory = cat"
+            >
+              {{ cat }}
+            </button>
+          </div>
+          <div class="bg-grid">
+            <div
+              v-for="bg in filteredBackgrounds"
+              :key="bg.name"
+              :class="[
+                'bg-card',
+                { selected: selectedSlideIndex >= 0 && slides[selectedSlideIndex]?.background === bg.name }
+              ]"
+              @click="applyBackgroundToSlide(bg.name)"
+              :title="bg.description"
+            >
+              <div class="bg-thumb-wrapper">
+                <img
+                  v-if="bg.preview_path"
+                  :src="bg.preview_path"
+                  :alt="bg.display_name"
+                  class="bg-thumb"
+                  @error="(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.classList.add('bg-thumb-placeholder'); }"
+                />
+                <div v-else class="bg-thumb-placeholder">
+                  <span>🖼️</span>
+                </div>
+              </div>
+              <div class="bg-info">
+                <div class="bg-name">{{ bg.display_name }}</div>
+                <div class="bg-scenarios">
+                  <span v-for="s in bg.scenarios?.slice(0, 2)" :key="s" class="bg-tag">{{ s }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="selectedSlideIndex < 0 && filteredBackgrounds.length > 0" class="bg-hint">
+            ⚠️ 请先在中间选择一张幻灯片，再点击背景进行应用
+          </div>
+        </div>
       </div>
 
       <!-- Center: Slide Canvas -->
@@ -477,6 +585,10 @@ async function startGeneration() {
             <div class="slide-info">
               <div class="slide-title">{{ slide.title || '未命名' }}</div>
               <div class="slide-type">{{ contentTypeLabels[slide.content_type] || slide.content_type }}</div>
+              <div v-if="slide.background" class="slide-bg-badge">
+                <span class="bg-dot"></span>
+                {{ getBgDisplayName(slide.background) }}
+              </div>
             </div>
             <div class="slide-actions" @click.stop>
               <button class="action-btn" @click="moveSlide(index, 'up')" title="上移" aria-label="上移">
@@ -535,6 +647,27 @@ async function startGeneration() {
                   {{ layout.display_name }}
                 </option>
               </select>
+            </div>
+            <div class="field-group">
+              <label for="field-bg">背景图片</label>
+              <div class="bg-selector">
+                <select id="field-bg" v-model="editingSlide.background" class="field-select">
+                  <option value="">不使用背景</option>
+                  <option v-for="bg in backgrounds" :key="bg.name" :value="bg.name">
+                    {{ bg.display_name }}
+                  </option>
+                </select>
+                <div v-if="editingSlide.background" class="bg-preview-thumb">
+                  <img
+                    :src="getBackgroundPreview(editingSlide.background)"
+                    :alt="editingSlide.background"
+                    @error="(e) => (e.target as HTMLImageElement).style.display = 'none'"
+                  />
+                </div>
+              </div>
+              <div v-if="editingSlide.background" class="bg-scenarios">
+                <span v-for="s in getBgScenarios(editingSlide.background)" :key="s" class="bg-tag">{{ s }}</span>
+              </div>
             </div>
             <div class="field-group">
               <label for="field-desc">内容描述</label>
@@ -1169,6 +1302,59 @@ async function startGeneration() {
   line-height: 1.6;
 }
 
+.bg-selector {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.bg-preview-thumb {
+  width: 48px;
+  height: 36px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.bg-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bg-scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.bg-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.slide-bg-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.bg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
 .editor-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
@@ -1219,5 +1405,103 @@ async function startGeneration() {
   justify-content: center;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+/* Backgrounds Tab */
+.background-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.bg-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+
+.bg-card {
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--bg-primary);
+}
+
+.bg-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.bg-card.selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.bg-thumb-wrapper {
+  width: 100%;
+  height: 72px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.bg-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bg-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--bg-secondary), var(--bg-hover));
+  color: var(--text-muted);
+  font-size: 24px;
+}
+
+.bg-info {
+  padding: 8px;
+}
+
+.bg-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.bg-scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.bg-hint {
+  margin: 12px;
+  padding: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #92400e;
+  text-align: center;
 }
 </style>

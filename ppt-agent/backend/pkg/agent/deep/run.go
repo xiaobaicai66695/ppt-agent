@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -37,14 +38,60 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
-// AgentEventType constants for streaming events.
+// AgentEventType 流式事件类型常量
 const (
 	AgentEventAnswer   = "answer"
 	AgentEventToolCall = "tool_call"
 	AgentEventError    = "error"
 )
 
-// AgentEvent is a structured event emitted during agent execution.
+// streamTimeout 返回单次 iter.Next() 调用允许阻塞的最长时间
+// 通过 STREAM_TIMEOUT 环境变量设置（如 "3m"）。零或负值禁用超时
+func streamTimeout() time.Duration {
+	v := os.Getenv("STREAM_TIMEOUT")
+	if v == "" {
+		return 3 * time.Minute
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 3 * time.Minute
+	}
+	return d
+}
+
+// nextWithTimeout 调用 iter.Next() 但如果在配置的timeout时间内没有事件到达则放弃底层流
+// 这可以防止代理在 LLM 流停滞时永久卡住（如格式错误的 JSON）
+// 返回 (event, ok, timeout)
+func nextWithTimeout(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent]) (*adk.AgentEvent, bool, bool) {
+	timeout := streamTimeout()
+		if timeout <= 0 {
+			// 超时禁用 — 使用原始阻塞调用
+		event, ok := iter.Next()
+		return event, ok, false
+	}
+
+	done := make(chan *adk.AgentEvent, 1)
+	okCh := make(chan bool, 1)
+
+	go func() {
+		event, ok := iter.Next()
+		done <- event
+		okCh <- ok
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, false, false
+	case <-time.After(timeout):
+		// 超时 — 放弃停滞的流并返回合成错误事件
+		// 调用者会将其作为超时错误传播
+		return nil, false, true
+	case event := <-done:
+		return event, <-okCh, false
+	}
+}
+
+// AgentEvent 代理执行期间发出的结构化事件
 type AgentEvent struct {
 	Type     string `json:"type"`
 	Content  string `json:"content,omitempty"`
@@ -53,7 +100,7 @@ type AgentEvent struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// AgentEventCallback is called for each event during agent execution.
+// AgentEventCallback 在代理执行期间每个事件被调用
 type AgentEventCallback func(event AgentEvent)
 
 func StartPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskStart, error) {
@@ -119,8 +166,8 @@ func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfi
 	return runPPTTaskDeepAgentInternal(ctx, agent, cfg, userQuery, makePrintCallback())
 }
 
-// RunPPTTaskDeepAgentWithCallback runs the agent and calls onEvent for each streaming event.
-// The callback is called synchronously — the caller should forward events or buffer them quickly.
+// RunPPTTaskDeepAgentWithCallback 运行代理并为每个流式事件调用 onEvent
+// 回调是同步调用的 — 调用者应转发事件或快速缓冲
 func RunPPTTaskDeepAgentWithCallback(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
 	userQuery string, onEvent AgentEventCallback) (*PPTTaskResult, error) {
 	return runPPTTaskDeepAgentInternal(ctx, agent, cfg, userQuery, onEvent)
@@ -157,7 +204,24 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 			return nil, err
 		}
 
-		event, ok := iter.Next()
+		event, ok, timedOut := nextWithTimeout(ctx, iter)
+		if ctx.Err() != nil {
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+			return nil, ctx.Err()
+		}
+
+		// 流停滞 — 视为软错误并退出循环
+		// 清单状态被保留以便任务可以恢复
+		if timedOut {
+			logger.Error("stream_timeout", "task_id", cfg.TaskID, "timeout", streamTimeout().String())
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+			return nil, fmt.Errorf("LLM 流式输出超时（%s），任务已暂停", streamTimeout())
+		}
+
 		if !ok {
 			break
 		}
@@ -176,7 +240,6 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 			} else {
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
-				// Only emit text content for non-tool-result messages.
 				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
 					onEvent(AgentEvent{
 						Type:    AgentEventAnswer,
@@ -247,14 +310,14 @@ func makePrintCallback() AgentEventCallback {
 	}
 }
 
-// isChunkEmittable returns true if the stream chunk should be emitted as an LLM answer token.
-// Tool result chunks (Role=="tool" or ToolCallID!="" or ToolCalls non-empty) are skipped
-// because they are execution metadata, not LLM text output.
+// isChunkEmittable 如果流块应该作为 LLM 答案token发出则返回 true
+// 工具结果块（Role=="tool" 或 ToolCallID!="" 或 ToolCalls 非空）被跳过
+// 因为它们是执行元数据，不是 LLM 文本输出
 func isChunkEmittable(chunk *schema.Message) bool {
 	if chunk == nil {
 		return false
 	}
-	// Skip tool result chunks: these are tool execution outputs, not LLM text
+		// 跳过工具结果块：这些是工具执行输出，不是 LLM 文本
 	if chunk.Role == schema.Tool {
 		return false
 	}
@@ -279,7 +342,7 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 			}
 			return
 		}
-		// Skip tool result chunks and tool-call intent chunks — they are not LLM text tokens
+		// 跳过工具结果块和工具调用意图块 — 它们不是 LLM 文本token
 		if !isChunkEmittable(chunk) {
 			continue
 		}
@@ -294,9 +357,9 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 	}
 }
 
-// RunFixerAgentWithCallback runs a single Fixer agent task and streams events via onEvent.
-// It creates a fresh Fixer agent, sends the fix request as a user message,
-// and consumes all agent events until completion.
+// RunFixerAgentWithCallback 运行单个 Fixer 代理任务并通过 onEvent 流式传输事件
+// 它创建一个新的 Fixer 代理，将修复请求作为用户消息发送
+// 并消费所有代理事件直到完成
 func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 	operator commandline.Operator, fixRequest string, onEvent AgentEventCallback) error {
 
@@ -335,7 +398,22 @@ func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 			return ctx.Err()
 		}
 
-		event, ok := iter.Next()
+		event, ok, timedOut := nextWithTimeout(ctx, iter)
+		if ctx.Err() != nil {
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+			return ctx.Err()
+		}
+
+		if timedOut {
+			logger.Error("fixer_stream_timeout", "timeout", streamTimeout().String())
+			if lastMessageStream != nil {
+				lastMessageStream.Close()
+			}
+			return fmt.Errorf("LLM 流式输出超时（%s）", streamTimeout())
+		}
+
 		if !ok {
 			break
 		}
@@ -354,9 +432,8 @@ func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 			} else {
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
-				// Only emit text content for non-tool-result messages.
-				// Tool-result messages (Role==tool or ToolCallID!="") have their output
-				// carried by the ToolCalls field; emitting Content would duplicate it.
+				// 仅对非工具结果消息发出文本内容
+				// 工具结果消息（Role==tool 或 ToolCallID!=""）的输出由 ToolCalls 字段承载；发出 Content 会导致重复
 				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
 					onEvent(AgentEvent{
 						Type:    AgentEventAnswer,
@@ -392,9 +469,9 @@ func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 	return nil
 }
 
-// RunSlideExecutorContinueWithCallback runs SlideExecutor in continue mode for specified pending pages.
-// It creates a fresh agent with the continue-specific prompt, processes the given pages,
-// and streams events via onEvent.
+// RunSlideExecutorContinueWithCallback 在继续模式下运行 SlideExecutor 以生成指定的待处理页面
+// 它创建一个带有继续特定提示的新代理，处理给定页面
+// 并通过 onEvent 流式传输事件
 func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDir string,
 	operator commandline.Operator, userMessage string, targetPages []int, onEvent AgentEventCallback) error {
 
@@ -405,7 +482,7 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 	}
 
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(16384),
+		agentutils.WithMaxTokens(32768),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)
@@ -451,7 +528,7 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 	return runAgentWithCallback(ctx, agent, "", onEvent)
 }
 
-// runAgentWithCallback is a generic agent runner that streams events via onEvent.
+// runAgentWithCallback 是通用代理运行器，通过 onEvent 流式传输事件
 func runAgentWithCallback(ctx context.Context, agent adk.Agent, userInput string, onEvent AgentEventCallback) error {
 	startTime := time.Now()
 
@@ -471,14 +548,24 @@ func runAgentWithCallback(ctx context.Context, agent adk.Agent, userInput string
 	return err
 }
 
-// streamAgentEvents consumes all agent events and forwards them via onEvent.
+// streamAgentEvents 消费所有代理事件并通过 onEvent 转发它们
+// 使用流超时来避免在停滞的 LLM 流上永久阻塞
 func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent], onEvent AgentEventCallback) error {
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		event, ok := iter.Next()
+		event, ok, timedOut := nextWithTimeout(ctx, iter)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if timedOut {
+			logger.Error("stream_agent_timeout", "timeout", streamTimeout().String())
+			return fmt.Errorf("LLM 流式输出超时（%s）", streamTimeout())
+		}
+
 		if !ok {
 			break
 		}
@@ -494,7 +581,6 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 				processStreamingMessage(lastMsgStream, onEvent, &answerBuf)
 			} else {
 				if msg := event.Output.MessageOutput.Message; msg != nil {
-					// Only emit text content for non-tool-result messages.
 					if isChunkEmittable(msg) && msg.Content != "" {
 						onEvent(AgentEvent{Type: AgentEventAnswer, Content: msg.Content})
 					}

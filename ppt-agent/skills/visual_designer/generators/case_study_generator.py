@@ -15,6 +15,7 @@ from .base import (
     add_text,
     new_presentation,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -28,6 +29,8 @@ def generate(
     problem: str = "{痛点}",
     solution: str = "{解决方案}",
     results: Optional[List[dict]] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate a case_study slide with Context/Problem/Solution/Results."""
     if results is None:
@@ -43,9 +46,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker
     add_text(
@@ -54,6 +60,7 @@ def generate(
         font_size=12, bold=False,
         color="text_muted", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Title
@@ -63,6 +70,7 @@ def generate(
         font_size=30, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # ── Four stacked cards ──
@@ -87,6 +95,7 @@ def generate(
         font_size=13, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
     add_text(
         slide, text=context,
@@ -94,6 +103,7 @@ def generate(
         font_size=13, bold=False,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
     cur_y += card_h + 0.12
 
@@ -111,6 +121,7 @@ def generate(
         font_size=13, bold=True,
         color="secondary", alignment="left",
         palette=palette,
+        colors=colors,
     )
     add_text(
         slide, text=problem,
@@ -118,6 +129,7 @@ def generate(
         font_size=13, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
     cur_y += card_h + 0.12
 
@@ -134,6 +146,7 @@ def generate(
         font_size=13, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
     add_text(
         slide, text=solution,
@@ -141,6 +154,7 @@ def generate(
         font_size=13, bold=False,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
     cur_y += card_h + 0.12
 
@@ -151,6 +165,7 @@ def generate(
         font_size=13, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     n = min(len(results), 4)
@@ -175,6 +190,7 @@ def generate(
             font_size=22, bold=True,
             color="primary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         add_text(
             slide, text=r.get("metric", ""),
@@ -182,6 +198,7 @@ def generate(
             font_size=10, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         add_text(
             slide, text=r.get("comparison", ""),
@@ -189,6 +206,7 @@ def generate(
             font_size=9, bold=False,
             color="text_muted", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     add_source_line(slide, source, palette)

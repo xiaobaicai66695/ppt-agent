@@ -78,14 +78,55 @@ func WithResponseFormatJsonSchema(schema *openai.ChatCompletionResponseFormatJSO
 	}
 }
 
-// WithModel overrides the model name used by NewFallbackToolCallingChatModel.
-// When set, ARK_MODEL / OPENAI_MODEL env vars are ignored for model selection.
-// Intended for lightweight side-tasks like intent classification or style extraction
-// that should use a smaller/cheaper model than the main agent.
+// WithModel 覆盖 NewFallbackToolCallingChatModel 使用的模型名称。
+// 设置后，ARK_MODEL / OPENAI_MODEL 环境变量将被忽略。
+// 适用于轻量级辅助任务（如意图分类、风格提取），应使用比主 agent 更小/更便宜的模型。
 func WithModel(modelName string) ChatModelOption {
 	return func(c *ChatModelConfig) {
 		c.Model = &modelName
 	}
+}
+
+// WithTextModel 覆盖 NewFallbackToolCallingChatModel 用于纯文本任务的模型链。
+// 使用 ARK_TEXT_MODEL，备用为 ARK_MODEL_BACKUP*。
+// 如果 ARK_TEXT_MODEL 未设置，则回退到 ARK_MODEL。
+func WithTextModel() ChatModelOption {
+	textModel := os.Getenv("ARK_TEXT_MODEL")
+	if textModel == "" {
+		textModel = os.Getenv("ARK_MODEL")
+	}
+	return func(c *ChatModelConfig) {
+		c.Model = &textModel
+	}
+}
+
+// NewQAModel 创建一个不带降级的独立 QA 模型。
+// 使用 ARK_QA_MODEL；遇到瞬时失败时最多重试 3 次。
+// QA 质量不能因模型降级而受损——不使用降级链。
+func NewQAModel(ctx context.Context) (model.ToolCallingChatModel, error) {
+	qaModel := os.Getenv("ARK_QA_MODEL")
+	if qaModel == "" {
+		return nil, fmt.Errorf("ARK_QA_MODEL 环境变量未设置")
+	}
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		maxTokens := 32768
+		temp := float32(0)
+		topP := float32(0)
+		disableThink := true
+		m, err := newSingleModel(ctx, qaModel, &ChatModelConfig{
+			MaxTokens:       &maxTokens,
+			Temperature:     &temp,
+			TopP:            &topP,
+			DisableThinking:  &disableThink,
+		})
+		if err == nil {
+			return m, nil
+		}
+		lastErr = err
+		logger.Warn("qa_model_init_retry", "attempt", attempt, "model", qaModel, "error", err.Error())
+	}
+	return nil, fmt.Errorf("QA 模型 [%s] 创建失败（已重试 3 次）: %w", qaModel, lastErr)
 }
 
 func GetCurrentTime() string {
@@ -99,7 +140,7 @@ const (
 	fallbackPauseDuration = 30 * time.Second
 )
 
-// EnvInt reads an integer from an environment variable, returning the default if unset or invalid.
+// EnvInt 从环境变量读取整数，如果未设置或无效则返回默认值。
 func EnvInt(key string, defaultVal int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -109,8 +150,8 @@ func EnvInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
-// isRateLimitError 判断错误是否为 429 限流错误
-func isRateLimitError(err error) bool {
+// IsRateLimitError 判断错误是否为 429 限流错误
+func IsRateLimitError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -123,10 +164,10 @@ func isRateLimitError(err error) bool {
 
 // globalRateLimitTracker 全局 429 限流协调器，所有 FallbackChatModel 实例共享。
 // 当任一 Agent 触发 429 后，所有使用相同 modelName 的 Agent 一起等待，避免惊群效应。
-// NOTE: Two FallbackChatModel instances using the same raw model name share pause state
-// even if they have different configurations (MaxTokens, Temperature, etc.). This means
-// a rate limit on a lower-priority task can delay a higher-priority one. If strict
-// isolation is needed, prefix the model name with a scope tag.
+// 注意：两个使用相同原始模型名的 FallbackChatModel 实例共享暂停状态，
+// 即使它们的配置不同（MaxTokens、Temperature 等）。这意味着
+// 低优先级任务的限流可能会延迟高优先级任务。如果需要严格隔离，
+// 需要在模型名前加上作用域标签。
 type globalRateLimitTracker struct {
 	mu            sync.Mutex
 	pauseEndTimes map[string]time.Time // key: 原始 modelName（如 Qwen/Qwen3.5-122B-A10B）
@@ -151,8 +192,8 @@ func (g *globalRateLimitTracker) checkPause(modelName string) (bool, time.Time) 
 	return false, time.Time{}
 }
 
-// markRateLimited 标记指定模型触发 429，全局暂停 baseDuration+随机jitter。
-// jitter 防止多个实例在暂停结束后同时恢复、再次触发限流。
+// markRateLimited 标记指定模型触发 429，全局暂停 baseDuration+随机抖动。
+// 抖动防止多个实例在暂停结束后同时恢复、再次触发限流。
 func (g *globalRateLimitTracker) markRateLimited(modelName string, baseDuration time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -166,11 +207,11 @@ func (g *globalRateLimitTracker) markRateLimited(modelName string, baseDuration 
 type FallbackChatModel struct {
 	models        []model.ToolCallingChatModel
 	modelNames    []string // 日志显示名（含 backup 后缀）
-	rawNames      []string // 原始 modelName，用于全局追踪（如 Qwen/Qwen3.5-122B-A10B）
+	rawNames      []string // 原始 modelName，用于全局追踪
 	mu            sync.Mutex
 	pauseDuration time.Duration
-	// compressorCfg is stored when a FallbackChatModel is wrapped by ChatModelCompressor.
-	// When WithTools is called, the compressor is re-applied to the new model instances.
+	// compressorCfg 在 FallbackChatModel 被 ChatModelCompressor 包装时存储。
+	// 调用 WithTools 时，会重新应用压缩器到新的模型实例。
 	compressorCfg *compressorConfig
 }
 
@@ -190,6 +231,11 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		os.Getenv("ARK_MODEL_BACKUP2"),
 		os.Getenv("ARK_MODEL_BACKUP3"),
 		os.Getenv("ARK_MODEL_BACKUP4"),
+	}
+
+	// WithModel overrides the primary model (e.g. for compressor, style, text tasks).
+	if o.Model != nil && *o.Model != "" {
+		modelNames = []string{*o.Model}
 	}
 
 	var validModels []model.ToolCallingChatModel
@@ -236,14 +282,13 @@ func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig)
 
 	// DeepSeek 系列模型默认开启 thinking 模式，流式输出中会夹杂 reasoning_content，
 	// 导致 eino ReAct 框架解析 tool call JSON 失败。这里自动禁用。
-	// Qwen3.5/3.6, DeepSeek, Kimi-K2 thinking models consume token budget
-// with reasoning_content, breaking tool call JSON parsing in ReAct.
-// Disable thinking for all such models in tool-calling scenarios.
-shouldDisable := strings.Contains(strings.ToLower(modelName), "deepseek") ||
-strings.Contains(strings.ToLower(modelName), "qwen3.5") ||
-strings.Contains(strings.ToLower(modelName), "qwen3.6") ||
-strings.Contains(strings.ToLower(modelName), "kimi-k2")
-if shouldDisable {
+	// Qwen3.5/3.6, DeepSeek, Kimi-K2 等 thinking 模型会消耗 token 预算用于 reasoning_content，
+	// 在 ReAct 中破坏 tool call JSON 解析。所有此类模型在工具调用场景下禁用 thinking。
+	shouldDisable := strings.Contains(strings.ToLower(modelName), "deepseek") ||
+		strings.Contains(strings.ToLower(modelName), "qwen3.5") ||
+		strings.Contains(strings.ToLower(modelName), "qwen3.6") ||
+		strings.Contains(strings.ToLower(modelName), "kimi-k2")
+	if shouldDisable {
 		conf.Thinking = &arkmodel.Thinking{
 			Type: arkmodel.ThinkingTypeDisabled,
 		}
@@ -325,7 +370,7 @@ func (f *FallbackChatModel) callWithFallback(ctx context.Context, callFn func(id
 
 		msg, err := callFn(idx)
 		if err != nil {
-			if isRateLimitError(err) {
+			if IsRateLimitError(err) {
 				f.markRateLimited(idx)
 				continue
 			}
@@ -335,6 +380,17 @@ func (f *FallbackChatModel) callWithFallback(ctx context.Context, callFn func(id
 	}
 
 	return nil, fmt.Errorf("所有模型均失败")
+}
+
+// PrimaryModelName 返回降级链中主模型（第一个）的名称。
+func (f *FallbackChatModel) PrimaryModelName() string {
+	if len(f.rawNames) > 0 {
+		return f.rawNames[0]
+	}
+	if len(f.modelNames) > 0 {
+		return f.modelNames[0]
+	}
+	return ""
 }
 
 // Generate 实现 model.ToolCallingChatModel 接口
@@ -375,7 +431,7 @@ func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Messa
 		copy(msgs, messages)
 		stream, err := f.models[idx].Stream(ctx, msgs, opts...)
 		if err != nil {
-			if isRateLimitError(err) {
+			if IsRateLimitError(err) {
 				f.markRateLimited(idx)
 				continue
 			}
@@ -387,11 +443,11 @@ func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Messa
 	return nil, fmt.Errorf("所有模型均失败")
 }
 
-// WithTools implements model.ToolCallingChatModel interface
-// Each underlying model is bound to the same tool list.
-// If this FallbackChatModel was created via WithTools from a compressor-wrapped model,
-// the compressor wrapper is preserved by wrapping the new models with the stored compressor config.
-// If there is no compressor config stored, returns a plain FallbackChatModel.
+// WithTools 实现 model.ToolCallingChatModel 接口
+// 每个底层模型绑定到相同的工具列表。
+// 如果此 FallbackChatModel 是通过压缩器包装模型的 WithTools 创建的，
+// 压缩器包装器会被保留（通过使用存储的压缩器配置重新包装新模型）。
+// 如果没有存储压缩器配置，则返回普通 FallbackChatModel。
 func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -422,8 +478,7 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 	return newModel, nil
 }
 
-// compressorCfg is stored in FallbackChatModel so that WithTools can re-apply
-// the compressor after the underlying models are rebound to tools.
+// compressorCfg 存储在 FallbackChatModel 中，以便 WithTools 可以在重新绑定工具后重新应用压缩器。
 type compressorConfig struct {
 	summarizerFactory func() (model.ToolCallingChatModel, error)
 	messageThreshold  int
@@ -431,8 +486,8 @@ type compressorConfig struct {
 	preserveCount     int
 }
 
-// newChatModelCompressorFromConfig creates a ChatModelCompressor from stored config.
-// This is used by FallbackChatModel.WithTools to preserve compression across tool binding.
+// newChatModelCompressorFromConfig 从存储的配置创建 ChatModelCompressor。
+// 用于 FallbackChatModel.WithTools 在工具绑定时保留压缩功能。
 func newChatModelCompressorFromConfig(inner model.ToolCallingChatModel, cfg *compressorConfig) *ChatModelCompressor {
 	summarizer, err := cfg.summarizerFactory()
 	if err != nil {
@@ -442,10 +497,10 @@ func newChatModelCompressorFromConfig(inner model.ToolCallingChatModel, cfg *com
 	return newChatModelCompressor(inner, summarizer, cfg.messageThreshold, cfg.tokenThreshold, cfg.preserveCount)
 }
 
-// newChatModelCompressor is the internal constructor that takes raw threshold values.
+// newChatModelCompressor 是内部构造函数，接受原始阈值参数。
 func newChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.ToolCallingChatModel, msgThresh, tokenThresh, preserve int) *ChatModelCompressor {
 	return &ChatModelCompressor{
-		inner: inner,
+		inner:      inner,
 		summarizer: summarizer,
 		cfg: &CompressorConfig{
 			MessageThreshold: msgThresh,

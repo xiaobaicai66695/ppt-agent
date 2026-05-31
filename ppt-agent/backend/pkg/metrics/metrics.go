@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	// TasksTotal counts the total number of tasks created.
+	// TasksTotal 统计创建的任务总数
 	TasksTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -33,7 +33,7 @@ var (
 		[]string{"status"}, // running, completed, failed, cancelled
 	)
 
-	// TaskDuration tracks how long each task takes to complete.
+	// TaskDuration 追踪每个任务的完成时间
 	TaskDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "ppt_agent",
@@ -45,7 +45,7 @@ var (
 		[]string{"status"},
 	)
 
-	// TaskSlidesGenerated tracks slides generated per task.
+	// TaskSlidesGenerated 追踪每个任务生成的幻灯片数量
 	TaskSlidesGenerated = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "ppt_agent",
@@ -57,7 +57,7 @@ var (
 		[]string{"status"},
 	)
 
-	// QAIssuesTotal counts QA issues found by severity.
+	// QAIssuesTotal 按严重程度统计发现的 QA 问题数量
 	QAIssuesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -68,7 +68,7 @@ var (
 		[]string{"severity"}, // high, medium, low
 	)
 
-	// QASlideScore tracks per-slide quality scores (1-5) from visual QA review.
+	// QASlideScore 追踪每张幻灯片的质量评分（1-5分），来自视觉 QA 审查
 	QASlideScore = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "ppt_agent",
@@ -80,7 +80,7 @@ var (
 		[]string{"content_type"}, // title_slide, content_slide, two_column, ...
 	)
 
-	// QAFixesTotal counts how many QA issues were successfully fixed.
+	// QAFixesTotal 统计成功修复的 QA 问题数量
 	QAFixesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -91,7 +91,7 @@ var (
 		[]string{"result"}, // success, failed
 	)
 
-	// LLMTokensTotal tracks cumulative token usage across all agents.
+	// LLMTokensTotal 追踪所有代理的累计 token 使用量
 	LLMTokensTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -102,7 +102,7 @@ var (
 		[]string{"type"}, // prompt, completion, total
 	)
 
-	// LLMCallsTotal tracks total LLM API calls.
+	// LLMCallsTotal 追踪 LLM API 调用总数
 	LLMCallsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -113,7 +113,7 @@ var (
 		[]string{"status"}, // success, error, rate_limit
 	)
 
-	// AgentCallsTotal tracks calls per agent type.
+	// AgentCallsTotal 追踪每种代理类型的调用次数
 	AgentCallsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -124,7 +124,7 @@ var (
 		[]string{"agent"}, // master, slide_executor, reviewer, fixer, planner, executor
 	)
 
-	// ToolCallsTotal tracks calls per tool type.
+	// ToolCallsTotal 追踪每种工具类型的调用次数
 	ToolCallsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -135,7 +135,7 @@ var (
 		[]string{"tool", "status"}, // python3, search, read_file, edit_file, etc. + success/error
 	)
 
-	// ActiveTasks tracks currently running tasks.
+	// ActiveTasks 追踪当前正在运行的任务数量
 	ActiveTasks = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "ppt_agent",
@@ -145,7 +145,7 @@ var (
 		},
 	)
 
-	// HTTPRequestsTotal tracks HTTP request counts.
+	// HTTPRequestsTotal 追踪 HTTP 请求总数
 	HTTPRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ppt_agent",
@@ -156,7 +156,7 @@ var (
 		[]string{"method", "path", "status_code"},
 	)
 
-	// HTTPRequestDuration tracks HTTP request latency.
+	// HTTPRequestDuration 追踪 HTTP 请求延迟
 	HTTPRequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "ppt_agent",
@@ -169,13 +169,13 @@ var (
 	)
 )
 
-// RecordTaskCreated increments the tasks total counter for the given status.
+// RecordTaskCreated 增加创建任务计数器（指定状态）
 func RecordTaskCreated() {
 	TasksTotal.WithLabelValues("running").Inc()
 	ActiveTasks.Inc()
 }
 
-// RecordTaskCompleted records metrics when a task finishes.
+// RecordTaskCompleted 任务完成时记录指标
 func RecordTaskCompleted(durationSeconds float64, slidesGenerated, slidesTotal int, status string) {
 	TasksTotal.WithLabelValues(status).Inc()
 	ActiveTasks.Dec()
@@ -185,34 +185,34 @@ func RecordTaskCompleted(durationSeconds float64, slidesGenerated, slidesTotal i
 	}
 }
 
-// RecordTokens records token usage.
+// RecordTokens 记录 token 使用量
 func RecordTokens(prompt, completion, total int64) {
 	LLMTokensTotal.WithLabelValues("prompt").Add(float64(prompt))
 	LLMTokensTotal.WithLabelValues("completion").Add(float64(completion))
 	LLMTokensTotal.WithLabelValues("total").Add(float64(total))
 }
 
-// RecordLLMCall records an LLM call result.
+// RecordLLMCall 记录一次 LLM 调用结果
 func RecordLLMCall(status string) {
 	LLMCallsTotal.WithLabelValues(status).Inc()
 }
 
-// RecordAgentCall records an agent invocation.
+// RecordAgentCall 记录一次代理调用
 func RecordAgentCall(agent string) {
 	AgentCallsTotal.WithLabelValues(agent).Inc()
 }
 
-// RecordToolCall records a tool invocation.
+// RecordToolCall 记录一次工具调用
 func RecordToolCall(tool, status string) {
 	ToolCallsTotal.WithLabelValues(tool, status).Inc()
 }
 
-// RecordQAIssue records a QA issue found.
+// RecordQAIssue 记录一个发现的 QA 问题
 func RecordQAIssue(severity string) {
 	QAIssuesTotal.WithLabelValues(severity).Inc()
 }
 
-// RecordQAFix records a QA fix attempt result.
+// RecordQAFix 记录一次 QA 修复尝试结果
 func RecordQAFix(success bool) {
 	if success {
 		QAFixesTotal.WithLabelValues("success").Inc()
@@ -221,7 +221,7 @@ func RecordQAFix(success bool) {
 	}
 }
 
-// RecordSlideScore records a per-slide quality score from QA review.
+// RecordSlideScore 记录 QA 审查后的每张幻灯片质量评分
 func RecordSlideScore(score float64, contentType string) {
 	QASlideScore.WithLabelValues(contentType).Observe(score)
 }

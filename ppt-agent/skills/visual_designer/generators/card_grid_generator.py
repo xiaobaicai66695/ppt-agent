@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect, add_round_rect,
     set_slide_background, add_text_in_shape,
+    resolve_background, set_image_background,
 )
 
 
@@ -20,6 +21,8 @@ def generate(
     layout: str = "2x2",
     kicker: str = "",
     subtitle: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a card grid slide.
@@ -50,9 +53,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.4
@@ -64,6 +70,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.35
 
@@ -75,6 +82,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Subtitle
@@ -87,6 +95,7 @@ def generate(
             font_size=16, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_cards += 0.45
 
@@ -150,6 +159,7 @@ def generate(
             font_size=14, bold=True,
             color="background", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
         # Card header (next to badge)
@@ -161,6 +171,7 @@ def generate(
             font_size=16, bold=True,
             color="primary", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
         # Card body
@@ -173,6 +184,7 @@ def generate(
             font_size=14, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
         # Card footer (trend label)
@@ -185,6 +197,7 @@ def generate(
                 font_size=12, bold=True,
                 color="secondary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     add_source_line(slide, source, palette)

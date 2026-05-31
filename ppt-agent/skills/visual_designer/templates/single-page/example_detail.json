@@ -1,0 +1,16 @@
+{
+  "name": "example_detail",
+  "display_name": "实例详解页",
+  "type": "atomic",
+  "description": "通过一个命名、有数据的真实案例来解释概念。每介绍一个重要概念或技术时必须配此页型",
+  "allowed_palettes": ["ocean_soft", "charcoal_light", "warm_terracotta", "report_green"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "lede", "label": "导语", "type": "text", "required": true},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "context_block", "label": "背景", "type": "textarea", "required": true},
+    {"name": "solution_block", "label": "方案", "type": "textarea", "required": true},
+    {"name": "metrics_grid", "label": "指标数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"value\":\"99%\",\"label\":\"准确率\",\"trend\":\"↑ 5%\"},...]"},
+    {"name": "takeaway", "label": "启示总结", "type": "text", "required": true}
+  ]
+}

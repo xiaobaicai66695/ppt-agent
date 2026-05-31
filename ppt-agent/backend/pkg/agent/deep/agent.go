@@ -19,21 +19,26 @@ package deep
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
+	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
+	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
 func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(16384),
+		agentutils.WithMaxTokens(32768),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)
@@ -42,6 +47,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	}
 
 	compressor, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+		agentutils.WithTextModel(),
 		agentutils.WithMaxTokens(4096),
 		agentutils.WithTemperature(0),
 	)
@@ -49,9 +55,9 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建压缩器模型失败: %w", err)
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
-		agentutils.WithCompressThreshold(8),
-		agentutils.WithTokenThreshold(20000),
-		agentutils.WithPreserveCount(4),
+		agentutils.WithCompressThreshold(16),
+		agentutils.WithTokenThreshold(50000),
+		agentutils.WithPreserveCount(6),
 	)
 	if cfg.CompressorTracker != nil {
 		if compressor, ok := chatModel.(*agentutils.ChatModelCompressor); ok {
@@ -64,9 +70,18 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建 SlideExecutor 子代理失败: %w", err)
 	}
 
-	reviewer, err := newReviewerAgent(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("创建 Reviewer 子代理失败: %w", err)
+	// QA 质检默认启用，可通过 ENABLE_QA 环境变量关闭
+	enableQA := cfg.EnableQA
+	if !cfg.EnableQA {
+		enableQA = isQAEnabled()
+	}
+
+	var reviewer adk.Agent
+	if enableQA {
+		reviewer, err = newReviewerAgent(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("创建 Reviewer 子代理失败: %w", err)
+		}
 	}
 
 	fixer, err := newFixerAgent(ctx, cfg, "")
@@ -80,12 +95,17 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	bashTool := tools.NewBashTool(cfg.Operator)
 	batchConvertTool := tools.NewBatchConvertTool(cfg.Operator)
 
+	subAgents := []adk.Agent{slideExecutor, fixer}
+	if reviewer != nil {
+		subAgents = append(subAgents, reviewer)
+	}
+
 	deepAgent, err := deep.New(ctx, &deep.Config{
 		Name:        "PPTTaskDeepAgent",
 		Description: "PPT 任务调度代理，负责规划、并行生成、质检和修复 PPT 幻灯片",
 		ChatModel:   chatModel,
-		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query),
-		SubAgents:   []adk.Agent{slideExecutor, reviewer, fixer},
+		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, enableQA),
+		SubAgents:   subAgents,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: []tool.BaseTool{editFileTool, readFileTool, searchTool, bashTool, batchConvertTool},
@@ -102,10 +122,17 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	return deepAgent, nil
 }
 
-// buildDeepAgentInstruction loads the deep agent master instruction from template.
-// When outline is provided, tasks.json is already pre-populated with user's slide plan.
-// query provides the user's original topic description for content generation.
-func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string) string {
+// isQAEnabled 返回 QA 质量检查是否启用
+// 如果未设置 ENABLE_QA 或设置为 "true"，则默认为 true
+// 设置为 "false" 可禁用 QA 检查
+func isQAEnabled() bool {
+	return os.Getenv("ENABLE_QA") != "false"
+}
+
+// buildDeepAgentInstruction 从模板加载深度代理的主指令
+// 当提供大纲时，tasks.json 已经预填充了用户的幻灯片计划
+// query 提供用户原始主题描述用于内容生成
+func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool) string {
 	tmplDir := filepath.Join(skillsDir, "visual_designer", "templates", "full-decks")
 	tasksJSON := filepath.Join(workDir, "tasks.json")
 
@@ -130,8 +157,8 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 | training-course.py | 内部培训、新人入职培训、技能培训，知识系统，互动引导 | 16页 |
 | project-proposal.py | 新项目立项、项目申请、资源申请，理由充分，方案可行 | 12页 |`
 
-	// When user provided an outline, tasks.json already contains template/theme.
-	// Read it so we can tell the agent what to use.
+	// 当用户提供了大纲时，tasks.json 已经包含 template/theme
+	// 读取它以便告知代理使用什么
 	outlineTemplate := ""
 	outlineTheme := ""
 	outlineTitle := ""
@@ -154,6 +181,7 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		OutlineTheme:    outlineTheme,
 		OutlineTitle:    outlineTitle,
 		SkillsDir:       skillsDir,
+		EnableQA:        enableQA,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)
@@ -161,4 +189,173 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		panic("failed to render deep agent master instruction template: " + err.Error())
 	}
 	return instruction
+}
+
+// ── 智能学习引擎 ──────────────────────────────────────────────────────────
+
+var globalLearningEngine *agentlearning.Engine
+var learningEngineOnce sync.Once
+
+// GetLearningEngine 获取全局学习引擎实例
+func GetLearningEngine() *agentlearning.Engine {
+	learningEngineOnce.Do(func() {
+		cfg := &agentlearning.EngineConfig{
+			EnableLLMClassification: os.Getenv("ENABLE_LLM_INTENT_CLASSIFY") == "true",
+			EnableLearning:          true,
+			EnableProfileMatch:      true,
+		}
+		globalLearningEngine = agentlearning.NewEngine(cfg)
+	})
+	return globalLearningEngine
+}
+
+// ProcessUserIntent 处理用户意图
+// 在任务开始前调用，用于意图识别和路由决策
+func ProcessUserIntent(ctx context.Context, query string, userID int) (*PPTTaskConfig, error) {
+	engine := GetLearningEngine()
+	if engine == nil {
+		return nil, nil
+	}
+
+	result, err := engine.ProcessTask(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建配置
+	cfg := &PPTTaskConfig{
+		UserID:          userID,
+		Query:           query,
+		IntentResult:    result.Intent,
+		RoutingDecision: result.Routing,
+		EnhancedProfile: result.Profile,
+		// LearningEngine 通过全局单例 GetLearningEngine() 获取
+	}
+
+	// 如果有推荐的模板/主题，设置到 StyleContext
+	if result.Intent != nil {
+		var sb strings.Builder
+		sb.WriteString(result.Intent.IntentReasoning)
+		if len(result.Intent.SuggestedTemplates) > 0 {
+			sb.WriteString("\n推荐模板: ")
+			sb.WriteString(strings.Join(result.Intent.SuggestedTemplates, ", "))
+		}
+		if result.Intent.SuggestedTheme != "" {
+			sb.WriteString("\n推荐配色: ")
+			sb.WriteString(result.Intent.SuggestedTheme)
+		}
+		if result.Intent.SuggestedPageCount > 0 {
+			sb.WriteString(fmt.Sprintf("\n推荐页数: %d", result.Intent.SuggestedPageCount))
+		}
+		cfg.StyleContext = sb.String()
+	}
+
+	// 如果有用户画像，增强 StyleContext
+	if result.Profile != nil {
+		cfg.StyleContext = enhanceStyleContextWithProfile(cfg.StyleContext, result.Profile)
+	}
+
+	return cfg, nil
+}
+
+// RecordUserFeedback 记录用户反馈
+func RecordUserFeedback(userID int, taskID string, feedback *agentlearning.Feedback) {
+	engine := GetLearningEngine()
+	if engine != nil {
+		engine.RecordFeedback(userID, taskID, feedback)
+	}
+}
+
+// UpdateUserProfileFromTask 从任务更新用户画像
+func UpdateUserProfileFromTask(userID int, task *agentlearning.TaskContext) {
+	engine := GetLearningEngine()
+	if engine != nil {
+		engine.UpdateProfileFromTask(userID, task)
+	}
+}
+
+// GetUserRecommendations 获取用户推荐
+func GetUserRecommendations(userID int, domain string) *style.RecommendResult {
+	engine := GetLearningEngine()
+	if engine != nil {
+		return engine.GetRecommendations(userID, domain)
+	}
+	return nil
+}
+
+// GetUserInsights 获取用户洞察
+func GetUserInsights(userID int) *agentlearning.InsightsReport {
+	engine := GetLearningEngine()
+	if engine != nil {
+		return engine.GetUserInsights(userID)
+	}
+	return nil
+}
+
+// enhanceStyleContextWithProfile 根据用户画像增强 StyleContext
+func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedProfile) string {
+	if profile == nil {
+		return baseContext
+	}
+
+	var sb strings.Builder
+	sb.WriteString(baseContext)
+	sb.WriteString("\n\n【用户历史偏好】")
+
+	// 语言风格偏好
+	if profile.LanguageTone != "" {
+		sb.WriteString(fmt.Sprintf("\n- 语言风格: %s", profile.LanguageTone))
+	}
+
+	// 配色偏好
+	if len(profile.PreferredColors) > 0 {
+		sb.WriteString(fmt.Sprintf("\n- 偏好配色: %s", profile.PreferredColors[0]))
+	}
+
+	// 布局偏好
+	if len(profile.LayoutPreferences) > 0 {
+		sb.WriteString(fmt.Sprintf("\n- 偏好布局: %s", profile.LayoutPreferences[0]))
+	}
+
+	// 模板偏好
+	if len(profile.PreferredThemes) > 0 {
+		sb.WriteString(fmt.Sprintf("\n- 偏好模板风格: %s", profile.PreferredThemes[0]))
+	}
+
+	// 动画偏好
+	if profile.AnimationLevel != style.AnimationNone {
+		sb.WriteString(fmt.Sprintf("\n- 动画偏好: %s", profile.AnimationLevel.String()))
+	}
+
+	// 成功模式
+	if len(profile.SuccessPatterns) > 0 {
+		sb.WriteString("\n- 历史成功经验:")
+		for i, sp := range profile.SuccessPatterns {
+			if i >= 2 { // 最多显示2个
+				break
+			}
+			sb.WriteString(fmt.Sprintf("\n  • %s领域使用%s模板，评分%.1f",
+				sp.Domain, sp.Template, sp.AvgQualityScore))
+		}
+	}
+
+	// 品牌元素
+	if profile.BrandElements.LogoPosition != "" {
+		sb.WriteString(fmt.Sprintf("\n- Logo位置: %s", profile.BrandElements.LogoPosition))
+	}
+	if profile.BrandElements.FooterText != "" {
+		sb.WriteString(fmt.Sprintf("\n- 页脚文字: %s", profile.BrandElements.FooterText))
+	}
+
+	// 图表偏好
+	if len(profile.ChartPreferences.PreferredTypes) > 0 {
+		sb.WriteString(fmt.Sprintf("\n- 偏好图表类型: %s", profile.ChartPreferences.PreferredTypes[0]))
+	}
+
+	// 典型页数
+	if profile.TypicalPageCount > 0 {
+		sb.WriteString(fmt.Sprintf("\n- 典型页数: %d页", profile.TypicalPageCount))
+	}
+
+	return sb.String()
 }

@@ -1,0 +1,16 @@
+{
+  "name": "swot_analysis",
+  "display_name": "SWOT分析页",
+  "type": "atomic",
+  "description": "经典四象限 SWOT 分析布局，适合战略分析、项目评估、个人规划等场景",
+  "allowed_palettes": ["ocean_soft", "charcoal_light", "warm_terracotta"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "strengths", "label": "优势(每行一条)", "type": "textarea", "required": true, "placeholder": "技术领先，算法准确率高\n团队经验丰富，研发效率高"},
+    {"name": "weaknesses", "label": "劣势(每行一条)", "type": "textarea", "required": true, "placeholder": "成本高，定价缺乏竞争力\n品牌知名度不足"},
+    {"name": "opportunities", "label": "机会(每行一条)", "type": "textarea", "required": true, "placeholder": "市场需求快速增长\n政策支持AI发展"},
+    {"name": "threats", "label": "威胁(每行一条)", "type": "textarea", "required": true, "placeholder": "大厂入局，竞争加剧\n技术迭代快，研发压力大"}
+  ]
+}

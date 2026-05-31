@@ -16,15 +16,15 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
-	"github.com/cloudwego/ppt-agent/pkg/db"
+	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/task"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
-// safePath joins baseDir with filename and returns the cleaned absolute path.
-// Returns an error if the result escapes baseDir (path traversal protection).
+// safePath 将 baseDir 与 filename 连接并返回清理后的绝对路径。
+// 如果结果逃逸出 baseDir，则返回错误（防止路径遍历攻击）。
 func safePath(baseDir, filename string) (string, error) {
 	cleaned := filepath.Clean(filepath.Join(baseDir, filename))
 	if !strings.HasPrefix(cleaned, filepath.Clean(baseDir)+string(filepath.Separator)) {
@@ -33,7 +33,7 @@ func safePath(baseDir, filename string) (string, error) {
 	return cleaned, nil
 }
 
-// ── Auth handlers ────────────────────────────────────────────────────────
+// ── 认证处理器 ────────────────────────────────────────────────────────
 
 func (s *Server) handleSendCode(c *gin.Context) {
 	var req struct {
@@ -117,7 +117,7 @@ func (s *Server) handleMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": uid, "email": email})
 }
 
-// ── Task handlers ─────────────────────────────────────────────────────────
+// ── 任务处理器 ─────────────────────────────────────────────────────────
 
 func (s *Server) handleCreateTask(c *gin.Context) {
 	var req struct {
@@ -277,6 +277,42 @@ func (s *Server) handleListThemes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"themes": themes})
 }
 
+func (s *Server) handleListBackgrounds(c *gin.Context) {
+	backgrounds := s.templateLoader.ListBackgrounds()
+	c.JSON(http.StatusOK, gin.H{"backgrounds": backgrounds})
+}
+
+func (s *Server) handleBackgroundPreview(c *gin.Context) {
+	name := c.Param("name")
+	backgrounds := s.templateLoader.ListBackgrounds()
+	for _, bg := range backgrounds {
+		if bg.Name == name {
+			previewPath := filepath.Join(
+				s.templateLoader.GetBackgroundTemplatesDir(),
+				name,
+				"preview.jpg",
+			)
+			if _, err := os.Stat(previewPath); err == nil {
+				c.File(previewPath)
+				return
+			}
+			// Fallback: try preview.png
+			previewPath = filepath.Join(
+				s.templateLoader.GetBackgroundTemplatesDir(),
+				name,
+				"preview.png",
+			)
+			if _, err := os.Stat(previewPath); err == nil {
+				c.File(previewPath)
+				return
+			}
+			c.JSON(http.StatusNotFound, gin.H{"error": "preview not found"})
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "background theme not found"})
+}
+
 func (s *Server) handleAIExpand(c *gin.Context) {
 	var req struct {
 		Title       string `json:"title"`
@@ -342,9 +378,9 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"description": content})
 }
 
-// handleAIGenerateOutline takes a partial outline (slides with empty descriptions) and the user's topic query,
-// then uses the AI to generate content_plan for each slide that has an empty description.
-// It returns the enriched slides array.
+// handleAIGenerateOutline 接收带有空描述的部分大纲（幻灯片）和用户主题查询，
+// 使用 AI 为每个空描述的幻灯片生成 content_plan。
+// 返回填充后的幻灯片数组。
 func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 	var req struct {
 		Query   string            `json:"query"`
@@ -392,17 +428,29 @@ func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 ## 配色方案
 %s
 
+## 背景图片主题
+根据用户主题选择最适合的背景图片主题（必须填入每页的 background 字段）：
+| 主题关键词 | 背景主题 |
+|---------|---------|
+| "艺术"、"文艺"、"涂鸦"、"创意" | artistic |
+| "水墨"、"山水"、"中国风" | ink_wash_mountain |
+| "党政"、"党建"、"政府" | party_government |
+| "复古"、"传统"、"古典" | vintage_chinese |
+| "雪山"、"山川"、"自然" | snowy_mountain |
+| 其他 | minimalist_blue |
+
 ## 页面结构
 %s
 
 ## 输出格式（严格返回JSON，不要任何解释）
 {
   "slides": [
-    {"index": 1, "title": "实际标题", "content_type": "布局名", "description": "300-400字内容描述", "content_plan": {"summary": "一句话概括", "elements": [{"type": "bullet_list", "items": ["要点1：具体说明", "要点2：具体说明"]}]}}
+    {"index": 1, "title": "实际标题", "content_type": "布局名", "background": "artistic", "description": "300-400字内容描述", "content_plan": {"summary": "一句话概括", "elements": [{"type": "bullet_list", "items": ["要点1：具体说明", "要点2：具体说明"]}]}}
   ]
 }
 
 ## 强制要求
+- background 字段必须填写，根据上方背景图片主题表选择对应值（如 artistic、minimalist_blue 等）
 - description字数300-400字，必须包含具体数据或案例，禁止空洞泛泛
 - 内容严格围绕用户主题展开，禁止偏离
 - 只输出JSON`, req.Query, themeName, slideContexts.String())
@@ -426,19 +474,19 @@ func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 		return
 	}
 
-	// Strip markdown code fences
+	// 去除 markdown 代码 fences
 	content = strings.TrimPrefix(content, "```json")
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")
 	content = strings.TrimSpace(content)
 
-	// Guard: empty after stripping fences
+	// 防护：去除 fences 后为空
 	if content == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "模型返回格式为空，请重试"})
 		return
 	}
 
-	// Parse response
+	// 解析响应
 	var result struct {
 		Slides []deep.SlideOutline `json:"slides"`
 	}
@@ -455,7 +503,7 @@ func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"slides": result.Slides})
 }
 
-// getTheme returns the theme info by name
+// getTheme 根据名称返回主题信息
 func (s *Server) getTheme(name string) (*templates.ThemeInfo, error) {
 	themes := s.templateLoader.ListThemes()
 	for i := range themes {
@@ -475,9 +523,9 @@ func (s *Server) handleDeleteTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// ── Session / Continue handlers ───────────────────────────────────────────────
+// ── 会话/继续处理器 ────────────────────────────────────────────────
 
-// handleContinueTask handles user requests to continue iterating on an existing task.
+// handleContinueTask 处理用户继续迭代现有任务的请求。
 func (s *Server) handleContinueTask(c *gin.Context) {
 	taskID := c.Param("id")
 
@@ -495,7 +543,7 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 		return
 	}
 
-	// Allow continue on completed or cancelled tasks
+	// 允许继续已完成的或已取消的任务
 	if ts.Info.Status != task.TaskStatusCompleted && ts.Info.Status != task.TaskStatusCancelled {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "only completed or cancelled tasks can be continued"})
 		return
@@ -505,13 +553,13 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 	sess.AddUserMessage(req.Message)
 
-	// Re-initialize task to running state
+	// 重新初始化任务为运行状态
 	ts.Mu.Lock()
 	ts.Info.Status = task.TaskStatusRunning
 	ts.Mu.Unlock()
 	ts.Persist()
 
-	// Start SSE stream immediately so frontend can connect
+	// 立即启动 SSE 流，以便前端可以连接
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -520,20 +568,20 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 	flusher, _ := c.Writer.(interface{ Flush() })
 	writer := c.Writer
 
-	// Start continue processing in goroutine and stream results
+	// 在 goroutine 中启动继续处理并流式推送结果
 	listenerID := uuid.New().String()
 	ch := make(chan task.SSERichEvent, 64)
 	ts.AddListener(listenerID, ch)
 	defer func() {
 		ts.RemoveListener(listenerID)
-		// Mark task as completed again
+		// 再次标记任务为已完成
 		ts.Mu.Lock()
 		ts.Info.Status = task.TaskStatusCompleted
 		ts.Mu.Unlock()
 		ts.Persist()
 	}()
 
-	// Flush headers immediately
+	// 立即刷新响应头
 	writeSSEFlush(writer, flusher)
 
 	go s.runContinue(taskID, ts, req.Message, uid, sess, ch)
@@ -586,49 +634,49 @@ func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, 
 	ts.Broadcast(task.SSERichEvent{Type: "continue_complete"})
 }
 
-// RouteResult holds the result of intent classification.
+// RouteResult 保存意图分类的结果。
 type RouteResult struct {
 	Intent string `json:"intent"` // "fix" | "regenerate" | "regenerate_all" | "add_page" | "needs_clarification" | "unknown"
 
-	// Reason describes why this intent was chosen.
+	// Reason 描述选择此意图的原因。
 	Reason string `json:"reason"`
 
-	// TargetPages contains the page indices (1-based) mentioned by the user.
+	// TargetPages 包含用户提到的页面索引（从 1 开始）。
 	TargetPages []int `json:"target_pages,omitempty"`
 
-	// NeedsClarification is true when the user's intent is vague.
+	// NeedsClarification 当用户意图模糊时为 true。
 	NeedsClarification bool `json:"needs_clarification,omitempty"`
 
-	// ClarificationQuestion is the question to ask the user when NeedsClarification is true.
+	// ClarificationQuestion 当 NeedsClarification 为 true 时要询问用户的问题。
 	ClarificationQuestion string `json:"clarification_question,omitempty"`
 
-	// FixDetails is set when intent is "fix". Describes what to fix.
-	// e.g. {"aspect": "font_size", "value": "smaller", "pages": [2]}
+	// FixDetails 当意图为 "fix" 时设置。描述要修复的内容。
+	// 例如：{"aspect": "font_size", "value": "smaller", "pages": [2]}
 	FixDetails *FixDetails `json:"fix_details,omitempty"`
 
-	// RegenerateScope is "all" or a list of page indices.
+	// RegenerateScope 为 "all" 或页面索引列表。
 	RegenerateScope []int `json:"regenerate_scope,omitempty"`
 
-	// SuggestFix indicates that despite needing clarification, the user may want a fix (not regenerate).
+	// SuggestFix 指示尽管需要澄清，但用户可能想要修复（而不是重新生成）。
 	SuggestFix bool `json:"suggest_fix,omitempty"`
 }
 
-// FixDetails describes what visual aspect the user wants to adjust.
+// FixDetails 描述用户想要调整的视觉属性。
 type FixDetails struct {
-	// Aspect is the visual property to fix: "font_size", "color", "alignment",
-	// "spacing", "layout", "position", "text_content", "style", "other".
+	// Aspect 是要修复的视觉属性："font_size"、"color"、"alignment"、
+	// "spacing"、"layout"、"position"、"text_content"、"style"、"other"。
 	Aspect string `json:"aspect"`
-	// Detail is the specific adjustment: "更大", "红色", "居中", "加粗", etc.
+	// Detail 是具体的调整："更大"、"红色"、"居中"、"加粗" 等。
 	Detail string `json:"detail"`
-	// TargetElements describes which elements on the page: "标题", "正文", "所有文字", "图表" etc.
+	// TargetElements 描述页面上的哪些元素："标题"、"正文"、"所有文字"、"图表" 等。
 	TargetElements string `json:"target_elements,omitempty"`
 }
 
-// routeContinueIntent is the main entry point for intent routing.
-// It always delegates to LLM classification for nuanced, structured results.
-// Only a few very high-confidence patterns bypass LLM (e.g., "加一页").
+// routeContinueIntent 是意图路由的主入口点。
+// 它始终委托给 LLM 分类以获得细致、结构化的结果。
+// 只有少数高置信度的模式会绕过 LLM（例如"加一页"）。
 func (s *Server) routeContinueIntent(ctx context.Context, message string, workDir string) RouteResult {
-	// ── Rule fast-paths ─────────────────────────────────────────────────────
+	// ── 规则快速路径 ─────────────────────────────────────────────────────
 	addKeywords := []string{"再加", "添加", "新增", "加一页", "加两页", "再加一页", "再加几页"}
 	for _, kw := range addKeywords {
 		if strings.Contains(message, kw) {
@@ -640,7 +688,7 @@ func (s *Server) routeContinueIntent(ctx context.Context, message string, workDi
 		}
 	}
 
-	// ── LLM classification ──────────────────────────────────────────────────
+	// ── LLM 分类 ──────────────────────────────────────────────────
 	var tasksSummary string
 	manifest, err := deep.ReadTasksManifest(workDir)
 	if err == nil && manifest != nil && len(manifest.Tasks) > 0 {
@@ -667,9 +715,9 @@ func (s *Server) routeContinueIntent(ctx context.Context, message string, workDi
 	}
 }
 
-// classifyIntentByLLM uses the AI model to classify the user's continue message intent
-// and extract structured fix details. It returns a RouteResult with all extracted fields.
-// Uses textModelFactory (ARK_TEXT_MODEL) for cost efficiency, falling back to aiModelFactory.
+// classifyIntentByLLM 使用 AI 模型对用户的继续消息意图进行分类，
+// 并提取结构化的修复详情。返回包含所有提取字段的 RouteResult。
+// 为节省成本，使用 textModelFactory（ARK_TEXT_MODEL），必要时回退到 aiModelFactory。
 func (s *Server) classifyIntentByLLM(ctx context.Context, message string, tasksSummary string) RouteResult {
 	modelFactory := s.textModelFactory
 	if modelFactory == nil {
@@ -811,7 +859,7 @@ func (s *Server) classifyIntentByLLM(ctx context.Context, message string, tasksS
 	return result
 }
 
-// extractTargetPages parses page references from the user message (1-based).
+// extractTargetPages 从用户消息中解析页面引用（从 1 开始）。
 func extractTargetPages(message string) []int {
 	var pages []int
 	msg := strings.ToLower(message)
@@ -835,21 +883,21 @@ func extractTargetPages(message string) []int {
 func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *RouteResult, fixMessage string, ch chan task.SSERichEvent) {
 	ch <- task.SSERichEvent{Type: "answer", Content: "检测到是定点修复请求，将使用 Fixer 进行调整...\n"}
 
-	// Read manifest to get task info
+	// 读取 manifest 获取任务信息
 	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
 	if err != nil || manifest == nil {
 		ch <- task.SSERichEvent{Type: "error", Error: "无法读取任务清单: " + err.Error()}
 		return
 	}
 
-	// Use pages from LLM result, fall back to inferPagesFromMessage
+	// 使用 LLM 结果中的页面，fallback 到 inferPagesFromMessage
 	pagesToFix := route.TargetPages
 	if len(pagesToFix) == 0 {
 		pagesToFix = inferPagesFromMessage(fixMessage, len(manifest.Tasks))
 	}
 
 	if len(pagesToFix) == 0 {
-		// If no specific page mentioned, fix all done pages
+		// 如果没有指定具体页面，修复所有已完成的页面
 		for _, t := range manifest.Tasks {
 			if t.Status == deep.StatusDone || t.Status == deep.StatusQADone || t.Status == deep.StatusFixed {
 				pagesToFix = append(pagesToFix, t.PageIndex)
@@ -862,7 +910,7 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 		return
 	}
 
-	// Build QA report from LLM fix details
+	// 根据 LLM 修复详情构建 QA 报告
 	var qaReport strings.Builder
 	qaReport.WriteString("用户请求修复（LLM 意图分析）：")
 	if route.FixDetails != nil {
@@ -872,7 +920,7 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 		qaReport.WriteString(route.Reason)
 	}
 
-	// Process each page
+	// 处理每个页面
 	for _, pageIdx := range pagesToFix {
 		var targetTask *deep.TaskItem
 		for _, t := range manifest.Tasks {
@@ -889,20 +937,20 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 
 		ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("正在修复第%d页: %s (%s)\n", pageIdx, targetTask.Title, targetTask.ContentType)}
 
-		// Read output file to verify it exists
+		// 读取输出文件以验证它存在
 		outputFile := filepath.Join(ts.Info.WorkDir, targetTask.OutputFile)
 		if _, err := os.Stat(outputFile); os.IsNotExist(err) {
 			ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("文件 %s 不存在，无法修复", targetTask.OutputFile)}
 			continue
 		}
 
-		// Update task status before fixing
+		// 修复前更新任务状态
 		targetTask.Status = deep.StatusQADone
 		targetTask.QAReport = qaReport.String()
 		targetTask.FixAttempts++
 		deep.WriteTasksManifest(ts.Info.WorkDir, manifest)
 
-		// Build fix request context with full tasks.json
+		// 使用完整的 tasks.json 构建修复请求上下文
 		manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
 		fixRequest := fmt.Sprintf(`用户修复请求：%s
 
@@ -919,7 +967,7 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 			targetTask.ContentType,
 		)
 
-		// Run Fixer Agent with SSE event forwarding
+		// 使用 SSE 事件转发运行 Fixer Agent
 		fixErr := deep.RunFixerAgentWithCallback(context.Background(),
 			ts.Info.WorkDir,
 			s.skillDir,
@@ -939,17 +987,17 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 			ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页 Fixer 执行出错: %v\n", pageIdx, fixErr)}
 		}
 
-		// Check if the file was actually updated (fixer rewrote it)
+		// 检查文件是否实际被更新了（fixer 会重写它）
 		if _, err := os.Stat(outputFile); err == nil {
 			targetTask.Status = deep.StatusFixed
 		}
 		deep.WriteTasksManifest(ts.Info.WorkDir, manifest)
 	}
 
-	// Refresh file list
+	// 刷新文件列表
 	s.refreshFileList(ts, ch)
 
-	// Update final files
+	// 更新最终文件列表
 	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
 	if manifest != nil {
 		var files []string
@@ -973,7 +1021,7 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 	}
 }
 
-// FixResult holds the result of a fixer operation.
+// FixResult 保存修复操作的结果。
 type FixResult struct {
 	Success bool
 	Message string
@@ -997,8 +1045,8 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 
 	var targetPages []int
 
-	// Handle add_page intent
-	if route.Intent == "add_page" {
+		// 处理 add_page 意图
+		if route.Intent == "add_page" {
 		newTask := &deep.TaskItem{
 			TaskID:      fmt.Sprintf("slide-%d", len(manifest.Tasks)+1),
 			PageIndex:   len(manifest.Tasks) + 1,
@@ -1035,16 +1083,16 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 		}
 	}
 
-	// Handle regenerate_all intent
+	// 处理 regenerate_all 意图
 	if route.Intent == "regenerate_all" {
 		for _, t := range manifest.Tasks {
 			t.Status = deep.StatusPending
 		}
 		ch <- task.SSERichEvent{Type: "answer", Content: "所有页面已标记为待重新生成\n"}
-		targetPages = nil // nil means all pending pages
+		targetPages = nil // nil 表示所有待处理页面
 	}
 
-	// Handle unknown intent — try to regenerate all
+	// 处理 unknown 意图 — 尝试重新生成所有页面
 	if route.Intent == "unknown" {
 		for _, t := range manifest.Tasks {
 			t.Status = deep.StatusPending
@@ -1055,7 +1103,7 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 
 	deep.WriteTasksManifest(ts.Info.WorkDir, manifest)
 
-	// Call SlideExecutor to actually generate the pending pages
+	// 调用 SlideExecutor 实际生成待处理的页面
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在调用幻灯片生成器...\n"}
 
 	execErr := deep.RunSlideExecutorContinueWithCallback(context.Background(),
@@ -1078,10 +1126,10 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 		ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("幻灯片生成出错: %v\n", execErr)}
 	}
 
-	// Refresh file list
+	// 刷新文件列表
 	s.refreshFileList(ts, ch)
 
-	// Update task states: mark successfully generated pages as done
+	// 更新任务状态：将成功生成的页面标记为完成
 	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
 	if manifest != nil {
 		var files []string
@@ -1154,7 +1202,7 @@ func (s *Server) refreshFileList(ts *task.TaskState, ch chan task.SSERichEvent) 
 	}
 }
 
-// writeSSEFlush sends a minimal SSE comment to flush the response.
+// writeSSEFlush 发送一个最小的 SSE 注释以刷新响应。
 func writeSSEFlush(writer interface{ Write([]byte) (int, error) }, flusher interface{ Flush() }) {
 	writer.Write([]byte(": flush\n\n"))
 	if flusher != nil {
@@ -1162,7 +1210,7 @@ func writeSSEFlush(writer interface{ Write([]byte) (int, error) }, flusher inter
 	}
 }
 
-// handleGetConversation returns the conversation history for a task.
+// handleGetConversation 返回任务的对话历史记录。
 func (s *Server) handleGetConversation(c *gin.Context) {
 	taskID := c.Param("id")
 
@@ -1181,7 +1229,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	})
 }
 
-// ── User profile handlers ───────────────────────────────────────────────────────
+// ── 用户资料处理器 ───────────────────────────────────────────────────────
 
 func (s *Server) handleGetUserProfile(c *gin.Context) {
 	uid := userIDGin(c)
@@ -1260,6 +1308,29 @@ func (s *Server) handleResetUserProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "风格偏好已重置"})
 }
 
+// handleSummarizeProfile returns the LLM-summarized user preferences
+// (already stored in styleStore from previous task completions).
+// User can review and manually edit before saving via PUT /me/profile.
+func (s *Server) handleSummarizeProfile(c *gin.Context) {
+	uid := userIDGin(c)
+	p := s.styleStore.Get(uid)
+
+	c.JSON(http.StatusOK, gin.H{
+		"summary": gin.H{
+			"preferred_themes":   p.PreferredThemes,
+			"preferred_colors":   p.PreferredColors,
+			"content_patterns":   p.ContentPatterns,
+			"layout_preferences": p.LayoutPreferences,
+			"language_tone":      p.LanguageTone,
+			"typical_page_count": p.TypicalPageCount,
+			"special_notes":      p.SpecialNotes,
+		},
+		"task_count": p.TaskCount,
+		"updated_at":  p.UpdatedAt,
+	})
+}
+
+
 // updateUserStyleFromTask is called when a task completes to extract and save style preferences.
 // 核心逻辑由 LLM 分析 PPTX 文本内容完成，fallback 到规则提取。
 func (s *Server) updateUserStyleFromTask(userID int, workDir string, query string) {
@@ -1268,7 +1339,7 @@ func (s *Server) updateUserStyleFromTask(userID int, workDir string, query strin
 		return
 	}
 
-	// Convert tasks to TaskItemInfo for fallback
+	// 将 tasks 转换为 TaskItemInfo 用于回退
 	taskInfos := make([]*style.TaskItemInfo, len(manifest.Tasks))
 	for i, t := range manifest.Tasks {
 		taskInfos[i] = &style.TaskItemInfo{
@@ -1293,23 +1364,31 @@ func (s *Server) updateUserStyleFromTask(userID int, workDir string, query strin
 	s.styleStore.UpdateWithTask(userID, extracted)
 }
 
-// ── Event log handlers ──────────────────────────────────────────────────────
-
-func (s *Server) handleListTaskEvents(c *gin.Context) {
-	taskID := c.Param("id")
-	limit := 500
-	if l := c.Query("limit"); l != "" {
-		if n, err := fmt.Sscanf(l, "%d", &limit); err != nil || n != 1 || limit <= 0 {
-			limit = 500
-		}
-	}
-	events, err := db.ListTaskEvents(taskID, limit)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询事件日志失败: " + err.Error()})
+// handleListLogAnalyses 返回最近的日志分析列表。
+func (s *Server) handleListLogAnalyses(c *gin.Context) {
+	if s.logAnalysis == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log analysis service not enabled"})
 		return
 	}
-	if events == nil {
-		events = []db.TaskEvent{}
+	analyses, err := loganalysis.GetRecentAnalyses(50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"task_id": taskID, "count": len(events), "events": events})
+	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
+}
+
+// handleGetTaskLogAnalyses 返回特定任务的全部日志分析。
+func (s *Server) handleGetTaskLogAnalyses(c *gin.Context) {
+	taskID := c.Param("task_id")
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task_id is required"})
+		return
+	}
+	analyses, err := loganalysis.GetTaskAnalyses(taskID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
 }

@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, rgb, add_text, add_rect,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -19,6 +20,8 @@ def generate(
     title: str = "{章节标题}",
     subtitle: str = "{章节副标题}",
     kicker: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a section divider slide.
@@ -39,9 +42,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Large background color block (left 40% of slide)
     add_rect(
@@ -59,6 +65,7 @@ def generate(
             font_size=14, bold=False,
             color="background", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     # Large decorative number (right side of color block)
@@ -69,6 +76,7 @@ def generate(
         font_size=160, bold=True,
         color="background", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Section title (on the right, white area)
@@ -79,6 +87,7 @@ def generate(
         font_size=44, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Subtitle
@@ -90,6 +99,7 @@ def generate(
             font_size=16, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     # Accent line under title

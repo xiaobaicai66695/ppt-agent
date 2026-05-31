@@ -9,6 +9,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect, add_ellipse, add_line,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -21,6 +22,8 @@ def generate(
     steps: List[Dict[str, str]] = None,
     kicker: str = "",
     subtitle: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a process flow slide.
@@ -52,9 +55,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.4
@@ -66,6 +72,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.35
 
@@ -77,6 +84,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Subtitle
@@ -89,6 +97,7 @@ def generate(
             font_size=16, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_flow = 2.3
     else:
@@ -132,6 +141,7 @@ def generate(
                 font_size=18, bold=True,
                 color="primary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Step title
@@ -142,6 +152,7 @@ def generate(
                 font_size=14, bold=True,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Step desc
@@ -152,6 +163,7 @@ def generate(
                 font_size=11, bold=False,
                 color="text_muted", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Arrow between steps
@@ -165,6 +177,7 @@ def generate(
                     font_size=18, bold=True,
                     color="secondary", alignment="center",
                     palette=palette,
+                    colors=colors,
                 )
 
     elif direction == "horizontal_zigzag":
@@ -208,6 +221,7 @@ def generate(
                 font_size=18, bold=True,
                 color="primary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Title
@@ -218,6 +232,7 @@ def generate(
                 font_size=14, bold=True,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Desc
@@ -228,6 +243,7 @@ def generate(
                 font_size=12, bold=False,
                 color="text_muted", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
         # Row 1 (left to right)
@@ -245,6 +261,7 @@ def generate(
                 font_size=16, bold=True,
                 color="secondary", alignment="center",
                 palette=palette,
+                colors=colors,
             )
 
         # Connector down arrow
@@ -257,6 +274,7 @@ def generate(
             font_size=16, bold=True,
             color="secondary", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
         # Row 2 (right to left - zigzag)
@@ -274,6 +292,7 @@ def generate(
                 font_size=16, bold=True,
                 color="secondary", alignment="center",
                 palette=palette,
+                colors=colors,
             )
 
     else:
@@ -312,6 +331,7 @@ def generate(
                 font_size=16, bold=True,
                 color="primary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Title
@@ -322,6 +342,7 @@ def generate(
                 font_size=14, bold=True,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Desc
@@ -332,6 +353,7 @@ def generate(
                 font_size=12, bold=False,
                 color="text_muted", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
             # Down arrow
@@ -343,6 +365,7 @@ def generate(
                     font_size=14, bold=True,
                     color="secondary", alignment="center",
                     palette=palette,
+                    colors=colors,
                 )
 
     add_source_line(slide, source, palette)

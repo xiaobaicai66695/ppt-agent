@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import type { TaskInfo } from '../types';
-import { isLoggedIn } from '../api';
+import { isLoggedIn, summarizeProfile, updateUserProfile, type PreferenceSummary } from '../api';
 
 const props = defineProps<{
   user: { id: number; email: string } | null;
@@ -68,6 +68,44 @@ function handleKeydown(e: KeyboardEvent) {
 function onLogout() { emit('logout'); router.push('/'); }
 
 const taskCount = computed(() => props.tasks.length);
+
+// ── Preference editor ─────────────────────────────────────────────────
+const showPrefs = ref(false);
+const prefsLoading = ref(false);
+const prefsSummary = ref<PreferenceSummary | null>(null);
+const prefsEditing = ref<PreferenceSummary | null>(null);
+const prefsSaved = ref(false);
+
+async function openPrefs() {
+  showPrefs.value = true;
+  prefsLoading.value = true;
+  prefsSaved.value = false;
+  try {
+    const data = await summarizeProfile();
+    prefsSummary.value = data.summary;
+    prefsEditing.value = JSON.parse(JSON.stringify(data.summary)); // deep clone
+  } catch {
+    prefsSummary.value = null;
+    prefsEditing.value = null;
+  } finally {
+    prefsLoading.value = false;
+  }
+}
+
+async function savePrefs() {
+  if (!prefsEditing.value) return;
+  try {
+    await updateUserProfile(prefsEditing.value);
+    prefsSaved.value = true;
+    setTimeout(() => { prefsSaved.value = false; }, 2000);
+  } catch { /* ignore */ }
+}
+
+function closePrefs() {
+  showPrefs.value = false;
+  prefsSummary.value = null;
+  prefsEditing.value = null;
+}
 </script>
 
 <template>
@@ -95,6 +133,7 @@ const taskCount = computed(() => props.tasks.length);
       <template v-if="user">
         <span class="user-avatar" aria-hidden="true">{{ user.email[0].toUpperCase() }}</span>
         <span class="user-name" :title="user.email">{{ user.email.split('@')[0] }}</span>
+        <button class="prefs-btn" @click="openPrefs" title="偏好设置">偏好</button>
         <button class="logout-btn" @click="onLogout" title="退出登录">退出</button>
       </template>
       <template v-else>
@@ -204,6 +243,62 @@ const taskCount = computed(() => props.tasks.length);
         </div>
       </TransitionGroup>
     </div>
+
+    <!-- Preference editor modal -->
+    <Teleport to="body">
+      <div v-if="showPrefs" class="prefs-overlay" @click.self="closePrefs">
+        <div class="prefs-modal" role="dialog" aria-label="偏好设置">
+          <div class="prefs-header">
+            <h3>风格偏好设置</h3>
+            <button class="prefs-close" @click="closePrefs" aria-label="关闭">&times;</button>
+          </div>
+
+          <div v-if="prefsLoading" class="prefs-loading">正在加载 LLM 偏好分析...</div>
+
+          <template v-else-if="prefsEditing">
+            <p class="prefs-hint">以下是根据您的历史任务自动总结的偏好，可手动修改后保存。</p>
+
+            <label class="prefs-field">配色主题 (逗号分隔)
+              <input v-model="(prefsEditing.preferred_themes as any)" :placeholder="(prefsSummary?.preferred_themes || []).join(', ') || '如 ocean_soft, sage_calm'" class="prefs-input"/>
+            </label>
+
+            <label class="prefs-field">偏好颜色 (逗号分隔)
+              <input v-model="(prefsEditing.preferred_colors as any)" :placeholder="(prefsSummary?.preferred_colors || []).join(', ') || '如 蓝色系, 暖色调'" class="prefs-input"/>
+            </label>
+
+            <label class="prefs-field">语言风格
+              <select v-model="prefsEditing.language_tone" class="prefs-input">
+                <option value="">自动</option>
+                <option value="formal">正式</option>
+                <option value="semi-formal">半正式</option>
+                <option value="casual">轻松</option>
+              </select>
+            </label>
+
+            <label class="prefs-field">典型页数
+              <input v-model.number="prefsEditing.typical_page_count" type="number" min="4" max="50" class="prefs-input"/>
+            </label>
+
+            <label class="prefs-field">布局偏好 (逗号分隔)
+              <input v-model="(prefsEditing.layout_preferences as any)" :placeholder="(prefsSummary?.layout_preferences || []).join(', ') || '如 图表优先, 双栏对比'" class="prefs-input"/>
+            </label>
+
+            <label class="prefs-field">内容模式 (逗号分隔)
+              <input v-model="(prefsEditing.content_patterns as any)" :placeholder="(prefsSummary?.content_patterns || []).join(', ') || '如 案例驱动, 数据支撑'" class="prefs-input"/>
+            </label>
+
+            <div class="prefs-actions">
+              <button class="prefs-save-btn" @click="savePrefs" :disabled="prefsSaved">
+                {{ prefsSaved ? '已保存' : '保存偏好' }}
+              </button>
+              <button class="prefs-cancel-btn" @click="closePrefs">关闭</button>
+            </div>
+          </template>
+
+          <p v-else class="prefs-loading">暂无历史数据，完成几个任务后将自动生成偏好分析。</p>
+        </div>
+      </div>
+    </Teleport>
   </aside>
 </template>
 
@@ -439,4 +534,46 @@ const taskCount = computed(() => props.tasks.length);
 /* ═══════════════════════════════════════════════════════════════════ */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* ── Preference Editor ────────────────────────────────────────── */
+.prefs-btn {
+  background: transparent; border: 1px solid var(--accent-border);
+  color: var(--accent-text); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);
+  font-size: 0.65rem; cursor: pointer; margin-right: 0.25rem;
+}
+.prefs-btn:hover { background: var(--accent-soft); }
+
+.prefs-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.prefs-modal {
+  background: var(--bg-primary); border-radius: 12px;
+  padding: 1.5rem; width: min(480px, 90vw); max-height: 80vh;
+  overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+.prefs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.prefs-header h3 { font-size: 1rem; font-weight: 600; }
+.prefs-close { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); }
+.prefs-loading { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem; }
+.prefs-hint { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+.prefs-field { display: block; margin-bottom: 0.6rem; font-size: 0.75rem; color: var(--text-secondary); }
+.prefs-input {
+  display: block; width: 100%; margin-top: 0.15rem;
+  padding: 0.4rem 0.5rem; border: 1px solid var(--accent-border);
+  border-radius: 6px; font-size: 0.82rem; background: var(--bg-primary);
+}
+.prefs-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.prefs-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.prefs-save-btn {
+  padding: 0.4rem 1.25rem; border-radius: 6px; border: none;
+  background: var(--accent); color: #fff; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.prefs-save-btn:disabled { opacity: 0.5; cursor: default; }
+.prefs-save-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.prefs-cancel-btn {
+  padding: 0.4rem 1rem; border-radius: 6px; border: 1px solid var(--accent-border);
+  background: transparent; color: var(--text-secondary); font-size: 0.82rem; cursor: pointer;
+}
 </style>

@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -18,6 +19,8 @@ def generate(
     quote: str = "{金句}",
     attribution: str = "{来源}",
     kicker: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a quote slide with centered quote and attribution.
@@ -37,9 +40,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above everything)
     y_start = 0.15
@@ -51,6 +57,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_start += 0.35
 
@@ -62,6 +69,7 @@ def generate(
         font_size=120, bold=False,
         color="accent", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Quote background box
@@ -79,6 +87,7 @@ def generate(
         font_size=28, bold=False,
         color="text", alignment="center",
         palette=palette,
+        colors=colors,
     )
 
     # Attribution
@@ -89,6 +98,7 @@ def generate(
         font_size=14, bold=False,
         color="secondary", alignment="right",
         palette=palette,
+        colors=colors,
     )
 
     # Bottom-right decorative circle

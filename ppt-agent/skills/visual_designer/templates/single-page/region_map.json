@@ -1,0 +1,13 @@
+{
+  "name": "region_map",
+  "display_name": "区域版图页",
+  "type": "atomic",
+  "description": "地图式布局，适合展示全国/区域业务覆盖、市场分布或战略布局",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "report_green"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "regions", "label": "区域数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"name\":\"华东\",\"value\":\"35%\",\"trend\":\"+18%\"},...]"}
+  ]
+}

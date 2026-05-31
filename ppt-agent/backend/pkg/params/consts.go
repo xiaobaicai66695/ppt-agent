@@ -88,6 +88,7 @@ func SetTypedContextParams[T any](ctx context.Context, key string, value T) cont
 	return context.WithValue(ctx, typedContextParamsKey, params)
 }
 
+// MustGetContextParams 从上下文获取参数，如果不存在则 panic
 func MustGetContextParams(ctx context.Context, key string) interface{} {
 	v := GetContextParams(ctx)[key]
 	if v == nil {

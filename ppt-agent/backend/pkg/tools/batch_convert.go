@@ -31,7 +31,7 @@ var batchConvertToolInfo = &schema.ToolInfo{
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
 }
 
-// BatchConvertTool converts all PPTX in a workDir to JPG images and a merged PDF.
+// BatchConvertTool 将 workDir 中的所有 PPTX 转换为 JPG 图片和合并 PDF。
 type BatchConvertTool struct {
 	op commandline.Operator
 }
@@ -62,8 +62,8 @@ func (t *BatchConvertTool) InvokableRun(ctx context.Context, _ string, _ ...tool
 	return string(b), nil
 }
 
-// convertMu serializes concurrent calls to the same workDir to prevent
-// filesystem races (both writing to qa_images/, both overwriting merged.pdf).
+// convertMu 序列化对同一 workDir 的并发调用，防止文件系统竞态
+// （两个都写入 qa_images/，都覆盖 merged.pdf）。
 var convertMu sync.Map // key: workDir string -> struct{}
 
 func convertLock(wd string) func() {
@@ -73,10 +73,10 @@ func convertLock(wd string) func() {
 	return func() { mu.Unlock() }
 }
 
-// RunBatchConvert converts all PPTX in workDir to merged PDF + JPG images.
-// It makes a single Python call that handles both PDF and JPG in one
-// LibreOffice invocation (the script merges PPTX, then converts to PDF and JPG
-// in the same run), avoiding the previous two-step → two-LibreOffice pattern.
+// RunBatchConvert 将 workDir 中的所有 PPTX 转换为合并 PDF 和 JPG 图片。
+// 它进行单个 Python 调用，在一次 LibreOffice 启动中处理 PDF 和 JPG
+// （脚本先合并 PPTX，然后在同一次运行中转换为 PDF 和 JPG），
+// 避免了之前的两步 → 两次 LibreOffice 模式。
 func RunBatchConvert(ctx context.Context, wd string) (map[string]any, error) {
 	defer convertLock(wd)()
 
@@ -92,9 +92,9 @@ func RunBatchConvert(ctx context.Context, wd string) (map[string]any, error) {
 
 	pythonBin := pythonutil.GetPythonBinary()
 
-	// Single Python invocation: it merges all PPTX, runs LibreOffice once,
-	// and produces both merged.pdf (persisted to workDir) and qa_images/*.jpg.
-	// The --pdf-out flag tells the script where to persist the PDF.
+	// 单次 Python 调用：合并所有 PPTX，运行一次 LibreOffice，
+	// 同时生成 merged.pdf（持久化到 workDir）和 qa_images/*.jpg。
+	// --pdf-out 标志告诉脚本将 PDF 保存到哪里。
 	pdfOut := filepath.Join(wd, "merged.pdf")
 	cmdArgs := []string{
 		converter,
@@ -123,9 +123,9 @@ func RunBatchConvert(ctx context.Context, wd string) (map[string]any, error) {
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 
-	// Now generate JPG images in a second call (incremental — only missing ones).
-	// The --files flag ensures the script merges only those files first,
-	// then converts with a single LibreOffice startup.
+	// 现在在第二次调用中生成 JPG 图片（增量——仅缺失的）。
+	// --files 标志确保脚本先只合并这些文件，
+	// 然后用一次 LibreOffice 启动进行转换。
 	missing := findMissingJPGs(wd, qaDir)
 	if len(missing) > 0 {
 		jpgArgs := []string{

@@ -25,6 +25,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +37,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/generic"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/params"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
@@ -42,15 +45,36 @@ import (
 
 var batchPDFToolInfo = &schema.ToolInfo{
 	Name: "batch_pdf_review",
-	Desc: `批量 PDF 视觉质量审查。将所有幻灯片合并后的 PDF 一次性发给视觉 AI 模型审查。
+	Desc: "批量 PDF 视觉质量审查工具。每次处理一批幻灯片（每批 5 页），独立转换并审查。\n\n【参数】batch_idx（integer）：当前批次索引，从 0 开始，用于生成唯一的 PDF 文件名（如 1-5.pdf）。\n\n工具会：\n1. 按文件名顺序取该批次的 PPTX 文件\n2. 独立转换为 1-5.pdf\n3. 将该批 PDF 发送给多模态视觉模型审查\n4. 返回按页分组的 QA 报告",
+	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+		"batch_idx": {
+			Type:     "integer",
+			Desc:     "当前批次索引（从 0 开始），如第 1 批传 0，第 2 批传 1，用于生成唯一的 PDF 文件名",
+			Required: true,
+		},
+	}),
+}
 
-该工具会：
-1. 将 workDir 下的所有 PPTX 合并并转换为单个 PDF
-2. 将 PDF 作为附件发给多模态视觉模型，一次性审查所有页
-3. 返回按页分组的 QA 报告，包含问题描述和具体修复建议
-
-推荐优先使用此工具，一次 LLM 调用替代逐页审查的多次调用。`,
-	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
+// batchPageRange 从一批 PPTX 文件名中提取页码范围，返回如 "1-5"、"6-10"。
+// 文件名格式通常为 "1_标题.pptx"，提取开头的数字作为页码。
+func batchPageRange(files []string) string {
+	if len(files) == 0 {
+		return "0-0"
+	}
+	pages := make([]int, 0, len(files))
+	for _, f := range files {
+		name := filepath.Base(f)
+		name = strings.TrimSuffix(name, ".pptx")
+		parts := strings.SplitN(name, "_", 2)
+		if n, err := strconv.Atoi(parts[0]); err == nil && n > 0 {
+			pages = append(pages, n)
+		}
+	}
+	if len(pages) == 0 {
+		return "unknown"
+	}
+	sort.Ints(pages)
+	return fmt.Sprintf("%d-%d", pages[0], pages[len(pages)-1])
 }
 
 // BatchPDFTool 是批量 PDF 视觉审查工具。
@@ -74,9 +98,13 @@ const modelCacheTTL = 10 * time.Minute
 // conversionCacheTTL 转换结果缓存有效期（5 分钟足够完成一次批量 QA）
 const conversionCacheTTL = 5 * time.Minute
 
+// batchQASize 每批质检的幻灯片数量
+const batchQASize = 5
+
 type conversionCacheEntry struct {
-	Result    map[string]any
-	ExpiredAt time.Time
+	PptxFiles  []string          // 按文件名排序的所有 PPTX 文件路径
+	TextByFile map[string]string // key: 文件名, value: 该文件所有幻灯片的文本
+	ExpiredAt  time.Time
 }
 
 // NewBatchPDFTool 创建一个批量 PDF QA Tool 实例。
@@ -88,87 +116,23 @@ func (t *BatchPDFTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return batchPDFToolInfo, nil
 }
 
-// runPDFConverter generates merged PDF for the workDir using the converter script.
-// Caches the result to avoid redundant conversion on concurrent calls.
-func (t *BatchPDFTool) runPDFConverter(ctx context.Context, wd string) (string, string, error) {
+// listPPTXAndExtractText 返回 workDir 下所有 PPTX 文件（按文件名排序）及其文本内容。
+// 结果会被缓存，避免重复遍历目录和提取文本。
+func (t *BatchPDFTool) listPPTXAndExtractText(wd string) ([]string, map[string]string, error) {
 	t.conversionCacheMu.Lock()
+	defer t.conversionCacheMu.Unlock()
+
 	if t.conversionCache == nil {
 		t.conversionCache = make(map[string]*conversionCacheEntry)
 	}
 	entry, ok := t.conversionCache[wd]
 	if ok && time.Now().Before(entry.ExpiredAt) {
-		t.conversionCacheMu.Unlock()
-		pdfPath, _ := entry.Result["pdf_path"].(string)
-		textContent, _ := entry.Result["text_content"].(string)
-		return pdfPath, textContent, nil
-	}
-	t.conversionCacheMu.Unlock()
-
-	// Find converter script using shared utility
-	converter := pythonutil.FindConverterPy(wd)
-	if converter == "" {
-		return "", "", fmt.Errorf("找不到 pptx_qa_converter.py")
+		return entry.PptxFiles, entry.TextByFile, nil
 	}
 
-	// Check if PDF already exists
-	existingPDF := filepath.Join(wd, "merged.pdf")
-	if _, err := os.Stat(existingPDF); err == nil {
-		textContent := t.extractTextFromPPTXFiles(wd)
-		t.conversionCacheMu.Lock()
-		t.conversionCache[wd] = &conversionCacheEntry{
-			Result:    map[string]any{"pdf_path": existingPDF, "text_content": textContent},
-			ExpiredAt: time.Now().Add(conversionCacheTTL),
-		}
-		t.conversionCacheMu.Unlock()
-		return existingPDF, textContent, nil
-	}
-
-	pythonBin := pythonutil.GetPythonBinary()
-	cmdArgs := []string{
-		converter,
-		"--pptx-dir", wd,
-		"--output-dir", wd,
-		"--pdf-only",
-	}
-	cmd := exec.CommandContext(ctx, pythonBin, cmdArgs...)
-	cmd.Dir = wd
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", "", fmt.Errorf("PDF 生成失败: %v, stderr: %s", err, stderr.String())
-	}
-
-	var result map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		return "", "", fmt.Errorf("解析 PDF 生成结果失败: %v", err)
-	}
-
-	if errMsg, ok := result["error"].(string); ok && errMsg != "" {
-		return "", "", fmt.Errorf("%s", errMsg)
-	}
-
-	pdfPath, _ := result["pdf_path"].(string)
-	textContent, _ := result["text_content"].(string)
-
-	t.conversionCacheMu.Lock()
-	t.conversionCache[wd] = &conversionCacheEntry{
-		Result:    result,
-		ExpiredAt: time.Now().Add(conversionCacheTTL),
-	}
-	t.conversionCacheMu.Unlock()
-
-	return pdfPath, textContent, nil
-}
-
-// extractTextFromPPTXFiles extracts text content from all PPTX files in the directory.
-// Uses a single Python subprocess call for efficiency (avoids N process spawns for N files).
-func (t *BatchPDFTool) extractTextFromPPTXFiles(wd string) string {
 	entries, err := os.ReadDir(wd)
 	if err != nil {
-		return ""
+		return nil, nil, fmt.Errorf("读取目录失败: %w", err)
 	}
 
 	var pptxFiles []string
@@ -178,12 +142,114 @@ func (t *BatchPDFTool) extractTextFromPPTXFiles(wd string) string {
 		}
 		pptxFiles = append(pptxFiles, filepath.Join(wd, e.Name()))
 	}
-
 	if len(pptxFiles) == 0 {
-		return ""
+		return nil, nil, fmt.Errorf("目录中未找到 PPTX 文件")
 	}
 
-	// Build a single Python script that processes all files at once
+	// 按文件名排序，保证分批顺序稳定
+	sort.Strings(pptxFiles)
+
+	textByFile, err := t.extractTextFromPPTXFilesMap(pptxFiles)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	t.conversionCache[wd] = &conversionCacheEntry{
+		PptxFiles:  pptxFiles,
+		TextByFile: textByFile,
+		ExpiredAt:  time.Now().Add(conversionCacheTTL),
+	}
+
+	return pptxFiles, textByFile, nil
+}
+
+// convertBatchToPDF 将指定批次的 PPTX 文件转换为合并 PDF，返回 PDF 路径。
+func (t *BatchPDFTool) convertBatchToPDF(ctx context.Context, wd string, batchFiles []string, batchIdx int) (string, error) {
+	converter := pythonutil.FindConverterPy(wd)
+	if converter == "" {
+		return "", fmt.Errorf("找不到 pptx_qa_converter.py")
+	}
+
+	// 从文件名提取页码范围，生成描述性文件名，如 "1-5.pdf"、"6-10.pdf"
+	pageRange := batchPageRange(batchFiles)
+	outName := fmt.Sprintf("%s.pdf", pageRange)
+	outPDF := filepath.Join(wd, outName)
+
+	// 检查是否已有该批次 PDF（缓存命中）
+	if _, err := os.Stat(outPDF); err == nil {
+		return outPDF, nil
+	}
+
+	// 只传文件名（不含路径），converter 会在 pptx_dir 下拼接
+	basenames := make([]string, len(batchFiles))
+	for i, f := range batchFiles {
+		basenames[i] = filepath.Base(f)
+	}
+
+	pythonBin := pythonutil.GetPythonBinary()
+	cmdArgs := []string{
+		converter,
+		"--pptx-dir", wd,
+		"--output-dir", wd,
+		"--pdf-only",
+		"--files",
+	}
+	cmdArgs = append(cmdArgs, basenames...)
+	cmd := exec.CommandContext(ctx, pythonBin, cmdArgs...)
+	cmd.Dir = wd
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("批次 %d PDF 生成失败: %v, stderr: %s", batchIdx, err, stderr.String())
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return "", fmt.Errorf("解析批次 %d PDF 生成结果失败: %v", batchIdx, err)
+	}
+
+	if errMsg, ok := result["error"].(string); ok && errMsg != "" {
+		return "", fmt.Errorf("批次 %d: %s", batchIdx, errMsg)
+	}
+
+	// converter 可能把 PDF 输出到不同位置，尝试多种可能
+	candidates := []string{
+		outPDF,
+		filepath.Join(wd, fmt.Sprintf("merged_%s.pdf", pageRange)),
+		filepath.Join(wd, "merged.pdf"),
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			if p != outPDF {
+				os.Rename(p, outPDF)
+			}
+			return outPDF, nil
+		}
+	}
+
+	// 尝试从 converter 输出中找实际生成的 PDF 路径
+	if actualPath, ok := result["pdf_path"].(string); ok && actualPath != "" {
+		if _, err := os.Stat(actualPath); err == nil {
+			if actualPath != outPDF {
+				os.Rename(actualPath, outPDF)
+			}
+			return outPDF, nil
+		}
+	}
+
+	return "", fmt.Errorf("批次 %d 未找到生成的 PDF 文件", batchIdx)
+}
+
+// extractTextFromPPTXFilesMap 从给定的 PPTX 文件中提取文本内容，
+// 返回以完整文件路径为键的映射。
+func (t *BatchPDFTool) extractTextFromPPTXFilesMap(pptxFiles []string) (map[string]string, error) {
+	if len(pptxFiles) == 0 {
+		return nil, nil
+	}
+
 	script := `
 import sys
 import json
@@ -209,10 +275,9 @@ print(json.dumps(results, ensure_ascii=False))
 	cmdArgs = append(cmdArgs, "-c", script)
 	cmdArgs = append(cmdArgs, pptxFiles...)
 	cmd := exec.Command(pythonutil.GetPythonBinary(), cmdArgs...)
-	cmd.Dir = wd
 	out, _ := cmd.Output()
 	if len(out) == 0 {
-		return ""
+		return nil, nil
 	}
 
 	var results []struct {
@@ -220,24 +285,18 @@ print(json.dumps(results, ensure_ascii=False))
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(out, &results); err != nil {
-		return ""
+		return nil, nil
 	}
 
-	var allText []string
+	textByFile := make(map[string]string)
 	for _, r := range results {
-		if r.Text == "" {
-			continue
-		}
-		stem := filepath.Base(r.Path)
-		stem = strings.TrimSuffix(stem, ".pptx")
-		allText = append(allText, fmt.Sprintf("[%s]\n%s", stem, r.Text))
+		textByFile[r.Path] = r.Text
 	}
-	return strings.Join(allText, "\n\n")
+	return textByFile, nil
 }
 
-// parseScore extracts the 1-5 score from the QA report text.
-// Uses LastIndex to find the final score line, avoiding false matches
-// from scoring criteria quoted in fix suggestions.
+// parseScore 从 QA 报告文本中提取 1-5 分评分。
+// 使用 LastIndex 查找最后一个评分行，避免修复建议中引用评分标准时产生的误匹配。
 func parseScore(report string) int {
 	patterns := []string{"【评分】", "评分：", "评分:", "score:", "Score:"}
 	for _, prefix := range patterns {
@@ -257,10 +316,28 @@ func parseScore(report string) int {
 	return 0
 }
 
-// doBatchVisualQA sends the merged PDF as a base64 data URI to the multimodal LLM
-// for a single-shot review of all slides.
-func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCallingChatModel, wd string) (*generic.QAResult, error) {
-	pdfPath, textContent, err := t.runPDFConverter(ctx, wd)
+// doBatchVisualQA 将当前批次的 PPTX 文件转换为 PDF 并发送给多模态 LLM 进行视觉审查。
+func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCallingChatModel, wd string, batchIdx int) (*generic.QAResult, error) {
+	pdfFiles, textByFile, err := t.listPPTXAndExtractText(wd)
+	if err != nil {
+		return nil, err
+	}
+
+	start := batchIdx * batchQASize
+	end := start + batchQASize
+	if start >= len(pdfFiles) {
+		return &generic.QAResult{
+			Reports: []string{fmt.Sprintf("batch_%02d.pdf|（无文件）", batchIdx)},
+			Summary: "该批次无文件",
+		}, nil
+	}
+	if end > len(pdfFiles) {
+		end = len(pdfFiles)
+	}
+	batchFiles := pdfFiles[start:end]
+	pageRange := batchPageRange(batchFiles)
+
+	pdfPath, err := t.convertBatchToPDF(ctx, wd, batchFiles, batchIdx)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +396,7 @@ func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCall
 
 以下是该 PDF 各页的文本内容（仅供参考）：
 
-` + textContent
+` + t.buildTextContent(batchFiles, textByFile)
 
 	msg := &schema.Message{
 		Role: schema.User,
@@ -346,14 +423,24 @@ func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCall
 		return nil, err
 	}
 
+	// 临时失败时重试一次（空响应或非常短的响应）。
 	report := strings.TrimSpace(resp.Content)
+	if report == "" || len(report) < 20 {
+		logger.Warn("qa_batch_retry", "batch_idx", batchIdx, "reason", "empty_or_short_response")
+		resp, err = model.Generate(ctx, []*schema.Message{msg})
+		if err != nil {
+			return nil, err
+		}
+		report = strings.TrimSpace(resp.Content)
+	}
 	if report == "" {
 		return &generic.QAResult{
-			Reports: []string{"merged.pdf|（LLM 返回为空）"},
+			Reports: []string{fmt.Sprintf("%s.pdf|（LLM 返回为空）", pageRange)},
 			Summary: "LLM 返回为空",
 		}, nil
 	}
 
+	reportFileName := fmt.Sprintf("%s.pdf", pageRange)
 	hasHigh := strings.Contains(report, "high")
 	hasMedium := strings.Contains(report, "medium")
 	score := parseScore(report)
@@ -366,7 +453,7 @@ func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCall
 	}
 
 	result := &generic.QAResult{
-		Reports:      []string{"merged.pdf|" + report},
+		Reports:      []string{reportFileName + "|" + report},
 		HasIssues:    hasIssues,
 		HasHighIssue: hasHigh,
 		Score:        score,
@@ -390,8 +477,21 @@ func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCall
 
 func strPtr(s string) *string { return &s }
 
-// InvokableRun implements tool.InvokableTool for BatchPDFTool.
-func (t *BatchPDFTool) InvokableRun(ctx context.Context, _ string, _ ...tool.Option) (string, error) {
+// buildTextContent 从 textByFile 构建批次的文本内容摘要。
+func (t *BatchPDFTool) buildTextContent(batchFiles []string, textByFile map[string]string) string {
+	var parts []string
+	for _, f := range batchFiles {
+		stem := filepath.Base(f)
+		stem = strings.TrimSuffix(stem, ".pptx")
+		if text, ok := textByFile[f]; ok && text != "" {
+			parts = append(parts, fmt.Sprintf("[%s]\n%s", stem, text))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// InvokableRun 实现 tool.InvokableTool 接口。
+func (t *BatchPDFTool) InvokableRun(ctx context.Context, input string, _ ...tool.Option) (string, error) {
 	wd, ok := params.GetTypedContextParams[string](ctx, params.WorkDirSessionKey)
 	if !ok || wd == "" {
 		type workDirGetter interface{ GetWorkDir(context.Context) string }
@@ -403,12 +503,22 @@ func (t *BatchPDFTool) InvokableRun(ctx context.Context, _ string, _ ...tool.Opt
 		return "", fmt.Errorf("无法获取工作目录")
 	}
 
+	batchIdx := 0
+	if input != "" {
+		var args struct {
+			BatchIdx int `json:"batch_idx"`
+		}
+		if err := json.Unmarshal([]byte(input), &args); err == nil {
+			batchIdx = args.BatchIdx
+		}
+	}
+
 	model, err := t.getOrCreateModelPDF(ctx)
 	if err != nil {
 		return "", fmt.Errorf("创建 QA 模型失败: %v", err)
 	}
 
-	result, err := t.doBatchVisualQA(ctx, model, wd)
+	result, err := t.doBatchVisualQA(ctx, model, wd, batchIdx)
 	if err != nil {
 		return "", err
 	}
@@ -421,15 +531,14 @@ func (t *BatchPDFTool) getOrCreateModelPDF(ctx context.Context) (model.ToolCalli
 	t.cachedModelMu.Lock()
 	defer t.cachedModelMu.Unlock()
 
-	// If a cached model exists and is not in an error state, check TTL.
+	// 如果存在缓存的模型且未处于错误状态，检查 TTL。
 	if t.cachedModel != nil && t.cachedModelErr == nil {
 		if time.Since(t.cachedModelAt) < modelCacheTTL {
 			return t.cachedModel, nil
 		}
 	}
 
-	// Cache expired or errored — clear stale model before retrying to avoid
-	// tight retry loops when the model factory persistently fails.
+	// 缓存过期或出错——清除陈旧模型后再重试，避免模型工厂持续失败时的紧密重试循环。
 	if t.cachedModel != nil && t.cachedModelErr != nil {
 		t.cachedModel = nil
 		t.cachedModelErr = nil

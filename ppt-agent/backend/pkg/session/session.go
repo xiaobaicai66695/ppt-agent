@@ -22,14 +22,14 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
-// Message represents a single message in the conversation history.
+// Message 表示对话历史中的单条消息。
 type Message struct {
 	Role      string    `json:"role"` // "user" or "assistant"
 	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// ConversationSession holds the conversation history for a task.
+// ConversationSession 保存任务对话历史记录。
 type ConversationSession struct {
 	TaskID    string    `json:"task_id"`
 	WorkDir   string    `json:"work_dir"`
@@ -38,7 +38,7 @@ type ConversationSession struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// AddUserMessage appends a user message to the conversation and persists it.
+// AddUserMessage 向对话追加用户消息并持久化。
 func (s *ConversationSession) AddUserMessage(content string) error {
 	msg := db.ConversationMessage{
 		TaskID:    s.TaskID,
@@ -58,7 +58,7 @@ func (s *ConversationSession) AddUserMessage(content string) error {
 	return nil
 }
 
-// AddAssistantMessage appends an assistant message to the conversation and persists it.
+// AddAssistantMessage 向对话追加助手消息并持久化。
 func (s *ConversationSession) AddAssistantMessage(content string) error {
 	msg := db.ConversationMessage{
 		TaskID:    s.TaskID,
@@ -78,7 +78,7 @@ func (s *ConversationSession) AddAssistantMessage(content string) error {
 	return nil
 }
 
-// GetRecentMessages returns the last n messages for context injection.
+// GetRecentMessages 返回最后 n 条消息用于上下文注入。
 func (s *ConversationSession) GetRecentMessages(n int) []Message {
 	if n <= 0 || len(s.Messages) == 0 {
 		return s.Messages
@@ -89,7 +89,7 @@ func (s *ConversationSession) GetRecentMessages(n int) []Message {
 	return s.Messages[len(s.Messages)-n:]
 }
 
-// LoadSessionFromDB loads conversation history from the database.
+// LoadSessionFromDB 从数据库加载对话历史记录。
 func LoadSessionFromDB(taskID, workDir string) *ConversationSession {
 	msgs, err := db.ListConversationMessages(taskID)
 	if err != nil {
@@ -124,7 +124,7 @@ func LoadSessionFromDB(taskID, workDir string) *ConversationSession {
 	}
 }
 
-// NewSession creates a new conversation session for a task.
+// NewSession 为任务创建一个新的对话会话。
 func NewSession(taskID, workDir string) *ConversationSession {
 	return &ConversationSession{
 		TaskID:    taskID,
@@ -135,20 +135,20 @@ func NewSession(taskID, workDir string) *ConversationSession {
 	}
 }
 
-// SessionManager manages all conversation sessions.
-// It provides in-memory caching backed by database persistence.
+// SessionManager 管理所有对话会话。
+// 提供数据库持久化支持的就内存缓存。
 type SessionManager struct {
 	sessions map[string]*ConversationSession // key: taskID
 }
 
-// NewSessionManager creates a new session manager.
+// NewSessionManager 创建一个新的会话管理器。
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
 		sessions: make(map[string]*ConversationSession),
 	}
 }
 
-// GetOrCreate returns an existing session or creates a new one.
+// GetOrCreate 返回现有会话或创建新会话。
 func (sm *SessionManager) GetOrCreate(taskID, workDir string) *ConversationSession {
 	if s, ok := sm.sessions[taskID]; ok {
 		return s
@@ -160,17 +160,17 @@ func (sm *SessionManager) GetOrCreate(taskID, workDir string) *ConversationSessi
 	return s
 }
 
-// Get returns a session by taskID, or nil if not found.
+// Get 根据 taskID 返回会话，如果未找到则返回 nil。
 func (sm *SessionManager) Get(taskID string) *ConversationSession {
 	return sm.sessions[taskID]
 }
 
-// Delete removes a session from memory.
+// Delete 从内存中删除会话。
 func (sm *SessionManager) Delete(taskID string) {
 	delete(sm.sessions, taskID)
 }
 
-// DeleteFromDB removes all messages for a task from the database.
+// DeleteFromDB 从数据库中删除任务的所有消息。
 func DeleteSessionFromDB(taskID string) error {
 	return db.DeleteConversationMessages(taskID)
 }

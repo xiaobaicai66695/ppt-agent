@@ -341,11 +341,12 @@ TEMPLATE = {
         },
         {
             "index": 15,
-            "type": "bar_chart",
+            "type": "chart_slide",
             "title": "消融实验结果",
-            "content_type": "bar_chart",
+            "content_type": "chart_slide",
             "kicker": "消融实验 · 模块贡献",
             "chart_title": "各模块对检测性能的贡献度分析",
+            "chart_type": "bar",
             "categories": [
                 "基线模型",
                 "+多尺度FPN",

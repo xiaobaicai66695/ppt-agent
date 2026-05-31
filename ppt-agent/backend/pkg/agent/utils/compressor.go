@@ -64,16 +64,16 @@ func WithPreserveCount(n int) CompressorOption {
 	}
 }
 
-// DefaultCompressorConfig returns default compression settings.
-// Values can be overridden via environment variables:
-//   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: message count threshold (default 12)
-//   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token estimate threshold (default 30000)
-//   - MASTER_COMPRESSOR_PRESERVE_COUNT: number of message pairs to preserve (default 4)
+// DefaultCompressorConfig 返回默认压缩配置。
+// 可以通过环境变量覆盖：
+//   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: 消息数量阈值（默认 16）
+//   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token 估算阈值（默认 50000）
+//   - MASTER_COMPRESSOR_PRESERVE_COUNT: 保留的消息对数量（默认 4）
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold: EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 8),
-		TokenThreshold:  EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 20000),
-		PreserveCount:   EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 4),
+		MessageThreshold: EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 16),
+		TokenThreshold:  EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 50000),
+		PreserveCount:   EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 6),
 	}
 }
 
@@ -250,8 +250,8 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 	return c
 }
 
-// SetTracker attaches a TokenTracker so that summarizer calls are tracked
-// alongside main model calls, giving accurate per-task token accounting.
+// SetTracker 附加 TokenTracker 以便与主模型调用一起追踪压缩器调用，
+// 实现准确的任务级 token 统计。
 func (c *ChatModelCompressor) SetTracker(tracker *TokenTracker) {
 	c.tracker = tracker
 }
@@ -337,7 +337,7 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 // compress 执行实际的压缩逻辑
 func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.Message) ([]*schema.Message, error) {
 	if len(messages) < 2 {
-		return messages, nil // nothing to compress
+		return messages, nil // 无需压缩
 	}
 
 	// 解析消息结构

@@ -23,8 +23,8 @@ import (
 	"strings"
 )
 
-// GetPythonBinary returns the configured Python binary path.
-// Uses PYTHON_BIN env var if set, falls back to platform-specific defaults.
+// GetPythonBinary 返回配置的 Python 二进制文件路径。
+// 如果设置了 PYTHON_BIN 环境变量则使用该值，否则回退到平台特定的默认值。
 func GetPythonBinary() string {
 	if bin := os.Getenv("PYTHON_BIN"); bin != "" {
 		return bin
@@ -35,10 +35,10 @@ func GetPythonBinary() string {
 	return "/root/pptx_env/bin/python"
 }
 
-// FindConverterPy searches for the pptx_qa_converter.py script.
-// It checks PROJECT_ROOT env var first, then walks up to 8 parent directories
-// from the given workDir, looking in two conventional sub-paths.
-// Returns the absolute path to the converter script, or "" if not found.
+// FindConverterPy 搜索 pptx_qa_converter.py 脚本。
+// 它首先检查 PROJECT_ROOT 环境变量，然后从给定 workDir 向上搜索最多 8 级父目录，
+// 在两个常规子路径中查找。
+// 返回转换器脚本的绝对路径，如果未找到则返回空字符串。
 func FindConverterPy(workDir string) string {
 	projectRoot := os.Getenv("PROJECT_ROOT")
 	if projectRoot != "" {
@@ -55,13 +55,13 @@ func FindConverterPy(workDir string) string {
 			"backend/pkg/tools/qa/pptx_qa_converter.py",
 		} {
 			c := filepath.Join(workDir, up, sub)
-			// Resolve to absolute path and validate no path traversal
+			// 解析为绝对路径并验证无路径遍历
 			abs, err := filepath.Abs(c)
 			if err != nil {
 				continue
 			}
 			clean := filepath.Clean(abs)
-			// Disallow traversal outside an absolute root
+			// 禁止遍历到绝对根目录之外
 			if !strings.HasPrefix(clean, filepath.VolumeName(clean)) {
 				continue
 			}

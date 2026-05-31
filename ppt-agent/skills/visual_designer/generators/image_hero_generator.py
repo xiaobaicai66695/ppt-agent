@@ -4,16 +4,24 @@ from pptx import Presentation
 from .base import (
     add_source_line, new_presentation, PALETTES, add_text, add_rect, add_round_rect, add_ellipse,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 def generate(
     prs: Optional[Presentation] = None, palette: str = "ocean_soft", source: str = "",
     title: str = "{大标题}", subtitle: str = "", description: str = "",
     overlay_color: str = "primary",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     if prs is None: prs = new_presentation(palette=palette)
     blank_layout = prs.slide_layouts[6]; slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Color block (top)
     add_rect(slide, left=0, top=0, width=13.333, height=5.0,
@@ -24,13 +32,13 @@ def generate(
 
     # Title
     add_text(slide, text=title, left=1.2, top=1.5, width=10.933, height=1.3,
-        font_size=44, bold=True, color="background", alignment="center", palette=palette)
+        font_size=44, bold=True, color="background", alignment="center", palette=palette, colors=colors)
     if subtitle:
         add_text(slide, text=subtitle, left=2.2, top=3.0, width=8.933, height=0.45,
-            font_size=18, bold=False, color="background", alignment="center", palette=palette)
+            font_size=18, bold=False, color="background", alignment="center", palette=palette, colors=colors)
     if description:
         add_text(slide, text=description, left=2.2, top=5.4, width=8.933, height=0.9,
-            font_size=14, bold=False, color="text", alignment="center", palette=palette)
+            font_size=14, bold=False, color="text", alignment="center", palette=palette, colors=colors)
 
     # Corner dots
     add_round_rect(slide, left=1.2, top=0.25, width=0.1, height=0.1,

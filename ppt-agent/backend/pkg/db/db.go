@@ -30,7 +30,7 @@ type VerificationCode struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TaskRecord — persisted task metadata for history/recovery.
+// TaskRecord — 持久化的任务元数据，用于历史记录和恢复。
 type TaskRecord struct {
 	ID         string    `gorm:"size:64;primaryKey" json:"id"`
 	UserID     uint      `gorm:"index;not null" json:"user_id"`
@@ -45,11 +45,12 @@ type TaskRecord struct {
 	CompletionTokens  int64     `gorm:"default:0" json:"completion_tokens"`
 	TotalTokens       int64     `gorm:"default:0" json:"total_tokens"`
 	Files      string    `gorm:"type:text" json:"files"`
+	ConversationContent string  `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// ConversationMessage — a single message in a task's conversation history.
+// ConversationMessage — 任务对话历史中的单条消息。
 type ConversationMessage struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	TaskID    string    `gorm:"size:64;index;not null" json:"task_id"`
@@ -58,36 +59,43 @@ type ConversationMessage struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// UserStyleProfile — persisted user style preferences learned from past tasks.
+// UserStyleProfile — 从过去任务中学习的持久化用户风格偏好。
 type UserStyleProfile struct {
-	UserID            uint      `gorm:"primaryKey" json:"user_id"`
-	PreferredThemes   string    `gorm:"type:text" json:"preferred_themes"`   // JSON array
-	PreferredColors   string    `gorm:"type:text" json:"preferred_colors"`   // JSON array
-	ContentPatterns   string    `gorm:"type:text" json:"content_patterns"` // JSON array
-	LayoutPreferences string    `gorm:"type:text" json:"-"`                // deprecated
-	LanguageTone      string    `gorm:"size:50" json:"language_tone"`
-	TypicalPageCount  int       `gorm:"default:0" json:"typical_page_count"`
-	ContentTypes      string    `gorm:"type:text" json:"content_types"` // JSON map
-	SpecialNotes      string    `gorm:"type:text" json:"special_notes"` // JSON array
-	TaskCount         int       `gorm:"default:0" json:"task_count"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	UserID               uint      `gorm:"primaryKey" json:"user_id"`
+	PreferredThemes      string    `gorm:"type:text" json:"preferred_themes"`      // JSON array
+	PreferredColors      string    `gorm:"type:text" json:"preferred_colors"`      // JSON array
+	ContentPatterns      string    `gorm:"type:text" json:"content_patterns"`      // JSON array
+	LayoutPreferences   string    `gorm:"type:text" json:"-"`                     // deprecated
+	LanguageTone        string    `gorm:"size:50" json:"language_tone"`
+	TypicalPageCount    int       `gorm:"default:0" json:"typical_page_count"`
+	ContentTypes         string    `gorm:"type:text" json:"content_types"`         // JSON map
+	SpecialNotes         string    `gorm:"type:text" json:"special_notes"`         // JSON array
+	ExtendedPreferences string    `gorm:"type:text" json:"extended_preferences"`   // JSON for enhanced profile
+	TaskCount           int       `gorm:"default:0" json:"task_count"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-// TaskEvent — a single SSE event persisted for later replay / continue-chat.
-type TaskEvent struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	TaskID    string    `gorm:"size:64;index;not null" json:"task_id"`
-	Type      string    `gorm:"size:32;not null" json:"type"`            // answer, tool_call, progress, file_ready, error, complete, etc.
-	Content   string    `gorm:"type:mediumtext;not null" json:"content"` // JSON of task.SSERichEvent
-	CreatedAt time.Time `json:"created_at"`
+// TaskErrorAnalysis — 任务失败时的日志分析结果，用于迭代修复参考。
+type TaskErrorAnalysis struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	TaskID        string    `gorm:"size:64;index;not null" json:"task_id"`
+	TriggerType   string    `gorm:"size:20;not null" json:"trigger_type"`     // "idle" 或 "failed"
+	LogSnippet    string    `gorm:"type:longtext" json:"log_snippet"`         // 原始日志片段
+	Analysis      string    `gorm:"type:longtext" json:"analysis"`           // LLM 分析结论
+	RootCause     string    `gorm:"type:text" json:"root_cause"`             // 根本原因
+	Suggestion    string    `gorm:"type:text" json:"suggestion"`              // 修复建议
+	TokensUsed    int64     `gorm:"default:0" json:"tokens_used"`
+	ModelUsed     string    `gorm:"size:100" json:"model_used"`              // 分析使用的模型
+	CreatedAt     time.Time `json:"created_at"`
 }
 
-// ── TaskRecord CRUD ──────────────────────────────────────────────────────
+// ── TaskRecord 增删改查 ──────────────────────────────────────────────────
 
 func CreateTaskRecord(r *TaskRecord) error {
 	return DB.Create(r).Error
 }
 
+// UpdateTaskRecord 向可更新字段添加 conversation_content。
 func UpdateTaskRecord(id string, updates map[string]any) error {
 	return DB.Model(&TaskRecord{}).Where("id = ?", id).Updates(updates).Error
 }
@@ -111,35 +119,7 @@ func DeleteTaskRecord(id string) error {
 	return DB.Where("id = ?", id).Delete(&TaskRecord{}).Error
 }
 
-// ── TaskEvent CRUD ─────────────────────────────────────────────────────────
-
-func CreateTaskEvent(e *TaskEvent) error {
-	return DB.Create(e).Error
-}
-
-// BatchCreateTaskEvents inserts multiple events in a single transaction.
-func BatchCreateTaskEvents(events []TaskEvent) error {
-	if len(events) == 0 {
-		return nil
-	}
-	return DB.Create(&events).Error
-}
-
-func ListTaskEvents(taskID string, limit int) ([]TaskEvent, error) {
-	var events []TaskEvent
-	q := DB.Where("task_id = ?", taskID).Order("id ASC")
-	if limit > 0 {
-		q = q.Limit(limit)
-	}
-	err := q.Find(&events).Error
-	return events, err
-}
-
-func DeleteTaskEvents(taskID string) error {
-	return DB.Where("task_id = ?", taskID).Delete(&TaskEvent{}).Error
-}
-
-// ── ConversationMessage CRUD ───────────────────────────────────────────────
+// ── ConversationMessage 增删改查 ─────────────────────────────────────────────
 
 func CreateConversationMessage(m *ConversationMessage) error {
 	return DB.Create(m).Error
@@ -155,7 +135,7 @@ func DeleteConversationMessages(taskID string) error {
 	return DB.Where("task_id = ?", taskID).Delete(&ConversationMessage{}).Error
 }
 
-// ── UserStyleProfile CRUD ─────────────────────────────────────────────────
+// ── UserStyleProfile 增删改查 ─────────────────────────────────────────────────
 
 func UpsertUserStyleProfile(p *UserStyleProfile) error {
 	return DB.Save(p).Error
@@ -174,8 +154,26 @@ func DeleteUserStyleProfile(userID uint) error {
 	return DB.Where("user_id = ?", userID).Delete(&UserStyleProfile{}).Error
 }
 
-// MarkZombieTasks sets all tasks with "running" status to "failed"
-// (called on startup — the server process that owned them is gone).
+// ── TaskErrorAnalysis 增删改查 ────────────────────────────────────────────────
+
+func CreateTaskErrorAnalysis(a *TaskErrorAnalysis) error {
+	return DB.Create(a).Error
+}
+
+func GetTaskErrorAnalysis(taskID string) ([]TaskErrorAnalysis, error) {
+	var records []TaskErrorAnalysis
+	err := DB.Where("task_id = ?", taskID).Order("created_at DESC").Find(&records).Error
+	return records, err
+}
+
+func ListRecentErrorAnalyses(limit int) ([]TaskErrorAnalysis, error) {
+	var records []TaskErrorAnalysis
+	err := DB.Order("created_at DESC").Limit(limit).Find(&records).Error
+	return records, err
+}
+
+// MarkZombieTasks 将所有状态为 "running" 的任务设置为 "failed"
+// （在启动时调用 — 拥有这些任务的服务器进程已不存在）。
 func MarkZombieTasks() error {
 	return DB.Model(&TaskRecord{}).
 		Where("status = ?", "running").
@@ -185,11 +183,11 @@ func MarkZombieTasks() error {
 		}).Error
 }
 
-// Init initializes the database connection with production-grade settings.
-// - maxOpenConns/maxIdleConns: limit concurrent DB load
-// - connMaxLifetime: recycle connections before MySQL's wait_timeout expires
-// - connMaxIdleTime: close connections left idle longer than MySQL's interactive_timeout
-// - tcpKeepalive: detect dead connections at the TCP layer without waiting for MySQL timeout
+// Init 使用生产级设置初始化数据库连接。
+// - maxOpenConns/maxIdleConns：限制并发数据库负载
+// - connMaxLifetime：在 MySQL 的 wait_timeout 过期前回收连接
+// - connMaxIdleTime：关闭空闲时间超过 MySQL 的 interactive_timeout 的连接
+// - tcpKeepalive：在 TCP 层检测死连接，而无需等待 MySQL 超时
 func Init(dsn string) error {
 	var err error
 	DB, err = gorm.Open(mysql.Open(dsn+"&interpolateParams=true"), &gorm.Config{})
@@ -207,7 +205,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("DB ping failed: %w", err)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &TaskEvent{}, &ConversationMessage{}, &UserStyleProfile{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 

@@ -9,6 +9,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect, add_ellipse,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -22,6 +23,8 @@ def generate(
     subtitle: str = "",
     show_progress: bool = True,
     progress_value: int = 75,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a stat slide with large highlighted numbers.
@@ -52,9 +55,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.5
@@ -66,6 +72,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.45
 
@@ -77,6 +84,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Subtitle
@@ -89,6 +97,7 @@ def generate(
             font_size=16, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_stats_bg = 2.15
 
@@ -104,7 +113,21 @@ def generate(
     available_width = 12.333
     stat_width = available_width / n
 
-    for i, stat in enumerate(stats[:3]):
+    # 根据 stat 数量动态调整字号
+    if n <= 2:
+        number_font_size = 72
+        unit_font_size = 24
+        number_height = 1.5
+    elif n == 3:
+        number_font_size = 56
+        unit_font_size = 20
+        number_height = 1.4
+    else:  # 4+
+        number_font_size = 44
+        unit_font_size = 16
+        number_height = 1.2
+
+    for i, stat in enumerate(stats[:4]):
         x_center = 0.5 + stat_width * i + stat_width / 2
 
         number = stat.get("number", "")
@@ -115,8 +138,8 @@ def generate(
         # Decorative circle behind number
         add_ellipse(
             slide,
-            left=x_center - 1.2, top=y_stats_bg + 0.3,
-            width=2.4, height=2.4,
+            left=x_center - stat_width * 0.35, top=y_stats_bg + 0.3,
+            width=stat_width * 0.7, height=stat_width * 0.7,
             fill_color="background", palette=palette,
         )
 
@@ -124,10 +147,12 @@ def generate(
         add_text(
             slide,
             text=number,
-            left=x_center - stat_width / 2 + 0.2, top=y_stats_bg + 0.5, width=stat_width - 0.4, height=1.5,
-            font_size=72, bold=True,
+            left=x_center - stat_width * 0.45, top=y_stats_bg + 0.5,
+            width=stat_width * 0.9, height=number_height,
+            font_size=number_font_size, bold=True,
             color="primary", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
         # Unit (if any)
@@ -135,10 +160,12 @@ def generate(
             add_text(
                 slide,
                 text=unit,
-                left=x_center - stat_width / 2 + 0.2, top=y_stats_bg + 1.9, width=stat_width - 0.4, height=0.5,
-                font_size=24, bold=False,
+                left=x_center - stat_width * 0.45, top=y_stats_bg + 1.9,
+                width=stat_width * 0.9, height=0.5,
+                font_size=unit_font_size, bold=False,
                 color="secondary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
         # Trend label
@@ -158,16 +185,19 @@ def generate(
                 font_size=13, bold=True,
                 color=trend_color, alignment="center",
                 palette=palette,
+                colors=colors,
             )
 
         # Label
         add_text(
             slide,
             text=label,
-            left=x_center - stat_width / 2 + 0.2, top=y_stats_bg + 3.0, width=stat_width - 0.4, height=0.5,
+            left=x_center - stat_width * 0.45, top=y_stats_bg + 3.0,
+            width=stat_width * 0.9, height=0.5,
             font_size=14, bold=False,
             color="text_muted", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
         # Divider line between stats (except last)
@@ -178,8 +208,8 @@ def generate(
                 fill_color="divider", palette=palette,
             )
 
-    # Bottom progress bar
-    if show_progress:
+    # Bottom progress bar (hide when too many stats to avoid overlap)
+    if show_progress and n <= 3:
         progress_y = 6.1
         add_rect(
             slide,
@@ -198,6 +228,7 @@ def generate(
             font_size=11, bold=False,
             color="text_muted", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
     add_source_line(slide, source, palette)

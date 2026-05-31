@@ -4,6 +4,7 @@ from pptx import Presentation
 from .base import (
     add_source_line, new_presentation, PALETTES, add_text, add_rect,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -16,6 +17,8 @@ def generate(
     subtitle: str = "",
     regions: Optional[List[dict]] = None,
     regions_detail: Optional[List[dict]] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate a region map slide with abstract map and data panel.
 
@@ -54,18 +57,23 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     y_t = 0.3
     if kicker:
         add_text(slide, text=kicker, left=0.5, top=0.2, width=12.0, height=0.2,
-            font_size=12, bold=False, color="text_muted", alignment="left", palette=palette)
+            font_size=12, bold=False, color="text_muted", alignment="left", palette=palette, colors=colors)
         y_t = 0.35
     add_text(slide, text=title, left=0.5, top=y_t, width=12.0, height=0.5,
-        font_size=32, bold=True, color="text", alignment="left", palette=palette)
+        font_size=32, bold=True, color="text", alignment="left", palette=palette, colors=colors)
     if subtitle:
         add_text(slide, text=subtitle, left=0.5, top=y_t + 0.5, width=12.0, height=0.3,
-            font_size=14, bold=False, color="text_muted", alignment="left", palette=palette)
+            font_size=14, bold=False, color="text_muted", alignment="left", palette=palette, colors=colors)
 
     # Define map regions with positions (abstract simplified map centered on left side)
     # Map occupies left ~60% of slide, right panel is for data
@@ -104,7 +112,7 @@ def generate(
             slide, text=label,
             left=rx, top=ry + rh / 2 - 0.15, width=rw, height=0.3,
             font_size=12, bold=True, color=text_color,
-            alignment="center", palette=palette,
+            alignment="center", palette=palette, colors=colors,
         )
 
     # Right panel
@@ -116,7 +124,7 @@ def generate(
     add_text(
         slide, text="区域业绩概览",
         left=7.2, top=1.6, width=5.4, height=0.4,
-        font_size=16, bold=True, color="text", palette=palette,
+        font_size=16, bold=True, color="text", palette=palette, colors=colors,
     )
 
     for i, reg in enumerate(regions_detail[:6]):
@@ -129,22 +137,22 @@ def generate(
         add_text(
             slide, text=reg.get("name", ""),
             left=7.4, top=y + 0.1, width=1.5, height=0.3,
-            font_size=12, bold=True, color="text", palette=palette,
+            font_size=12, bold=True, color="text", palette=palette, colors=colors,
         )
         add_text(
             slide, text=reg.get("value", ""),
             left=9.0, top=y + 0.08, width=1.0, height=0.35,
-            font_size=14, bold=True, color="primary", palette=palette,
+            font_size=14, bold=True, color="primary", palette=palette, colors=colors,
         )
         add_text(
             slide, text=reg.get("trend", ""),
             left=10.1, top=y + 0.1, width=0.8, height=0.3,
-            font_size=11, bold=True, color="secondary", palette=palette,
+            font_size=11, bold=True, color="secondary", palette=palette, colors=colors,
         )
         add_text(
             slide, text=reg.get("detail", ""),
             left=7.4, top=y + 0.4, width=4.8, height=0.25,
-            font_size=10, color="text_muted", palette=palette,
+            font_size=10, color="text_muted", palette=palette, colors=colors,
         )
 
     add_source_line(slide, source, palette)

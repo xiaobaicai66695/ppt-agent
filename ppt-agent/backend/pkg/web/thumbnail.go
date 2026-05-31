@@ -14,8 +14,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
-// thumbMu serializes conversion calls per workDir to prevent concurrent
-// thumbnail requests from fighting over the same soffice process.
+// thumbMu 序列化每个 workDir 的转换调用，防止并发缩略图请求争夺同一个 soffice 进程。
 var thumbMu sync.Map // key: workDir string -> *sync.Mutex
 
 func thumbLock(workDir string) func() {
@@ -27,9 +26,9 @@ func thumbLock(workDir string) func() {
 
 var thumbCache sync.Map
 
-// GenerateThumbnail reads a pre-generated JPEG from qa_images/.
-// On first request, converts only the missing files (incremental, single-pass).
-// The caller is responsible for passing the full path to a .pptx file.
+// GenerateThumbnail 从 qa_images/ 读取预生成的 JPEG。
+// 首次请求时，增量转换缺失的文件（单次增量转换）。
+// 调用者负责传递完整的 .pptx 文件路径。
 func GenerateThumbnail(pptxPath string) ([]byte, error) {
 	if cached, ok := thumbCache.Load(pptxPath); ok {
 		return cached.([]byte), nil
@@ -49,8 +48,8 @@ func GenerateThumbnail(pptxPath string) ([]byte, error) {
 		return jpeg, nil
 	}
 
-	// Not cached and not on disk — convert, serialized per workDir.
-	// No longer runs two passes; one incremental conversion attempt is sufficient.
+	// 未缓存且不在磁盘上 — 转换，按 workDir 序列化。
+	// 不再运行两次传递；一次增量转换尝试已足够。
 	convertMissingFiles(workDir, []string{base})
 
 	jpeg, err = os.ReadFile(jpegPath)
@@ -61,9 +60,9 @@ func GenerateThumbnail(pptxPath string) ([]byte, error) {
 	return jpeg, nil
 }
 
-// GenerateQAImages runs the Python PPTX→JPG converter for all PPTX files in the workDir.
-// Uses a per-workDir lock to prevent concurrent processes from fighting.
-// Call this when starting QA or when a full batch conversion is needed.
+// GenerateQAImages 对 workDir 中所有 PPTX 文件运行 Python PPTX→JPG 转换器。
+// 使用 per-workDir 锁防止并发进程竞争。
+// 在开始 QA 或需要完整批量转换时调用此函数。
 func GenerateQAImages(workDir string) {
 	release := thumbLock(workDir)
 	defer release()
@@ -81,15 +80,14 @@ func GenerateQAImages(workDir string) {
 		runConverter(converter, workDir, qaDir, missing)
 	}
 
-	// If everything is now converted, done. Otherwise fall back to full batch.
+	// 如果现在全部已转换，则完成。否则回退到完整批量。
 	if allJPGsExist(workDir, qaDir) {
 		return
 	}
 	runConverter(converter, workDir, qaDir, nil)
 }
 
-// findMissingJPGs returns the list of PPTX filenames (without path) that have
-// no corresponding JPG in qaDir.
+// findMissingJPGs 返回在 qaDir 中没有对应 JPG 的 PPTX 文件名列表（不含路径）。
 func findMissingJPGs(workDir, qaDir string) []string {
 	var missing []string
 	entries, _ := os.ReadDir(workDir)
@@ -105,8 +103,8 @@ func findMissingJPGs(workDir, qaDir string) []string {
 	return missing
 }
 
-// convertMissingFiles converts only the specified PPTX filenames.
-// The caller must hold thumbLock(workDir) before calling.
+// convertMissingFiles 仅转换指定的 PPTX 文件名。
+// 调用者必须在调用前持有 thumbLock(workDir)。
 func convertMissingFiles(workDir string, pptxFilenames []string) {
 	release := thumbLock(workDir)
 	defer release()
@@ -119,10 +117,10 @@ func convertMissingFiles(workDir string, pptxFilenames []string) {
 	runConverter(converter, workDir, qaDir, pptxFilenames)
 }
 
-// runConverter invokes the Python converter script.
-// If files is nil, converts all PPTX in workDir (full batch).
-// If files is non-nil, converts only those specified files (incremental, merged first).
-// A 120-second timeout is applied to prevent hanging.
+// runConverter 调用 Python 转换器脚本。
+// 如果 files 为 nil，转换 workDir 中的所有 PPTX（完整批量）。
+// 如果 files 非 nil，仅转换指定文件（增量，先合并）。
+// 应用 120 秒超时以防止挂起。
 func runConverter(converter, workDir, qaDir string, files []string) {
 	cmdArgs := []string{converter, "--pptx-dir", workDir, "--output-dir", qaDir, "--dpi", "150"}
 	if len(files) > 0 {

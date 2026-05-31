@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/session"
@@ -25,31 +26,32 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
-// Server provides REST API + SSE streaming + static frontend via Gin.
+// Server 提供 REST API + SSE 流式推送 + 静态前端服务（基于 Gin 框架）。
 type Server struct {
-	tasks          *task.TaskManager
-	sessionManager *session.SessionManager
-	styleStore     *style.ProfileStore
-	styleExtractor *style.Extractor
-	agentFactory   task.AgentFactory
-	makeTaskConfig func(taskID string) *deep.PPTTaskConfig
-	taskIDGen      func() string
-	engine         *gin.Engine
-	addr           string
-	templateLoader *templates.Loader
-	skillDir       string
-	operator       commandline.Operator
-	aiModelFactory func(ctx context.Context) (interface {
+	tasks            *task.TaskManager
+	sessionManager   *session.SessionManager
+	styleStore       *style.ProfileStore
+	styleExtractor   *style.Extractor
+	agentFactory     task.AgentFactory
+	makeTaskConfig   func(taskID string) *deep.PPTTaskConfig
+	taskIDGen        func() string
+	engine           *gin.Engine
+	addr             string
+	templateLoader   *templates.Loader
+	skillDir         string
+	operator         commandline.Operator
+	logAnalysis      *loganalysis.Service
+	aiModelFactory   func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
-	// textModelFactory creates a lightweight model for side-tasks like intent classification.
-	// Uses ARK_TEXT_MODEL env var to keep costs low. Falls back to AIModelFactory if nil.
+	// textModelFactory 创建轻量级模型，用于意图分类等辅助任务。
+	// 使用 ARK_TEXT_MODEL 环境变量以降低成本。如果为 nil，则回退到 AIModelFactory。
 	textModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
 }
 
-// ServerConfig holds configuration for creating a Server.
+// ServerConfig 用于创建 Server 的配置结构。
 type ServerConfig struct {
 	Addr           string
 	BaseDir        string
@@ -61,17 +63,23 @@ type ServerConfig struct {
 	AIModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
-	// StyleModelFactory creates a model for LLM-driven style extraction.
-	// If nil, falls back to rule-based extraction.
+	// StyleModelFactory 创建用于 LLM 驱动风格提取的模型。
+	// 如果为 nil，则回退到基于规则的风格提取。
 	StyleModelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
-	// TextModelFactory creates a lightweight text model for side-tasks like intent classification.
-	// Uses ARK_TEXT_MODEL env var (cheaper). Falls back to AIModelFactory if nil.
+	// TextModelFactory 创建轻量级文本模型，用于意图分类等辅助任务。
+	// 使用 ARK_TEXT_MODEL 环境变量（成本更低）。如果为 nil，则回退到 AIModelFactory。
 	TextModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
+	// LogAnalysisModelFactory 创建用于后台日志分析的模型。
+	// 如果为 nil，则禁用日志分析功能。
+	LogAnalysisModelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
+	// LogAnalysisIdleInterval 控制空闲日志分析的运行频率。
+	// 默认为 5 分钟。设置为 0 可禁用空闲分析。
+	LogAnalysisIdleInterval time.Duration
 }
 
-// NewServer creates a new Server with Gin routes.
+// NewServer 创建并初始化一个新的 Gin Server。
 func NewServer(cfg *ServerConfig) *Server {
 	frontendDir := cfg.FrontendDir
 	if frontendDir == "" {
@@ -82,7 +90,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery())
 
-	// Prometheus HTTP metrics middleware
+	// Prometheus HTTP 指标中间件
 	engine.Use(metricsMiddleware)
 
 	engine.Use(cors.New(cors.Config{
@@ -112,17 +120,34 @@ func NewServer(cfg *ServerConfig) *Server {
 		s.styleExtractor = style.NewExtractor(cfg.StyleModelFactory)
 	}
 
-	// Create task manager with style update callback
+	// 创建任务管理器，并注册风格更新回调
 	s.tasks = task.NewTaskManager(cfg.BaseDir, func(userID int, workDir, query string) {
 		s.updateUserStyleFromTask(userID, workDir, query)
+	}, func(taskID string) {
+		if s.logAnalysis != nil {
+			s.logAnalysis.Trigger(taskID, "failed")
+		}
 	})
 
-	// Initialize template loader
+	// 初始化日志分析后台服务
+	if cfg.LogAnalysisModelFactory != nil {
+		s.logAnalysis = loganalysis.NewService(&loganalysis.ServiceConfig{
+			ModelFactory: cfg.LogAnalysisModelFactory,
+			IdleInterval: cfg.LogAnalysisIdleInterval,
+			LogLines:     300,
+			SkillsDir:    cfg.SkillsDir,
+		})
+		loganalysis.HasRunningTasksFunc = s.tasks.HasRunningTasks
+		s.logAnalysis.Start()
+	}
+
+	// 初始化模板加载器
 	presetsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "full-decks")
 	layoutsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "single-page")
-	s.templateLoader = templates.NewLoader(presetsDir, layoutsDir)
+	bgTemplatesDir := filepath.Join(cfg.SkillsDir, "visual_designer", "background_templates")
+	s.templateLoader = templates.NewLoader(presetsDir, layoutsDir, bgTemplatesDir)
 
-	// Auth routes (public)
+	// 认证路由（公开）
 	auth := engine.Group("/api/auth")
 	{
 		auth.POST("/send-code", s.handleSendCode)
@@ -132,7 +157,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		auth.GET("/me", s.authMiddleware(), s.handleMe)
 	}
 
-	// Task routes (protected)
+	// 任务路由（需要认证）
 	tasks := engine.Group("/api/tasks")
 	tasks.Use(s.authMiddleware())
 	{
@@ -144,13 +169,12 @@ func NewServer(cfg *ServerConfig) *Server {
 		tasks.GET("/:id/thumb/:filename", s.handleThumbnail)
 		tasks.POST("/:id/cancel", s.handleCancelTask)
 		tasks.DELETE("/:id", s.handleDeleteTask)
-		// Session/continue routes
+		// 会话/继续路由
 		tasks.POST("/:id/continue", s.handleContinueTask)
 		tasks.GET("/:id/conversation", s.handleGetConversation)
-		tasks.GET("/:id/events", s.handleListTaskEvents)
 	}
 
-	// User profile routes (protected)
+	// 用户资料路由（需要认证）
 	users := engine.Group("/api/users")
 	users.Use(s.authMiddleware())
 	{
@@ -159,7 +183,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		users.POST("/me/profile/reset", s.handleResetUserProfile)
 	}
 
-	// Template routes (public)
+	// 模板路由（公开）
 	tpls := engine.Group("/api/templates")
 	{
 		tpls.GET("", s.handleListTemplates)
@@ -167,28 +191,40 @@ func NewServer(cfg *ServerConfig) *Server {
 		tpls.GET("/layouts", s.handleListLayouts)
 	}
 
-	// Theme routes (public)
+	// 主题路由（公开）
 	engine.GET("/api/themes", s.handleListThemes)
 
-	// AI routes (public)
+	// 背景图片主题路由（公开）
+	engine.GET("/api/backgrounds", s.handleListBackgrounds)
+	engine.GET("/api/backgrounds/:name/preview", s.handleBackgroundPreview)
+
+	// AI 路由（公开）
 	ai := engine.Group("/api/ai")
 	{
 		ai.POST("/expand", s.handleAIExpand)
 		ai.POST("/generate-outline", s.handleAIGenerateOutline)
 	}
 
-	// Metrics
+	// 日志分析路由（需要认证）
+	logs := engine.Group("/api/log-analyses")
+	logs.Use(s.authMiddleware())
+	{
+		logs.GET("", s.handleListLogAnalyses)
+		logs.GET("/task/:task_id", s.handleGetTaskLogAnalyses)
+	}
+
+	// 指标
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// Health (basic)
+	// 健康检查（基础）
 	engine.GET("/api/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// Detailed health check (auth optional for K8s probes)
+	// 详细健康检查（K8s 探针，可选认证）
 	engine.GET("/health/ready", s.handleHealthCheck)
 
-	// Static frontend
+	// 静态前端
 	engine.NoRoute(func(c *gin.Context) {
 		serveStatic(c, frontendDir)
 	})
@@ -212,13 +248,13 @@ func serveStatic(c *gin.Context, frontendDir string) {
 	c.Status(http.StatusNotFound)
 }
 
-// metricsMiddleware records HTTP request metrics for Prometheus.
+// metricsMiddleware 记录 HTTP 请求指标供 Prometheus 使用。
 func metricsMiddleware(c *gin.Context) {
 	start := time.Now()
 	c.Next()
 	duration := time.Since(start).Seconds()
 
-	// Skip metrics endpoint itself to avoid noise
+	// 跳过指标端点本身以避免干扰
 	path := c.FullPath()
 	if path == "" {
 		path = c.Request.URL.Path
@@ -227,7 +263,7 @@ func metricsMiddleware(c *gin.Context) {
 	metrics.HTTPRequestDuration.WithLabelValues(c.Request.Method, path).Observe(duration)
 }
 
-// Start starts the HTTP server.
+// Start 启动 HTTP 服务器。
 func (s *Server) Start() error {
 	logger.Info("server_starting", "addr", s.addr, "frontend", fmt.Sprintf("http://localhost%s", s.addr))
 	return s.engine.Run(s.addr)

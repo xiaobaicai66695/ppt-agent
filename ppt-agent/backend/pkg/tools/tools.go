@@ -14,21 +14,21 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 )
 
-// SanitizeJSON fixes common LLM JSON errors before unmarshaling.
-// Handles: trailing commas, extra braces, double-escaped quotes.
+// SanitizeJSON 修复常见的 LLM JSON 错误后再进行反序列化。
+// 处理：尾随逗号、多余的花括号、双重转义的引号。
 func SanitizeJSON(raw string) string {
 	raw = strings.TrimSpace(raw)
 
-	// 1. Remove trailing commas before closing braces/brackets
+	// 1. 移除闭合花括号/方括号前的尾随逗号
 	re := regexp.MustCompile(`,(\s*[}\]])`)
 	raw = re.ReplaceAllString(raw, "$1")
 
-	// 2. Fix double-escaped JSON strings inside JSON
-	// The LLM sometimes outputs: {"content":"{\"title\":...}"} which is correct,
-	// but sometimes: {"content":"{"title":...}"} which is broken
-	// This is handled by fixContentObject in edit_file.go
+	// 2. 修复 JSON 中的双重转义 JSON 字符串
+	// LLM 有时输出：{"content":"{\"title\":...}"} 这是正确的，
+	// 但有时：{"content":"{"title":...}"} 这是损坏的
+	// 这由 edit_file.go 中的 fixContentObject 处理
 
-	// 3. Remove any text before first { or [ and after last } or ]
+	// 3. 移除第一个 { 或 [ 之前的任何文本以及最后一个 } 或 ] 之后的任何文本
 	start := strings.IndexAny(raw, "{[")
 	end := strings.LastIndexAny(raw, "}]")
 	if start >= 0 && end > start {

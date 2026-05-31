@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 	id := c.Param("id")
 	ts := s.tasks.GetTaskState(id)
 	if ts == nil {
-		// Task not in memory — try to restore from MySQL
+		// 任务不在内存中 — 尝试从 MySQL 恢复
 		info := s.tasks.GetTask(id)
 		if info == nil {
 			c.JSON(404, gin.H{"error": "task not found"})
@@ -33,7 +34,7 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	// Try to get a flusher; if nil the SSE events are buffered by the transport.
+	// 尝试获取 flusher；如果为 nil，SSE 事件会由 transport 缓冲
 	flusher, _ := c.Writer.(flushWriter)
 	writer := c.Writer
 
@@ -65,10 +66,19 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 	ts.AddListener(listenerID, ch)
 	defer ts.RemoveListener(listenerID)
 
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case <-c.Request.Context().Done():
 			return false
+		case <-heartbeat.C:
+			w.Write([]byte(": hb\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return true
 		case evt, ok := <-ch:
 			if !ok {
 				return false

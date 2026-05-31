@@ -30,7 +30,7 @@ import (
 
 func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) (adk.Agent, error) {
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(16384),
+		agentutils.WithMaxTokens(32768),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	)

@@ -1,5 +1,8 @@
 """PPT slide generators - exports all generators."""
-from .base import PALETTES, new_presentation, set_slide_background, save_presentation, save_slide
+from .base import (
+    PALETTES, new_presentation, set_slide_background, set_image_background,
+    save_presentation, save_slide, resolve_background, get_background_path,
+)
 from .title_slide_generator import generate as generate_title_slide
 from .section_divider_generator import generate as generate_section_divider
 from .content_slide_generator import generate as generate_content_slide
@@ -22,22 +25,19 @@ from .kanban_generator import generate as generate_kanban
 from .brand_focus_generator import generate as generate_brand_focus
 from .region_map_generator import generate as generate_region_map
 from .timeline_generator import generate as generate_timeline
-from .chart_generator import (
-    create_bar_chart_slide,
-    create_line_chart_slide,
-    create_pie_chart_slide,
-    create_table_slide,
-    create_handdrawn_style_slide,
-    create_icon_combo_slide,
-    create_smart_layout_slide,
-)
+from .icon_grid_generator import generate as generate_icon_grid
+from .chart_slide_generator import generate as generate_chart_slide
+from .swot_analysis_generator import generate as generate_swot_analysis
 
 __all__ = [
     "PALETTES",
     "new_presentation",
     "set_slide_background",
+    "set_image_background",
     "save_presentation",
     "save_slide",
+    "resolve_background",
+    "get_background_path",
     "generate_title_slide",
     "generate_section_divider",
     "generate_content_slide",
@@ -60,11 +60,7 @@ __all__ = [
     "generate_brand_focus",
     "generate_region_map",
     "generate_timeline",
-    "create_bar_chart_slide",
-    "create_line_chart_slide",
-    "create_pie_chart_slide",
-    "create_table_slide",
-    "create_handdrawn_style_slide",
-    "create_icon_combo_slide",
-    "create_smart_layout_slide",
+    "generate_icon_grid",
+    "generate_chart_slide",
+    "generate_swot_analysis",
 ]

@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect, add_ellipse,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -22,6 +23,8 @@ def generate(
     bullets: List[str] = None,
     kicker: str = "",
     sub_header: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate an image-text slide.
@@ -48,9 +51,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.4
@@ -62,6 +68,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.4
 
@@ -73,6 +80,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     if layout == "left-image":
@@ -114,6 +122,7 @@ def generate(
         font_size=14, bold=False,
         color="text_muted", alignment="center",
         palette=palette,
+        colors=colors,
     )
 
     # Section header
@@ -124,6 +133,7 @@ def generate(
         font_size=20, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Sub header (between feature header and bullets)
@@ -136,6 +146,7 @@ def generate(
             font_size=13, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_content_start = 2.6
         # Accent line under sub_header
@@ -162,6 +173,7 @@ def generate(
             font_size=14, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
     else:
         # Legacy: bullet list
@@ -182,6 +194,7 @@ def generate(
                 font_size=14, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     add_source_line(slide, source, palette)

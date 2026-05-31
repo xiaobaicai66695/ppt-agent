@@ -16,6 +16,7 @@ from .base import (
     add_text,
     new_presentation,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 # card_spec: metric card dimensions
@@ -36,6 +37,8 @@ def generate(
     solution_block: str = "{解决方案}",
     metrics: Optional[List[dict]] = None,
     takeaway: str = "{启示}",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate an example_detail slide with a named, quantified case study."""
     if metrics is None:
@@ -50,9 +53,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Decorative left accent line through title area
     add_rect(
@@ -68,6 +74,7 @@ def generate(
         font_size=12, bold=False,
         color="text_muted", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Title
@@ -77,6 +84,7 @@ def generate(
         font_size=30, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Lede
@@ -87,6 +95,7 @@ def generate(
         color="text_muted", alignment="left",
         palette=palette,
         italic=True,
+        colors=colors,
     )
 
     # Context block
@@ -96,6 +105,7 @@ def generate(
         font_size=13, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
     add_text(
         slide, text=context_block,
@@ -103,6 +113,7 @@ def generate(
         font_size=13, bold=False,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Solution block
@@ -112,6 +123,7 @@ def generate(
         font_size=13, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
     add_text(
         slide, text=solution_block,
@@ -119,6 +131,7 @@ def generate(
         font_size=13, bold=False,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Metrics grid — up to 4 cards in a row
@@ -147,6 +160,7 @@ def generate(
             font_size=36, bold=True,
             color="primary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         # Label
         add_text(
@@ -155,6 +169,7 @@ def generate(
             font_size=11, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         # Trend
         trend = m.get("trend", "")
@@ -165,6 +180,7 @@ def generate(
                 font_size=11, bold=True,
                 color="secondary", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     # Takeaway — bottom strip
@@ -179,6 +195,7 @@ def generate(
         font_size=14, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     add_source_line(slide, source, palette)

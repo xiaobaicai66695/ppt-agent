@@ -14,6 +14,7 @@ from .base import (
     add_text,
     new_presentation,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -27,6 +28,8 @@ def generate(
     subtitle: str = "",
     show_progress: bool = True,
     progress_value: int = 80,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate a kpi_dashboard slide with metric cards in 2x2 grid layout.
 
@@ -53,9 +56,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker
     add_text(
@@ -64,6 +70,7 @@ def generate(
         font_size=12, bold=False,
         color="text_muted", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Title
@@ -73,6 +80,7 @@ def generate(
         font_size=28, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Subtitle
@@ -84,6 +92,7 @@ def generate(
             font_size=13, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         card_start_y = 1.8
 
@@ -130,6 +139,7 @@ def generate(
             font_size=44, bold=True,
             color="primary", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
         # Label
@@ -139,6 +149,7 @@ def generate(
             font_size=13, bold=True,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
         # Delta — colored by direction
@@ -154,6 +165,7 @@ def generate(
                 font_size=14, bold=True,
                 color=delta_color, alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
         # Baseline
@@ -165,6 +177,7 @@ def generate(
                 font_size=10, bold=False,
                 color="text_muted", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     # Bottom progress bar
@@ -186,6 +199,7 @@ def generate(
             font_size=11, bold=False,
             color="text_muted", alignment="center",
             palette=palette,
+            colors=colors,
         )
 
     add_source_line(slide, source, palette)

@@ -1,0 +1,14 @@
+{
+  "name": "timeline",
+  "display_name": "时间轴",
+  "type": "atomic",
+  "description": "水平或垂直时间轴，按时间点标记事件。适合发展历程、项目里程碑等",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "direction", "label": "方向", "type": "select", "required": true, "options": ["horizontal", "vertical"]},
+    {"name": "nodes", "label": "时间节点(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"year\":\"2012\",\"event\":\"AlexNet突破\",\"icon\":\"01\"},{\"year\":\"2017\",\"event\":\"Transformer\",\"icon\":\"02\"}]"}
+  ]
+}

@@ -29,9 +29,12 @@ go run ./cmd/search_runner.go
 # Run with env
 export AGENT_MODE=deep              # "deep" (parallel) or empty (serial plan-execute)
 export INTERACTIVE=false            # skip human-in-the-loop prompts
-export DEEP_AGENT_CONCURRENCY=3     # max parallel slide generation (default 5)
-export COZELOOP_API_TOKEN=          # optional: CozeLoop observability
-export COZELOOP_WORKSPACE_ID=       # optional: CozeLoop observability
+export DEEP_AGENT_CONCURRENCY=3    # max parallel slide generation (default 5)
+export COZELOOP_API_TOKEN=         # optional: CozeLoop observability
+export COZELOOP_WORKSPACE_ID=      # optional: CozeLoop observability
+export LOG_FILE="./logs/app.log"   # log file for background analysis
+export LOG_ANALYSIS_IDLE_INTERVAL="5m"  # idle analysis interval (0 to disable)
+export STREAM_TIMEOUT="3m"        # max time for a single LLM streaming call before timeout (0 to disable)
 ```
 
 ### Observability (CozeLoop)
@@ -108,3 +111,21 @@ Skills are loaded from `skills/` directory (`SKILL.md` files) via `LoadSkillsFro
 ### Prompt string patterns
 
 `slide_executor.go` and `planexecute/executor.go` use a package-level `bt` constant (`"`"`) to embed backtick characters inside Go raw string literals. When adding markdown code formatting (backticks) to prompt strings, use `+ bt +` concatenation — never nest raw backticks inside a raw string literal.
+
+### Background log analysis
+
+A background service (`pkg/log_analysis/service.go`) monitors system logs and task failures:
+
+- **Idle analysis**: Every 5 minutes (configurable via `LOG_ANALYSIS_IDLE_INTERVAL`), when no tasks are running, reads the last 300 lines from `LOG_FILE` and sends them to the LLM for analysis.
+- **Failure analysis**: When a task fails, immediately reads the last 300 lines and triggers LLM analysis.
+
+Results are stored in the `task_error_analyses` DB table (`pkg/db/db.go`), with fields: `analysis` (LLM summary), `root_cause`, `suggestion`. Queried via:
+```
+GET /api/log-analyses              # recent 50 analyses
+GET /api/log-analyses/task/:task_id  # analyses for a specific task
+```
+
+Required env vars (configured in `.env`):
+- `LOG_FILE`: path to the log file to read (e.g. `./logs/app.log`)
+- `LOG_ANALYSIS_IDLE_INTERVAL`: idle analysis interval (e.g. `5m`, `0` to disable)
+- `STREAM_TIMEOUT`: max time a single LLM streaming call can block before timeout (e.g. `3m`, `0` to disable). When triggered, the task exits with a timeout error so it can be cancelled and resumed.

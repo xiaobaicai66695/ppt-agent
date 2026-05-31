@@ -1,0 +1,14 @@
+{
+  "name": "kanban",
+  "display_name": "看板进度页",
+  "type": "atomic",
+  "description": "三列看板布局，适合展示项目进度、任务状态或流程阶段",
+  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "warm_terracotta"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "columns", "label": "看板列数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"title\":\"待办\",\"color\":\"text_muted\",\"cards\":[{\"text\":\"任务1\",\"tag\":\"需求\",\"priority\":\"high\"}]},...]"},
+    {"name": "progress", "label": "整体进度(百分比)", "type": "number", "required": false}
+  ]
+}

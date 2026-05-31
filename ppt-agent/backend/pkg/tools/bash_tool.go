@@ -29,16 +29,16 @@ import (
 
 var bashToolInfo = &schema.ToolInfo{
 	Name: "bash",
-	Desc: `Run commands in a bash shell
-* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
-* You don't have access to the internet via this tool.
-* You do have access to a mirror of common linux and python packages via apt and pip.
-* State is persistent across command calls and discussions with the user.
-* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`,
+	Desc: `在 Bash Shell 中执行命令。
+* 调用此工具时，"command" 参数的内容不需要 XML 转义。
+* 此工具无法访问互联网。
+* 可以通过 apt 和 pip 访问常用的 Linux 和 Python 包镜像。
+* 状态在命令调用和与用户的讨论之间保持持久。
+* 请使用后台运行长时间命令，例如 'sleep 10 &' 或在后台启动服务器。`,
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"command": {
 			Type:     "string",
-			Desc:     "The command to execute",
+			Desc:     "要执行的命令",
 			Required: true,
 		},
 	}),

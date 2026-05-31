@@ -6,6 +6,7 @@ from pptx import Presentation
 from .base import (
     add_source_line, new_presentation, PALETTES, add_text, add_rect, add_round_rect,
     add_ellipse, add_line, set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -19,6 +20,8 @@ def generate(
     center_text: str = "核心\n理念",
     surrounding_points: Optional[List[dict]] = None,
     principles: Optional[List[dict]] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate a brand focus slide with center circle and surrounding points.
 
@@ -57,20 +60,23 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     y_t = 0.3
     if kicker:
         add_text(slide, text=kicker, left=0.5, top=0.2, width=12.0, height=0.2,
-            font_size=12, bold=False, color="text_muted", alignment="left", palette=palette)
+            font_size=12, bold=False, color="text_muted", alignment="left", palette=palette, colors=colors)
         y_t = 0.35
     add_text(slide, text=title, left=0.5, top=y_t, width=12.0, height=0.5,
-        font_size=32, bold=True, color="text", alignment="left", palette=palette)
+        font_size=32, bold=True, color="text", alignment="left", palette=palette, colors=colors)
     if subtitle:
         add_text(slide, text=subtitle, left=0.5, top=y_t + 0.5, width=12.0, height=0.3,
-            font_size=14, bold=False, color="text_muted", alignment="left", palette=palette)
+            font_size=14, bold=False, color="text_muted", alignment="left", palette=palette, colors=colors)
 
     # Center focus area
     center_x, center_y = 3.2, 4.2
@@ -114,7 +120,7 @@ def generate(
         width=1.0,
         height=0.9,
         font_size=14, bold=True, color="background",
-        alignment="center", palette=palette,
+        alignment="center", palette=palette, colors=colors,
     )
 
     # Surrounding points
@@ -157,7 +163,7 @@ def generate(
             width=1.0,
             height=0.5,
             font_size=11, bold=True, color="background",
-            alignment="center", palette=palette,
+            alignment="center", palette=palette, colors=colors,
         )
 
     # Right panel
@@ -169,7 +175,7 @@ def generate(
     add_text(
         slide, text="核心理念",
         left=7.2, top=1.6, width=5.4, height=0.4,
-        font_size=16, bold=True, color="text", palette=palette,
+        font_size=16, bold=True, color="text", palette=palette, colors=colors,
     )
 
     for i, p in enumerate(principles):
@@ -182,17 +188,17 @@ def generate(
         add_text(
             slide, text=f"{i+1:02d}",
             left=7.4, top=y + 0.2, width=0.5, height=0.5,
-            font_size=16, bold=True, color="primary", palette=palette,
+            font_size=16, bold=True, color="primary", palette=palette, colors=colors,
         )
         add_text(
             slide, text=p.get("title", ""),
             left=8.0, top=y + 0.1, width=4.4, height=0.35,
-            font_size=13, bold=True, color="text", palette=palette,
+            font_size=13, bold=True, color="text", palette=palette, colors=colors,
         )
         add_text(
             slide, text=p.get("description", ""),
             left=8.0, top=y + 0.45, width=4.4, height=0.35,
-            font_size=11, color="text_muted", palette=palette,
+            font_size=11, color="text_muted", palette=palette, colors=colors,
         )
         if i < len(principles) - 1:
             add_rect(slide, left=7.2, top=y + 0.7, width=5.4, height=0.01,

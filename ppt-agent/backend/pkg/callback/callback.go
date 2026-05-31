@@ -18,9 +18,9 @@ package callback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -68,6 +68,57 @@ func getAgentName(ctx context.Context, info *callbacks.RunInfo) string {
 // elapsed 返回程序启动以来的毫秒数
 func elapsed() int64 {
 	return time.Since(startTime).Milliseconds()
+}
+
+// httpErrorDetail 存储从 volcengine 错误链中提取的 HTTP 错误元数据
+type httpErrorDetail struct {
+	statusCode int
+	requestID  string
+	code       string // volcengine error code
+	message    string // volcengine error message
+}
+
+// extractHTTPErrors 遍历错误链，查找 volcengine RequestFailure，提取状态码、请求ID、错误码和错误信息
+func extractHTTPErrors(err error) *httpErrorDetail {
+	if err == nil {
+		return nil
+	}
+	// 优先尝试接口断言（最快路径）
+	type reqFailure interface {
+		StatusCode() int
+		RequestID() string
+	}
+	type volcError interface {
+		Code() string
+		Message() string
+	}
+
+	var detail httpErrorDetail
+	var seenCodes int
+
+	for {
+		if rf, ok := err.(reqFailure); ok {
+			detail.statusCode = rf.StatusCode()
+			detail.requestID = rf.RequestID()
+			seenCodes++
+		}
+		if ve, ok := err.(volcError); ok {
+			if detail.code == "" {
+				detail.code = ve.Code()
+			}
+			if detail.message == "" {
+				detail.message = ve.Message()
+			}
+		}
+		if err = errors.Unwrap(err); err == nil {
+			break
+		}
+	}
+
+	if seenCodes == 0 {
+		return nil
+	}
+	return &detail
 }
 
 // truncate 截断过长字符串
@@ -266,26 +317,43 @@ func NewLogHandler() callbacks.Handler {
 			if info != nil {
 				name = getAgentName(ctx, info)
 			}
-			logger.Default().Error("callback_error",
+		logger.Default().Error("callback_error",
+			"elapsed_ms", elapsed(),
+			"agent", name,
+			"name", info.Name,
+			"error", err.Error(),
+		)
+
+		// 提取 volcengine HTTP 错误的详细信息
+		if httpErr := extractHTTPErrors(err); httpErr != nil {
+			fields := []any{
 				"elapsed_ms", elapsed(),
 				"agent", name,
 				"name", info.Name,
-				"error", err.Error(),
-			)
-
-			if info != nil {
-				errStr := err.Error()
-				switch info.Component {
-				case components.ComponentOfChatModel:
-					if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "RateLimit") {
-						metrics.RecordLLMCall("rate_limit")
-					} else {
-						metrics.RecordLLMCall("error")
-					}
-				case components.ComponentOfTool:
-					metrics.RecordToolCall(info.Name, "error")
-				}
+				"http_status", httpErr.statusCode,
+				"request_id", httpErr.requestID,
+				"error_code", httpErr.code,
+				"error_msg", httpErr.message,
 			}
+			logger.Default().Error("callback_http_error",
+				fields...,
+			)
+		}
+
+		if info != nil {
+			switch info.Component {
+			case components.ComponentOfChatModel:
+				if utils.IsRateLimitError(err) {
+					metrics.RecordLLMCall("rate_limit")
+				} else if httpErr := extractHTTPErrors(err); httpErr != nil && httpErr.statusCode > 0 {
+					metrics.RecordLLMCall(fmt.Sprintf("http_%d", httpErr.statusCode))
+				} else {
+					metrics.RecordLLMCall("error")
+				}
+			case components.ComponentOfTool:
+				metrics.RecordToolCall(info.Name, "error")
+			}
+		}
 			return ctx
 		}).
 		OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {

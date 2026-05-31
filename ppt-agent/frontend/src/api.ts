@@ -172,6 +172,7 @@ export interface SlideOutline {
   title: string;
   content_type: string;
   description: string;
+  background?: string;
   content_plan?: ContentPlan;
 }
 
@@ -237,6 +238,14 @@ export interface ThemeInfo {
   tags: string[];
 }
 
+export interface BackgroundTheme {
+  name: string;
+  display_name: string;
+  description: string;
+  scenarios: string[];
+  preview_path: string;
+}
+
 export async function fetchPresets(): Promise<PresetTemplate[]> {
   const res = await apiFetch('/api/templates');
   const data = await res.json();
@@ -259,6 +268,12 @@ export async function fetchThemes(): Promise<ThemeInfo[]> {
   const res = await apiFetch('/api/themes');
   const data = await res.json();
   return data.themes || [];
+}
+
+export async function fetchBackgrounds(): Promise<BackgroundTheme[]> {
+  const res = await apiFetch('/api/backgrounds');
+  const data = await res.json();
+  return data.backgrounds || [];
 }
 
 export async function createTaskWithOutline(query: string, outline: TaskOutline): Promise<TaskInfo> {
@@ -342,4 +357,102 @@ export async function resetUserProfile(): Promise<void> {
     method: 'POST',
     headers: authHeaders(),
   });
+}
+
+export interface PreferenceSummary {
+  preferred_themes: string[];
+  preferred_colors: string[];
+  content_patterns: string[];
+  layout_preferences: string[];
+  language_tone: string;
+  typical_page_count: number;
+  special_notes: string[];
+}
+
+export async function summarizeProfile(): Promise<{ summary: PreferenceSummary; task_count: number; updated_at: string }> {
+  const res = await apiFetch('/api/users/me/profile/summarize', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  const data = await res.json();
+  return data;
+}
+
+// ── User feedback API ──────────────────────────────────────────────────────────────
+
+export interface FeedbackRequest {
+  type: 'rating' | 'edit' | 'completion' | 'abandon';
+  task_id?: string;
+  rating?: number;
+  page_index?: number;
+  before?: string;
+  after?: string;
+  reason?: string;
+  progress?: number;
+}
+
+export async function submitFeedback(feedback: FeedbackRequest): Promise<void> {
+  await apiFetch('/api/feedback', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(feedback),
+  });
+}
+
+export async function submitRating(taskId: string, rating: number): Promise<void> {
+  return submitFeedback({ type: 'rating', task_id: taskId, rating });
+}
+
+export async function submitEditAction(taskId: string, pageIndex: number, before: string, after: string): Promise<void> {
+  return submitFeedback({ type: 'edit', task_id: taskId, page_index: pageIndex, before, after });
+}
+
+export async function submitCompletion(taskId: string, rating: number): Promise<void> {
+  return submitFeedback({ type: 'completion', task_id: taskId, rating });
+}
+
+export async function submitAbandon(taskId: string, reason: string, progress: number): Promise<void> {
+  return submitFeedback({ type: 'abandon', task_id: taskId, reason, progress });
+}
+
+// ── User insights API ──────────────────────────────────────────────────────────────
+
+export interface UserInsight {
+  type: string;
+  insight: string;
+  suggestion: string;
+  confidence: number;
+}
+
+export interface InsightsReport {
+  user_id: number;
+  summary: string;
+  patterns: UserInsight[];
+  recommendations: string[];
+  generated_at: string;
+}
+
+export async function fetchUserInsights(): Promise<InsightsReport | null> {
+  const res = await apiFetch('/api/users/me/insights', { headers: authHeaders() });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.insights;
+}
+
+// ── Recommendations API ──────────────────────────────────────────────────────────────
+
+export interface Recommendation {
+  template: string;
+  theme: string;
+  page_count: number;
+  animation: string;
+  tips: string[];
+}
+
+export async function fetchRecommendations(domain?: string): Promise<Recommendation | null> {
+  const url = domain ? `/api/recommendations?domain=${encodeURIComponent(domain)}` : '/api/recommendations';
+  const res = await apiFetch(url, { headers: authHeaders() });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.recommendation;
 }

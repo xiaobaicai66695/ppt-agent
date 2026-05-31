@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -20,6 +21,8 @@ def generate(
     thank_you: str = "感谢聆听",
     contact: str = "{联系方式}",
     kicker: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a summary slide.
@@ -49,9 +52,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.4
@@ -63,6 +69,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.35
 
@@ -74,6 +81,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Key points area background
@@ -101,6 +109,7 @@ def generate(
             font_size=16, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
 
     # Thank you area background
@@ -118,6 +127,7 @@ def generate(
         font_size=24, bold=True,
         color="background", alignment="center",
         palette=palette,
+        colors=colors,
     )
 
     # Contact
@@ -128,6 +138,7 @@ def generate(
         font_size=12, bold=False,
         color="accent", alignment="center",
         palette=palette,
+        colors=colors,
     )
 
     add_source_line(slide, source, palette)

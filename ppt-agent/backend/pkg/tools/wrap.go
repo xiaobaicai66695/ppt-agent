@@ -55,10 +55,10 @@ func (w *wrapTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt
 	return resp, nil
 }
 
-// ToolRequestRepairJSON repairs JSON format issues commonly found in LLM output.
-// 1. Strips markdown code block wrappers (```json ... ``` or ``` ... ```)
-// 2. Removes eino framework special markers
-// 3. Trims trailing {} or } characters (LLM sometimes generates {"query": "..."}{})
+// ToolRequestRepairJSON 修复 LLM 输出中常见的 JSON 格式问题。
+// 1. 去除 markdown 代码块包装（```json ... ``` 或 ``` ... ```）
+// 2. 移除 eino 框架的特殊标记
+// 3. 修剪尾随的 {} 或 } 字符（LLM 有时会生成 {"query": "..."}{}）
 func ToolRequestRepairJSON(ctx context.Context, request string) (string, error) {
 	request = stripMarkdownFence(request)
 
@@ -68,7 +68,7 @@ func ToolRequestRepairJSON(ctx context.Context, request string) (string, error) 
 	request = strings.TrimSuffix(request, "</think>")
 	request = strings.TrimSpace(request)
 
-	// Strip trailing } or {} (LLM sometimes appends extra closing braces)
+	// 修剪尾随的 } 或 {}（LLM 有时附加额外的闭合花括号）
 	for {
 		trimmed := strings.TrimRight(request, "}")
 		if len(trimmed) == len(request) {
@@ -80,15 +80,15 @@ func ToolRequestRepairJSON(ctx context.Context, request string) (string, error) 
 		request = trimmed
 	}
 
-	// Strip trailing punctuation/whitespace
+	// 修剪尾随的标点符号/空白
 	request = strings.TrimRight(request, ",，;； \t\n")
 
 	return request, nil
 }
 
-// stripMarkdownFence strips markdown code block wrappers from a string.
-// Handles: ```json\n{...}\n```, ```\n{...}\n```, ```python\n{...}\n```
-// Also handles single-line forms: ```{...}``` and `{...}`
+// stripMarkdownFence 去除字符串中的 markdown 代码块包装。
+// 处理：```json\n{...}\n```, ```\n{...}\n```, ```python\n{...}\n```
+// 也处理单行形式：```{...}``` 和 `{...}`
 func stripMarkdownFence(s string) string {
 	s = strings.TrimSpace(s)
 

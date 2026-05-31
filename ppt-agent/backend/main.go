@@ -138,11 +138,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 	}
 
 	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
-		return agentutils.NewFallbackToolCallingChatModel(ctx,
-			agentutils.WithMaxTokens(16384),
-			agentutils.WithTemperature(0),
-			agentutils.WithTopP(0),
-		)
+		return agentutils.NewQAModel(ctx)
 	}
 
 	// Agent factory: creates a fresh agent per task with the right WorkDir/TaskID.
@@ -200,6 +196,13 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 			}
 			return &aiModelAdapter{model: m}, nil
 		},
+		LogAnalysisModelFactory: func(ctx context.Context) (model.ToolCallingChatModel, error) {
+			return agentutils.NewFallbackToolCallingChatModel(ctx,
+				agentutils.WithMaxTokens(8192),
+				agentutils.WithTemperature(0),
+			)
+		},
+		LogAnalysisIdleInterval: parseDurationEnv("LOG_ANALYSIS_IDLE_INTERVAL", 5*time.Minute),
 	})
 
 	logger.Info("server_starting", "mode", "web", "addr", addr, "concurrency", concurrency)
@@ -265,11 +268,7 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	logger.Info("cli_deep_agent_config", "concurrency", concurrency)
 
 	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
-		return agentutils.NewFallbackToolCallingChatModel(ctx,
-			agentutils.WithMaxTokens(16384),
-			agentutils.WithTemperature(0),
-			agentutils.WithTopP(0),
-		)
+		return agentutils.NewQAModel(ctx)
 	}
 
 	logger.Info("deep_agent_creating")
@@ -383,4 +382,18 @@ func getUserQuery() string {
 	}
 
 	return query
+}
+
+// parseDurationEnv parses a duration string from an env var, returns defaultVal on error or if empty.
+func parseDurationEnv(key string, defaultVal time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultVal
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		logger.Warn("invalid_duration_env", "key", key, "value", v, "error", err.Error())
+		return defaultVal
+	}
+	return d
 }

@@ -1,0 +1,14 @@
+{
+  "name": "comparison_table",
+  "display_name": "对比表格页",
+  "type": "atomic",
+  "description": "多项目多维度对比表格，清晰展示不同方案/产品/选项的优劣",
+  "allowed_palettes": ["ocean_soft", "charcoal_light", "report_green", "finance_gold"],
+  "fields": [
+    {"name": "title", "label": "页面标题", "type": "text", "required": true},
+    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
+    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
+    {"name": "table_headers", "label": "表格表头(JSON格式)", "type": "textarea", "required": true, "placeholder": "[\"对比维度\",\"方案A\",\"方案B\"]"},
+    {"name": "table_rows", "label": "表格数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "[[\"指标1\",\"A表现\",\"B表现\"],[\"指标2\",\"A表现\",\"B表现\"]]"}
+  ]
+}

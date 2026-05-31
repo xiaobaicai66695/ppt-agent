@@ -8,6 +8,16 @@
     {"name": "title", "label": "主标题", "type": "text", "required": true},
     {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
     {"name": "presenter", "label": "演讲者", "type": "text", "required": false},
-    {"name": "date", "label": "日期", "type": "text", "required": false}
+    {"name": "date", "label": "日期", "type": "text", "required": false},
+    {"name": "background", "label": "背景图片", "type": "select", "required": false,
+     "options": [
+       {"value": "", "label": "不使用背景"},
+       {"value": "party_government", "label": "党政办公"},
+       {"value": "minimalist_blue", "label": "简约蓝白"},
+       {"value": "ink_wash_mountain", "label": "水墨山水"},
+       {"value": "vintage_chinese", "label": "复古中国风"},
+       {"value": "snowy_mountain", "label": "雪山风景"},
+       {"value": "artistic", "label": "艺术涂鸦"}
+     ]}
   ]
 }

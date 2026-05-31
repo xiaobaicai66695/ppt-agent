@@ -8,6 +8,7 @@ from .base import (
     new_presentation,
     PALETTES, add_text, add_rect,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -28,6 +29,8 @@ def generate(
     right_sections: Dict[str, List[str]] = None,
     left_items: List[Dict[str, Any]] = None,
     right_items: List[Dict[str, Any]] = None,
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """
     Generate a two-column comparison slide.
@@ -80,9 +83,12 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
-
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.4
@@ -94,6 +100,7 @@ def generate(
             font_size=12, bold=False,
             color="secondary", alignment="left",
             palette=palette,
+            colors=colors,
         )
         y_title = 0.35
 
@@ -105,6 +112,7 @@ def generate(
         font_size=36, bold=True,
         color="text", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     col_w = 5.8
@@ -147,6 +155,7 @@ def generate(
         font_size=18, bold=True,
         color="primary", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Left content
@@ -166,6 +175,7 @@ def generate(
             font_size=11, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         for i, item in enumerate(left_bullets[:5]):
             add_text(
@@ -175,6 +185,7 @@ def generate(
                 font_size=12, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
     elif left_bullets:
         for i, item in enumerate(left_bullets[:6]):
@@ -185,6 +196,7 @@ def generate(
                 font_size=13, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     # Right header
@@ -195,6 +207,7 @@ def generate(
         font_size=18, bold=True,
         color="accent", alignment="left",
         palette=palette,
+        colors=colors,
     )
 
     # Right content
@@ -214,6 +227,7 @@ def generate(
             font_size=11, bold=False,
             color="text", alignment="left",
             palette=palette,
+            colors=colors,
         )
         for i, item in enumerate(right_bullets[:5]):
             add_text(
@@ -223,6 +237,7 @@ def generate(
                 font_size=12, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
     elif right_bullets:
         for i, item in enumerate(right_bullets[:6]):
@@ -233,6 +248,7 @@ def generate(
                 font_size=13, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
     add_source_line(slide, source, palette)
@@ -274,6 +290,7 @@ def _render_sections(
             font_size=12, bold=True,
             color=accent_color, alignment="left",
             palette=palette,
+            colors=colors,
         )
         cur_y += 0.32
         for item in items[:5]:
@@ -284,6 +301,7 @@ def _render_sections(
                 font_size=11, bold=False,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
             cur_y += 0.55
         cur_y += 0.1
@@ -321,6 +339,7 @@ def _render_rich_items(
                 color="accent" if not is_left else "primary",
                 alignment="left",
                 palette=palette,
+                colors=colors,
             )
             title_y_offset = 0.28
         else:
@@ -335,6 +354,7 @@ def _render_rich_items(
                 font_size=13, bold=True,
                 color="text", alignment="left",
                 palette=palette,
+                colors=colors,
             )
 
         desc_text = item.get("desc", "")
@@ -346,4 +366,5 @@ def _render_rich_items(
                 font_size=11, bold=False,
                 color="secondary", alignment="left",
                 palette=palette,
+                colors=colors,
             )

@@ -3,7 +3,7 @@ TEMPLATE = {
     "name_cn": "通用模板",
     "description": "通用演示模板，结构均衡，覆盖封面、目录、内容、图表、总结，每章节间有分割页过渡",
     "target_audience": "不限",
-    "typical_slides": 24,
+    "typical_slides": 27,
     "typical_duration": "30-45分钟",
     "palette": "ocean_soft",
     "typography": {
@@ -227,24 +227,45 @@ TEMPLATE = {
         },
         {
             "index": 20,
-            "type": "bar_chart",
+            "type": "chart_slide",
             "title": "",
             "subtitle": "",
-            "notes": "柱状图展示数据对比",
-            "filling_prompt": "必填字段：title（图表标题）、subtitle（副标题）。生成器会渲染图表。"
+            "chart_type": "bar",
+            "notes": "图表专页，展示数据对比/趋势/占比",
+            "filling_prompt": "必填字段：title（图表标题）、subtitle（副标题）、chart_type（bar/pie/line/doughnut）。生成器会渲染图表。"
         },
         {
             "index": 21,
+            "type": "icon_grid",
+            "title": "",
+            "subtitle": "",
+            "layout": "3x2",
+            "icons": [],
+            "notes": "图标网格，视觉化展示多维度能力",
+            "filling_prompt": "必填字段：title（页面标题）、subtitle（副标题）、layout（3x2/3x3）、icons（图标列表，每项包含icon单字、label说明、color）。"
+        },
+        {
+            "index": 22,
+            "type": "swot_analysis",
+            "title": "",
+            "subtitle": "",
+            "swot": {},
+            "notes": "SWOT分析，四象限战略分析",
+            "filling_prompt": "必填字段：title（分析标题）、subtitle（副标题）、swot（包含strengths/weaknesses/opportunities/threats四个维度的items列表）。"
+        },
+        {
+            "index": 23,
             "type": "comparison_table",
             "title": "",
             "subtitle": "",
             "headers": [],
             "rows": [],
+            "recommendation": "",
             "notes": "表格对比展示",
-            "filling_prompt": "必填字段：title（表格标题）、subtitle（副标题）、headers（表头列表）、rows（数据行列表）。"
+            "filling_prompt": "必填字段：title（表格标题）、subtitle（副标题）、headers（表头列表）、rows（数据行列表）、recommendation（推荐结论）。"
         },
         {
-            "index": 22,
+            "index": 24,
             "type": "kpi_dashboard",
             "title": "",
             "kicker": "",
@@ -255,7 +276,7 @@ TEMPLATE = {
             "filling_prompt": "必填字段：title（页面标题）、subtitle（副标题）、kpis（指标列表，每项包含value、label、delta、baseline）。4个指标。"
         },
         {
-            "index": 23,
+            "index": 25,
             "type": "section_divider",
             "number": "05",
             "title": "",
@@ -264,7 +285,7 @@ TEMPLATE = {
             "filling_prompt": "必填字段：number（章节编号）、title（章节标题）、subtitle（副标题）。"
         },
         {
-            "index": 24,
+            "index": 26,
             "type": "summary_slide",
             "title": "",
             "key_points": [],

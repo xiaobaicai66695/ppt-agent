@@ -8,43 +8,24 @@ description: 为PPT幻灯片提供视觉设计指导。遵循本Skill生成设�
 ## 核心设计原则（强制要求）
 
 - **禁止原色/霓虹色**：必须使用低饱和度灰感色彩。详见 `references/palettes.md`
-- **统一浅色背景**：所有幻灯片使用米白、浅灰等浅色，禁止深色背景
-
-## 模板系统
-
-### 完整模板（full-decks）
-
-位于 `templates/full-decks/` 目录下，包含完整的PPT结构定义。模板为 Python 脚本文件（`TEMPLATE` 变量），使用 `read_file` 读取源码作为参考。
-
-| 模板 | 适用场景 | 典型页数 |
-|------|---------|---------|
-| `tech-sharing` | 技术分享、培训、架构讲解 | 14-18页 |
-| `tech-intro` | 技术介绍、科普、知识分享 | 14-18页 |
-| `product-launch` | 新产品发布、客户演示 | 10-12页 |
-| `weekly-report` | 周报、月报、工作汇报 | 6-8页 |
-| `pitch-deck` | 创业路演、商业计划 | 10-12页 |
-| `course-module` | 教学课件、培训材料 | 14-17页 |
-
-每个模板包含：`slide_structure`（完整幻灯片序列）、`palette`（推荐配色）、`typography`（字体配对）、`design_tips`（场景设计注意）。
-
-### 单页模板（single-page）
-
-位于 `templates/single-page/` 目录下，按类型分类。每个模板包含元素定义、视觉规范、使用场景、NEVER清单。常用类型包括：title_slide、content_slide、two_column、three_column、card_grid、timeline、process_flow、stat_slide、quote_slide、section_divider、image_text、summary_slide、agenda、example_detail、deep_dive、case_study、kpi_dashboard。
-
-### 模板使用规则
-
-1. **优先使用完整模板**：如果场景匹配，直接引用模板结构
-2. **按需调整**：模板是起点，不是终点。根据用户实际内容增删幻灯片
-3. **内容必须真实**：模板中的示例数据必须通过 search 工具验证或替换为真实信息
-4. **布局按类型选择**：根据内容性质选择对应布局类型，不要随意混搭
-
----
+- **优先浅色背景**：所有幻灯片使用米白、浅灰等浅色背景；深色背景仅限 charcoal_light 等特定商务场景
 
 ## 字体原则
 
-中英文字体组合，同一页面层级统一字体家族。详见 `references/typography.md`。
+同一页面层级统一字体家族。
 
-> 完整字体配对表和字号规范参考 `references/typography.md`。
+| 用途 | 推荐字体 |
+|------|---------|
+| 中文标题/正文 | 思源黑体 / 微软雅黑 / 苹方 |
+| 英文标题 | Georgia / Arial Black / Calibri / Cambria |
+| 英文正文 | Calibri / Calibri Light |
+
+| 元素 | 字号 |
+|------|------|
+| 幻灯片标题 | 36-44pt 加粗 |
+| 章节标题 | 20-24pt 加粗 |
+| 正文文字 | 14-16pt |
+| 注释/来源 | 10-12pt 淡化色 |
 
 ---
 
@@ -59,7 +40,7 @@ description: 为PPT幻灯片提供视觉设计指导。遵循本Skill生成设�
 | 发展历程/时间线 | 水平或垂直时间轴 |
 | 操作步骤/流程 | 分步图或流程图 |
 | 金句/核心观点 | 大字居中，充足留白 |
-| 数据展示 | 图表优先，图注清晰 |
+| 数据展示 | **图表专页(chart_slide)优先，图注清晰+数据分析面板** |
 | 信息密集 | 分组 + 小标题，多级列表 |
 | 并列要点 | 错落排列，打破机械对齐 |
 
@@ -124,6 +105,56 @@ description: 为PPT幻灯片提供视觉设计指导。遵循本Skill生成设�
 - **绝对不允许文字超出几何体边界**
 
 ---
+## 背景图片（强烈推荐）
+
+**强烈推荐为每页幻灯片添加背景图片，使画面更有层次感和视觉冲击力。**
+
+支持为幻灯片添加背景图片，增强视觉效果。
+
+### 可用背景主题
+
+| 主题标识 | 主题名称 | 适用场景 |
+|----------|----------|----------|
+| `party_government` | 党政办公 | 党建、政府汇报 |
+| `ink_wash_mountain` | 水墨山水 | 中国风、文艺 |
+| `vintage_chinese` | 复古中国风 | 传统文化 |
+| `minimalist_blue` | 简约蓝白 | 商务、科技 |
+| `snowy_mountain` | 雪山风景 | 自然、户外 |
+| `artistic` | 艺术涂鸦 | 艺术、创意、时尚 |
+
+### 使用方式
+
+在模板 JSON 中配置 `background` 字段：
+
+```json
+// 单页模板
+{
+  "name": "title_slide",
+  "fields": [
+    {"name": "background", "label": "背景图片", "type": "select",
+     "options": [
+       {"value": "", "label": "不使用背景"},
+       {"value": "party_government", "label": "党政办公"},
+       {"value": "minimalist_blue", "label": "简约蓝白"}
+     ]}
+  ]
+}
+
+// 全局模板
+{
+  "name": "generic",
+  "background_options": {
+    "themes": ["", "party_government", "minimalist_blue"],
+    "labels": ["不使用背景", "党政办公", "简约蓝白"]
+  }
+}
+```
+
+### 亮度设置
+
+默认亮度 0.95（保持图片清晰可见）。如需调整可通过 `brightness` 参数控制（0.0-1.0）。
+
+---
 
 ## 内容充实度标准（强制要求）
 
@@ -169,72 +200,3 @@ content:
 - ❌ `"显著提升了效率"` — 必须说"部署时间从 3 天降至 2 小时"
 - ❌ 连续 3 页使用纯 bullet_list 无实例 — 第 3 页开始必须含 example_box 或 case_study_block
 - ❌ example_box 的 description 少于 40 个中文字符 — 必须展开写技术细节
-
----
-
-## 质量检查（QA）
-
-初次渲染几乎不可能完全正确。把 QA 当作 bug 排查，而非确认步骤。
-
-### 检查要点
-
-- 重叠元素（文字穿透形状、线条穿过文字）
-- 文字溢出或被截断
-- 装饰线位置为单行设计，但标题换行成两行
-- 元素间距太小（< 0.3"）或卡片几乎相接
-- 页边距不足（距边缘 < 0.5"）
-- 文字对比度低（如浅灰色文字配浅色背景）
-- 残留的占位符内容
-
-### 验证流程
-
-1. 生成幻灯片 → 转换为图片 → 检查
-2. 列出发现的问题
-3. 修复问题
-4. **重新验证受影响的幻灯片**
-5. 重复直到无新问题
-
----
-
-## 设计输出格式
-
-```json
-{
-  "theme": "tech",
-  "palette": "ocean_soft",
-  "slides": [
-    {
-      "index": 1,
-      "type": "title_slide",
-      "content": { "title": "...", "subtitle": "..." },
-      "style": { "primary_color": "#5A8AA8", "accent_color": "#A8C4D4" },
-      "visual_elements": ["..."],
-      "image_url": ""
-    }
-  ]
-}
-```
-
-### image_url 字段说明
-
-**仅在 search_image 工具返回有效结果时填写真实 URL，否则必须留空字符串 `""`。禁止编造或猜测 URL。**
-
-### visual_elements 字段说明
-
-允许两种形式：
-
-**模板元素（精确控制）**：
-```json
-"visual_elements": [
-  "顶部渐变条: 高度0.3英寸, 颜色从primary到accent渐变",
-  "右下角圆形装饰: 半径0.4英寸, accent色, 半透明0.3, 位置距右0.5英寸距下0.5英寸"
-]
-```
-
-**自然语言描述（发挥创意）**：
-```json
-"visual_elements": [
-  "用几何色块构建抽象的数据流动感，左侧深右侧浅暗示趋势",
-  "底部角落用渐变圆形作为品牌视觉锚点"
-]
-```

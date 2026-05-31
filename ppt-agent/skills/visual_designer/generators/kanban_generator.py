@@ -4,6 +4,7 @@ from pptx import Presentation
 from .base import (
     add_source_line, new_presentation, PALETTES, add_text, add_rect, add_round_rect,
     set_slide_background,
+    resolve_background, set_image_background,
 )
 
 
@@ -17,6 +18,8 @@ def generate(
     columns: Optional[List[dict]] = None,
     progress: int = 65,
     stats: str = "",
+    background: str = None,
+    glass_colors: dict = None,
 ) -> Presentation:
     """Generate a kanban board slide.
 
@@ -72,18 +75,23 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide, palette)
+    bg_path = resolve_background(background) if background else None
+    if bg_path:
+        set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    else:
+        set_slide_background(slide, palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     y_t = 0.3
     if kicker:
         add_text(slide, text=kicker, left=0.5, top=0.2, width=12.0, height=0.2,
-            font_size=12, bold=False, color="text_muted", alignment="left", palette=palette)
+            font_size=12, bold=False, color="text_muted", alignment="left", palette=palette, colors=colors)
         y_t = 0.35
     add_text(slide, text=title, left=0.5, top=y_t, width=12.0, height=0.5,
-        font_size=32, bold=True, color="text", alignment="left", palette=palette)
+        font_size=32, bold=True, color="text", alignment="left", palette=palette, colors=colors)
     if subtitle:
         add_text(slide, text=subtitle, left=0.5, top=y_t + 0.5, width=12.0, height=0.3,
-            font_size=14, bold=False, color="text_muted", alignment="left", palette=palette)
+            font_size=14, bold=False, color="text_muted", alignment="left", palette=palette, colors=colors)
 
     # Calculate column dimensions
     col_width = 3.8
@@ -103,7 +111,7 @@ def generate(
                  fill_color=col_color, palette=palette)
         add_text(slide, text=col_title,
                  left=x + 0.15, top=1.4, width=col_width - 0.7, height=0.4,
-                 font_size=14, bold=True, color="background", palette=palette)
+                 font_size=14, bold=True, color="background", palette=palette, colors=colors)
 
         # Count badge
         add_round_rect(slide, left=x + col_width - 0.6, top=1.42,
@@ -111,7 +119,7 @@ def generate(
                        fill_color="background", palette=palette)
         add_text(slide, text=str(len(cards)),
                  left=x + col_width - 0.6, top=1.43, width=0.45, height=0.35,
-                 font_size=12, bold=True, color=col_color, alignment="center", palette=palette)
+                 font_size=12, bold=True, color=col_color, alignment="center", palette=palette, colors=colors)
 
         # Cards
         card_y = card_start_y
@@ -136,13 +144,13 @@ def generate(
                 add_text(slide, text=tag,
                          left=x + 0.15, top=card_y + 0.1, width=0.8, height=0.28,
                          font_size=9, bold=False, color="text_muted",
-                         alignment="center", palette=palette)
+                         alignment="center", palette=palette, colors=colors)
 
             # Card title
             card_text = card.get("text", "")
             add_text(slide, text=card_text,
                      left=x + 0.15, top=card_y + 0.45, width=col_width - 0.3, height=0.45,
-                     font_size=12, bold=True, color="text", palette=palette)
+                     font_size=12, bold=True, color="text", palette=palette, colors=colors)
 
             card_y += 1.1
 
@@ -162,7 +170,7 @@ def generate(
 
     add_text(slide, text=stats,
              left=0.5, top=footer_y + 0.15, width=12.333, height=0.35,
-             font_size=12, color="text_muted", alignment="center", palette=palette)
+             font_size=12, color="text_muted", alignment="center", palette=palette, colors=colors)
 
     add_source_line(slide, source, palette)
     return prs

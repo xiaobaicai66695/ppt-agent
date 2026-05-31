@@ -35,9 +35,9 @@ var checkpointToolInfo = &schema.ToolInfo{
 此工具用于确保即使框架状态丢失，也能通过文件系统追踪真实的生成进度。`,
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"slide_index": {
-			Type:        schema.String,
-			Desc:        "已完成幻灯片的页码标识，如 4_标题页 或 4.1_金融行业",
-			Required:    true,
+			Type:     schema.String,
+			Desc:     "已完成幻灯片的页码标识，如 4_标题页 或 4.1_金融行业",
+			Required: true,
 		},
 	}),
 }

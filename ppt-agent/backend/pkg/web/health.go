@@ -30,13 +30,13 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
-// HealthStatus represents the result of a single health check.
+// HealthStatus 表示单个健康检查的结果。
 type HealthStatus struct {
 	Status  string `json:"status"`  // "ok" or "error"
 	Message string `json:"message,omitempty"`
 }
 
-// HealthReport is the full health check response.
+// HealthReport 是完整的健康检查响应。
 type HealthReport struct {
 	Status      string                  `json:"status"` // "ok", "degraded", or "error"
 	Version     string                  `json:"version"`
@@ -44,10 +44,10 @@ type HealthReport struct {
 	Components  map[string]HealthStatus `json:"components"`
 }
 
-// StartTime is set from main.go so health can report uptime.
+// StartTime 由 main.go 设置，以便健康检查可以报告服务运行时间。
 var StartTime = time.Now()
 
-// Version is the application version, set from main.go.
+// Version 是应用版本号，由 main.go 设置。
 var Version = "dev"
 
 func (s *Server) handleHealthCheck(c *gin.Context) {
@@ -66,14 +66,14 @@ func (s *Server) handleHealthCheck(c *gin.Context) {
 		report.Status = "degraded"
 	}
 
-	// Check Python binary
+	// 检查 Python 运行时
 	pyStatus := s.checkPython(ctx)
 	report.Components["python"] = pyStatus
 	if pyStatus.Status != "ok" {
 		report.Status = "error"
 	}
 
-	// Check LibreOffice (for QA images)
+	// 检查 LibreOffice（用于 QA 图片生成）
 	loStatus := s.checkLibreOffice(ctx)
 	report.Components["libreoffice"] = loStatus
 	if loStatus.Status != "ok" {
@@ -98,7 +98,7 @@ func (s *Server) checkDB(ctx context.Context) HealthStatus {
 		return HealthStatus{Status: "error", Message: "failed to get underlying sql.DB"}
 	}
 
-	// Ping with 2s timeout
+	// 使用 2 秒超时进行 Ping
 	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
@@ -112,12 +112,12 @@ func (s *Server) checkDB(ctx context.Context) HealthStatus {
 func (s *Server) checkPython(ctx context.Context) HealthStatus {
 	pythonBin := getPythonBin()
 
-	// Check file exists
+	// 检查文件是否存在
 	if _, err := os.Stat(pythonBin); err != nil {
 		return HealthStatus{Status: "error", Message: "python binary not found at " + pythonBin}
 	}
 
-	// Quick version check
+	// 快速版本检查
 	cmd := exec.CommandContext(ctx, pythonBin, "-c", "import sys; print(sys.version_info[:2])")
 	out, err := cmd.Output()
 	if err != nil {
@@ -128,7 +128,7 @@ func (s *Server) checkPython(ctx context.Context) HealthStatus {
 }
 
 func (s *Server) checkLibreOffice(ctx context.Context) HealthStatus {
-	// Try common LibreOffice paths
+	// 尝试常见的 LibreOffice 路径
 	paths := []string{
 		"libreoffice",
 		"soffice",
@@ -166,7 +166,7 @@ func (s *Server) checkLibreOffice(ctx context.Context) HealthStatus {
 	}
 }
 
-// getPythonBin returns the configured Python binary path.
+// getPythonBin 返回配置的 Python 二进制路径。
 func getPythonBin() string {
 	return pythonutil.GetPythonBinary()
 }
