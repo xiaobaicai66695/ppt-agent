@@ -67,8 +67,11 @@ type Collector struct {
 	wg      sync.WaitGroup
 
 	// 配置
-	bufferSize   int
+	bufferSize    int
 	flushInterval time.Duration
+
+	// 关联的 Updater（通过 SetUpdater 注入）
+	updater *Updater
 }
 
 // CollectorConfig 采集器配置
@@ -149,6 +152,11 @@ func (c *Collector) flush() {
 	}
 }
 
+// SetUpdater 设置关联的 Updater（在 Engine 中注入）
+func (c *Collector) SetUpdater(u *Updater) {
+	c.updater = u
+}
+
 // processSignal 处理单个信号
 func (c *Collector) processSignal(signal *LearningSignal) {
 	// 记录日志
@@ -158,7 +166,13 @@ func (c *Collector) processSignal(signal *LearningSignal) {
 		"task_id", signal.TaskID,
 		"phase", signal.Context.TaskPhase)
 
-	// TODO: 发送到外部学习系统或存储
+	// 将信号交给 Updater 处理
+	if c.updater != nil {
+		c.updater.UpdateFromSignal(signal)
+	}
+
+	// 将信号记录到 Analyzer（用于模式分析）
+	// 注：Analyzer 通过 engine.analyzer 引用，这里由 Engine 层处理
 }
 
 // Record 记录学习信号

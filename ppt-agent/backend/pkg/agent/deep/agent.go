@@ -29,6 +29,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
+	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
@@ -55,9 +56,9 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建压缩器模型失败: %w", err)
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
-		agentutils.WithCompressThreshold(16),
-		agentutils.WithTokenThreshold(50000),
-		agentutils.WithPreserveCount(6),
+		agentutils.WithCompressThreshold(60),
+		agentutils.WithTokenThreshold(200000),
+		agentutils.WithPreserveCount(8),
 	)
 	if cfg.CompressorTracker != nil {
 		if compressor, ok := chatModel.(*agentutils.ChatModelCompressor); ok {
@@ -70,9 +71,14 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建 SlideExecutor 子代理失败: %w", err)
 	}
 
-	// QA 质检默认启用，可通过 ENABLE_QA 环境变量关闭
+	// QA 质检：根据 RoutingDecision、环境变量、配置三者共同决定
 	enableQA := cfg.EnableQA
-	if !cfg.EnableQA {
+	// 路由决策可以覆盖（显式设置 SkipQA）
+	if cfg.RoutingDecision != nil && cfg.RoutingDecision.SkipQA {
+		enableQA = false
+	}
+	if enableQA && !cfg.EnableQA {
+		// 配置未显式禁用时，检查环境变量
 		enableQA = isQAEnabled()
 	}
 
@@ -104,7 +110,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		Name:        "PPTTaskDeepAgent",
 		Description: "PPT 任务调度代理，负责规划、并行生成、质检和修复 PPT 幻灯片",
 		ChatModel:   chatModel,
-		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, enableQA),
+		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, enableQA, getConcurrency(cfg.RoutingDecision)),
 		SubAgents:   subAgents,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
@@ -129,10 +135,23 @@ func isQAEnabled() bool {
 	return os.Getenv("ENABLE_QA") != "false"
 }
 
+// getConcurrency 从路由决策获取并发数，默认 5
+func getConcurrency(route *agentintent.RoutingDecision) int {
+	if route != nil && route.Concurrency > 0 {
+		// 限制在合理范围
+		if route.Concurrency > 10 {
+			return 10
+		}
+		return route.Concurrency
+	}
+	return 5
+}
+
 // buildDeepAgentInstruction 从模板加载深度代理的主指令
 // 当提供大纲时，tasks.json 已经预填充了用户的幻灯片计划
 // query 提供用户原始主题描述用于内容生成
-func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool) string {
+// concurrency 每批最大并发页数（来自路由决策）
+func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int) string {
 	tmplDir := filepath.Join(skillsDir, "visual_designer", "templates", "full-decks")
 	tasksJSON := filepath.Join(workDir, "tasks.json")
 
@@ -182,6 +201,7 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		OutlineTitle:    outlineTitle,
 		SkillsDir:       skillsDir,
 		EnableQA:        enableQA,
+		Concurrency:     concurrency,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)
@@ -195,6 +215,13 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 
 var globalLearningEngine *agentlearning.Engine
 var learningEngineOnce sync.Once
+var learningEngineFactory func() interface{}
+
+// InitLearningEngine 初始化全局学习引擎（由 main.go 在 modelFactory 可用后调用）
+// factory 是 ServerConfig.AIModelFactory 的工厂函数
+func InitLearningEngine(factory func() interface{}) {
+	learningEngineFactory = factory
+}
 
 // GetLearningEngine 获取全局学习引擎实例
 func GetLearningEngine() *agentlearning.Engine {
@@ -204,7 +231,7 @@ func GetLearningEngine() *agentlearning.Engine {
 			EnableLearning:          true,
 			EnableProfileMatch:      true,
 		}
-		globalLearningEngine = agentlearning.NewEngine(cfg)
+		globalLearningEngine = agentlearning.NewEngine(cfg, learningEngineFactory)
 	})
 	return globalLearningEngine
 }

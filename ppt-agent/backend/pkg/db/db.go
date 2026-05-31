@@ -17,6 +17,7 @@ type User struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Email     string    `gorm:"size:120;uniqueIndex;not null" json:"email"`
 	Password  string    `gorm:"size:255" json:"-"`
+	IsAdmin   bool      `gorm:"default:false" json:"is_admin"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -211,5 +212,31 @@ func Init(dsn string) error {
 
 	logger.Info("mysql_connected")
 	return nil
+}
+
+// ListAllUsers 返回所有用户（供管理员查看）。
+func ListAllUsers() ([]User, error) {
+	var users []User
+	err := DB.Order("created_at DESC").Find(&users).Error
+	return users, err
+}
+
+// ListAllTaskRecords 返回所有任务记录（供管理员查看）。
+func ListAllTaskRecords(limit int) ([]TaskRecord, error) {
+	var records []TaskRecord
+	err := DB.Order("created_at DESC").Limit(limit).Find(&records).Error
+	return records, err
+}
+
+// ListAllStyleProfiles 返回所有用户风格偏好。
+func ListAllStyleProfiles() ([]UserStyleProfile, error) {
+	var profiles []UserStyleProfile
+	err := DB.Find(&profiles).Error
+	return profiles, err
+}
+
+// DeleteErrorAnalysis 删除指定 ID 的日志分析记录。
+func DeleteErrorAnalysis(id uint) error {
+	return DB.Where("id = ?", id).Delete(&TaskErrorAnalysis{}).Error
 }
 

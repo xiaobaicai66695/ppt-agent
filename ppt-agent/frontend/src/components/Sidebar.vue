@@ -5,7 +5,7 @@ import type { TaskInfo } from '../types';
 import { isLoggedIn, summarizeProfile, updateUserProfile, type PreferenceSummary } from '../api';
 
 const props = defineProps<{
-  user: { id: number; email: string } | null;
+  user: { id: number; email: string; is_admin?: boolean } | null;
   tasks: TaskInfo[];
   selectedId: string | null;
   hasRunningTask: boolean;
@@ -131,7 +131,7 @@ function closePrefs() {
     <!-- User bar -->
     <div class="user-bar" role="region" aria-label="用户信息">
       <template v-if="user">
-        <span class="user-avatar" aria-hidden="true">{{ user.email[0].toUpperCase() }}</span>
+        <span class="user-avatar" :class="{ admin: props.user?.is_admin }" aria-hidden="true">{{ user.email[0].toUpperCase() }}</span>
         <span class="user-name" :title="user.email">{{ user.email.split('@')[0] }}</span>
         <button class="prefs-btn" @click="openPrefs" title="偏好设置">偏好</button>
         <button class="logout-btn" @click="onLogout" title="退出登录">退出</button>
@@ -141,6 +141,14 @@ function closePrefs() {
         <span class="user-name dim">未登录</span>
         <button class="logout-btn" @click="router.push('/auth')">登录</button>
       </template>
+    </div>
+
+    <!-- Admin shortcut -->
+    <div class="admin-shortcut">
+      <button class="admin-shortcut-btn" @click="router.push('/admin')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M18 12a2 2 0 0 0-2-2h-1"/></svg>
+        管理后台
+      </button>
     </div>
 
     <!-- Create form -->
@@ -350,6 +358,33 @@ function closePrefs() {
   transition: all var(--transition); font-family: inherit;
 }
 .logout-btn:hover { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger); }
+.user-avatar.admin { background: var(--accent-soft); color: var(--accent-text); }
+
+.admin-shortcut {
+  padding: 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.admin-shortcut-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 0.8rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+.admin-shortcut-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
 
 /* ── Action Row (compose shortcut) ────────────────────────────────── */
 .action-row {

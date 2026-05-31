@@ -27,6 +27,29 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 	}
 }
 
+// adminMiddleware 要求用户已登录且具有管理员权限。
+func (s *Server) adminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := extractTokenFromGin(c)
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+			return
+		}
+		user, err := auth.ValidateSession(token)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+		if !user.IsAdmin {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
+			return
+		}
+		ctx := auth.WithUser(c.Request.Context(), user)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}
+
 func extractTokenFromGin(c *gin.Context) string {
 	h := c.GetHeader("Authorization")
 	if strings.HasPrefix(h, "Bearer ") {
@@ -41,4 +64,16 @@ func extractTokenFromGin(c *gin.Context) string {
 func userIDGin(c *gin.Context) int {
 	id, _ := auth.UserIDFromContext(c.Request.Context())
 	return id
+}
+
+func isAdminGin(c *gin.Context) bool {
+	id, ok := auth.UserIDFromContext(c.Request.Context())
+	if !ok {
+		return false
+	}
+	user, err := auth.ValidateUser(id)
+	if err != nil || user == nil {
+		return false
+	}
+	return user.IsAdmin
 }

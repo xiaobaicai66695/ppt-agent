@@ -21,6 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -74,51 +77,49 @@ func elapsed() int64 {
 type httpErrorDetail struct {
 	statusCode int
 	requestID  string
-	code       string // volcengine error code
-	message    string // volcengine error message
 }
 
-// extractHTTPErrors 遍历错误链，查找 volcengine RequestFailure，提取状态码、请求ID、错误码和错误信息
+// extractHTTPErrors 遍历错误链，查找 volcengine RequestFailure，提取状态码和请求ID。
+// SDK 的 error 只暴露 Error() 方法，因此直接正则解析 Error() 字符串。
 func extractHTTPErrors(err error) *httpErrorDetail {
 	if err == nil {
 		return nil
 	}
-	// 优先尝试接口断言（最快路径）
-	type reqFailure interface {
-		StatusCode() int
-		RequestID() string
-	}
-	type volcError interface {
-		Code() string
-		Message() string
-	}
 
-	var detail httpErrorDetail
-	var seenCodes int
-
-	for {
-		if rf, ok := err.(reqFailure); ok {
-			detail.statusCode = rf.StatusCode()
-			detail.requestID = rf.RequestID()
-			seenCodes++
-		}
-		if ve, ok := err.(volcError); ok {
-			if detail.code == "" {
-				detail.code = ve.Code()
-			}
-			if detail.message == "" {
-				detail.message = ve.Message()
-			}
-		}
-		if err = errors.Unwrap(err); err == nil {
+	errStr := ""
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		errStr = e.Error()
+		if strings.Contains(errStr, "RequestError") {
 			break
 		}
 	}
 
-	if seenCodes == 0 {
+	if !strings.Contains(errStr, "RequestError") {
 		return nil
 	}
-	return &detail
+
+	detail := &httpErrorDetail{}
+
+	// 解析 "RequestError code: 429, err: <nil>, request_id: xxx"
+	if re := regexp.MustCompile(`code:\s*(\d+)`); re.MatchString(errStr) {
+		if m := re.FindStringSubmatch(errStr); len(m) > 1 {
+			if c, convErr := strconv.Atoi(m[1]); convErr == nil {
+				detail.statusCode = c
+			}
+		}
+	}
+
+	// 解析 request_id: xxx（去除引号和逗号）
+	if re := regexp.MustCompile(`request_id:\s*"?([^",\s]*)"?`); re.MatchString(errStr) {
+		if m := re.FindStringSubmatch(errStr); len(m) > 1 {
+			detail.requestID = strings.TrimSpace(m[1])
+		}
+	}
+
+	if detail.statusCode == 0 {
+		return nil
+	}
+	return detail
 }
 
 // truncate 截断过长字符串
@@ -326,17 +327,12 @@ func NewLogHandler() callbacks.Handler {
 
 		// 提取 volcengine HTTP 错误的详细信息
 		if httpErr := extractHTTPErrors(err); httpErr != nil {
-			fields := []any{
+			logger.Default().Error("callback_http_error",
 				"elapsed_ms", elapsed(),
 				"agent", name,
 				"name", info.Name,
 				"http_status", httpErr.statusCode,
 				"request_id", httpErr.requestID,
-				"error_code", httpErr.code,
-				"error_msg", httpErr.message,
-			}
-			logger.Default().Error("callback_http_error",
-				fields...,
 			)
 		}
 

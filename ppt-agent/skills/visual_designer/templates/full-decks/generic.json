@@ -4,7 +4,7 @@
   "type": "preset",
   "description": "通用演示模板，结构均衡，覆盖封面、目录、内容、图表、总结各类场景",
   "category": "other",
-  "default_palette": "ocean_soft",
+  "default_palette": "",
   "tags": ["通用", "空白", "自由编辑"],
   "thumbnail": "/templates/thumbs/generic.png",
   "slide_count": 24,

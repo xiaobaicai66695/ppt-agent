@@ -11,7 +11,7 @@ import {
 
 // Simple reactive auth store (no Pinia dependency)
 export const authState = reactive({
-  user: null as { id: number; email: string } | null,
+  user: null as { id: number; email: string; is_admin?: boolean } | null,
   loading: false,
   error: '',
 
@@ -19,11 +19,15 @@ export const authState = reactive({
     return !!this.user;
   },
 
+  get isAdmin() {
+    return this.user?.is_admin === true;
+  },
+
   async init() {
     if (!isLoggedIn()) return;
     try {
       const me = await fetchMe();
-      this.user = { id: me.id, email: me.email };
+      this.user = { id: me.id, email: me.email, is_admin: (me as any).is_admin };
     } catch {
       this.user = null;
     }
@@ -36,7 +40,7 @@ export const authState = reactive({
       const u = mode === 'code'
         ? await loginWithCode(email, codeOrPassword)
         : await loginWithPassword(email, codeOrPassword);
-      this.user = { id: u.id, email: u.email };
+      this.user = { id: u.id, email: u.email, is_admin: (u as any).is_admin };
       return u;
     } catch (e) {
       this.error = (e as Error).message;

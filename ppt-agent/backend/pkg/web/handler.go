@@ -8,14 +8,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
+	"github.com/cloudwego/ppt-agent/pkg/db"
 	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/style"
@@ -68,7 +72,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"token": token, "id": user.ID, "email": user.Email, "is_new": isNew,
+			"token": token, "id": user.ID, "email": user.Email, "is_new": isNew, "is_admin": user.IsAdmin,
 		})
 		return
 	}
@@ -81,6 +85,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"token": token, "id": user.ID, "email": user.Email,
+			"is_admin": user.IsAdmin,
 		})
 		return
 	}
@@ -114,7 +119,12 @@ func (s *Server) handleLogout(c *gin.Context) {
 func (s *Server) handleMe(c *gin.Context) {
 	uid := userIDGin(c)
 	email, _ := auth.UsernameFromContext(c.Request.Context())
-	c.JSON(http.StatusOK, gin.H{"id": uid, "email": email})
+	user, _ := auth.ValidateUser(uid)
+	c.JSON(http.StatusOK, gin.H{
+		"id":       uid,
+		"email":    email,
+		"is_admin": user != nil && user.IsAdmin,
+	})
 }
 
 // ── 任务处理器 ─────────────────────────────────────────────────────────
@@ -543,13 +553,27 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 		return
 	}
 
-	// 允许继续已完成的或已取消的任务
-	if ts.Info.Status != task.TaskStatusCompleted && ts.Info.Status != task.TaskStatusCancelled {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only completed or cancelled tasks can be continued"})
+	uid := userIDGin(c)
+
+	// 任务运行中：加入等待队列，任务完成后自动处理
+	if ts.Info.Status == task.TaskStatusRunning {
+		firstQueued := ts.SetPendingContinueMsg(req.Message)
+
+		statusMsg := "您的反馈已排队，将在当前任务完成后自动处理"
+		if !firstQueued {
+			statusMsg = "反馈已更新，将在当前任务完成后自动处理"
+		}
+
+		// 返回 202 Accepted，前端显示"已排队"
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":  "queued",
+			"message": statusMsg,
+			"task_id": taskID,
+		})
 		return
 	}
 
-	uid := userIDGin(c)
+	// 允许继续已完成的或已取消的任务
 	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 	sess.AddUserMessage(req.Message)
 
@@ -1028,9 +1052,43 @@ type FixResult struct {
 }
 
 func (s *Server) runFixerForTask(workDir string, task *deep.TaskItem, qaReport string) FixResult {
+	if task.FixAttempts >= 2 {
+		return FixResult{
+			Success: false,
+			Message: fmt.Sprintf("任务 %s 已达到最大修复次数（2次），跳过修复", task.TaskID),
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	fixRequest := fmt.Sprintf("请修复 PPT 任务 %s（第 %d 页: %s）中的以下问题：\n%s\n工作目录: %s",
+		task.TaskID, task.PageIndex+1, task.Title, qaReport, workDir)
+
+	var fixErr error
+	err := deep.RunFixerAgentWithCallback(ctx, workDir, s.skillDir, s.operator, fixRequest, func(event deep.AgentEvent) {
+		// Fixer 事件可通过日志记录，暂不向客户端推送
+		if event.Type == deep.AgentEventError {
+			fixErr = fmt.Errorf("Fixer 错误: %s", event.Error)
+		}
+	})
+
+	if err != nil {
+		return FixResult{
+			Success: false,
+			Message: fmt.Sprintf("修复失败: %v", err),
+		}
+	}
+	if fixErr != nil {
+		return FixResult{
+			Success: false,
+			Message: fmt.Sprintf("修复执行出错: %v", fixErr),
+		}
+	}
+
 	return FixResult{
 		Success: true,
-		Message: "修复请求已记录，将在后续质检流程中处理",
+		Message: fmt.Sprintf("任务 %s 修复完成", task.TaskID),
 	}
 }
 
@@ -1211,21 +1269,61 @@ func writeSSEFlush(writer interface{ Write([]byte) (int, error) }, flusher inter
 }
 
 // handleGetConversation 返回任务的对话历史记录。
+// 如果任务在内存中，返回实时会话数据；如果不在（冷启动），从数据库重建完整历史。
 func (s *Server) handleGetConversation(c *gin.Context) {
 	taskID := c.Param("id")
 
 	ts := s.tasks.GetTaskState(taskID)
-	if ts == nil {
+
+	// 任务在内存中，直接返回实时会话数据。
+	if ts != nil {
+		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
+		c.JSON(http.StatusOK, gin.H{
+			"task_id":    taskID,
+			"messages":   sess.Messages,
+			"created_at": sess.CreatedAt,
+			"updated_at": sess.UpdatedAt,
+		})
+		return
+	}
+
+	// 冷启动：从数据库重建完整对话历史。
+	// 先从 task_records 获取 ConversationContent（已拼接的完整摘要）。
+	info := s.tasks.GetTask(taskID)
+	if info == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
 
-	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
+	// 追加 conversation_messages 中的助手消息（在 stream 已写入的部分）。
+	dbMsgs, err := db.ListConversationMessages(taskID)
+	if err != nil {
+		dbMsgs = nil
+	}
+
+	// 按时间顺序合并：用户消息 + 助手消息。
+	var messages []session.Message
+	for _, m := range dbMsgs {
+		messages = append(messages, session.Message{
+			Role:      m.Role,
+			Content:   m.Content,
+			Timestamp: m.Timestamp,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"task_id":    taskID,
-		"messages":   sess.Messages,
-		"created_at": sess.CreatedAt,
-		"updated_at": sess.UpdatedAt,
+		"task_id":                taskID,
+		"messages":               messages,
+		"conversation_content":    info.ConversationContent,
+		"status":                 info.Status,
+		"done_count":             info.DoneCount,
+		"total_count":            info.TotalCount,
+		"files":                  info.Files,
+		"duration":                info.Duration,
+		"prompt_tokens":          info.PromptTokens,
+		"completion_tokens":      info.CompletionTokens,
+		"total_tokens":           info.TotalTokens,
+		"created_at":             info.CreatedAt,
 	})
 }
 
@@ -1392,3 +1490,215 @@ func (s *Server) handleGetTaskLogAnalyses(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
 }
+
+// ── Feedback & Learning handlers ──────────────────────────────────────────────
+
+// FeedbackRequest 对应前端 FeedbackRequest 结构
+type FeedbackRequest struct {
+	Type      string  `json:"type"` // rating/edit/completion/abandon
+	TaskID    string  `json:"task_id,omitempty"`
+	Rating    float64 `json:"rating,omitempty"`
+	PageIndex int     `json:"page_index,omitempty"`
+	Before    string  `json:"before,omitempty"`
+	After     string  `json:"after,omitempty"`
+	Reason    string  `json:"reason,omitempty"`
+	Progress  float64 `json:"progress,omitempty"`
+}
+
+func (s *Server) handleSubmitFeedback(c *gin.Context) {
+	var req FeedbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求: " + err.Error()})
+		return
+	}
+
+	userID, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	uid := userID.(int)
+
+	engine := deep.GetLearningEngine()
+	if engine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
+		return
+	}
+
+	feedback := &agentlearning.Feedback{
+		Type:      req.Type,
+		Rating:    req.Rating,
+		PageIndex: req.PageIndex,
+		Before:    req.Before,
+		After:     req.After,
+		Duration:  0,
+		Reason:    req.Reason,
+		Progress:  req.Progress,
+		Data: map[string]interface{}{
+			"task_id": req.TaskID,
+		},
+	}
+
+	engine.RecordFeedback(uid, req.TaskID, feedback)
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (s *Server) handleGetUserInsights(c *gin.Context) {
+	userID, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	uid := userID.(int)
+
+	engine := deep.GetLearningEngine()
+	if engine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
+		return
+	}
+
+	insights := engine.GetUserInsights(uid)
+	if insights == nil {
+		c.JSON(http.StatusOK, gin.H{"insights": nil})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"insights": insights})
+}
+
+func (s *Server) handleGetRecommendations(c *gin.Context) {
+	userID, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	uid := userID.(int)
+	domain := c.Query("domain")
+
+	engine := deep.GetLearningEngine()
+	if engine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
+		return
+	}
+
+	rec := engine.GetRecommendations(uid, domain)
+	c.JSON(http.StatusOK, gin.H{"recommendation": rec})
+}
+
+// onTaskContinue 任务完成后自动触发继续处理（TaskManager 通过回调调用）。
+// 它从等待队列中取出消息，重新启动 SSE 流并处理继续逻辑。
+func (s *Server) onTaskContinue(taskID string) {
+	ts := s.tasks.GetTaskState(taskID)
+	if ts == nil {
+		return
+	}
+
+	pendingMsg := ts.GetPendingContinueMsg()
+	if pendingMsg == "" {
+		return
+	}
+
+	uid := ts.Info.UserID
+	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
+	sess.AddUserMessage(pendingMsg)
+
+	// 重新标记为运行状态
+	ts.Mu.Lock()
+	ts.Info.Status = task.TaskStatusRunning
+	ts.Mu.Unlock()
+	ts.Persist()
+
+	// 启动 SSE 流处理继续请求
+	listenerID := uuid.New().String()
+	ch := make(chan task.SSERichEvent, 64)
+	ts.AddListener(listenerID, ch)
+	go func() {
+		defer func() {
+			ts.RemoveListener(listenerID)
+			ts.Mu.Lock()
+			ts.Info.Status = task.TaskStatusCompleted
+			ts.Mu.Unlock()
+			ts.Persist()
+		}()
+		s.runContinue(taskID, ts, pendingMsg, uid, sess, ch)
+	}()
+}
+
+// ── 管理员 API ───────────────────────────────────────────────────────────
+
+func (s *Server) handleAdminUsers(c *gin.Context) {
+	users, err := db.ListAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询用户列表失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"users": users})
+}
+
+func (s *Server) handleAdminTasks(c *gin.Context) {
+	tasks, err := db.ListAllTaskRecords(100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询任务列表失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+}
+
+func (s *Server) handleAdminLogAnalyses(c *gin.Context) {
+	analyses, err := db.ListRecentErrorAnalyses(50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询日志分析失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
+}
+
+func (s *Server) handleAdminStyleProfiles(c *gin.Context) {
+	profiles, err := db.ListAllStyleProfiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询风格偏好失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"profiles": profiles})
+}
+
+func (s *Server) handleAdminStats(c *gin.Context) {
+	if db.DB == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"user_count":   0,
+			"task_count":   0,
+			"running_count": 0,
+		})
+		return
+	}
+
+	var userCount, taskCount, runningCount int64
+	db.DB.Model(&db.User{}).Count(&userCount)
+	db.DB.Model(&db.TaskRecord{}).Count(&taskCount)
+	db.DB.Model(&db.TaskRecord{}).Where("status = ?", "running").Count(&runningCount)
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_count":    userCount,
+		"task_count":    taskCount,
+		"running_count": runningCount,
+	})
+}
+
+func (s *Server) handleAdminDeleteLogAnalysis(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 ID"})
+		return
+	}
+	if err := db.DeleteErrorAnalysis(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+

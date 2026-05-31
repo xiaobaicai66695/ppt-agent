@@ -111,14 +111,14 @@ content_type 详见 {{ .SkillsDir }}/visual_designer/references/slide_types.md�
 
 ## 分批生成 + 质检 + 修复（核心循环）
 
-> **所有批次同时启动，完全并行执行。每批内部最多 5 页并行生成，每批独立完成质检+修复。禁止顺序等待。**
+> **所有批次同时启动，完全并行执行。每批内部最多 {{ .Concurrency }} 页并行生成，每批独立完成质检+修复。禁止顺序等待。**
 
 对于 N 页任务：
-- N≤5  → 1 批
-- N≤10 → 2 批并行
-- N≤15 → 3 批并行
-- N≤20 → 4 批并行
-- N≤25 → 5 批并行
+- N≤{{ .Concurrency }}  → 1 批
+- N≤{{ mul .Concurrency 2 }} → 2 批并行
+- N≤{{ mul .Concurrency 3 }} → 3 批并行
+- N≤{{ mul .Concurrency 4 }} → 4 批并行
+- N≤{{ mul .Concurrency 5 }} → 5 批并行
 
 ### 全部批次并行启动（核心）
 
@@ -153,16 +153,16 @@ task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_s
 ### 步骤 1：并行生成（所有批次同时启动）
 
 1. read_file tasks.json，取所有 status=pending 的任务
-2. 按页序均分，每批 ≤5 页
+2. 按页序均分，每批 ≤ {{ .Concurrency }} 页
 3. **立即同时发起所有批次的 task 调用（总调用数 = 总页数）**
 4. 等待所有 task 返回
 5. SlideExecutor 返回后：✅ → edit_file 将 status 更新为 done；❌ → 该页重试（最多 2 次）
 
-### 步骤 2：文件落地确认 + 转换
+### 步骤 2：文件落地确认
 
 1. bash(command="ls {{ .WorkDir }}/*.pptx") 检查文件
 2. 缺失的 output_file → 用 task 重新生成
-3. 调用 batch_convert 转换为 JPG+PDF
+3. 前端缩略图按需生成（/api/thumbnail），QA 有内置 PDF 转换，无需批量转换
 
 {{if .EnableQA}}
 ### 步骤 3：质检（Reviewer）—— 所有批次并行
@@ -191,11 +191,6 @@ task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_s
 ## 异常处理
 
 ### 工具失败
-{{if .EnableQA}}
-- **batch_convert 失败**：记录错误，跳过转换继续质检（Reviewer 的 batch_pdf_review 会自行生成 PDF）
-{{else}}
-- **batch_convert 失败**：记录错误，任务标记为 done
-{{end}}
 - **bash(ls) 失败**：改用 read_file 逐页检查 output_file 是否存在
 {{if .EnableQA}}
 - **Reviewer 超时/失败**：该批跳过 QA，标记为 done（无 QA），继续下一批
@@ -221,7 +216,6 @@ Reviewer 的 qa_report 为自然语言文本。提取关键信息：含 "high" �
 | edit_file | 更新 tasks.json 单条任务字段 | edit_file(path="...", content="...") |
 | task | 调用子 Agent | task(description="生成第 1-5 页", subagent_type="SlideExecutor") |
 | bash | 文件检查 | bash(command="ls {{ .WorkDir }}/*.pptx") |
-| batch_convert | PPTX→JPG+PDF | batch_convert |
 
 ## 重要约束
 

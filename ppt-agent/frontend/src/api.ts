@@ -51,6 +51,7 @@ export interface AuthUser {
   email: string;
   token?: string;
   is_new?: boolean;
+  is_admin?: boolean;
 }
 
 export async function sendCode(email: string): Promise<void> {
@@ -455,4 +456,100 @@ export async function fetchRecommendations(domain?: string): Promise<Recommendat
   if (!res.ok) return null;
   const data = await res.json();
   return data.recommendation;
+}
+
+// ── Admin API ──────────────────────────────────────────────────────────────────
+
+export interface AdminStats {
+  user_count: number;
+  task_count: number;
+  running_count: number;
+}
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  is_admin: boolean;
+  created_at: string;
+}
+
+export interface AdminTaskRecord {
+  id: string;
+  user_id: number;
+  query: string;
+  status: string;
+  done_count: number;
+  total_count: number;
+  duration: string;
+  error: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminLogAnalysis {
+  id: number;
+  task_id: string;
+  trigger_type: string;
+  log_snippet: string;
+  analysis: string;
+  root_cause: string;
+  suggestion: string;
+  tokens_used: number;
+  model_used: string;
+  created_at: string;
+}
+
+export interface AdminStyleProfile {
+  user_id: number;
+  preferred_themes: string;
+  preferred_colors: string;
+  content_patterns: string;
+  language_tone: string;
+  typical_page_count: number;
+  content_types: string;
+  special_notes: string;
+  task_count: number;
+  updated_at: string;
+}
+
+export async function fetchAdminStats(): Promise<AdminStats> {
+  const res = await apiFetch('/api/admin/stats', { headers: authHeaders() });
+  if (!res.ok) throw new Error('获取统计失败');
+  return res.json();
+}
+
+export async function fetchAdminUsers(): Promise<AdminUser[]> {
+  const res = await apiFetch('/api/admin/users', { headers: authHeaders() });
+  if (!res.ok) throw new Error('获取用户列表失败');
+  const data = await res.json();
+  return data.users || [];
+}
+
+export async function fetchAdminTasks(): Promise<AdminTaskRecord[]> {
+  const res = await apiFetch('/api/admin/tasks', { headers: authHeaders() });
+  if (!res.ok) throw new Error('获取任务列表失败');
+  const data = await res.json();
+  return data.tasks || [];
+}
+
+export async function fetchAdminLogAnalyses(): Promise<AdminLogAnalysis[]> {
+  const res = await apiFetch('/api/admin/log-analyses', { headers: authHeaders() });
+  if (!res.ok) throw new Error('获取日志分析失败');
+  const data = await res.json();
+  return data.analyses || [];
+}
+
+export async function fetchAdminStyleProfiles(): Promise<AdminStyleProfile[]> {
+  const res = await apiFetch('/api/admin/style-profiles', { headers: authHeaders() });
+  if (!res.ok) throw new Error('获取风格偏好失败');
+  const data = await res.json();
+  return data.profiles || [];
+}
+
+export async function deleteAdminLogAnalysis(id: number): Promise<void> {
+  const res = await apiFetch(`/api/admin/log-analyses/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('删除失败');
 }

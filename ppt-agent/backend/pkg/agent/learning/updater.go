@@ -17,6 +17,7 @@
 package learning
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -126,13 +127,39 @@ func (u *Updater) updateFromImplicitFeedback(signal *LearningSignal) {
 				profile.LayoutPreferences = u.addToPreference(profile.LayoutPreferences, layout)
 			}
 		case "skip_page":
-			// 用户跳过某些页面类型，记录为不喜欢
 			if pageType, ok := data["page_type"].(string); ok {
-				// 可以添加到不喜欢列表
 				logger.Debug("user_skipped_page_type", "type", pageType)
+				if profile.ContentTypes == nil {
+					profile.ContentTypes = style.ContentTypeCount{}
+				}
+				profile.ContentTypes[pageType] -= 2
+				if profile.ContentTypes[pageType] < 0 {
+					profile.ContentTypes[pageType] = 0
+				}
 			}
-		case "zoom_in", "zoom_out":
-			// 记录用户对页面细节的关注度
+			if pageIndex, ok := data["page_index"].(int); ok {
+				profile.SpecialNotes = append(profile.SpecialNotes,
+					fmt.Sprintf("第%d页被跳过，可能需要调整内容类型", pageIndex+1))
+			}
+		case "zoom_in":
+			profile.SpecialNotes = append(profile.SpecialNotes, "用户关注细节，适合增加内容密度")
+		case "zoom_out":
+			profile.SpecialNotes = append(profile.SpecialNotes, "用户偏好概览，适合精简内容")
+		case "edit_style":
+			if style, ok := data["style"].(string); ok {
+				profile.PreferredThemes = u.addToPreference(profile.PreferredThemes, style)
+				logger.Debug("user_adjusted_style", "style", style)
+			}
+		case "edit_content":
+			profile.SpecialNotes = append(profile.SpecialNotes, "用户编辑了内容，初始生成内容可能需要优化")
+		case "task_start":
+			profile.LastActiveTime = time.Now()
+		}
+
+		// 如果有持续时间信息，记录效率数据
+		if duration, ok := data["duration"].(float64); ok && duration > 0 {
+			profile.SpecialNotes = append(profile.SpecialNotes,
+				fmt.Sprintf("操作耗时%.1f秒", duration))
 		}
 	}
 

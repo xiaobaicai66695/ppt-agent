@@ -27,6 +27,7 @@ var jwtSecret = []byte("pptagent")
 type jwtClaims struct {
 	UserID uint   `json:"user_id"`
 	Email  string `json:"email"`
+	IsAdmin bool  `json:"is_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -103,8 +104,9 @@ func LoginWithCode(email, code string) (token string, user *db.User, isNew bool,
 func createToken(user *db.User) (string, error) {
 	now := time.Now()
 	claims := jwtClaims{
-		UserID: user.ID,
-		Email:  user.Email,
+		UserID:  user.ID,
+		Email:   user.Email,
+		IsAdmin: user.IsAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(jwtDuration)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -114,7 +116,8 @@ func createToken(user *db.User) (string, error) {
 	return token.SignedString(jwtSecret)
 }
 
-// ValidateSession 验证 JWT 令牌并返回嵌入的用户信息
+// ValidateSession 验证 JWT 令牌并返回嵌入的用户信息。
+// 为确保权限状态最新，IsAdmin 字段从数据库重新查询（而非信任 JWT 中的旧值）。
 func ValidateSession(tokenString string) (*db.User, error) {
 	if tokenString == "" {
 		return nil, errors.New("未提供会话令牌")
@@ -129,10 +132,15 @@ func ValidateSession(tokenString string) (*db.User, error) {
 	if err != nil || !token.Valid {
 		return nil, errors.New("会话无效或已过期，请重新登录")
 	}
-	return &db.User{
-		ID:    claims.UserID,
-		Email: claims.Email,
-	}, nil
+	// 从数据库获取最新 IsAdmin，避免 JWT 过期或旧 token 权限不同步的问题
+	u, err := ValidateUser(int(claims.UserID))
+	if err != nil {
+		return nil, fmt.Errorf("查询用户失败: %w", err)
+	}
+	if u == nil {
+		return nil, errors.New("用户不存在")
+	}
+	return u, nil
 }
 
 // LoginWithPassword 使用邮箱和密码登录
@@ -172,20 +180,37 @@ func SetPassword(userID int, password string) error {
 	return db.DB.Model(&db.User{}).Where("id = ?", userID).Update("password", string(hash)).Error
 }
 
-// SeedRootUser 如果不存在则创建带密码的默认 root 账户
+// SeedRootUser 如果不存在则创建默认账号，已存在则确保 is_admin=true。
+// email/password 为空时使用默认 root/root。
 func SeedRootUser(email, password string) {
-	var count int64
-	db.DB.Model(&db.User{}).Where("email = ?", email).Count(&count)
-	if count > 0 {
+	if email == "" {
+		email = "root"
+	}
+	if password == "" {
+		password = "root"
+	}
+	var u db.User
+	err := db.DB.Where("email = ?", email).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// 不存在则创建
+		hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		u = db.User{Email: email, Password: string(hash), IsAdmin: true}
+		if err := db.DB.Create(&u).Error; err != nil {
+			logger.Error("seed_root_user_failed", "email", email, "error", err.Error())
+			return
+		}
+		logger.Info("seed_root_user_created", "email", email)
 		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	u := &db.User{Email: email, Password: string(hash)}
-	if err := db.DB.Create(u).Error; err != nil {
-		logger.Error("seed_root_user_failed", "email", email, "error", err.Error())
+	if err != nil {
+		logger.Error("seed_root_user_query_failed", "email", email, "error", err.Error())
 		return
 	}
-	logger.Info("seed_root_user_created", "email", email)
+	// 存在但非管理员，升级为管理员
+	if !u.IsAdmin {
+		db.DB.Model(&u).Update("is_admin", true)
+		logger.Info("seed_root_user_upgraded", "email", email)
+	}
 }
 
 // Logout 对于基于 JWT 的认证是空操作。客户端丢弃令牌
@@ -214,6 +239,18 @@ func UserIDFromContext(ctx context.Context) (int, bool) {
 func UsernameFromContext(ctx context.Context) (string, bool) {
 	name, ok := ctx.Value(usernameKey).(string)
 	return name, ok
+}
+
+// ValidateUser 根据用户 ID 查询用户记录
+func ValidateUser(userID int) (*db.User, error) {
+	var u db.User
+	if err := db.DB.Where("id = ?", userID).First(&u).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &u, nil
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────

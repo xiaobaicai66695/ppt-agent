@@ -79,9 +79,9 @@ func wrapSlideExecutorCompressor(ctx context.Context, inner model.ToolCallingCha
 		return inner
 	}
 	return agentutils.NewChatModelCompressor(inner, summarizer,
-		agentutils.WithCompressThreshold(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_MESSAGE_THRESHOLD", 25)),
-		agentutils.WithTokenThreshold(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_TOKEN_THRESHOLD", 35000)),
-		agentutils.WithPreserveCount(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_PRESERVE_COUNT", 5)),
+		agentutils.WithCompressThreshold(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_MESSAGE_THRESHOLD", 50)),
+		agentutils.WithTokenThreshold(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_TOKEN_THRESHOLD", 150000)),
+		agentutils.WithPreserveCount(agentutils.EnvInt("SLIDE_EXECUTOR_COMPRESSOR_PRESERVE_COUNT", 8)),
 	)
 }
 

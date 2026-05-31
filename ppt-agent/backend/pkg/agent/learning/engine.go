@@ -18,9 +18,12 @@ package learning
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	"github.com/cloudwego/ppt-agent/pkg/agent/router"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
@@ -47,7 +50,11 @@ type EngineConfig struct {
 }
 
 // NewEngine 创建智能学习引擎
-func NewEngine(cfg *EngineConfig) *Engine {
+// modelFactory 用于创建 LLM 实例（用于意图分类等辅助任务）
+// 支持两种签名：func(ctx context.Context) (model.ChatModel, error) 或
+// func(ctx context.Context) (interface{ Generate(...) }, error)
+// 如果传入 nil，则意图分类器只使用规则匹配
+func NewEngine(cfg *EngineConfig, modelFactory interface{}) *Engine {
 	if cfg == nil {
 		cfg = &EngineConfig{
 			EnableLLMClassification: true,
@@ -58,33 +65,83 @@ func NewEngine(cfg *EngineConfig) *Engine {
 
 	e := &Engine{}
 
-	// 初始化意图分类器
-	e.classifier = intent.NewClassifier(nil) // 不启用LLM分类，使用规则
+	// 初始化增强画像存储（先于其他组件）
+	e.profileStore = style.NewEnhancedProfileStore()
+
+	// 初始化意图分类器（可选择是否启用 LLM）
+	e.classifier = intent.NewClassifier(e.makeClassifierFactory(modelFactory))
 
 	// 初始化路由引擎
 	e.router = router.NewEngine(e.classifier)
 
 	// 初始化学习组件
 	if cfg.EnableLearning {
-		e.collector = NewCollector(nil)
-		e.updater = NewUpdater(nil) // 需要在 profileStore 设置后初始化
-		e.analyzer = NewAnalyzer()
-	}
-
-	// 初始化增强画像存储
-	e.profileStore = style.NewEnhancedProfileStore()
-
-	// 完成后初始化 updater
-	if e.updater != nil {
 		e.updater = NewUpdater(e.profileStore)
+		e.collector = NewCollector(nil)
+		e.analyzer = NewAnalyzer()
+		// 建立 Collector → Updater 的连接
+		e.collector.SetUpdater(e.updater)
 	}
 
 	logger.Info("intelligent_engine_initialized",
 		"llm_classification", cfg.EnableLLMClassification,
 		"learning", cfg.EnableLearning,
-		"profile_match", cfg.EnableProfileMatch)
+		"profile_match", cfg.EnableProfileMatch,
+		"llm_enabled", modelFactory != nil)
 
 	return e
+}
+
+// makeClassifierFactory 将通用 modelFactory 适配为 intent.Classifier 需要的类型
+func (e *Engine) makeClassifierFactory(modelFactory interface{}) func(ctx context.Context) (model.ToolCallingChatModel, error) {
+	if modelFactory == nil {
+		return nil
+	}
+
+	switch f := modelFactory.(type) {
+	case func(ctx context.Context) (model.ToolCallingChatModel, error):
+		return f
+	case func(ctx context.Context) (model.ChatModel, error):
+		// ChatModel 已废弃且不实现 ToolCallingChatModel，不可直接转型
+		return nil
+	default:
+		return func(ctx context.Context) (model.ToolCallingChatModel, error) {
+			result, err := callModelFactory(f, ctx)
+			if err != nil {
+				return nil, err
+			}
+			if tcm, ok := result.(model.ToolCallingChatModel); ok {
+				return tcm, nil
+			}
+			if cm, ok := result.(model.ChatModel); ok {
+				// 尝试通过嵌入 ChatModel 实现 ToolCallingChatModel
+				if tcm, ok := any(cm).(model.ToolCallingChatModel); ok {
+					return tcm, nil
+				}
+			}
+			return nil, fmt.Errorf("modelFactory 返回值无法转换为 model.ToolCallingChatModel: %T", result)
+		}
+	}
+}
+
+// callModelFactory 动态调用 modelFactory（支持多种函数签名）
+func callModelFactory(modelFactory interface{}, ctx context.Context) (interface{}, error) {
+	fn := reflect.ValueOf(modelFactory)
+	fnType := fn.Type()
+	if fnType.Kind() != reflect.Func || fnType.NumIn() != 1 || fnType.NumOut() != 2 {
+		return nil, fmt.Errorf("modelFactory 必须是单参数双返回的函数")
+	}
+	ctxType := fnType.In(0)
+	if !ctxType.Implements(reflect.TypeOf((*context.Context)(nil)).Elem()) {
+		return nil, fmt.Errorf("modelFactory 参数必须实现 context.Context")
+	}
+
+	ctxVal := reflect.ValueOf(ctx)
+	result := fn.Call([]reflect.Value{ctxVal})
+	if !result[1].IsNil() {
+		return nil, result[1].Interface().(error)
+	}
+	return result[0].Interface(), nil
 }
 
 // ProcessTask 处理任务入口

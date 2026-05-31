@@ -329,11 +329,14 @@ func (a *aiModelAdapter) Generate(ctx context.Context, messages []*schema.Messag
 // ---------------------------------------------------------------------------
 
 func setupCozeLoop() cozeloop.Client {
+	// 在 NewClient 之前设置，压制 SDK 包初始化时打印的 DEBUG 日志
+	cozeloop.SetLogLevel(cozeloop.LogLevelWarn)
+
 	apiToken := os.Getenv("COZELOOP_API_TOKEN")
 	workspaceID := os.Getenv("COZELOOP_WORKSPACE_ID")
 
 	if apiToken == "" || workspaceID == "" {
-		logger.Debug("cozeloop_not_configured")
+		logger.Info("cozeloop_not_configured")
 		return nil
 	}
 

@@ -2,7 +2,7 @@
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'error' | 'complete' | 'continue_complete';
+export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'error' | 'complete' | 'continue_complete' | 'continue_queued';
 export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
 
 // ── Session types ────────────────────────────────────────────────────────────
@@ -16,6 +16,16 @@ export interface ConversationMessage {
 export interface ConversationSession {
   task_id: string;
   messages: ConversationMessage[];
+  // 冷启动时从 task_records 重建的完整拼接内容。
+  conversation_content?: string;
+  status?: TaskStatus;
+  done_count?: number;
+  total_count?: number;
+  files?: string[];
+  duration?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
   created_at: string;
   updated_at: string;
 }

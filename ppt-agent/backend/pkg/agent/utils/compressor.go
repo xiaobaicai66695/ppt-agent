@@ -66,14 +66,14 @@ func WithPreserveCount(n int) CompressorOption {
 
 // DefaultCompressorConfig 返回默认压缩配置。
 // 可以通过环境变量覆盖：
-//   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: 消息数量阈值（默认 16）
-//   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token 估算阈值（默认 50000）
-//   - MASTER_COMPRESSOR_PRESERVE_COUNT: 保留的消息对数量（默认 4）
+//   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: 消息数量阈值（默认 60）
+//   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token 估算阈值（默认 200000）
+//   - MASTER_COMPRESSOR_PRESERVE_COUNT: 保留的消息对数量（默认 8）
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold: EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 16),
-		TokenThreshold:  EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 50000),
-		PreserveCount:   EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 6),
+		MessageThreshold: EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
+		TokenThreshold:  EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
+		PreserveCount:   EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
 	}
 }
 

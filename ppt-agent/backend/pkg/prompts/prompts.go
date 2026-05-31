@@ -65,6 +65,7 @@ type TemplateData struct {
 	OutlineTitle    string // 用户大纲中的 PPT 标题（HasOutline=true 时使用）
 	StyleContext    string // 用户风格偏好上下文，用于个性化生成
 	EnableQA       bool   // 是否启用 QA 质量检查
+	Concurrency    int    // 每批最大并发页数（来自路由决策，默认 5）
 	UserMessage     string // 用户修复请求消息（用于 Fixer agent）
 	TargetPages     []int  // 要处理的特定页面索引（用于继续模式）
 	UserPreferences *UserPreferences // 用户学习到的偏好，用于个性化生成

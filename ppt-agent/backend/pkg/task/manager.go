@@ -20,6 +20,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
+	"github.com/cloudwego/ppt-agent/pkg/session"
 )
 
 // TaskStatus 表示 PPT 生成任务的总体状态。
@@ -80,6 +81,11 @@ type TaskState struct {
 	result               *deep.PPTTaskResult
 	reportedFiles        map[string]bool
 	Mu                   sync.Mutex
+
+	// pendingContinueMsg 任务运行中时，用户提交的待处理消息（消费后清空）
+	pendingContinueMsg string
+	// pendingContinueQueued 已通知前端排队（避免重复通知）
+	pendingContinueQueued bool
 }
 
 // Persist 将任务状态持久化到数据库。
@@ -95,6 +101,43 @@ func (ts *TaskState) ReportedFiles() map[string]bool {
 // SetReportedFile 将文件标记为已上报。
 func (ts *TaskState) SetReportedFile(name string) {
 	ts.reportedFiles[name] = true
+}
+
+// HasPendingContinueMsg 检查是否有等待处理的消息。
+func (ts *TaskState) HasPendingContinueMsg() bool {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.pendingContinueMsg != ""
+}
+
+// GetPendingContinueMsg 取出并清空等待消息。
+func (ts *TaskState) GetPendingContinueMsg() string {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	msg := ts.pendingContinueMsg
+	ts.pendingContinueMsg = ""
+	ts.pendingContinueQueued = false
+	return msg
+}
+
+// SetPendingContinueMsg 设置等待消息（仅当当前为空时）。
+// 返回是否设置成功（false 表示已有等待消息）。
+func (ts *TaskState) SetPendingContinueMsg(msg string) bool {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	if ts.pendingContinueMsg != "" {
+		return false
+	}
+	ts.pendingContinueMsg = msg
+	ts.pendingContinueQueued = false
+	return true
+}
+
+// IsPendingContinueMsgFirst 检查当前等待消息是否为第一条（即之前没有排队）。
+func (ts *TaskState) IsPendingContinueMsgFirst() bool {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.pendingContinueQueued
 }
 
 func (ts *TaskState) AddListener(id string, ch chan SSERichEvent) {
@@ -151,13 +194,14 @@ type TaskManager struct {
 	baseDir          string
 	onTaskComplete   func(userID int, workDir string, query string)
 	onTaskFailed     func(taskID string)
+	onTaskContinue   func(taskID string) // 任务完成且有待处理消息时触发
 }
 
 // NewTaskManager 创建一个新的 TaskManager。baseDir 是父目录，
 // 每个任务的输出目录都创建在其下。
 // 如果 MySQL 数据库可用，之前运行中的任务会被标记为失败
 // （因为拥有它们的进程已不存在）。
-func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir string, query string), onTaskFailed func(taskID string)) *TaskManager {
+func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir string, query string), onTaskFailed func(taskID string), onTaskContinue func(taskID string)) *TaskManager {
 	if db.DB != nil {
 		if err := db.MarkZombieTasks(); err != nil {
 			logger.Error("mark_zombie_tasks_failed", "error", err.Error())
@@ -441,6 +485,18 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 
 	ts.persist()
 
+	// 任务完成后，检查是否有等待中的继续消息，如有则触发自动继续处理
+	if pendingMsg := ts.GetPendingContinueMsg(); pendingMsg != "" {
+		ts.Broadcast(SSERichEvent{
+			Type:    "continue_queued",
+			Content: pendingMsg,
+		})
+		// 通过回调通知 Server 启动继续流程
+		if tm.onTaskContinue != nil {
+			go tm.onTaskContinue(ts.Info.ID)
+		}
+	}
+
 	// 触发失败日志分析（异步，不阻塞任务完成通知）
 	if taskFailed && tm.onTaskFailed != nil {
 		go tm.onTaskFailed(ts.Info.ID)
@@ -697,6 +753,10 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	if db.DB != nil {
 		if err := db.DeleteTaskRecord(id); err != nil {
 			logger.Error("db_delete_task_failed", "task_id", id, "error", err.Error())
+		}
+		// 级联删除会话消息。
+		if err := session.DeleteSessionFromDB(id); err != nil {
+			logger.Error("db_delete_conversation_failed", "task_id", id, "error", err.Error())
 		}
 	}
 

@@ -30,16 +30,16 @@ import (
 
 // Classifier 意图分类器
 type Classifier struct {
-	modelFactory func(ctx context.Context) (model.ChatModel, error)
+	modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
 	useLLM       bool
 }
 
 // NewClassifier 创建意图分类器
 // modelFactory 用于创建 LLM 实例（可选，用于更精确的分类）
-func NewClassifier(modelFactory func(ctx context.Context) (model.ChatModel, error)) *Classifier {
+func NewClassifier(modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)) *Classifier {
 	return &Classifier{
 		modelFactory: modelFactory,
-		useLLM:      modelFactory != nil,
+		useLLM:       modelFactory != nil,
 	}
 }
 

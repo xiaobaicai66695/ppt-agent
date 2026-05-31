@@ -23,16 +23,16 @@ import (
 
 // Analyzer 日志分析器接口
 type Analyzer interface {
-	Analyze(ctx context.Context, logs string, taskID string) (*Result, error)
+	Analyze(ctx context.Context, logs string, taskID string, prevAnalyses []db.TaskErrorAnalysis) (*Result, error)
 }
 
 // Result 日志分析结果
 type Result struct {
 	Analysis   string // 总体分析描述
-	RootCause string // 根因描述（一句话）
+	RootCause  string // 根因描述（一句话）
 	Suggestion string // 修复建议
-	TokensUsed int64 // 消耗的 token 数量
-	ModelUsed string  // 使用的模型名称
+	TokensUsed int64  // 消耗的 token 数量
+	ModelUsed  string // 使用的模型名称
 }
 
 // LLMAnalyzer 基于工具调用大模型的日志分析器。
@@ -40,7 +40,7 @@ type Result struct {
 // 理解上下文后再给出分析结论。
 type LLMAnalyzer struct {
 	modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error) // 模型工厂函数
-	skillsDir  string                                                      // skills 目录绝对路径
+	skillsDir    string                                                        // skills 目录绝对路径
 }
 
 // NewLLMAnalyzer 创建日志分析器实例。
@@ -48,13 +48,14 @@ type LLMAnalyzer struct {
 func NewLLMAnalyzer(modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error), skillsDir string) *LLMAnalyzer {
 	return &LLMAnalyzer{
 		modelFactory: modelFactory,
-		skillsDir:   skillsDir,
+		skillsDir:    skillsDir,
 	}
 }
 
 // Analyze 对日志片段进行 ReAct 分析。
 // LLM 会自主决定是否调用 read_file 工具读取相关源码文件，理解上下文后输出分析结果。
-func (a *LLMAnalyzer) Analyze(ctx context.Context, logs string, taskID string) (*Result, error) {
+// prevAnalyses 为该任务的历史分析记录，LLM 会参考之前的修复建议避免重复无效尝试。
+func (a *LLMAnalyzer) Analyze(ctx context.Context, logs string, taskID string, prevAnalyses []db.TaskErrorAnalysis) (*Result, error) {
 	model, err := a.modelFactory(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("创建分析模型失败: %w", err)
@@ -69,12 +70,12 @@ func (a *LLMAnalyzer) Analyze(ctx context.Context, logs string, taskID string) (
 		systemPrompt = buildFallbackPrompt(a.skillsDir)
 	}
 
+	// 构建用户消息，附加历史分析上下文
+	userMsg := a.buildUserMessage(logs, prevAnalyses)
+
 	messages := []*schema.Message{
 		schema.SystemMessage(systemPrompt),
-		schema.UserMessage(fmt.Sprintf(
-			"## 错误日志\n\n以下是来自 ppt-agent 系统的日志片段（ERROR 和 DEBUG 级别），请分析：\n\n%s\n\n请先用 read_file 读取你认为相关的项目文件（如 prompt 模板或 generator 源码），理解上下文后再给出分析。",
-			logs,
-		)),
+		schema.UserMessage(userMsg),
 	}
 
 	// 构建 read_file 工具，供 LLM 在 ReAct 循环中调用
@@ -133,9 +134,45 @@ func (a *LLMAnalyzer) Analyze(ctx context.Context, logs string, taskID string) (
 
 	return &Result{
 		Analysis:   analysis,
-		RootCause: rootCause,
+		RootCause:  rootCause,
 		Suggestion: suggestion,
 	}, nil
+}
+
+// buildUserMessage 构建用户消息，附加历史分析上下文。
+// 当有历史分析时，会在消息中列出之前的修复建议，帮助 LLM 避免重复无效尝试。
+func (a *LLMAnalyzer) buildUserMessage(logs string, prevAnalyses []db.TaskErrorAnalysis) string {
+	var sb strings.Builder
+	sb.WriteString("## 错误日志\n\n以下是来自 ppt-agent 系统的日志片段（ERROR 和 DEBUG 级别），请分析：\n\n")
+	sb.WriteString(logs)
+
+	// 附加历史分析记录，帮助 LLM 避免重复之前的无效修复尝试
+	if len(prevAnalyses) > 0 {
+		sb.WriteString("\n\n## 历史分析记录\n\n")
+		sb.WriteString("该任务之前已有 ")
+		sb.WriteString(fmt.Sprintf("%d", len(prevAnalyses)))
+		sb.WriteString(" 次分析，以下是历史修复建议（请参考以避免重复相同的无效尝试）：\n\n")
+		for i, prev := range prevAnalyses {
+			sb.WriteString(fmt.Sprintf("### 历史分析 #%d（触发类型: %s）\n", i+1, prev.TriggerType))
+			if prev.RootCause != "" {
+				sb.WriteString(fmt.Sprintf("- 根因: %s\n", prev.RootCause))
+			}
+			if prev.Suggestion != "" {
+				sb.WriteString(fmt.Sprintf("- 修复建议: %s\n", prev.Suggestion))
+			}
+			if prev.Analysis != "" {
+				analysis := prev.Analysis
+				if len(analysis) > 300 {
+					analysis = analysis[:300] + "...(已截断)"
+				}
+				sb.WriteString(fmt.Sprintf("- 分析摘要: %s\n", analysis))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	sb.WriteString("\n请先用 read_file 读取你认为相关的项目文件（如 prompt 模板或 generator 源码），理解上下文后再给出分析。")
+	return sb.String()
 }
 
 // executeReadFile 解析工具调用参数并读取文件内容。
@@ -169,7 +206,7 @@ func parseAnalysisResult(text string) (analysis, rootCause, suggestion string) {
 		jsonStr := text[start : end+1]
 		var parsed struct {
 			Analysis   string `json:"analysis"`
-			RootCause string `json:"root_cause"`
+			RootCause  string `json:"root_cause"`
 			Suggestion string `json:"suggestion"`
 		}
 		if err := json.Unmarshal([]byte(jsonStr), &parsed); err == nil {
@@ -203,10 +240,17 @@ ppt-agent 是一个 AI PPT 生成系统：
    - Python Traceback（Traceback、python-pptx、.py）→ PPT 生成器代码问题（API 使用错误、文件路径问题、依赖缺失等）
 4. **文件关联**：遇到错误时，用 read_file 工具读取相关源代码文件来理解上下文
 
+## 历史分析参考
+
+如果用户消息中存在 ## 历史分析记录 部分，**必须先阅读历史记录**：
+- 如果之前已给出修复建议且该错误仍然出现，说明之前的建议未被正确执行或方向有误，需要重新分析
+- 避免重复推荐相同的无效修复方案
+- 关注之前的 root_cause 与当前日志是否指向同一根本问题
+
 ## 可用文件路径
 
-- Prompt 模板：%s/visual_designer/templates/full-decks/generic.py
-- Generator 模板：%s/visual_designer/templates/single-page/*.py
+- /ppt/ppt-agent/backend/pkg/prompts
+- Generator 模板：%s/visual_designer/templates
 - Python 生成器：%s/visual_designer/generators/base.py
 - Python 生成器：%s/visual_designer/generators/*_generator.py
 
@@ -218,7 +262,7 @@ ppt-agent 是一个 AI PPT 生成系统：
   "analysis": "总体分析描述，50-200字",
   "root_cause": "简短的根因描述，一句话",
   "suggestion": "具体可操作的修复建议，50-150字"
-}`, skillsDir, skillsDir, skillsDir, skillsDir)
+}`, skillsDir, skillsDir, skillsDir)
 }
 
 // readFileOperator 是 read_file 工具的命令行操作实现。
@@ -293,16 +337,16 @@ func ArkModelName(m model.ToolCallingChatModel) string {
 
 // Service 管理后台日志分析任务（空闲分析 + 失败分析）。
 type Service struct {
-	analyzer     Analyzer                               // 日志分析器
+	analyzer     Analyzer                                                      // 日志分析器
 	modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error) // 模型工厂
-	skillsDir   string                                  // skills 目录
-	idleInterval time.Duration                           // 空闲分析间隔
-	logLines    int                                     // 每次读取的日志行数
+	skillsDir    string                                                        // skills 目录
+	idleInterval time.Duration                                                 // 空闲分析间隔
+	logLines     int                                                           // 每次读取的日志行数
 
-	mu           sync.Mutex
-	stopCh       chan struct{}
-	pendingTask  chan taskRequest // 待处理任务队列
-	running      bool
+	mu          sync.Mutex
+	stopCh      chan struct{}
+	pendingTask chan taskRequest // 待处理任务队列
+	running     bool
 
 	lastFileOffset int64 // 已处理日志文件偏移量（字节）
 }
@@ -346,7 +390,7 @@ func NewService(cfg *ServiceConfig) *Service {
 		analyzer:       analyzer,
 		modelFactory:   cfg.ModelFactory,
 		skillsDir:      cfg.SkillsDir,
-		idleInterval: idleInterval,
+		idleInterval:   idleInterval,
 		logLines:       logLines,
 		stopCh:         make(chan struct{}),
 		pendingTask:    make(chan taskRequest, 10),
@@ -438,12 +482,19 @@ func (s *Service) runAnalysis(req taskRequest) {
 		return
 	}
 
+	// 获取该任务的历史分析记录，用于避免重复无效的修复尝试
+	var prevAnalyses []db.TaskErrorAnalysis
+	if req.TaskID != "system-idle" {
+		prevAnalyses, _ = db.GetTaskErrorAnalysis(req.TaskID)
+	}
+
 	logger.Info("log_analysis_starting",
 		"task_id", req.TaskID,
 		"trigger", req.TriggerType,
-		"log_bytes", len(logs))
+		"log_bytes", len(logs),
+		"prev_analyses", len(prevAnalyses))
 
-	result, err := s.analyzer.Analyze(ctx, logs, req.TaskID)
+	result, err := s.analyzer.Analyze(ctx, logs, req.TaskID, prevAnalyses)
 	if err != nil {
 		logger.Error("log_analysis_llm_failed", "task_id", req.TaskID, "error", err.Error())
 		return

@@ -5,7 +5,7 @@ TEMPLATE = {
     "target_audience": "不限",
     "typical_slides": 27,
     "typical_duration": "30-45分钟",
-    "palette": "ocean_soft",
+    "palette": "",
     "typography": {
         "header": "Calibri",
         "body": "Calibri Light",

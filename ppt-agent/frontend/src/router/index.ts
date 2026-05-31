@@ -51,6 +51,18 @@ const router = createRouter({
         }
       },
     },
+    {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('../pages/AdminPage.vue'),
+      beforeEnter: (_to, _from, next) => {
+        if (!isLoggedIn()) {
+          next({ name: 'auth', query: { redirect: '/admin' } });
+        } else {
+          next();
+        }
+      },
+    },
   ],
 });
 

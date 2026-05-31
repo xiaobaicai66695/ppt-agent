@@ -121,13 +121,19 @@ func NewServer(cfg *ServerConfig) *Server {
 	}
 
 	// 创建任务管理器，并注册风格更新回调
-	s.tasks = task.NewTaskManager(cfg.BaseDir, func(userID int, workDir, query string) {
-		s.updateUserStyleFromTask(userID, workDir, query)
-	}, func(taskID string) {
-		if s.logAnalysis != nil {
-			s.logAnalysis.Trigger(taskID, "failed")
-		}
-	})
+	s.tasks = task.NewTaskManager(cfg.BaseDir,
+		func(userID int, workDir, query string) {
+			s.updateUserStyleFromTask(userID, workDir, query)
+		},
+		func(taskID string) {
+			if s.logAnalysis != nil {
+				s.logAnalysis.Trigger(taskID, "failed")
+			}
+		},
+		func(taskID string) {
+			s.onTaskContinue(taskID)
+		},
+	)
 
 	// 初始化日志分析后台服务
 	if cfg.LogAnalysisModelFactory != nil {
@@ -181,6 +187,21 @@ func NewServer(cfg *ServerConfig) *Server {
 		users.GET("/me/profile", s.handleGetUserProfile)
 		users.PUT("/me/profile", s.handleUpdateUserProfile)
 		users.POST("/me/profile/reset", s.handleResetUserProfile)
+		users.GET("/me/insights", s.handleGetUserInsights)
+	}
+
+	// 反馈路由（需要认证）
+	feedback := engine.Group("/api/feedback")
+	feedback.Use(s.authMiddleware())
+	{
+		feedback.POST("", s.handleSubmitFeedback)
+	}
+
+	// 推荐路由（需要认证）
+	recommendations := engine.Group("/api/recommendations")
+	recommendations.Use(s.authMiddleware())
+	{
+		recommendations.GET("", s.handleGetRecommendations)
 	}
 
 	// 模板路由（公开）
@@ -211,6 +232,18 @@ func NewServer(cfg *ServerConfig) *Server {
 	{
 		logs.GET("", s.handleListLogAnalyses)
 		logs.GET("/task/:task_id", s.handleGetTaskLogAnalyses)
+	}
+
+	// 管理员路由（需要管理员权限）
+	admin := engine.Group("/api/admin")
+	admin.Use(s.adminMiddleware())
+	{
+		admin.GET("/stats", s.handleAdminStats)
+		admin.GET("/users", s.handleAdminUsers)
+		admin.GET("/tasks", s.handleAdminTasks)
+		admin.GET("/log-analyses", s.handleAdminLogAnalyses)
+		admin.DELETE("/log-analyses/:id", s.handleAdminDeleteLogAnalysis)
+		admin.GET("/style-profiles", s.handleAdminStyleProfiles)
 	}
 
 	// 指标

@@ -66,6 +66,17 @@ async function submitChat() {
       const err = await res.json();
       throw new Error(err.error || '发送失败');
     }
+    const data = await res.json();
+    if (data.status === 'queued') {
+      // 任务运行中，消息已排队
+      chatHistory.value = [...chatHistory.value, {
+        role: 'assistant' as const,
+        content: data.message || '您的反馈已排队，将在当前任务完成后自动处理',
+        timestamp: new Date().toISOString(),
+      }];
+      chatLoading.value = false;
+      return;
+    }
     connectChatSSE(selectedId.value);
   } catch (e: any) {
     chatHistory.value = [...chatHistory.value, {
@@ -107,6 +118,13 @@ function connectChatSSE(taskId: string) {
       if (evt.total !== undefined) totalCount.value = evt.total;
     } else if (evt.type === 'error') {
       addLog('error', evt.error || '');
+    } else if (evt.type === 'continue_queued') {
+      // 任务完成，已自动触发排队消息的处理
+      chatHistory.value = [...chatHistory.value, {
+        role: 'assistant' as const,
+        content: '检测到您之前提交的反馈，正在自动处理...',
+        timestamp: new Date().toISOString(),
+      }];
     } else if (evt.type === 'continue_complete' || evt.type === 'complete') {
       stopPolling();
       // Extract assistant reply from log
@@ -479,6 +497,44 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+// Restore log lines and files from conversation_content (cold start).
+function restoreFromConversation(sess: import('../types').ConversationSession) {
+  if (!sess.conversation_content) return;
+
+  const lines: { ts: number; text: string; kind: import('../types').LogKind }[] = [];
+  const linesArr = sess.conversation_content.split('\n');
+
+  for (const raw of linesArr) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith('**助手**')) {
+      lines.push({ ts: Date.now(), text: line.replace('**助手**:', '').trim(), kind: 'answer' });
+    } else if (line.startsWith('**用户**')) {
+      lines.push({ ts: Date.now(), text: line.replace('**用户**:', '').trim(), kind: 'answer' });
+    } else if (line.startsWith('**错误**')) {
+      lines.push({ ts: Date.now(), text: line.replace('**错误**:', '').trim(), kind: 'error' });
+    } else if (line.startsWith('**完成摘要**')) {
+      lines.push({ ts: Date.now(), text: line.replace('**完成摘要**:', '').trim(), kind: 'answer' });
+    } else if (line.startsWith('**生成文件**')) {
+      lines.push({ ts: Date.now(), text: line, kind: 'file' });
+    } else if (line.startsWith('##') || line.startsWith('|')) {
+      // 任务信息 / 幻灯片概览表格：不加入日志流，但保留可读性
+    }
+  }
+
+  if (lines.length > 0) {
+    logLines.value = lines;
+  }
+}
+
+// Cache PPT files in background for completed tasks (no SSE connection).
+async function preloadFiles(taskId: string, files?: string[]) {
+  if (!files?.length) return;
+  for (const f of files) {
+    await cachePPT(taskId, f);
+  }
+}
+
 // Cache PPT files and thumbnails via Cache API (service worker storage)
 async function cachePPT(taskId: string, filename: string) {
   try {
@@ -609,9 +665,29 @@ function selectTask(id: string) {
   selectedSlides.value = new Set();
   sseRetryCount = 0;
   sseCompleted = false;
+
   if (t.status !== 'failed') {
-    connectSSE(id);
-    if (t.status === 'running') startPolling(id);
+    if (t.status === 'running') {
+      // 正在运行：通过 SSE 实时接收事件 + polling 兜底
+      connectSSE(id);
+      startPolling(id);
+    } else {
+      // 已完成 / 已取消：后端任务已不在内存，SSE 无事件可重放。
+      // 改用 /conversation 接口从数据库恢复日志区和文件。
+      fetchConversation(id).then(sess => {
+        if (sess.conversation_content) {
+          restoreFromConversation(sess);
+          if (sess.duration) duration.value = sess.duration;
+        }
+        if (sess.files?.length) {
+          finalFiles.value = sess.files;
+        }
+        if (sess.done_count !== undefined) doneCount.value = sess.done_count;
+        if (sess.total_count !== undefined) totalCount.value = sess.total_count;
+        // 预缓存所有 PPT 文件（供后续预览 / 下载）。
+        preloadFiles(id, sess.files);
+      }).catch(() => { /* ignore */ });
+    }
   }
 }
 

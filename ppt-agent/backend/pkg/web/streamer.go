@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/task"
 )
 
@@ -46,17 +48,21 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 
 	for _, evt := range events {
 		writeSSEToWriter(writer, flusher, evt)
+		// 实时写助手消息到数据库（answer 类型）。
+		persistSSEEventToDB(s.sessionManager, id, ts.Info.WorkDir, evt)
 	}
 
 	if done {
 		if len(events) == 0 || events[len(events)-1].Type != "complete" {
-			writeSSEToWriter(writer, flusher, task.SSERichEvent{
+			completeEvt := task.SSERichEvent{
 				Type:   "complete",
 				Status: ts.Info.Status,
 				Done:   ts.Info.DoneCount,
 				Total:  ts.Info.TotalCount,
 				Files:  ts.Info.Files,
-			})
+			}
+			writeSSEToWriter(writer, flusher, completeEvt)
+			persistSSEEventToDB(s.sessionManager, id, ts.Info.WorkDir, completeEvt)
 		}
 		return
 	}
@@ -84,12 +90,40 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 				return false
 			}
 			writeSSEToWriter(w, flusher, evt)
+			// 实时写助手消息到数据库。
+			persistSSEEventToDB(s.sessionManager, id, ts.Info.WorkDir, evt)
 			if evt.Type == "complete" {
 				return false
 			}
 			return true
 		}
 	})
+}
+
+// persistSSEEventToDB 将 SSE 事件中的有意义内容写入 conversation_messages 表。
+// 目前只处理 answer 类型（助手回复）和 complete 类型的 message（完成摘要）。
+// 为避免阻塞 SSE 流，写操作在 goroutine 中异步执行。
+func persistSSEEventToDB(sm *session.SessionManager, taskID, workDir string, evt task.SSERichEvent) {
+	switch evt.Type {
+	case "answer":
+		content := strings.TrimSpace(evt.Content)
+		if content != "" && content != "..." && content != "……" {
+			go func() {
+				if sm != nil {
+					_ = sm.GetOrCreate(taskID, workDir).AddAssistantMessage(content)
+				}
+			}()
+		}
+	case "complete":
+		// 将完成摘要也写入数据库（用户后续对话可能需要）。
+		if evt.Message != "" {
+			go func() {
+				if sm != nil {
+					_ = sm.GetOrCreate(taskID, workDir).AddAssistantMessage("【任务完成】" + evt.Message)
+				}
+			}()
+		}
+	}
 }
 
 func writeSSEToWriter(writer io.Writer, flusher flushWriter, evt task.SSERichEvent) {
