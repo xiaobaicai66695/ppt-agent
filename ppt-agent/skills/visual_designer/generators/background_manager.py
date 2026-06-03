@@ -44,6 +44,18 @@ THEME_MAPPING = {
 }
 
 
+# 背景主题 → 推荐配色方案映射
+# 当使用背景图片时，优先使用推荐配色以保持视觉协调
+BACKGROUND_PALETTE_MAP: dict[str, str] = {
+    "vintage_chinese": "warm_terracotta",   # 复古中国风 → 陶土橙（暖色调协调）
+    "ink_wash_mountain": "sage_calm",        # 水墨山水 → 鼠尾草绿（清雅脱俗）
+    "party_government": "government_red",   # 党政办公 → 党政红（政治庄重感）
+    "snowy_mountain": "charcoal_light",      # 雪山风景 → 浅炭灰（自然纯净）
+    "artistic": "berry_cream",              # 艺术涂鸦 → 玫瑰灰粉（创意时尚）
+    "minimalist_blue": "ocean_soft",         # 简约蓝白 → 雾霾蓝（协调统一）
+}
+
+
 def get_background_dir() -> Path:
     """获取 background_templates 目录路径"""
     current_dir = Path(__file__).parent.parent
@@ -168,3 +180,16 @@ def get_background(
 def list_themes() -> list[dict]:
     """列出所有可用主题及图片"""
     return scan_backgrounds()
+
+
+def get_palette_for_background(background_theme: str) -> str:
+    """
+    根据背景主题获取推荐配色方案。
+
+    Args:
+        background_theme: 背景主题标识 (如 "vintage_chinese")
+
+    Returns:
+        推荐配色方案名（如 "warm_terracotta"），如果无推荐则返回 "ocean_soft"
+    """
+    return BACKGROUND_PALETTE_MAP.get(background_theme, "ocean_soft")

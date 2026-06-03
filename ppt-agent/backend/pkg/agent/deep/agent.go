@@ -216,11 +216,14 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 var globalLearningEngine *agentlearning.Engine
 var learningEngineOnce sync.Once
 var learningEngineFactory func() interface{}
+var textLearningEngineFactory func() interface{}
 
 // InitLearningEngine 初始化全局学习引擎（由 main.go 在 modelFactory 可用后调用）
 // factory 是 ServerConfig.AIModelFactory 的工厂函数
-func InitLearningEngine(factory func() interface{}) {
+// textFactory 是 ServerConfig.TextModelFactory 的工厂函数（轻量级模型，节省意图分类成本）
+func InitLearningEngine(factory, textFactory func() interface{}) {
 	learningEngineFactory = factory
+	textLearningEngineFactory = textFactory
 }
 
 // GetLearningEngine 获取全局学习引擎实例
@@ -231,7 +234,7 @@ func GetLearningEngine() *agentlearning.Engine {
 			EnableLearning:          true,
 			EnableProfileMatch:      true,
 		}
-		globalLearningEngine = agentlearning.NewEngine(cfg, learningEngineFactory)
+		globalLearningEngine = agentlearning.NewEngine(cfg, learningEngineFactory, textLearningEngineFactory)
 	})
 	return globalLearningEngine
 }

@@ -124,18 +124,25 @@ func (a *LLMAnalyzer) Analyze(ctx context.Context, logs string, taskID string, p
 		}
 	}
 
+	// 从后往前扫描消息，找到第一条能成功解析出 root_cause 或 suggestion 的助手消息
+	// （LLM 的最终分析可能不在最后一条消息中，比如最后一条是 tool 结果）
 	var analysis, rootCause, suggestion string
-	if len(messages) > 0 {
-		lastMsg := messages[len(messages)-1]
-		if lastMsg.Content != "" {
-			analysis, rootCause, suggestion = parseAnalysisResult(lastMsg.Content)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == schema.Assistant && messages[i].Content != "" {
+			analysis, rootCause, suggestion = parseAnalysisResult(messages[i].Content)
+			if rootCause != "" || suggestion != "" || analysis != "" {
+				break
+			}
 		}
 	}
+
+	modelName := ArkModelName(model)
 
 	return &Result{
 		Analysis:   analysis,
 		RootCause:  rootCause,
 		Suggestion: suggestion,
+		ModelUsed:  modelName,
 	}, nil
 }
 
@@ -198,22 +205,35 @@ func (a *LLMAnalyzer) executeReadFile(ctx context.Context, op *readFileOperator,
 	return fmt.Sprintf("File: %s\nContent:\n%s", args.Path, content)
 }
 
-// parseAnalysisResult 从 LLM 最终回复中解析 JSON 格式的分析结果。
+// parseAnalysisResult 从 LLM 回复中按【标记】解析分析结果。
+// 格式：【分析】...【根本原因】...【修复建议】...
 func parseAnalysisResult(text string) (analysis, rootCause, suggestion string) {
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start >= 0 && end > start {
-		jsonStr := text[start : end+1]
-		var parsed struct {
-			Analysis   string `json:"analysis"`
-			RootCause  string `json:"root_cause"`
-			Suggestion string `json:"suggestion"`
-		}
-		if err := json.Unmarshal([]byte(jsonStr), &parsed); err == nil {
-			return parsed.Analysis, parsed.RootCause, parsed.Suggestion
-		}
+	analysis = extractTag(text, "【分析】", "【根本原因】")
+	rootCause = extractTag(text, "【根本原因】", "【修复建议】")
+	suggestion = extractTag(text, "【修复建议】", "")
+
+	if rootCause == "" && suggestion == "" {
+		// 解析失败：全文作为 analysis，root_cause/suggestion 留空
+		return text, "", ""
 	}
-	return text, "", ""
+	return analysis, rootCause, suggestion
+}
+
+// extractTag 从文本中提取两个标记之间的内容。
+func extractTag(text, startTag, endTag string) string {
+	idx := strings.Index(text, startTag)
+	if idx < 0 {
+		return ""
+	}
+	inner := text[idx+len(startTag):]
+	if endTag == "" {
+		return strings.TrimSpace(inner)
+	}
+	end := strings.Index(inner, endTag)
+	if end < 0 {
+		return strings.TrimSpace(inner)
+	}
+	return strings.TrimSpace(inner[:end])
 }
 
 // buildFallbackPrompt 当模板文件加载失败时使用的降级 system prompt。
@@ -256,13 +276,21 @@ ppt-agent 是一个 AI PPT 生成系统：
 
 ## 输出格式
 
-以 JSON 格式输出分析结果：
+按以下**严格格式**输出分析结果（不要输出 JSON，不要输出其他代码块）：
 
-{
-  "analysis": "总体分析描述，50-200字",
-  "root_cause": "简短的根因描述，一句话",
-  "suggestion": "具体可操作的修复建议，50-150字"
-}`, skillsDir, skillsDir, skillsDir)
+【分析】
+总体分析描述，包含具体的代码行号、函数名、文件路径等定位信息，100-300字
+
+【根本原因】
+简短的根因描述，一句话，必须精确到具体文件/函数/行
+
+【修复建议】
+具体可操作的修复建议，必须是有把握的修复方案，100-200字，包含文件路径和具体修改内容
+
+**格式要求：**
+- 必须使用中文全角方括号【】作为每个字段的起始标记，不要用 JSON
+- 每个标记独占一行，标记后面紧跟对应内容
+- 三个字段缺一不可`, skillsDir, skillsDir, skillsDir)
 }
 
 // readFileOperator 是 read_file 工具的命令行操作实现。

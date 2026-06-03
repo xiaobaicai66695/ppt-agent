@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	"github.com/cloudwego/ppt-agent/pkg/agent/router"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
@@ -32,14 +33,14 @@ import (
 
 // Engine 智能学习引擎，整合意图识别、路由、偏好学习和模式分析
 type Engine struct {
-	classifier  *intent.Classifier
-	router      *router.Engine
-	collector   *Collector
-	updater     *Updater
-	analyzer    *Analyzer
-	profileStore *style.EnhancedProfileStore
-
-	mu sync.RWMutex
+	classifier       *intent.Classifier
+	router           *router.Engine
+	collector        *Collector
+	updater          *Updater
+	analyzer         *Analyzer
+	profileStore     *style.EnhancedProfileStore
+	textModelFactory interface{}
+	mu               sync.RWMutex
 }
 
 // EngineConfig 引擎配置
@@ -51,10 +52,11 @@ type EngineConfig struct {
 
 // NewEngine 创建智能学习引擎
 // modelFactory 用于创建 LLM 实例（用于意图分类等辅助任务）
+// textModelFactory 用于创建轻量级 LLM 实例（优先使用，节省成本）
 // 支持两种签名：func(ctx context.Context) (model.ChatModel, error) 或
 // func(ctx context.Context) (interface{ Generate(...) }, error)
 // 如果传入 nil，则意图分类器只使用规则匹配
-func NewEngine(cfg *EngineConfig, modelFactory interface{}) *Engine {
+func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory interface{}) *Engine {
 	if cfg == nil {
 		cfg = &EngineConfig{
 			EnableLLMClassification: true,
@@ -67,16 +69,17 @@ func NewEngine(cfg *EngineConfig, modelFactory interface{}) *Engine {
 
 	// 初始化增强画像存储（先于其他组件）
 	e.profileStore = style.NewEnhancedProfileStore()
+	e.textModelFactory = textModelFactory
 
 	// 初始化意图分类器（可选择是否启用 LLM）
-	e.classifier = intent.NewClassifier(e.makeClassifierFactory(modelFactory))
+	e.classifier = intent.NewClassifier(e.makeClassifierFactory(modelFactory), e.makeTextModelFactory(textModelFactory))
 
 	// 初始化路由引擎
 	e.router = router.NewEngine(e.classifier)
 
 	// 初始化学习组件
 	if cfg.EnableLearning {
-		e.updater = NewUpdater(e.profileStore)
+		e.updater = NewUpdater(e.profileStore, e.makeGenerateModelFactory(textModelFactory))
 		e.collector = NewCollector(nil)
 		e.analyzer = NewAnalyzer()
 		// 建立 Collector → Updater 的连接
@@ -142,6 +145,47 @@ func callModelFactory(modelFactory interface{}, ctx context.Context) (interface{
 		return nil, result[1].Interface().(error)
 	}
 	return result[0].Interface(), nil
+}
+
+// makeGenerateModelFactory 将通用 modelFactory 适配为 Updater 所需的 GenerateModel 工厂。
+func (e *Engine) makeGenerateModelFactory(factory interface{}) func(ctx context.Context) (GenerateModel, error) {
+	if factory == nil {
+		return nil
+	}
+	return func(ctx context.Context) (GenerateModel, error) {
+		result, err := callModelFactory(factory, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if gm, ok := result.(GenerateModel); ok {
+			return gm, nil
+		}
+		return nil, fmt.Errorf("modelFactory 返回值不满足 GenerateModel 接口: %T", result)
+	}
+}
+
+// makeTextModelFactory 将通用 textModelFactory 适配为 intent.Classifier 需要的类型
+func (e *Engine) makeTextModelFactory(factory interface{}) func(ctx context.Context) (interface {
+	Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+}, error) {
+	if factory == nil {
+		return nil
+	}
+
+	return func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error) {
+		result, err := callModelFactory(factory, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if gm, ok := result.(interface {
+			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+		}); ok {
+			return gm, nil
+		}
+		return nil, fmt.Errorf("textModelFactory 返回值不满足 Generate 接口: %T", result)
+	}
 }
 
 // ProcessTask 处理任务入口

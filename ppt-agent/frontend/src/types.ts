@@ -96,6 +96,8 @@ export interface SSEEvent {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  phase?: string;       // 当前阶段: preparing/planning/generating/qa/fixing/complete
+  phase_detail?: string; // 阶段详情
 }
 
 // ── Batch tracking ──────────────────────────────────────────────────────────

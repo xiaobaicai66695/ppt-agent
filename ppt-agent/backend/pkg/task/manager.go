@@ -51,6 +51,8 @@ type SSERichEvent struct {
 	PromptTokens     int64           `json:"prompt_tokens,omitempty"`
 	CompletionTokens int64           `json:"completion_tokens,omitempty"`
 	TotalTokens      int64           `json:"total_tokens,omitempty"`
+	Phase            string          `json:"phase,omitempty"`
+	PhaseDetail      string          `json:"phase_detail,omitempty"`
 }
 
 // TaskInfo 是任务的公开可见摘要。
@@ -291,6 +293,9 @@ type AgentFactory func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent,
 // ErrTaskAlreadyRunning 当尝试创建任务时如果另一个任务正在运行，则返回此错误。
 var ErrTaskAlreadyRunning = fmt.Errorf("已有任务正在执行，请等待当前任务完成后再创建新任务")
 
+// regexpTaskID 用于从 task() 调用的参数中提取 task_id
+var regexpTaskID = regexp.MustCompile(`task_id[=\s]*["']?(\d+)`)
+
 // HasRunningTask 如果给定用户已有运行中的任务则返回 true。
 func (tm *TaskManager) HasRunningTask(userID int) bool {
 	tm.mu.RLock()
@@ -412,6 +417,71 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,
 	cfg *deep.PPTTaskConfig, query string) {
 
+	// ── 步骤1：意图分析结果 ──────────────────────────────
+	var step1 strings.Builder
+	step1.WriteString("【步骤1/5】意图分析\n")
+	if cfg.IntentResult != nil {
+		step1.WriteString(fmt.Sprintf("  • 意图: %s\n", cfg.IntentResult.Intent))
+		step1.WriteString(fmt.Sprintf("  • 领域: %s\n", cfg.IntentResult.Domain))
+		step1.WriteString(fmt.Sprintf("  • 复杂度: %d\n", cfg.IntentResult.Complexity.Level))
+		step1.WriteString(fmt.Sprintf("  • 预估页数: %d 页\n", cfg.IntentResult.SuggestedPageCount))
+		if cfg.IntentResult.Confidence < 0.85 {
+			step1.WriteString(fmt.Sprintf("  • 置信度: %.0f%%（LLM增强）\n", cfg.IntentResult.Confidence*100))
+		}
+	} else {
+		step1.WriteString("  • 意图分类未启用\n")
+	}
+
+	// ── 步骤2：用户画像加载 ────────────────────────────
+	var step2 strings.Builder
+	step2.WriteString("【步骤2/5】用户画像加载\n")
+	if cfg.EnhancedProfile != nil {
+		if cfg.EnhancedProfile.LanguageTone != "" {
+			step2.WriteString(fmt.Sprintf("  • 语言风格: %s\n", cfg.EnhancedProfile.LanguageTone))
+		}
+		if len(cfg.EnhancedProfile.PreferredColors) > 0 {
+			step2.WriteString(fmt.Sprintf("  • 配色偏好: %s\n", strings.Join(cfg.EnhancedProfile.PreferredColors, " / ")))
+		}
+		if len(cfg.EnhancedProfile.LayoutPreferences) > 0 {
+			step2.WriteString(fmt.Sprintf("  • 布局偏好: %s\n", strings.Join(cfg.EnhancedProfile.LayoutPreferences, " / ")))
+		}
+		if len(cfg.EnhancedProfile.SuccessPatterns) > 0 {
+			step2.WriteString(fmt.Sprintf("  • 历史成功经验: %d 条\n", len(cfg.EnhancedProfile.SuccessPatterns)))
+		}
+		if cfg.EnhancedProfile.TotalTasks > 0 {
+			step2.WriteString(fmt.Sprintf("  • 历史任务: %d 个\n", cfg.EnhancedProfile.TotalTasks))
+		}
+	} else if cfg.RoutingDecision != nil && !cfg.RoutingDecision.CacheProfile {
+		step2.WriteString("  • 无历史偏好，使用默认策略\n")
+	} else {
+		step2.WriteString("  • 首次使用，加载默认偏好\n")
+	}
+
+	// ── 步骤3：路由决策 ───────────────────────────────
+	var step3 strings.Builder
+	step3.WriteString("【步骤3/5】路由决策\n")
+	if cfg.RoutingDecision != nil {
+		step3.WriteString(fmt.Sprintf("  • Agent类型: %s\n", cfg.RoutingDecision.AgentType))
+		step3.WriteString(fmt.Sprintf("  • 流水线: %s\n", strings.Join(cfg.RoutingDecision.Pipeline, " → ")))
+		step3.WriteString(fmt.Sprintf("  • 并发数: %d\n", cfg.RoutingDecision.Concurrency))
+		if cfg.RoutingDecision.SkipQA {
+			step3.WriteString("  • QA质检: 跳过\n")
+		} else {
+			step3.WriteString("  • QA质检: 开启\n")
+		}
+	} else {
+		step3.WriteString("  • 使用默认配置\n")
+	}
+
+	// 立即广播前3个步骤（意图分析、用户画像、路由决策）
+	// 这些信息在 CreateTask 阶段已完成，用户连接 SSE 时可立即看到
+	ts.Broadcast(SSERichEvent{Type: "system_step", Content: step1.String()})
+	ts.Broadcast(SSERichEvent{Type: "system_step_end", Content: ""})
+	ts.Broadcast(SSERichEvent{Type: "system_step", Content: step2.String()})
+	ts.Broadcast(SSERichEvent{Type: "system_step_end", Content: ""})
+	ts.Broadcast(SSERichEvent{Type: "system_step", Content: step3.String()})
+	ts.Broadcast(SSERichEvent{Type: "system_step_end", Content: ""})
+
 	defer tm.cleanupTask(ts)
 	defer func() {
 		if r := recover(); r != nil {
@@ -433,15 +503,26 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	go tm.pollProgress(progressCtx, ts, cfg.WorkDir)
 
 	result, err := deep.RunPPTTaskDeepAgentWithCallback(ctx, agent, cfg, query, func(event deep.AgentEvent) {
-		if event.Type != "tool_call" && event.Type != "token_usage" {
+		if event.Type == deep.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
-				Type:     event.Type,
-				Content:  event.Content,
-				ToolName: event.ToolName,
-				ToolArgs: event.ToolArgs,
-				Error:    event.Error,
+				Type:        "progress",
+				Phase:       event.Phase,
+				PhaseDetail: event.PhaseDetail,
 			})
+			return
 		}
+		if event.Type == "tool_call" || event.Type == "token_usage" {
+			// 从 tool_call 推断阶段
+			detectAndBroadcastPhase(ts, event)
+			return
+		}
+		ts.Broadcast(SSERichEvent{
+			Type:     event.Type,
+			Content:  event.Content,
+			ToolName: event.ToolName,
+			ToolArgs: event.ToolArgs,
+			Error:    event.Error,
+		})
 	})
 
 	ts.Mu.Lock()
@@ -502,9 +583,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		go tm.onTaskFailed(ts.Info.ID)
 	}
 
-	// 提取对话内容用于存储（包含任务摘要、幻灯片概览、有意义的对话）
-	ts.persistConversationContent()
-
 	finalEvent := SSERichEvent{
 		Type:            "complete",
 		Status:          ts.Info.Status,
@@ -522,6 +600,10 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 	ts.Broadcast(finalEvent)
 
+	// 在 complete 事件被所有监听者处理完毕后（触发 flushAnswerToDB + flushCompleteToDB），
+	// 再构建并写入 conversation_content。
+	ts.persistConversationContent()
+
 	// 触发任务完成回调，更新用户风格偏好
 	if tm.onTaskComplete != nil && ts.Info.UserID > 0 && ts.Info.Status == TaskStatusCompleted {
 		go tm.onTaskComplete(ts.Info.UserID, ts.Info.WorkDir, ts.Info.Query)
@@ -538,6 +620,56 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		Success:     ts.Info.Status == TaskStatusCompleted,
 		QualityScore: qualityScore,
 		PageCount:   ts.Info.TotalCount,
+	})
+}
+
+// detectAndBroadcastPhase 从 tool_call 事件推断当前执行阶段并广播进度事件。
+// 通过检测 task() 调用的 description 内容来确定阶段。
+func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
+	detail := event.PhaseDetail
+	if detail == "" {
+		detail = event.ToolArgs
+	}
+
+	phase := "planning"
+	phaseDetail := ""
+
+	switch {
+	case strings.Contains(detail, "SlideExecutor") && strings.Contains(detail, "task_id="):
+		phase = "generating"
+		// 从 task_id 提取页码
+		if matches := regexpTaskID.FindStringSubmatch(event.ToolArgs); len(matches) > 1 {
+			phaseDetail = "生成第" + matches[1] + "页"
+		} else {
+			phaseDetail = "生成幻灯片"
+		}
+	case strings.Contains(detail, "SlideExecutor") && !strings.Contains(detail, "task_id="):
+		phase = "generating"
+		phaseDetail = "生成幻灯片"
+	case strings.Contains(detail, "Reviewer") || strings.Contains(detail, "reviewer"):
+		phase = "qa"
+		phaseDetail = "质检中"
+	case strings.Contains(detail, "Fixer") || strings.Contains(detail, "fix"):
+		phase = "fixing"
+		phaseDetail = "修复中"
+	case strings.Contains(detail, "tasks.json") || strings.Contains(detail, "TasksJSON"):
+		phase = "planning"
+		phaseDetail = "读取任务清单"
+	case strings.Contains(detail, ".py") && strings.Contains(detail, "read_file"):
+		phase = "preparing"
+		phaseDetail = "读取模板"
+	case regexpTaskID.MatchString(event.ToolArgs):
+		// 有 task_id 的 task 调用，说明在生成阶段
+		phase = "generating"
+		if matches := regexpTaskID.FindStringSubmatch(event.ToolArgs); len(matches) > 1 {
+			phaseDetail = "生成第" + matches[1] + "页"
+		}
+	}
+
+	ts.Broadcast(SSERichEvent{
+		Type:        "progress",
+		Phase:       phase,
+		PhaseDetail: phaseDetail,
 	})
 }
 
@@ -876,46 +1008,10 @@ func (ts *TaskState) persistConversationContent() {
 
 	b.WriteString("\n## 对话内容\n")
 
-	// 构建一个集合，追踪已从 SSE 添加的答案/错误内容（与数据库去重）
-	sseAdded := make(map[string]bool)
-
-	// 1. 先追加内存中的 SSE 事件（当前轮次，可能尚未写入数据库）
-	for _, e := range ts.Events {
-		switch e.Type {
-		case "answer":
-			trimmed := strings.TrimSpace(e.Content)
-			if trimmed == "" || trimmed == "..." || trimmed == "……" {
-				continue
-			}
-			if len(trimmed) > 2000 {
-				trimmed = trimmed[:2000] + "\n...(内容已截断)"
-			}
-			sseAdded[trimmed] = true
-			b.WriteString(fmt.Sprintf("\n**助手**: %s\n", trimmed))
-		case "error":
-			trimmed := strings.TrimSpace(e.Content)
-			if trimmed != "" {
-				sseAdded[trimmed] = true
-				b.WriteString(fmt.Sprintf("\n**错误**: %s\n", trimmed))
-			}
-		case "complete":
-			if e.Message != "" && e.Message != ts.Info.Error {
-				b.WriteString(fmt.Sprintf("\n**完成摘要**: %s\n", e.Message))
-			}
-			if len(e.Files) > 0 {
-				b.WriteString(fmt.Sprintf("\n**生成文件** (%d个): %s\n", len(e.Files), strings.Join(e.Files, ", ")))
-			}
-		}
-	}
-
-	// 2. 追加不在 SSE 事件中的数据库消息
+	// 从数据库直接构建对话（每条消息都是 flush 后的完整内容，无碎片）。
 	for _, m := range dbMessages {
 		trimmed := strings.TrimSpace(m.Content)
 		if trimmed == "" || trimmed == "..." || trimmed == "……" {
-			continue
-		}
-		// 如果此确切内容已从 SSE 添加，则跳过
-		if sseAdded[trimmed] {
 			continue
 		}
 		if len(trimmed) > 2000 {

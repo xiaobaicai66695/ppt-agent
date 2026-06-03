@@ -30,16 +30,38 @@ import (
 
 // Classifier 意图分类器
 type Classifier struct {
-	modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
-	useLLM       bool
+	modelFactory     func(ctx context.Context) (model.ToolCallingChatModel, error)
+	textModelFactory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error)
+	useLLM bool
 }
 
 // NewClassifier 创建意图分类器
 // modelFactory 用于创建 LLM 实例（可选，用于更精确的分类）
-func NewClassifier(modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)) *Classifier {
+// textModelFactory 用于创建轻量级 LLM 实例（优先使用，节省成本）
+func NewClassifier(
+	modelFactory func(ctx context.Context) (model.ToolCallingChatModel, error),
+	textModelFactory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error),
+) *Classifier {
 	return &Classifier{
-		modelFactory: modelFactory,
-		useLLM:       modelFactory != nil,
+		modelFactory:     modelFactory,
+		textModelFactory: textModelFactory,
+		useLLM:          modelFactory != nil || textModelFactory != nil,
+	}
+}
+
+// SetTextModelFactory 设置轻量级模型工厂
+func (c *Classifier) SetTextModelFactory(
+	factory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error),
+) {
+	c.textModelFactory = factory
+	if factory != nil {
+		c.useLLM = true
 	}
 }
 
@@ -60,16 +82,32 @@ func (c *Classifier) Classify(ctx context.Context, query string, userID int) (*C
 
 	// Step 3: LLM 增强分类（可选）
 	if c.useLLM {
-		llmResult, err := c.llmClassification(ctx, query)
-		if err != nil {
-			logger.Warn("intent_llm_classification_failed", "error", err.Error())
-		} else {
-			// 合并结果：优先使用高置信度的结果
-			if llmResult.Confidence > result.Confidence {
-				logger.Debug("intent_classified_by_llm",
-					"intent", llmResult.Intent.String(),
-					"confidence", llmResult.Confidence)
-				return llmResult, nil
+		// 优先使用轻量级 textModel，节省成本
+		if c.textModelFactory != nil {
+			llmResult, err := c.llmClassificationByTextModel(ctx, query)
+			if err != nil {
+				logger.Warn("intent_llm_text_classification_failed", "error", err.Error())
+			} else {
+				if llmResult.Confidence > result.Confidence {
+					logger.Debug("intent_classified_by_text_model",
+						"intent", llmResult.Intent.String(),
+						"confidence", llmResult.Confidence)
+					return llmResult, nil
+				}
+			}
+		}
+		// 回退到 ToolCallingChatModel
+		if c.modelFactory != nil {
+			llmResult, err := c.llmClassification(ctx, query)
+			if err != nil {
+				logger.Warn("intent_llm_classification_failed", "error", err.Error())
+			} else {
+				if llmResult.Confidence > result.Confidence {
+					logger.Debug("intent_classified_by_llm",
+						"intent", llmResult.Intent.String(),
+						"confidence", llmResult.Confidence)
+					return llmResult, nil
+				}
 			}
 		}
 	}
@@ -77,7 +115,9 @@ func (c *Classifier) Classify(ctx context.Context, query string, userID int) (*C
 	return result, nil
 }
 
-// ruleBasedClassification 基于规则的意图分类
+// ruleBasedClassification 基于规则的意图分类。
+// 规则只做它擅长的事——识别 4 类核心意图的关键词（create/edit/extend/regenerate）。
+// query、customize、缺少关键词的 create 全部交给 LLM。
 func (c *Classifier) ruleBasedClassification(query string) *ClassificationResult {
 	query = strings.TrimSpace(query)
 	queryLower := strings.ToLower(query)
@@ -90,103 +130,114 @@ func (c *Classifier) ruleBasedClassification(query string) *ClassificationResult
 		Complexity:   Complexity{Level: 5, TopicComplexity: 5, AudienceLevel: "intermediate"},
 	}
 
-	// === 意图识别规则 ===
-	// 继续任务
+	// === 仅 4 类核心意图 + continue，其余交给 LLM ===
+
+	// 继续任务（简单可靠，保留）
 	if matched, score := c.matchIntent(queryLower, []string{"继续", "继续做", "接着做", "resume", "continue"}); matched {
 		result.Intent = IntentContinue
 		result.Confidence = score
-		result.IntentReasoning = "检测到继续任务的关键字"
+		result.IntentReasoning = "检测到继续任务关键字"
+		c.fillMeta(result, queryLower)
 		return result
 	}
 
-	// 重新生成
-	if matched, score := c.matchIntent(queryLower, []string{"重新生成", "重新做", "再来一次", "regenerate", "redo"}); matched {
+	// 1. 重新生成
+	if matched, score := c.matchIntent(queryLower, []string{
+		"重新生成", "重新做", "重做", "再来一次", "regenerate", "redo",
+	}); matched {
 		result.Intent = IntentRegenerate
 		result.Confidence = score
-		result.IntentReasoning = "检测到重新生成的关键字"
+		result.IntentReasoning = "检测到重新生成关键字"
+		c.fillMeta(result, queryLower)
 		return result
 	}
 
-	// 编辑现有
-	if matched, score := c.matchIntent(queryLower, []string{"编辑", "修改", "调整", "edit", "modify", "改一下", "调整一下"}); matched {
+	// 2. 编辑现有
+	if matched, score := c.matchIntent(queryLower, []string{
+		"修改", "编辑", "更改", "改成", "换成", "调整", "edit", "modify", "改一下",
+	}); matched {
 		result.Intent = IntentEdit
 		result.Confidence = score
-		result.IntentReasoning = "检测到编辑现有PPT的关键字"
+		result.IntentReasoning = "检测到编辑关键字"
+		c.fillMeta(result, queryLower)
 		return result
 	}
 
-	// 扩展PPT
-	if matched, score := c.matchIntent(queryLower, []string{"加几页", "扩展", "增加", "添加", "多几页", "再加", "补充", "extend", "add"}); matched {
+	// 3. 扩展PPT（注意：不含 "add"，太宽泛容易误命中）
+	if matched, score := c.matchIntent(queryLower, []string{
+		"再加", "扩展", "增加", "加几页", "补充", "添加", "多几页", "extend",
+	}); matched {
 		result.Intent = IntentExtend
 		result.Confidence = score
-		result.IntentReasoning = "检测到扩展PPT的关键字"
+		result.IntentReasoning = "检测到扩展关键字"
+		c.fillMeta(result, queryLower)
 		return result
 	}
 
-	// 定制化调整
-	if matched, score := c.matchIntent(queryLower, []string{"换个配色", "换个风格", "改颜色", "定制", "customize", "风格"}); matched {
-		result.Intent = IntentCustomize
+	// 4. 新建PPT
+	if matched, score := c.matchIntent(queryLower, []string{
+		"做一个", "做个", "制作", "创建", "做一个关于", "帮我做", "写一个",
+		"create", "make a", "generate a",
+	}); matched {
+		result.Intent = IntentCreate
 		result.Confidence = score
-		result.IntentReasoning = "检测到定制化调整的关键字"
+		result.IntentReasoning = "检测到创建关键字"
+		c.fillMeta(result, queryLower)
 		return result
 	}
 
-	// 询问问题
-	if matched, score := c.matchIntent(queryLower, []string{"怎么", "如何", "请问", "是什么", "多少", "how", "what", "why", "question"}); matched {
-		// 需要确保不是创建PPT的上下文
-		if !c.containsCreateKeywords(queryLower) {
-			result.Intent = IntentQuery
-			result.Confidence = score
-			result.IntentReasoning = "检测到询问类关键字且无创建意图"
-			return result
-		}
-	}
-
-	// 默认：新建PPT
-	result.Intent = IntentCreate
-	result.IntentReasoning = "未检测到特定意图关键字，默认为新建PPT"
-	result.Confidence = 0.7
-
-	// === 领域识别 ===
-	result.Domain = c.classifyDomain(queryLower)
-
-	// === 复杂度评估 ===
-	result.Complexity = c.assessComplexity(queryLower)
-
-	// === 紧迫度评估 ===
-	result.Urgency = c.assessUrgency(queryLower)
-
-	// === 建议 ===
-	c.enrichRecommendations(result, queryLower)
-
+	// 无任何关键词命中 → IntentUnknown + confidence 0.0 → 必走 LLM
 	return result
 }
 
-// matchIntent 匹配意图关键字，返回(是否匹配, 置信度)
-func (c *Classifier) matchIntent(query string, keywords []string) (bool, float64) {
-	for i, kw := range keywords {
-		if strings.Contains(query, kw) {
-			// 越靠前的关键字置信度越高
-			confidence := 0.9 - float64(i)*0.05
-			if confidence < 0.7 {
-				confidence = 0.7
-			}
-			return true, confidence
-		}
-	}
-	return false, 0
+// fillMeta 填充领域、复杂度、紧迫度等辅助信息（仅关键词命中后调用）。
+func (c *Classifier) fillMeta(result *ClassificationResult, query string) {
+	result.Domain = c.classifyDomain(query)
+	result.Complexity = c.assessComplexity(query)
+	result.Urgency = c.assessUrgency(query)
+	c.enrichRecommendations(result, query)
 }
 
-// containsCreateKeywords 检查是否包含创建PPT的关键字
-func (c *Classifier) containsCreateKeywords(query string) bool {
-	createKeywords := []string{"做一个", "做一个ppt", "做ppt", "帮我做", "帮我做ppt", "创建", "生成", "制作", "写一个",
-		"做", "写", "ppt", "presentation", "演示", "幻灯片", "帮我", "做一个关于"}
-	for _, kw := range createKeywords {
-		if strings.Contains(query, kw) {
-			return true
+// matchIntent 匹配意图关键字，返回(是否匹配, 置信度)。
+// 置信度基于信号质量而非关键词排位：
+//   - 特异性 (0~0.4)：关键词越长越不容易误匹配
+//   - 位置 (0~0.3)：关键词在句首更可能是意图信号
+//   - 独占性 (0~0.3)：整个 query 越接近关键词本身，信号越纯
+func (c *Classifier) matchIntent(query string, keywords []string) (bool, float64) {
+	for _, kw := range keywords {
+		idx := strings.Index(query, kw)
+		if idx < 0 {
+			continue
 		}
+
+		// 特异性：按关键词长度 / 常见最大长度 (6) 归一化，越长的词越不容易误命中
+		specificity := float64(len([]rune(kw))) / 6.0
+		if specificity > 1.0 {
+			specificity = 1.0
+		}
+		specificityScore := 0.4 * specificity
+
+		// 位置：关键词出现在前 1/3 处 = 句首意图信号强；越靠后越弱
+		posRatio := float64(idx) / float64(len([]rune(query))+1)
+		positionScore := 0.3 * (1.0 - posRatio)
+		if positionScore < 0 {
+			positionScore = 0
+		}
+
+		// 独占性：关键词长度 / query 长度越接近 1，整句几乎就是关键词本身
+		exclusivity := float64(len([]rune(kw))) / float64(len([]rune(query))+1)
+		exclusivityScore := 0.3 * exclusivity
+		if exclusivityScore > 0.3 {
+			exclusivityScore = 0.3
+		}
+
+		confidence := 0.4 + specificityScore + positionScore + exclusivityScore
+		if confidence > 0.98 {
+			confidence = 0.98
+		}
+		return true, confidence
 	}
-	return false
+	return false, 0
 }
 
 // classifyDomain 分类应用领域
@@ -506,13 +557,22 @@ func (c *Classifier) llmClassification(ctx context.Context, query string) (*Clas
 - query: 询问问题
 - continue: 继续未完成任务
 
-领域类型：
-- business: 商业/商务
-- technical: 技术/工程
-- academic: 学术/教育
-- government: 政务/党建
-- personal: 个人/生活
-- creative: 创意/艺术
+领域类型（根据输入中的关键词判断，无明确领域关键词时填 unknown）：
+- business: 商业/商务/融资/路演/创业/市场/营销/客户/投标/产品发布
+- technical: 技术/架构/代码/开发/系统/工程师/微服务/API/AI
+- academic: 学术/论文/答辩/课程/教学/研究/培训/考试
+- government: 政务/党建/政府/思政/团课/红色/政策/汇报/党风廉政
+- personal: 个人/简历/述职/总结/自我介绍/求职/年终
+- creative: 创意/设计/艺术/活动/策划/品牌/文化/旅游
+- unknown: 无法确定领域（领域关键词不明确时使用）
+
+复杂度评估规则（1-10分）：
+- 1-3: 简单介绍/概览/基础说明/少于5页
+- 4-6: 中等深度/包含数据和图表/5-15页
+- 7-10: 深度分析/包含架构图和多章节/15页以上/要求详细和全面
+- 输入包含"简单""简洁""快速""brief""simple"时降低1-2分
+- 输入包含"详细""深入""全面""comprehensive""detailed"时提高1-2分
+- 输入包含"数据""图表""architecture""代码"时提高1分
 
 请返回JSON格式：
 {
@@ -568,6 +628,107 @@ func (c *Classifier) llmClassification(ctx context.Context, query string) (*Clas
 	return &ClassificationResult{
 		Intent:             ParseIntent(llmResult.Intent),
 		IntentReasoning:    llmResult.IntentReasoning,
+		Domain:             ParseDomain(llmResult.Domain),
+		Complexity: Complexity{
+			Level:            llmResult.ComplexityLevel,
+			PageCountEstimate: llmResult.PageCountEstimate,
+		},
+		Confidence:          llmResult.Confidence,
+		SuggestedTheme:     llmResult.SuggestedTheme,
+		SuggestedTemplates: llmResult.SuggestedTemplates,
+	}, nil
+}
+
+// llmClassificationByTextModel 使用轻量级模型（纯 Generate 接口）进行意图分类
+func (c *Classifier) llmClassificationByTextModel(ctx context.Context, query string) (*ClassificationResult, error) {
+	if c.textModelFactory == nil {
+		return nil, nil
+	}
+
+	m, err := c.textModelFactory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	systemPrompt := `你是一个PPT任务意图分类器。根据用户输入，分类其意图并评估任务复杂度。
+
+意图类型：
+- create: 新建PPT
+- edit: 编辑现有PPT
+- extend: 扩展PPT（增加页数）
+- regenerate: 重新生成某页
+- customize: 定制化调整
+- query: 询问问题
+- continue: 继续未完成任务
+
+领域类型（根据输入中的关键词判断，无明确领域关键词时填 unknown）：
+- business: 商业/商务/融资/路演/创业/市场/营销/客户/投标/产品发布
+- technical: 技术/架构/代码/开发/系统/工程师/微服务/API/AI
+- academic: 学术/论文/答辩/课程/教学/研究/培训/考试
+- government: 政务/党建/政府/思政/团课/红色/政策/汇报/党风廉政
+- personal: 个人/简历/述职/总结/自我介绍/求职/年终
+- creative: 创意/设计/艺术/活动/策划/品牌/文化/旅游
+- unknown: 无法确定领域（领域关键词不明确时使用）
+
+复杂度评估规则（1-10分）：
+- 1-3: 简单介绍/概览/基础说明/少于5页
+- 4-6: 中等深度/包含数据和图表/5-15页
+- 7-10: 深度分析/包含架构图和多章节/15页以上/要求详细和全面
+- 输入包含"简单""简洁""快速""brief""simple"时降低1-2分
+- 输入包含"详细""深入""全面""comprehensive""detailed"时提高1-2分
+- 输入包含"数据""图表""architecture""代码"时提高1分
+
+请返回JSON格式：
+{
+  "intent": "意图类型",
+  "intent_reasoning": "判断理由",
+  "domain": "领域类型",
+  "complexity_level": 1-10,
+  "page_count_estimate": 预估页数,
+  "confidence": 置信度0-1,
+  "suggested_theme": "推荐配色主题",
+  "suggested_templates": ["推荐模板列表"]
+}`
+
+	resp, err := m.Generate(ctx, []*schema.Message{
+		{Role: schema.System, Content: systemPrompt},
+		{Role: schema.User, Content: "用户输入: " + query},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 解析 JSON 响应
+	var llmResult struct {
+		Intent             string   `json:"intent"`
+		IntentReasoning    string   `json:"intent_reasoning"`
+		Domain             string   `json:"domain"`
+		ComplexityLevel    int      `json:"complexity_level"`
+		PageCountEstimate  int      `json:"page_count_estimate"`
+		Confidence         float64  `json:"confidence"`
+		SuggestedTheme     string   `json:"suggested_theme"`
+		SuggestedTemplates []string `json:"suggested_templates"`
+	}
+
+	content := strings.TrimSpace(resp.Content)
+	if idx := strings.Index(content, "```"); idx >= 0 {
+		start := idx + 3
+		if strings.HasPrefix(content[start:], "json") {
+			start += 4
+		}
+		end := strings.Index(content[start:], "```")
+		if end >= 0 {
+			content = content[start : start+end]
+		}
+	}
+	if err := json.Unmarshal([]byte(content), &llmResult); err != nil {
+		logger.Warn("intent_llm_text_parse_failed", "content", truncate(resp.Content, 200))
+		return nil, err
+	}
+
+	return &ClassificationResult{
+		Intent:             ParseIntent(llmResult.Intent),
+		IntentReasoning:     llmResult.IntentReasoning,
 		Domain:             ParseDomain(llmResult.Domain),
 		Complexity: Complexity{
 			Level:            llmResult.ComplexityLevel,

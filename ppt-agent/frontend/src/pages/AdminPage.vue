@@ -91,17 +91,25 @@ function truncate(s: unknown, n = 60): string {
 // ── 复制 ─────────────────────────────────────────────────────────────────
 function copyText(text: unknown) {
   const str = String(text ?? '');
-  navigator.clipboard.writeText(str).then(() => {
-    // 静默成功
-  }).catch(() => {
-    // fallback
-    const ta = document.createElement('textarea');
-    ta.value = str;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  });
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(str).catch(() => {
+      execCopyFallback(str);
+    });
+  } else {
+    execCopyFallback(str);
+  }
+}
+
+function execCopyFallback(str: string) {
+  const ta = document.createElement('textarea');
+  ta.value = str;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
 }
 
 // ── 详情弹窗 ─────────────────────────────────────────────────────────────

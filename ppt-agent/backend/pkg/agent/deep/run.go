@@ -43,6 +43,7 @@ const (
 	AgentEventAnswer   = "answer"
 	AgentEventToolCall = "tool_call"
 	AgentEventError    = "error"
+	AgentEventProgress = "progress"
 )
 
 // streamTimeout 返回单次 iter.Next() 调用允许阻塞的最长时间
@@ -93,11 +94,13 @@ func nextWithTimeout(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEven
 
 // AgentEvent 代理执行期间发出的结构化事件
 type AgentEvent struct {
-	Type     string `json:"type"`
-	Content  string `json:"content,omitempty"`
-	ToolName string `json:"tool_name,omitempty"`
-	ToolArgs string `json:"tool_args,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Type        string `json:"type"`
+	Content     string `json:"content,omitempty"`
+	ToolName    string `json:"tool_name,omitempty"`
+	ToolArgs    string `json:"tool_args,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Phase       string `json:"phase,omitempty"`        // 当前阶段
+	PhaseDetail string `json:"phase_detail,omitempty"` // 阶段详情
 }
 
 // AgentEventCallback 在代理执行期间每个事件被调用

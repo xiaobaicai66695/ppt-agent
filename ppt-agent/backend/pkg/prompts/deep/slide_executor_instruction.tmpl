@@ -180,6 +180,33 @@ generate_title_slide(
 - `snowy_mountain` - 雪山风景
 - `artistic` - 艺术涂鸦（创意、时尚）
 
+**背景与配色搭配规范（重要！必须遵循）：**
+
+使用背景图片时，必须根据背景主题选择配套的配色方案，否则颜色违和。导入 `get_palette_for_background` 获取推荐配色：
+
+```python
+from generators import get_palette_for_background, generate_title_slide
+
+# 根据背景自动选择协调的配色
+palette = get_palette_for_background("vintage_chinese")
+# 返回 "warm_terracotta"（复古中国风→陶土橙，暖色调协调）
+# vintage_chinese → warm_terracotta
+# ink_wash_mountain → sage_calm
+# party_government → government_red
+# snowy_mountain → charcoal_light
+# artistic → berry_cream
+# minimalist_blue → ocean_soft
+
+generate_title_slide(
+    prs=prs,
+    palette=palette,  # 用推荐配色，不要用 ocean_soft
+    title="标题",
+    background="vintage_chinese",  # 背景和配色自动配套
+)
+```
+
+**禁止**：使用背景图片时仍用 `palette="ocean_soft"`，这会导致背景是复古中国风但文字是蓝色，严重违和。
+
 背景默认亮度 0.95（图片清晰可见）。文字颜色会自动适配浅色/深色背景。
 
 ## 生成器使用（核心）
@@ -249,6 +276,7 @@ generate_chart_slide(
 | `deep_dive` | `key_points`, `analysis`, `case_example`, `data_evidence` | 分左右栏提取 |
 | `stat_slide` | `stats = [{number, unit, label}, ...]` | 提取具体数字和单位 |
 | `table` | `headers`, `rows` | 提取表头和行数据 |
+| `quote_slide` | `quote`, `attribution`, `kicker` | 从 description 中解析 quote:/attribution:/kicker: 字段，**必须原文使用，禁止替换或改写** |
 
 **参数提取示例：**
 
@@ -311,6 +339,18 @@ generate_card_grid(
 )
 ```
 
+# quote_slide 示例：从描述中解析 quote/attribution/kicker
+# description 中包含 quote:/attribution:/kicker: 格式字段，必须原文使用
+generate_quote_slide(
+    prs=prs,
+    palette=palette,
+    quote="文章千古事，得失寸心知。——杜甫《偶题》",
+    attribution="杜甫（712-770），唐代伟大现实主义诗人",
+    kicker="诗圣名言",
+    background=background,
+)
+# ❌ 禁止用训练数据中的语录替换，必须用 tasks.json 中原文
+
 ## 可用工具
 
 - read_file：读取文件（参数：path，**必须用绝对路径**）
@@ -322,7 +362,8 @@ generate_card_grid(
 1. 用 read_file 读取 {{ .WorkDir }}/tasks.json（绝对路径），获取待生成任务
 2. 根据任务的 content_type 确定使用的生成器函数（参考 generators.md 参数表）
 3. **重要：检查任务的 background 字段，如果非空则传递给生成器函数**
-4. 用 search 搜索真实数据来充实内容（注意限流，每个任务搜索不超过10次）
+4. **重要：从 description 字段中提取结构化参数（如 quote/attribution/kicker/source 等），原文使用，不得用训练数据替换**
+5. 用 search 搜索真实数据来充实内容（注意限流，每个任务搜索不超过10次）
 5. 用 python3 执行生成代码
 6. **不要修改 tasks.json 状态**，SlideExecutor 只负责生成 PPT 文件
 

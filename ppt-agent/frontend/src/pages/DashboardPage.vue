@@ -19,6 +19,8 @@ const selectedId = ref<string | null>(null);
 const taskItems = ref<TaskItem[]>([]);
 const doneCount = ref(0);
 const totalCount = ref(0);
+const currentPhase = ref('');    // preparing/planning/generating/qa/fixing/complete
+const phaseDetail = ref('');     // "生成第3/21页" / "读取模板" 等
 const logLines = ref<{ ts: number; text: string; kind: import('../types').LogKind }[]>([]);
 const finalFiles = ref<string[]>([]);
 const finalMessage = ref('');
@@ -299,10 +301,14 @@ let sseRetryCount = 0;
 let sseCompleted = false;
 const SSE_MAX_RETRIES = 10;
 
+// 追踪上一条 answer 事件的完整内容，用于计算增量。
+let lastAnswerContent = '';
+
 function connectSSE(taskId: string) {
   if (!taskId) return;
   if (sseCompleted) return; // already received complete, don't reconnect
   if (es) es.close();
+  lastAnswerContent = '';
   es = new EventSource(`/api/tasks/${taskId}/stream`);
   activeWorkers.value = 0;
 
@@ -310,34 +316,20 @@ function connectSSE(taskId: string) {
     es!.close();
     es = null;
 
-    // Already received complete event — don't retry
-    if (sseCompleted) return;
+    if (sseCompleted) return; // already received complete
 
     const task = tasks.value.find(t => t.id === taskId);
 
-    // Running task: keep retrying indefinitely with backoff (master agent may be idle/thinking)
-    if (task?.status === 'running') {
-      sseRetryCount++;
-      const delay = Math.min(2000 * Math.pow(1.5, sseRetryCount - 1), 15000);
-      addLog('error', `连接中断，${(delay / 1000).toFixed(0)}s 后自动重连 (第 ${sseRetryCount} 次)...`);
-      setTimeout(() => connectSSE(taskId), delay);
+    // 已完成/已取消/已失败：不再重试 SSE，交给 fetchConversation 兜底。
+    if (!task || task.status !== 'running') {
       return;
     }
 
-    // Completed/cancelled task: limited retries
-    if (task && sseRetryCount < 3) {
-      sseRetryCount++;
-      setTimeout(() => connectSSE(taskId), 2000);
-      return;
-    }
-
-    // Only force logout if we can confirm a 401 via auth check (skip in dev mode)
-    if (!import.meta.env.DEV && !isLoggedIn()) {
-      clearToken();
-      window.location.href = '/auth';
-    } else {
-      addLog('error', 'SSE 连接失败，请刷新页面重试');
-    }
+    // 正在运行：无限重试（带退避），因为 agent 可能长时间思考/空闲。
+    sseRetryCount++;
+    const delay = Math.min(2000 * Math.pow(1.5, sseRetryCount - 1), 15000);
+    addLog('error', `连接中断，${(delay / 1000).toFixed(0)}s 后自动重连 (第 ${sseRetryCount} 次)...`);
+    setTimeout(() => connectSSE(taskId), delay);
   };
 
   const handler = (e: MessageEvent) => {
@@ -345,12 +337,23 @@ function connectSSE(taskId: string) {
     try { evt = JSON.parse(e.data); } catch { return; }
 
     switch (evt.type) {
-      case 'answer':
-        if (logLines.value.length > 0 && logLines.value[logLines.value.length - 1].kind !== 'answer') {
-          addLog('divider', '── AI 响应 ──');
+      case 'answer': {
+        const newContent = evt.content || '';
+        if (newContent) {
+          // evt.content 是从本轮开头的完整累加文本，只取增量部分追加。
+          const delta = newContent.startsWith(lastAnswerContent)
+            ? newContent.slice(lastAnswerContent.length)
+            : newContent;
+          if (delta) {
+            if (logLines.value.length === 0 || logLines.value[logLines.value.length - 1].kind !== 'answer') {
+              addLog('divider', '── AI 响应 ──');
+            }
+            addLog('answer', delta);
+          }
+          lastAnswerContent = newContent;
         }
-        addLog('answer', evt.content || '');
         break;
+      }
 
       case 'tool_call': {
         const name = evt.tool_name || '';
@@ -373,6 +376,8 @@ function connectSSE(taskId: string) {
       }
 
       case 'progress':
+        if (evt.phase) currentPhase.value = evt.phase;
+        if (evt.phase_detail) phaseDetail.value = evt.phase_detail;
         if (evt.tasks) {
           taskItems.value = evt.tasks;
           for (const batch of batches.value) {
@@ -425,6 +430,7 @@ function connectSSE(taskId: string) {
 
       case 'complete':
         sseCompleted = true;
+        lastAnswerContent = '';
         doneCount.value = evt.done || 0;
         totalCount.value = evt.total || 0;
         if (evt.files) {
@@ -463,6 +469,9 @@ function connectSSE(taskId: string) {
 function disconnectSSE() {
   if (es) { es.close(); es = null; }
   stopPolling();
+  lastAnswerContent = '';
+  currentPhase.value = '';
+  phaseDetail.value = '';
 }
 
 // ── Polling fallback ────────────────────────────────────────────────────
@@ -581,6 +590,8 @@ interface TaskCache {
   taskItems: TaskItem[];
   doneCount: number;
   totalCount: number;
+  currentPhase: string;
+  phaseDetail: string;
   logLines: { ts: number; text: string; kind: import('../types').LogKind }[];
   finalFiles: string[];
   finalMessage: string;
@@ -595,6 +606,8 @@ function saveCache(id: string) {
     taskItems: [...taskItems.value],
     doneCount: doneCount.value,
     totalCount: totalCount.value,
+    currentPhase: currentPhase.value,
+    phaseDetail: phaseDetail.value,
     logLines: [...logLines.value],
     finalFiles: [...finalFiles.value],
     finalMessage: finalMessage.value,
@@ -610,6 +623,8 @@ function restoreCache(id: string): boolean {
   taskItems.value = c.taskItems;
   doneCount.value = c.doneCount;
   totalCount.value = c.totalCount;
+  currentPhase.value = c.currentPhase || '';
+  phaseDetail.value = c.phaseDetail || '';
   logLines.value = c.logLines;
   finalFiles.value = c.finalFiles;
   finalMessage.value = c.finalMessage;
@@ -901,6 +916,8 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
           :total-count="totalCount"
           :task-items="taskItems"
           :is-running="selectedTask?.status === 'running'"
+          :phase="currentPhase"
+          :phase-detail="phaseDetail"
         />
 
         <!-- Left-Right Split -->

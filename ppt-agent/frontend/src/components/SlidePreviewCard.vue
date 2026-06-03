@@ -28,17 +28,14 @@ function getDownloadUrl(): string {
   return `/api/tasks/${props.taskId}/files/${encodeURIComponent(name)}`;
 }
 
+// 缩略图加载失败时显示 fallback，不再重试（404 通常是缩略图未生成，属于正常情况）。
 function onImgError() {
   thumbLoaded.value = false;
-  if (retryKey.value < 3) {
-    setTimeout(() => { retryKey.value++; }, 1500);
-  } else {
-    thumbError.value = true;
-  }
+  thumbError.value = true;
 }
 
 function handlePreview() {
-  if (props.fileReady && !thumbError.value) {
+  if (props.fileReady) {
     emit('preview', props.task, getThumbUrl());
   }
 }
@@ -77,9 +74,8 @@ const shortName = computed(() => {
               <line x1="12" y1="18" x2="12" y2="12"/>
               <polyline points="9 15 12 18 15 15"/>
             </svg>
-            <span class="thumb-note">生成完成</span>
+            <span class="thumb-note">预览生成中</span>
           </span>
-          <!-- Preview button overlay -->
           <button v-if="!thumbError" class="preview-btn" title="在线预览" @click.stop="handlePreview">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>

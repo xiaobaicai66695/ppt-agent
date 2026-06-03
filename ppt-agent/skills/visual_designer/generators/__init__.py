@@ -3,6 +3,9 @@ from .base import (
     PALETTES, new_presentation, set_slide_background, set_image_background,
     save_presentation, save_slide, resolve_background, get_background_path,
 )
+from .background_manager import (
+    get_palette_for_background, BACKGROUND_PALETTE_MAP,
+)
 from .title_slide_generator import generate as generate_title_slide
 from .section_divider_generator import generate as generate_section_divider
 from .content_slide_generator import generate as generate_content_slide
@@ -38,6 +41,8 @@ __all__ = [
     "save_slide",
     "resolve_background",
     "get_background_path",
+    "get_palette_for_background",
+    "BACKGROUND_PALETTE_MAP",
     "generate_title_slide",
     "generate_section_divider",
     "generate_content_slide",

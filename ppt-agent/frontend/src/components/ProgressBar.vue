@@ -7,6 +7,8 @@ const props = defineProps<{
   totalCount: number;
   taskItems: TaskItem[];
   isRunning: boolean;
+  phase?: string;
+  phaseDetail?: string;
 }>();
 
 // ── ETA Estimation ─────────────────────────────────────────────────────
@@ -125,12 +127,29 @@ const slidesPerMinute = computed(() => {
   const rate = ((timestamps.length - 1) / durationMs) * 60 * 1000;
   return Math.round(rate * 10) / 10;
 });
+
+const phaseLabel = (phase: string) => {
+  const labels: Record<string, string> = {
+    preparing: '读取模板',
+    planning: '创建任务',
+    generating: '生成幻灯片',
+    qa: '质量审查',
+    fixing: '优化修复',
+    complete: '完成',
+  };
+  return labels[phase] || phase;
+};
 </script>
 
 <template>
   <div v-if="totalCount > 0" class="progress-section">
     <div class="progress-header">
-      <span>生成进度</span>
+      <div class="progress-title-row">
+        <span>生成进度</span>
+        <span v-if="phase && phase !== 'complete'" class="phase-badge" :class="`phase-${phase}`">
+          {{ phaseDetail || phaseLabel(phase) }}
+        </span>
+      </div>
       <div class="progress-meta">
         <span class="progress-num">
           <strong>{{ doneCount }}</strong> / {{ totalCount }} 页
@@ -193,9 +212,31 @@ const slidesPerMinute = computed(() => {
 .progress-header {
   display: flex; justify-content: space-between;
   margin-bottom: 0.5rem; font-size: 0.8rem;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+.progress-title-row {
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.phase-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  animation: fadeIn 0.3s ease;
+}
+.phase-preparing { background: #fef3c7; color: #92400e; }
+.phase-planning  { background: #dbeafe; color: #1e40af; }
+.phase-generating { background: #ede9fe; color: #5b21b6; }
+.phase-qa        { background: #d1fae5; color: #065f46; }
+.phase-fixing    { background: #fee2e2; color: #991b1b; }
+.phase-complete  { background: #d1fae5; color: #065f46; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .progress-meta {
   display: flex;

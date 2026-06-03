@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
@@ -88,7 +90,22 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Recovery())
+	engine.Use(gin.CustomRecovery(func(c *gin.Context, recovered any) {
+		errMsg := "panic recovered"
+		if err, ok := recovered.(error); ok {
+			errMsg = err.Error()
+		} else if s, ok := recovered.(string); ok {
+			errMsg = s
+		}
+		stack := string(debug.Stack())
+		// 只取前 20 行堆栈，避免日志过长
+		lines := strings.Split(stack, "\n")
+		if len(lines) > 40 {
+			stack = strings.Join(lines[:40], "\n") + "\n... (truncated)"
+		}
+		logger.Error("http_panic", "error", errMsg, "stack", stack)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误，请稍后重试"})
+	}))
 
 	// Prometheus HTTP 指标中间件
 	engine.Use(metricsMiddleware)
@@ -119,6 +136,23 @@ func NewServer(cfg *ServerConfig) *Server {
 	if cfg.StyleModelFactory != nil {
 		s.styleExtractor = style.NewExtractor(cfg.StyleModelFactory)
 	}
+
+	// 初始化智能学习引擎（意图分类 + 偏好学习）
+	var aiFactory, textFactory interface{}
+	if cfg.AIModelFactory != nil {
+		if f, err := cfg.AIModelFactory(context.Background()); err == nil {
+			aiFactory = f
+		}
+	}
+	if cfg.TextModelFactory != nil {
+		if f, err := cfg.TextModelFactory(context.Background()); err == nil {
+			textFactory = f
+		}
+	}
+	deep.InitLearningEngine(
+		func() interface{} { return aiFactory },
+		func() interface{} { return textFactory },
+	)
 
 	// 创建任务管理器，并注册风格更新回调
 	s.tasks = task.NewTaskManager(cfg.BaseDir,
