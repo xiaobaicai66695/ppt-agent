@@ -47,6 +47,7 @@ type TaskRecord struct {
 	TotalTokens       int64     `gorm:"default:0" json:"total_tokens"`
 	Files      string    `gorm:"type:text" json:"files"`
 	ConversationContent string  `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
+	FullAnswer         string  `gorm:"type:longtext" json:"full_answer"`           // 完整拼接的 LLM 回答（用于冷加载恢复）
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }

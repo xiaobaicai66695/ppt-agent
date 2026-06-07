@@ -507,7 +507,14 @@ function stopPolling() {
 }
 
 // Restore log lines and files from conversation_content (cold start).
+// 优先使用 full_answer（完整累积的 LLM 输出），回退到 conversation_content markdown 解析。
 function restoreFromConversation(sess: import('../types').ConversationSession) {
+  // 优先使用完整累积的 LLM 回答
+  if (sess.full_answer) {
+    logLines.value = [{ ts: Date.now(), text: sess.full_answer, kind: 'answer' }];
+    return;
+  }
+
   if (!sess.conversation_content) return;
 
   const lines: { ts: number; text: string; kind: import('../types').LogKind }[] = [];

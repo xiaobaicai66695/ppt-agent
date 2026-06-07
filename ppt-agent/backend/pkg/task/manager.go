@@ -65,13 +65,14 @@ type TaskInfo struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	DoneCount  int        `json:"done_count"`
 	TotalCount int        `json:"total_count"`
-	Duration         string     `json:"duration,omitempty"`
-	Error            string     `json:"error,omitempty"`
-	Files            []string   `json:"files,omitempty"`
-	PromptTokens     int64      `json:"prompt_tokens"`
-	CompletionTokens int64      `json:"completion_tokens"`
-	TotalTokens      int64      `json:"total_tokens"`
-	ConversationContent string   `json:"conversation_content,omitempty"` // 拼接后的对话内容
+	Duration           string   `json:"duration,omitempty"`
+	Error              string   `json:"error,omitempty"`
+	Files              []string `json:"files,omitempty"`
+	PromptTokens       int64    `json:"prompt_tokens"`
+	CompletionTokens   int64    `json:"completion_tokens"`
+	TotalTokens        int64    `json:"total_tokens"`
+	ConversationContent string  `json:"conversation_content,omitempty"` // 拼接后的对话内容
+	FullAnswer          string  `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
 }
 
 // TaskState 保存单个任务的内部状态。
@@ -88,11 +89,21 @@ type TaskState struct {
 	pendingContinueMsg string
 	// pendingContinueQueued 已通知前端排队（避免重复通知）
 	pendingContinueQueued bool
+
+	// fullAnswer 累积全部 LLM answer SSE 输出，任务结束时一次性存入 DB
+	fullAnswer strings.Builder
 }
 
 // Persist 将任务状态持久化到数据库。
 func (ts *TaskState) Persist() {
 	ts.persist()
+}
+
+// FullAnswer 返回已累积的完整 LLM 回答内容。
+func (ts *TaskState) FullAnswer() string {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.fullAnswer.String()
 }
 
 // ReportedFiles 返回已上报文件的集合。
@@ -165,6 +176,10 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 	if len(ts.Events) > 500 {
 		ts.Events = ts.Events[len(ts.Events)-300:]
 	}
+	// 累积 LLM 回答内容到 fullAnswer，任务结束时一次性写入 DB
+	if event.Type == "answer" && event.Content != "" {
+		ts.fullAnswer.WriteString(event.Content)
+	}
 	for _, ch := range ts.listeners {
 		select {
 		case ch <- event:
@@ -236,6 +251,7 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		CompletionTokens: info.CompletionTokens,
 		TotalTokens:      info.TotalTokens,
 		ConversationContent: info.ConversationContent,
+		FullAnswer:          info.FullAnswer,
 	}
 }
 
@@ -261,6 +277,7 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		CompletionTokens: r.CompletionTokens,
 		TotalTokens:      r.TotalTokens,
 		ConversationContent: r.ConversationContent,
+		FullAnswer:          r.FullAnswer,
 	}
 }
 
@@ -282,6 +299,7 @@ func (ts *TaskState) persist() {
 		"completion_tokens":      r.CompletionTokens,
 		"total_tokens":           r.TotalTokens,
 		"conversation_content":   r.ConversationContent,
+		"full_answer":            r.FullAnswer,
 	}); err != nil {
 		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}
@@ -564,6 +582,9 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.TotalTokens = t
 	}
 
+	// 将累积的完整 LLM 回答写入持久化字段
+	ts.Info.FullAnswer = ts.fullAnswer.String()
+
 	ts.persist()
 
 	// 任务完成后，检查是否有等待中的继续消息，如有则触发自动继续处理
@@ -802,6 +823,21 @@ func (tm *TaskManager) GetTaskState(id string) *TaskState {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.tasks[id]
+}
+
+// GetWorkDir 返回任务的工作目录，先从内存查再查 DB。
+// 用于冷加载场景下下载文件/缩略图不因内存过期而 404。
+func (tm *TaskManager) GetWorkDir(id string) string {
+	ts := tm.GetTaskState(id)
+	if ts != nil {
+		return ts.Info.WorkDir
+	}
+	if db.DB != nil {
+		if r, err := db.GetTaskRecord(id); err == nil {
+			return r.WorkDir
+		}
+	}
+	return ""
 }
 
 // NewColdTaskState 从 TaskInfo 创建一个最小的 TaskState（无 events，无 cancel）。

@@ -18,6 +18,8 @@ export interface ConversationSession {
   messages: ConversationMessage[];
   // 冷启动时从 task_records 重建的完整拼接内容。
   conversation_content?: string;
+  // 完整累积的 LLM 回答（任务结束时一次性写入 DB），优先用于冷加载恢复。
+  full_answer?: string;
   status?: TaskStatus;
   done_count?: number;
   total_count?: number;

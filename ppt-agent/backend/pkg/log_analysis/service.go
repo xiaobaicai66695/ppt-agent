@@ -499,7 +499,8 @@ func (s *Service) runAnalysis(req taskRequest) {
 		// 日志内容由外部传入（如任务失败时）
 		logs = req.Logs
 	} else {
-		logs, err = logger.ReadLastNLogLinesByLevel(s.logLines, logger.LogLevelError|logger.LogLevelDebug)
+		// 读取 ERROR + DEBUG + INFO，以覆盖 bug 日志和 user_feedback 等诊断信息
+	logs, err = logger.ReadLastNLogLinesByLevel(s.logLines, logger.LogLevelError|logger.LogLevelDebug|logger.LogLevelInfo)
 		if err != nil {
 			logger.Error("log_analysis_read_failed", "task_id", req.TaskID, "error", err.Error())
 			return
@@ -568,7 +569,8 @@ func (s *Service) runIdleAnalysis() {
 		return
 	}
 
-	logs, newOffset, err := logger.ReadFromOffset(currentOffset, logger.LogLevelError|logger.LogLevelDebug)
+	// 读取 ERROR + DEBUG + INFO，以覆盖 bug 日志和 user_feedback 等诊断信息
+	logs, newOffset, err := logger.ReadFromOffset(currentOffset, logger.LogLevelError|logger.LogLevelDebug|logger.LogLevelInfo)
 	if err != nil {
 		logger.Warn("idle_log_read_failed", "error", err.Error())
 		return

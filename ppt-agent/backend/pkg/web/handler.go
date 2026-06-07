@@ -21,6 +21,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/task"
@@ -201,13 +202,14 @@ func (s *Server) handleDownloadFile(c *gin.Context) {
 	id := c.Param("id")
 	filename := c.Param("filename")
 
-	ts := s.tasks.GetTaskState(id)
-	if ts == nil {
+	// 优先从内存获取 workDir，冷加载时从 DB 兜底
+	workDir := s.tasks.GetWorkDir(id)
+	if workDir == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
 
-	filePath, err := safePath(ts.Info.WorkDir, filename)
+	filePath, err := safePath(workDir, filename)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "非法的文件路径"})
 		return
@@ -225,13 +227,14 @@ func (s *Server) handleThumbnail(c *gin.Context) {
 	id := c.Param("id")
 	filename := c.Param("filename")
 
-	ts := s.tasks.GetTaskState(id)
-	if ts == nil {
+	// 优先从内存获取 workDir，冷加载时从 DB 兜底
+	workDir := s.tasks.GetWorkDir(id)
+	if workDir == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
 
-	filePath, err := safePath(ts.Info.WorkDir, filename)
+	filePath, err := safePath(workDir, filename)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "非法的文件路径"})
 		return
@@ -554,6 +557,14 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 	}
 
 	uid := userIDGin(c)
+
+	// 将用户反馈写入结构化日志，供后续 LLM 分析
+	logger.Info("user_feedback",
+		"task_id", taskID,
+		"user_id", uid,
+		"message", req.Message,
+		"task_status", string(ts.Info.Status),
+		"page_count", fmt.Sprintf("%d/%d", ts.Info.DoneCount, ts.Info.TotalCount))
 
 	// 任务运行中：加入等待队列，任务完成后自动处理
 	if ts.Info.Status == task.TaskStatusRunning {
@@ -1275,14 +1286,16 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 
 	ts := s.tasks.GetTaskState(taskID)
 
-	// 任务在内存中，直接返回实时会话数据。
+	// 任务在内存中，直接返回实时会话数据（包含累计的 full_answer）。
 	if ts != nil {
+		fullAnswer := ts.FullAnswer()
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 		c.JSON(http.StatusOK, gin.H{
-			"task_id":    taskID,
-			"messages":   sess.Messages,
-			"created_at": sess.CreatedAt,
-			"updated_at": sess.UpdatedAt,
+			"task_id":     taskID,
+			"messages":    sess.Messages,
+			"full_answer": fullAnswer,
+			"created_at":  sess.CreatedAt,
+			"updated_at":  sess.UpdatedAt,
 		})
 		return
 	}
@@ -1312,18 +1325,19 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"task_id":                taskID,
-		"messages":               messages,
-		"conversation_content":    info.ConversationContent,
-		"status":                 info.Status,
-		"done_count":             info.DoneCount,
-		"total_count":            info.TotalCount,
-		"files":                  info.Files,
-		"duration":                info.Duration,
-		"prompt_tokens":          info.PromptTokens,
-		"completion_tokens":      info.CompletionTokens,
-		"total_tokens":           info.TotalTokens,
-		"created_at":             info.CreatedAt,
+		"task_id":              taskID,
+		"messages":             messages,
+		"conversation_content":  info.ConversationContent,
+		"full_answer":           info.FullAnswer,
+		"status":               info.Status,
+		"done_count":           info.DoneCount,
+		"total_count":          info.TotalCount,
+		"files":                info.Files,
+		"duration":              info.Duration,
+		"prompt_tokens":        info.PromptTokens,
+		"completion_tokens":    info.CompletionTokens,
+		"total_tokens":         info.TotalTokens,
+		"created_at":           info.CreatedAt,
 	})
 }
 
