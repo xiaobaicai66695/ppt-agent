@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
@@ -312,12 +313,8 @@ func (c *Classifier) assessComplexity(query string) Complexity {
 
 	for _, p := range pagePatterns {
 		if matches := p.pattern.FindStringSubmatch(query); len(matches) > 1 {
-			var pageCount int
-			if _, err := parseInt(matches[1]); err == nil {
-				pageCount = int(matches[1][0]-'0') * 10
-				if pageCount > 0 && pageCount <= 100 {
-					cpl.PageCountEstimate = pageCount
-				}
+			if n, err := strconv.Atoi(matches[1]); err == nil && n > 0 && n <= 100 {
+				cpl.PageCountEstimate = n
 			}
 		}
 	}
@@ -738,20 +735,6 @@ func (c *Classifier) llmClassificationByTextModel(ctx context.Context, query str
 		SuggestedTheme:     llmResult.SuggestedTheme,
 		SuggestedTemplates: llmResult.SuggestedTemplates,
 	}, nil
-}
-
-// parseInt 解析字符串中的数字
-func parseInt(s string) (int, error) {
-	re := regexp.MustCompile(`\d+`)
-	matches := re.FindString(s)
-	if matches == "" {
-		return 0, nil
-	}
-	var n int
-	for _, c := range matches {
-		n = n*10 + int(c-'0')
-	}
-	return n, nil
 }
 
 func truncate(s string, maxLen int) string {
