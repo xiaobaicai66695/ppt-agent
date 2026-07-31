@@ -17,9 +17,16 @@
 package learning
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/cloudwego/eino/schema"
+
+	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/style"
 )
 
@@ -51,6 +58,11 @@ type Analyzer struct {
 	taskHistory map[string]*TaskPattern // taskID -> pattern
 	signals     []*LearningSignal       // 最近的学习信号
 
+	// LLM 驱动的模式分析（轻量级模型，节省成本）
+	modelFactory func(ctx context.Context) (interface {
+		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+	}, error)
+
 	// 统计
 	stats *AnalyzerStats
 }
@@ -75,11 +87,15 @@ type TaskPattern struct {
 	CompletedAt  time.Time
 }
 
-// NewAnalyzer 创建模式分析器
-func NewAnalyzer() *Analyzer {
+// NewAnalyzer 创建模式分析器。
+// modelFactory 为 nil 时使用纯规则分析。
+func NewAnalyzer(modelFactory func(ctx context.Context) (interface {
+	Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+}, error)) *Analyzer {
 	return &Analyzer{
-		taskHistory: make(map[string]*TaskPattern),
-		signals:     make([]*LearningSignal, 0),
+		taskHistory:  make(map[string]*TaskPattern),
+		signals:      make([]*LearningSignal, 0),
+		modelFactory: modelFactory,
 		stats: &AnalyzerStats{
 			LastAnalysis: time.Now(),
 		},
@@ -113,20 +129,47 @@ func (a *Analyzer) RecordSuccess(taskID string, profile *style.EnhancedProfile) 
 	}
 }
 
-// AnalyzeUserPatterns 分析用户模式
+// AnalyzeUserPatterns 分析用户模式。
+// 优先使用 LLM 分析（如果有 modelFactory），纯规则分析作为无模型时的降级。
 func (a *Analyzer) AnalyzeUserPatterns(userID int) []*Pattern {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	userSignals := a.collectUserSignals(userID)
+	a.mu.RUnlock()
 
-	var patterns []*Pattern
+	if len(userSignals) == 0 {
+		return nil
+	}
 
-	// 收集该用户的所有信号
+	// LLM 深度分析
+	if a.modelFactory != nil {
+		patterns := a.llmAnalyzePatterns(userID, userSignals)
+		if len(patterns) > 0 {
+			a.mu.Lock()
+			a.stats.PatternsFound += len(patterns)
+			a.stats.LastAnalysis = time.Now()
+			a.mu.Unlock()
+			return patterns
+		}
+	}
+
+	// 降级：纯规则分析
+	return a.ruleBasedAnalysis(userSignals)
+}
+
+// collectUserSignals 收集某用户的所有信号（读锁外调用）
+func (a *Analyzer) collectUserSignals(userID int) []*LearningSignal {
 	var userSignals []*LearningSignal
 	for _, s := range a.signals {
 		if s.UserID == userID {
 			userSignals = append(userSignals, s)
 		}
 	}
+	return userSignals
+}
+
+// ruleBasedAnalysis 纯规则分析（无 LLM 时的降级路径）
+func (a *Analyzer) ruleBasedAnalysis(userSignals []*LearningSignal) []*Pattern {
+	var patterns []*Pattern
 
 	// 分析时间模式
 	if timePatterns := a.analyzeTimePatterns(userSignals); len(timePatterns) > 0 {
@@ -143,8 +186,10 @@ func (a *Analyzer) AnalyzeUserPatterns(userID int) []*Pattern {
 		patterns = append(patterns, editPatterns...)
 	}
 
+	a.mu.Lock()
 	a.stats.PatternsFound += len(patterns)
 	a.stats.LastAnalysis = time.Now()
+	a.mu.Unlock()
 
 	return patterns
 }
@@ -392,6 +437,170 @@ type InsightsReport struct {
 	Patterns      []*Pattern
 	Summary       string
 	Recommendations []string
+}
+
+// ── LLM 驱动的模式分析 ───────────────────────────────────────────────────
+
+const patternAnalysisSystemPrompt = `你是一个用户行为模式分析引擎，负责从用户的 PPT 生成行为信号中提取有价值的洞察。
+
+你会收到一个用户最近的的行为信号列表（JSON 数组），每条信号包含 type（信号类型）、timestamp、context 等字段。
+
+信号类型说明：
+- explicit_feedback: 用户对任务/页面的评分（context.quality_score 字段，1-5分）
+- implicit_feedback: 隐式行为（context.action_type 如 "task_start"）
+- edit_action: 用户编辑了PPT某页（context.page_index, context.action_type="edit"）
+- qa_result: QA审阅结果（data.has_issue=true 表示发现质量问题）
+- completion: 任务完成（context.quality_score, context.duration）
+- abandon_task: 任务被放弃（data.reason, data.progress）
+
+请分析这些信号，输出 JSON：
+
+{
+  "patterns": [
+    {
+      "type": "quality_trend" | "edit_pattern" | "time_pattern" | "content_preference" | "domain_preference" | "complexity_pattern",
+      "confidence": 0.0-1.0,
+      "insight": "一句话描述发现的模式",
+      "suggestion": "针对该模式的优化建议，1-2句话",
+      "data": {
+        // 具体数据，如编辑次数、评分变化等
+      }
+    }
+  ],
+  "summary": "总分析总结，2-3句话"
+}
+
+## 规则
+1. patterns 数组最多 5 条，按 confidence 从高到低排序
+2. 只有 confidence >= 0.5 的模式才输出
+3. suggestion 要具体可操作，不要空泛的建议
+4. 如果信号太少（<3条），返回空的 patterns 数组
+5. type 为 quality_trend 时，data 应包含 avg_score 和 trend（improving/stable/declining）
+6. type 为 edit_pattern 时，data 应包含 edit_count 和 ratio`
+
+// llmAnalyzePatterns 使用 LLM 分析用户信号，提取模式。
+func (a *Analyzer) llmAnalyzePatterns(userID int, signals []*LearningSignal) []*Pattern {
+	if len(signals) < 3 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	m, err := a.modelFactory(ctx)
+	if err != nil {
+		logger.Warn("analyzer_llm_model_create_failed", "error", err.Error())
+		return nil
+	}
+
+	prompt := a.buildSignalAnalysisPrompt(signals)
+
+	resp, err := m.Generate(ctx, []*schema.Message{
+		{Role: schema.System, Content: patternAnalysisSystemPrompt},
+		{Role: schema.User, Content: prompt},
+	})
+	if err != nil {
+		logger.Warn("analyzer_llm_generate_failed", "error", err.Error())
+		return nil
+	}
+
+	result, err := a.parsePatterns(resp.Content)
+	if err != nil {
+		logger.Warn("analyzer_llm_parse_failed", "content", truncateAnalyzedContent(resp.Content))
+		return nil
+	}
+
+	return result
+}
+
+// buildSignalAnalysisPrompt 构建发送给 LLM 的分析 prompt。
+func (a *Analyzer) buildSignalAnalysisPrompt(signals []*LearningSignal) string {
+	var lines []string
+	for _, s := range signals {
+		entry := map[string]interface{}{
+			"type":      s.Type.String(),
+			"timestamp": s.Timestamp.Format("2006-01-02 15:04:05"),
+		}
+		if s.Context != nil {
+			entry["context"] = map[string]interface{}{
+				"phase":          s.Context.TaskPhase,
+				"quality_score":  s.Context.QualityScore,
+				"duration_sec":   s.Context.Duration,
+				"action_type":    s.Context.ActionType,
+				"page_index":     s.Context.PageIndex,
+			}
+		}
+		if s.Data != nil {
+			entry["data"] = s.Data
+		}
+		b, _ := json.Marshal(entry)
+		lines = append(lines, string(b))
+	}
+
+	return fmt.Sprintf("请分析以下用户行为信号（%d 条）：\n```json\n[%s\n]\n```", len(signals), strings.Join(lines, ",\n"))
+}
+
+// llmPatternResult LLM 返回的模式分析结果。
+type llmPatternResult struct {
+	Patterns []struct {
+		Type       string                 `json:"type"`
+		Confidence float64                `json:"confidence"`
+		Insight    string                 `json:"insight"`
+		Suggestion string                 `json:"suggestion"`
+		Data       map[string]interface{} `json:"data"`
+	} `json:"patterns"`
+	Summary string `json:"summary"`
+}
+
+var patternTypeMap = map[string]PatternType{
+	"quality_trend":      PatternQualityTrend,
+	"edit_pattern":       PatternEditPattern,
+	"time_pattern":       PatternTimeDistribution,
+	"content_preference": PatternTemplateSuccess,
+	"domain_preference":  PatternDomainPreference,
+	"complexity_pattern":  PatternQualityTrend,
+}
+
+func (a *Analyzer) parsePatterns(content string) ([]*Pattern, error) {
+	content = strings.TrimSpace(content)
+	if idx := strings.Index(content, "```"); idx >= 0 {
+		start := idx + 3
+		if rest := content[start:]; len(rest) >= 4 && rest[:4] == "json" {
+			start += 4
+		}
+		end := strings.Index(content[start:], "```")
+		if end >= 0 {
+			content = content[start : start+end]
+		}
+	}
+
+	var result llmPatternResult
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return nil, fmt.Errorf("json unmarshal: %w", err)
+	}
+
+	var patterns []*Pattern
+	for _, p := range result.Patterns {
+		pt, ok := patternTypeMap[p.Type]
+		if !ok {
+			pt = PatternQualityTrend
+		}
+		patterns = append(patterns, &Pattern{
+			Type:       pt,
+			Confidence: p.Confidence,
+			Data:       p.Data,
+			Insight:    p.Insight,
+			Suggestion: p.Suggestion,
+		})
+	}
+	return patterns, nil
+}
+
+func truncateAnalyzedContent(s string) string {
+	if len(s) <= 300 {
+		return s
+	}
+	return s[:300] + "..."
 }
 
 func min(a, b float64) float64 {

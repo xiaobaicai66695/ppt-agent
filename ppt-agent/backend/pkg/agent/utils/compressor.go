@@ -32,12 +32,15 @@ import (
 
 // CompressorConfig 压缩器配置
 type CompressorConfig struct {
-	// 触发压缩的消息项数量阈值（默认 12，比原来保守）
+	// 触发压缩的消息项数量阈值（默认 60）
 	MessageThreshold int
-	// 触发压缩的估算 token 数阈值（默认 30000，覆盖 system_prompt + 上下文后接近 32K 模型的安全线）
+	// 触发压缩的估算 token 数阈值（默认 200000，覆盖 system_prompt + 上下文后接近 32K 模型的安全线）
 	TokenThreshold int
-	// 压缩时保留的留边消息对数量（默认 4）
+	// 压缩时保留的留边消息对数量（默认 8）
 	PreserveCount int
+	// 压缩时每个留边消息对中保留的 tool result 条数上限（默认全部保留）
+	// 设为 0 表示不限制；设为正数 N 表示每个留边 pair 只保留最近的 N 条 tool result
+	ToolResultPreserveCount int
 }
 
 // CompressorOption 压缩器配置选项
@@ -64,16 +67,25 @@ func WithPreserveCount(n int) CompressorOption {
 	}
 }
 
+// WithToolResultPreserveCount 设置每个留边消息对中保留的 tool result 条数上限（默认全部保留）
+func WithToolResultPreserveCount(n int) CompressorOption {
+	return func(c *CompressorConfig) {
+		c.ToolResultPreserveCount = n
+	}
+}
+
 // DefaultCompressorConfig 返回默认压缩配置。
 // 可以通过环境变量覆盖：
 //   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: 消息数量阈值（默认 60）
 //   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token 估算阈值（默认 200000）
 //   - MASTER_COMPRESSOR_PRESERVE_COUNT: 保留的消息对数量（默认 8）
+//   - MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT: 每个留边 pair 保留的 tool result 条数（默认 0，不限制）
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold: EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
-		TokenThreshold:  EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
-		PreserveCount:   EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
+		MessageThreshold:         EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
+		TokenThreshold:          EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
+		PreserveCount:           EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
+		ToolResultPreserveCount: EnvInt("MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", 0),
 	}
 }
 
@@ -241,9 +253,10 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 			summarizerFactory: func() (model.ToolCallingChatModel, error) {
 				return summarizer, nil
 			},
-			messageThreshold: cfg.MessageThreshold,
-			tokenThreshold:  cfg.TokenThreshold,
-			preserveCount:   cfg.PreserveCount,
+			messageThreshold:         cfg.MessageThreshold,
+			tokenThreshold:          cfg.TokenThreshold,
+			preserveCount:           cfg.PreserveCount,
+			toolResultPreserveCount: cfg.ToolResultPreserveCount,
 		}
 		fcm.mu.Unlock()
 	}
@@ -472,7 +485,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 			len(headPairs), len(pairs), summaryJSON, progressPart),
 	})
 
-	// 添加留边对话对（保留 tool result）
+	// 添加留边对话对（保留 tool result，不超过配置的条数上限）
 	for _, p := range tailPairs {
 		if p.user != nil {
 			compressed = append(compressed, p.user)
@@ -480,8 +493,21 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		if p.assistant != nil {
 			compressed = append(compressed, p.assistant)
 		}
-		for _, tr := range p.toolResults {
-			compressed = append(compressed, tr)
+		toolLimit := c.cfg.ToolResultPreserveCount
+		if toolLimit <= 0 {
+			// 0 表示不限制，全部保留
+			for _, tr := range p.toolResults {
+				compressed = append(compressed, tr)
+			}
+		} else {
+			// 只保留最近的 N 条 tool result
+			start := 0
+			if len(p.toolResults) > toolLimit {
+				start = len(p.toolResults) - toolLimit
+			}
+			for j := start; j < len(p.toolResults); j++ {
+				compressed = append(compressed, p.toolResults[j])
+			}
 		}
 	}
 

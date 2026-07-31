@@ -15,6 +15,8 @@ const layouts = ref<AtomicLayout[]>([]);
 const themes = ref<ThemeInfo[]>([]);
 const backgrounds = ref<BackgroundTheme[]>([]);
 const loading = ref(false);
+const generating = ref(false);
+const testingOutline = ref(false);
 
 // Background category filter
 const bgCategories = ['全部', '商务', '科技', '教育', '党政', '生活', '自然'];
@@ -352,8 +354,63 @@ function addBlankSlide() {
   slides.value.push(slide);
 }
 
+async function testGenerateOutline() {
+  if (slides.value.length === 0) {
+    alert('请先添加或选择至少一页幻灯片');
+    return;
+  }
+  if (!topicTrimmed.value) {
+    alert('请先填写 PPT 内容主题');
+    return;
+  }
+
+  testingOutline.value = true;
+  try {
+    const outline: TaskOutline = {
+      template: selectedPreset.value?.name || 'custom',
+      theme: selectedTheme.value,
+      title: pptTitle.value || topicTrimmed.value || '未命名PPT',
+      slides: slides.value.map(s => ({
+        title: s.title,
+        content_type: s.content_type,
+        description: s.description || '',
+        content_plan: s.content_plan,
+        background: s.background,
+      })),
+    };
+    const enriched = await generateOutlineWithAI(topicTrimmed.value, outline);
+    if (enriched && enriched.length > 0) {
+      for (let i = 0; i < slides.value.length && i < enriched.length; i++) {
+        const e = enriched[i];
+        slides.value[i] = {
+          title: e.title || slides.value[i].title,
+          content_type: e.content_type || slides.value[i].content_type,
+          background: e.background || slides.value[i].background,
+          description: e.description || slides.value[i].description,
+          content_plan: e.content_plan || slides.value[i].content_plan,
+        };
+      }
+      alert(`测试成功：已生成 ${enriched.length} 页内容规划`);
+    } else {
+      alert('测试失败：未返回有效大纲');
+    }
+  } catch (e) {
+    alert('测试失败: ' + (e as Error).message);
+  } finally {
+    testingOutline.value = false;
+  }
+}
+
 async function startGeneration() {
-  if (slides.value.length === 0) return;
+  if (slides.value.length === 0) {
+    alert('请先添加或选择至少一页幻灯片');
+    return;
+  }
+  if (!topicTrimmed.value) {
+    alert('请先填写 PPT 内容主题');
+    return;
+  }
+  if (generating.value) return;
 
   // Warn if there are empty descriptions
   if (hasEmptyDescriptions.value) {
@@ -363,16 +420,18 @@ async function startGeneration() {
     if (!confirmed) return;
   }
 
+  generating.value = true;
   try {
     const outline: TaskOutline = {
       template: selectedPreset.value?.name || 'custom',
       theme: selectedTheme.value,
-      title: pptTitle.value || '未命名PPT',
+      title: pptTitle.value || topicTrimmed.value || '未命名PPT',
       slides: slides.value.map(s => ({
         title: s.title,
         content_type: s.content_type,
         description: s.description,
         content_plan: s.content_plan,
+        background: s.background,
       })),
     };
     const query = topicTrimmed.value;
@@ -380,6 +439,8 @@ async function startGeneration() {
     router.push({ name: 'dashboard', query: { select: task.id } });
   } catch (e) {
     alert('创建任务失败: ' + (e as Error).message);
+  } finally {
+    generating.value = false;
   }
 }
 </script>
@@ -417,8 +478,11 @@ async function startGeneration() {
         <button class="btn-ai-batch" :disabled="batchFilling || slides.length === 0 || !topicTrimmed" @click="handleAIBatchFill">
           {{ batchFilling ? batchFillProgress : 'AI 批量续写' }}
         </button>
-        <button class="btn-primary" :disabled="slides.length === 0 || loading" @click="startGeneration">
-          {{ loading ? '创建中...' : '开始生成' }}
+        <button class="btn-secondary" :disabled="testingOutline || slides.length === 0 || !topicTrimmed" @click="testGenerateOutline">
+          {{ testingOutline ? '测试中...' : '测试' }}
+        </button>
+        <button class="btn-primary" :disabled="slides.length === 0 || generating || !topicTrimmed" @click="startGeneration">
+          {{ generating ? '创建中...' : '开始翻译' }}
         </button>
       </div>
     </div>

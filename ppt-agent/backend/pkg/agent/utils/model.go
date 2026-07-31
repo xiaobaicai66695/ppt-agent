@@ -480,10 +480,11 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 
 // compressorCfg 存储在 FallbackChatModel 中，以便 WithTools 可以在重新绑定工具后重新应用压缩器。
 type compressorConfig struct {
-	summarizerFactory func() (model.ToolCallingChatModel, error)
-	messageThreshold  int
-	tokenThreshold    int
-	preserveCount     int
+	summarizerFactory        func() (model.ToolCallingChatModel, error)
+	messageThreshold         int
+	tokenThreshold           int
+	preserveCount            int
+	toolResultPreserveCount  int
 }
 
 // newChatModelCompressorFromConfig 从存储的配置创建 ChatModelCompressor。
@@ -494,18 +495,19 @@ func newChatModelCompressorFromConfig(inner model.ToolCallingChatModel, cfg *com
 		// Cannot recreate compressor — fall back to no compression
 		return nil
 	}
-	return newChatModelCompressor(inner, summarizer, cfg.messageThreshold, cfg.tokenThreshold, cfg.preserveCount)
+	return newChatModelCompressor(inner, summarizer, cfg.messageThreshold, cfg.tokenThreshold, cfg.preserveCount, cfg.toolResultPreserveCount)
 }
 
 // newChatModelCompressor 是内部构造函数，接受原始阈值参数。
-func newChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.ToolCallingChatModel, msgThresh, tokenThresh, preserve int) *ChatModelCompressor {
+func newChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.ToolCallingChatModel, msgThresh, tokenThresh, preserve, toolResultPreserve int) *ChatModelCompressor {
 	return &ChatModelCompressor{
 		inner:      inner,
 		summarizer: summarizer,
 		cfg: &CompressorConfig{
-			MessageThreshold: msgThresh,
-			TokenThreshold:   tokenThresh,
-			PreserveCount:    preserve,
+			MessageThreshold:         msgThresh,
+			TokenThreshold:          tokenThresh,
+			PreserveCount:          preserve,
+			ToolResultPreserveCount: toolResultPreserve,
 		},
 	}
 }

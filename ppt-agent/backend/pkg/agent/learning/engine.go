@@ -81,7 +81,7 @@ func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory int
 	if cfg.EnableLearning {
 		e.updater = NewUpdater(e.profileStore, e.makeGenerateModelFactory(textModelFactory))
 		e.collector = NewCollector(nil)
-		e.analyzer = NewAnalyzer()
+		e.analyzer = NewAnalyzer(e.makeTextModelFactoryForAnalyzer(textModelFactory))
 		// 建立 Collector → Updater 的连接
 		e.collector.SetUpdater(e.updater)
 	}
@@ -186,6 +186,13 @@ func (e *Engine) makeTextModelFactory(factory interface{}) func(ctx context.Cont
 		}
 		return nil, fmt.Errorf("textModelFactory 返回值不满足 Generate 接口: %T", result)
 	}
+}
+
+// makeTextModelFactoryForAnalyzer 将通用 textModelFactory 适配为 Analyzer 需要的类型
+func (e *Engine) makeTextModelFactoryForAnalyzer(factory interface{}) func(ctx context.Context) (interface {
+	Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+}, error) {
+	return e.makeTextModelFactory(factory)
 }
 
 // ProcessTask 处理任务入口
