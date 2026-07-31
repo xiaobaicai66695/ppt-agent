@@ -37,6 +37,7 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) 
 	if err != nil {
 		return nil, err
 	}
+	cm = agentutils.NewRuntimeStatusChatModel(cm, cfg.RuntimeMeta)
 
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)
@@ -63,9 +64,9 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) 
 func buildFixerInstruction(workDir, skillsDir, userMessage string) (string, error) {
 	tmplDir := skillsDir + "/visual_designer/templates"
 	data := &prompts.TemplateData{
-		WorkDir:    workDir,
-		SkillsDir:  skillsDir,
-		TmplDir:    tmplDir,
+		WorkDir:     workDir,
+		SkillsDir:   skillsDir,
+		TmplDir:     tmplDir,
 		UserMessage: userMessage,
 	}
 	return prompts.RenderDeepAgent("fixer_instruction", data)

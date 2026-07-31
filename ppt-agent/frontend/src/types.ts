@@ -2,7 +2,7 @@
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'error' | 'complete' | 'continue_complete' | 'continue_queued';
+export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'runtime_meta' | 'error' | 'complete' | 'continue_complete' | 'continue_queued';
 export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
 
 // ── Session types ────────────────────────────────────────────────────────────
@@ -82,6 +82,41 @@ export interface TaskInfo {
   total_tokens?: number;
 }
 
+export interface RuntimeBudgets {
+  same_tool_args_warn?: number;
+  max_tool_calls_per_tool?: number;
+  max_total_tool_calls?: number;
+  token_warn?: number;
+  phase_duration_warn_sec?: number;
+}
+
+export interface RuntimeMeta {
+  task_id?: string;
+  work_dir?: string;
+  elapsed_ms: number;
+  phase?: string;
+  phase_detail?: string;
+  last_error?: string;
+  last_tool?: string;
+  tool_calls?: Record<string, number>;
+  tool_errors?: Record<string, number>;
+  same_tool_args_streak?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  compression_before_tokens?: number;
+  compression_after_tokens?: number;
+  compression_saved_pct?: string;
+  budgets?: RuntimeBudgets;
+  budget_warnings?: string[];
+  done_slides?: number;
+  total_slides?: number;
+  missing_files?: number;
+  qa_high_issues?: number;
+  qa_medium_issues?: number;
+  qa_low_issues?: number;
+}
+
 export interface SSEEvent {
   type: SSEEventType;
   content?: string;
@@ -100,6 +135,7 @@ export interface SSEEvent {
   total_tokens?: number;
   phase?: string;       // 当前阶段: preparing/planning/generating/qa/fixing/complete
   phase_detail?: string; // 阶段详情
+  runtime_meta?: RuntimeMeta;
 }
 
 // ── Batch tracking ──────────────────────────────────────────────────────────

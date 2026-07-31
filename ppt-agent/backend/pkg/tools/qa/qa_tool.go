@@ -36,6 +36,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/generic"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
@@ -471,11 +472,25 @@ func (t *BatchPDFTool) doBatchVisualQA(ctx context.Context, model model.ToolCall
 	if score > 0 {
 		metrics.RecordSlideScore(float64(score), "batch_pdf")
 	}
+	if meta := agentutils.RuntimeMetaFromContext(ctx); meta != nil {
+		low := 0
+		if hasIssues && !hasHigh && !hasMedium {
+			low = 1
+		}
+		meta.RecordQAIssues(boolToInt(hasHigh), boolToInt(hasMedium), low)
+	}
 
 	return result, nil
 }
 
 func strPtr(s string) *string { return &s }
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
 
 // buildTextContent 从 textByFile 构建批次的文本内容摘要。
 func (t *BatchPDFTool) buildTextContent(batchFiles []string, textByFile map[string]string) string {

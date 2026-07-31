@@ -34,6 +34,7 @@ func newReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error
 	if err != nil {
 		return nil, fmt.Errorf("创建 QA 模型失败: %w", err)
 	}
+	cm = agentutils.NewRuntimeStatusChatModel(cm, cfg.RuntimeMeta)
 
 	batchPDFTool := tools.NewBatchPDFTool(cfg.Operator, cfg.QAModelFn)
 	readTool := tools.NewReadFileTool(cfg.Operator)

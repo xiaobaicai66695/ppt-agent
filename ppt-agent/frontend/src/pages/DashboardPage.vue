@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import type { TaskInfo, TaskItem, SSEEvent } from '../types';
+import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta } from '../types';
 import { STATUS_LABELS } from '../types';
 import { fetchTasks, createTask, fetchTask, cancelTask, deleteTask, isLoggedIn, clearToken, continueTask, fetchConversation } from '../api';
 import { authState } from '../stores/auth';
@@ -26,6 +26,7 @@ const finalFiles = ref<string[]>([]);
 const finalMessage = ref('');
 const duration = ref('');
 const activeWorkers = ref(0);
+const runtimeMeta = ref<RuntimeMeta | null>(null);
 const cancelling = ref(false);
 const creating = ref(false);
 const loadError = ref('');
@@ -118,6 +119,8 @@ function connectChatSSE(taskId: string) {
       taskItems.value = evt.tasks;
       if (evt.done !== undefined) doneCount.value = evt.done;
       if (evt.total !== undefined) totalCount.value = evt.total;
+    } else if (evt.type === 'runtime_meta' && evt.runtime_meta) {
+      runtimeMeta.value = evt.runtime_meta;
     } else if (evt.type === 'error') {
       addLog('error', evt.error || '');
     } else if (evt.type === 'continue_queued') {
@@ -147,6 +150,7 @@ function connectChatSSE(taskId: string) {
   chatEs.addEventListener('tool_call', handler);
   chatEs.addEventListener('progress', handler);
   chatEs.addEventListener('file_ready', handler);
+  chatEs.addEventListener('runtime_meta', handler);
   chatEs.addEventListener('error', handler);
   chatEs.addEventListener('continue_complete', handler);
   chatEs.addEventListener('complete', handler);
@@ -193,6 +197,31 @@ function fmtTokens(n: number): string {
   if (n >= 1_000) return (n / 1000).toFixed(1) + 'K';
   return String(n);
 }
+
+function fmtElapsed(ms?: number): string {
+  if (!ms || ms < 0) return '0s';
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${rest}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function sumCounts(values?: Record<string, number>): number {
+  if (!values) return 0;
+  return Object.values(values).reduce((sum, n) => sum + n, 0);
+}
+
+const runtimeToolTotal = computed(() => sumCounts(runtimeMeta.value?.tool_calls));
+const runtimeErrorTotal = computed(() => sumCounts(runtimeMeta.value?.tool_errors));
+const runtimeQATotal = computed(() =>
+  (runtimeMeta.value?.qa_high_issues || 0)
+  + (runtimeMeta.value?.qa_medium_issues || 0)
+  + (runtimeMeta.value?.qa_low_issues || 0)
+);
+const runtimeWarnings = computed(() => runtimeMeta.value?.budget_warnings || []);
 
 const sampleQueries = [
   '做一个关于新能源汽车的行业分析报告',
@@ -424,6 +453,12 @@ function connectSSE(taskId: string) {
         }
         break;
 
+      case 'runtime_meta':
+        if (evt.runtime_meta) {
+          runtimeMeta.value = evt.runtime_meta;
+        }
+        break;
+
       case 'error':
         addLog('error', evt.error || evt.content || '');
         break;
@@ -442,6 +477,7 @@ function connectSSE(taskId: string) {
         if (evt.message) finalMessage.value = evt.message;
         if (evt.duration) duration.value = evt.duration;
         if (evt.tasks) taskItems.value = evt.tasks;
+        if (evt.runtime_meta) runtimeMeta.value = evt.runtime_meta;
         if (evt.total_tokens) {
           const t = tasks.value.find(x => x.id === taskId);
           if (t) {
@@ -462,6 +498,7 @@ function connectSSE(taskId: string) {
   es.addEventListener('progress', handler);
   es.addEventListener('file_ready', handler);
   es.addEventListener('token_usage', handler);
+  es.addEventListener('runtime_meta', handler);
   es.addEventListener('error', handler);
   es.addEventListener('complete', handler);
 }
@@ -472,6 +509,7 @@ function disconnectSSE() {
   lastAnswerContent = '';
   currentPhase.value = '';
   phaseDetail.value = '';
+  runtimeMeta.value = null;
 }
 
 // ── Polling fallback ────────────────────────────────────────────────────
@@ -605,6 +643,7 @@ interface TaskCache {
   duration: string;
   activeWorkers: number;
   batches: Batch[];
+  runtimeMeta: RuntimeMeta | null;
 }
 const taskCache = new Map<string, TaskCache>();
 
@@ -621,6 +660,7 @@ function saveCache(id: string) {
     duration: duration.value,
     activeWorkers: activeWorkers.value,
     batches: [...batches.value],
+    runtimeMeta: runtimeMeta.value ? { ...runtimeMeta.value } : null,
   });
 }
 
@@ -638,6 +678,7 @@ function restoreCache(id: string): boolean {
   duration.value = c.duration;
   activeWorkers.value = c.activeWorkers;
   batches.value = c.batches;
+  runtimeMeta.value = c.runtimeMeta;
   return true;
 }
 
@@ -684,6 +725,7 @@ function selectTask(id: string) {
   duration.value = t.duration || '';
   activeWorkers.value = 0;
   batches.value = [];
+  runtimeMeta.value = null;
   selectedSlides.value = new Set();
   sseRetryCount = 0;
   sseCompleted = false;
@@ -926,6 +968,49 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
           :phase="currentPhase"
           :phase-detail="phaseDetail"
         />
+
+        <div v-if="runtimeMeta" class="dev-status-panel">
+          <div class="dev-status-head">
+            <span class="dev-status-title">Agent Runtime</span>
+            <span class="dev-status-phase">{{ runtimeMeta.phase || currentPhase || 'preparing' }}</span>
+          </div>
+          <div class="dev-status-grid">
+            <div class="dev-stat">
+              <span class="dev-stat-label">运行</span>
+              <strong>{{ fmtElapsed(runtimeMeta.elapsed_ms) }}</strong>
+              <small>{{ runtimeMeta.phase_detail || phaseDetail || '等待阶段更新' }}</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">工具</span>
+              <strong>{{ runtimeToolTotal }}</strong>
+              <small>错误 {{ runtimeErrorTotal }} · 同参 {{ runtimeMeta.same_tool_args_streak || 0 }}</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">Token</span>
+              <strong>{{ fmtTokens(runtimeMeta.total_tokens || selectedTask?.total_tokens || 0) }}</strong>
+              <small>{{ fmtTokens(runtimeMeta.prompt_tokens || 0) }}p + {{ fmtTokens(runtimeMeta.completion_tokens || 0) }}c</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">页面</span>
+              <strong>{{ runtimeMeta.done_slides || doneCount }} / {{ runtimeMeta.total_slides || totalCount }}</strong>
+              <small>缺失文件 {{ runtimeMeta.missing_files || 0 }}</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">QA</span>
+              <strong>{{ runtimeQATotal }}</strong>
+              <small>H {{ runtimeMeta.qa_high_issues || 0 }} · M {{ runtimeMeta.qa_medium_issues || 0 }} · L {{ runtimeMeta.qa_low_issues || 0 }}</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">压缩</span>
+              <strong>{{ runtimeMeta.compression_saved_pct || '0%' }}</strong>
+              <small>{{ fmtTokens(runtimeMeta.compression_before_tokens || 0) }} → {{ fmtTokens(runtimeMeta.compression_after_tokens || 0) }}</small>
+            </div>
+          </div>
+          <div v-if="runtimeWarnings.length > 0 || (runtimeMeta.last_error || '')" class="dev-status-warnings">
+            <span v-for="w in runtimeWarnings" :key="w" class="dev-warning">{{ w }}</span>
+            <span v-if="runtimeMeta.last_error" class="dev-warning danger">{{ runtimeMeta.last_error }}</span>
+          </div>
+        </div>
 
         <!-- Left-Right Split -->
         <div class="split-layout">
@@ -1226,6 +1311,99 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 }
 .cancel-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dev-status-panel {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin: 0 0 0.75rem;
+  box-shadow: var(--shadow-xs);
+}
+.dev-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+.dev-status-title {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.dev-status-phase {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  padding: 0.16rem 0.5rem;
+}
+.dev-status-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.dev-stat {
+  min-width: 0;
+  border-left: 2px solid var(--border);
+  padding: 0.15rem 0.55rem;
+}
+.dev-stat-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  margin-bottom: 0.14rem;
+}
+.dev-stat strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.dev-stat small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  line-height: 1.35;
+  margin-top: 0.12rem;
+  overflow-wrap: anywhere;
+}
+.dev-status-warnings {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.65rem;
+}
+.dev-warning {
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  color: var(--warning);
+  border-radius: var(--radius-full);
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1.35;
+  padding: 0.18rem 0.5rem;
+}
+.dev-warning.danger {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+@media (max-width: 1100px) {
+  .dev-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .dev-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dev-status-head { align-items: flex-start; flex-direction: column; }
+}
+
 /* ── Split layout with distinct section backgrounds ─────────── */
 .split-layout {
   display: grid; grid-template-columns: 33% 67%; gap: 1rem;

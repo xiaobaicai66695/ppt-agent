@@ -36,23 +36,24 @@ const (
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
-	Type             string           `json:"type"`
-	Content          string           `json:"content,omitempty"`
-	ToolName         string           `json:"tool_name,omitempty"`
-	ToolArgs         string           `json:"tool_args,omitempty"`
-	Error            string           `json:"error,omitempty"`
-	Tasks            []*deep.TaskItem `json:"tasks,omitempty"`
-	Done             int              `json:"done,omitempty"`
-	Total            int              `json:"total,omitempty"`
-	Files            []string         `json:"files,omitempty"`
-	Message          string           `json:"message,omitempty"`
-	Duration         string           `json:"duration,omitempty"`
-	Status           TaskStatus       `json:"status,omitempty"`
-	PromptTokens     int64            `json:"prompt_tokens,omitempty"`
-	CompletionTokens int64            `json:"completion_tokens,omitempty"`
-	TotalTokens      int64            `json:"total_tokens,omitempty"`
-	Phase            string           `json:"phase,omitempty"`
-	PhaseDetail      string           `json:"phase_detail,omitempty"`
+	Type             string                     `json:"type"`
+	Content          string                     `json:"content,omitempty"`
+	ToolName         string                     `json:"tool_name,omitempty"`
+	ToolArgs         string                     `json:"tool_args,omitempty"`
+	Error            string                     `json:"error,omitempty"`
+	Tasks            []*deep.TaskItem           `json:"tasks,omitempty"`
+	Done             int                        `json:"done,omitempty"`
+	Total            int                        `json:"total,omitempty"`
+	Files            []string                   `json:"files,omitempty"`
+	Message          string                     `json:"message,omitempty"`
+	Duration         string                     `json:"duration,omitempty"`
+	Status           TaskStatus                 `json:"status,omitempty"`
+	PromptTokens     int64                      `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64                      `json:"completion_tokens,omitempty"`
+	TotalTokens      int64                      `json:"total_tokens,omitempty"`
+	Phase            string                     `json:"phase,omitempty"`
+	PhaseDetail      string                     `json:"phase_detail,omitempty"`
+	RuntimeMeta      *utils.RuntimeMetaSnapshot `json:"runtime_meta,omitempty"`
 }
 
 // TaskInfo 是任务的公开可见摘要。
@@ -83,6 +84,7 @@ type TaskState struct {
 	cancel        context.CancelFunc
 	result        *deep.PPTTaskResult
 	reportedFiles map[string]bool
+	runtimeMeta   *utils.RuntimeMeta
 	Mu            sync.Mutex
 
 	// pendingContinueMsg 任务运行中时，用户提交的待处理消息（消费后清空）
@@ -229,6 +231,7 @@ func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir stri
 		baseDir:        baseDir,
 		onTaskComplete: onTaskComplete,
 		onTaskFailed:   onTaskFailed,
+		onTaskContinue: onTaskContinue,
 	}
 }
 
@@ -380,6 +383,12 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		return nil, err
 	}
 	cfg.WorkDir = workDir
+	runtimeMeta := utils.NewRuntimeMeta(cfg.TaskID, workDir)
+	agentCtx, tokenTracker := utils.WithTokenTracker(context.Background())
+	agentCtx = utils.WithRuntimeMeta(agentCtx, runtimeMeta)
+	agentCtx, cancel := context.WithCancel(agentCtx)
+	cfg.CompressorTracker = tokenTracker
+	cfg.RuntimeMeta = runtimeMeta
 
 	// 如果用户提供了 outline，先写入 tasks.json，跳过 AI 规划阶段
 	if cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
@@ -405,10 +414,8 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		},
 		listeners:     make(map[string]chan SSERichEvent),
 		reportedFiles: make(map[string]bool),
+		runtimeMeta:   runtimeMeta,
 	}
-	agentCtx, cancel := context.WithCancel(context.Background())
-	// Attach token tracker to context for callbacks to accumulate usage.
-	agentCtx, _ = utils.WithTokenTracker(agentCtx)
 	type workDirSetter interface {
 		SetWorkDir(context.Context, string) context.Context
 	}
@@ -436,6 +443,9 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,
 	cfg *deep.PPTTaskConfig, query string) {
+	if ts.runtimeMeta != nil {
+		ts.runtimeMeta.RecordPhase("preparing", "初始化任务运行环境")
+	}
 
 	// ── 步骤1：意图分析结果 ──────────────────────────────
 	var step1 strings.Builder
@@ -555,11 +565,19 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		if ctx.Err() == context.Canceled {
 			ts.Info.Status = TaskStatusCancelled
 			ts.Info.Error = "任务已被用户中断"
+			if ts.runtimeMeta != nil {
+				ts.runtimeMeta.RecordPhase("cancelled", ts.Info.Error)
+			}
 		} else {
 			ts.Info.Status = TaskStatusFailed
 			ts.Info.Error = err.Error()
 			taskFailed = true
+			if ts.runtimeMeta != nil {
+				ts.runtimeMeta.RecordPhase("failed", ts.Info.Error)
+			}
 		}
+	} else if ts.runtimeMeta != nil {
+		ts.runtimeMeta.RecordPhase("complete", "任务执行完成")
 	}
 
 	if result != nil {
@@ -583,6 +601,19 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.Files = files
 	} else if recErr != nil {
 		logger.Warn("task_manifest_reconcile_failed", "task_id", ts.Info.ID, "error", recErr.Error())
+	}
+	if validation, valErr := deep.ValidateTasksManifestOutcome(cfg.WorkDir); valErr == nil && validation != nil {
+		if ts.runtimeMeta != nil {
+			ts.runtimeMeta.RecordSlideProgress(validation.Done, validation.Total, len(validation.MissingFiles))
+		}
+		if validation.Invalid {
+			logger.Warn("task_outcome_validation_warning",
+				"task_id", ts.Info.ID,
+				"pending_tasks", strings.Join(validation.PendingTasks, ","),
+				"missing_files", strings.Join(validation.MissingFiles, ","))
+		}
+	} else if valErr != nil {
+		logger.Warn("task_outcome_validation_failed", "task_id", ts.Info.ID, "error", valErr.Error())
 	}
 
 	// 记录任务完成的 Prometheus 指标。
@@ -637,6 +668,10 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	if result != nil {
 		finalEvent.Message = result.Message
 	}
+	if ts.runtimeMeta != nil {
+		snap := ts.runtimeMeta.Snapshot()
+		finalEvent.RuntimeMeta = &snap
+	}
 	ts.Broadcast(finalEvent)
 
 	// 在 complete 事件被所有监听者处理完毕后（触发 flushAnswerToDB + flushCompleteToDB），
@@ -655,11 +690,18 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	deep.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
 		TaskID:       ts.Info.ID,
 		UserID:       ts.Info.UserID,
-		Duration:     result.Duration,
+		Duration:     durationFromResult(result),
 		Success:      ts.Info.Status == TaskStatusCompleted,
 		QualityScore: qualityScore,
 		PageCount:    ts.Info.TotalCount,
 	})
+}
+
+func durationFromResult(result *deep.PPTTaskResult) time.Duration {
+	if result == nil {
+		return 0
+	}
+	return result.Duration
 }
 
 // detectAndBroadcastPhase 从 tool_call 事件推断当前执行阶段并广播进度事件。
@@ -705,6 +747,9 @@ func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
 		}
 	}
 
+	if ts.runtimeMeta != nil {
+		ts.runtimeMeta.RecordPhase(phase, phaseDetail)
+	}
 	ts.Broadcast(SSERichEvent{
 		Type:        "progress",
 		Phase:       phase,
@@ -728,6 +773,9 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 		// —— 实时 token 用量同步 ——
 		if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
 			p, c, t := tt.TokenTotals()
+			if ts.runtimeMeta != nil {
+				ts.runtimeMeta.SetLLMTokens(p, c, t)
+			}
 			if t != lastTokens {
 				lastTokens = t
 				ts.Mu.Lock()
@@ -742,6 +790,13 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 					TotalTokens:      t,
 				})
 			}
+		}
+		if ts.runtimeMeta != nil {
+			snap := ts.runtimeMeta.Snapshot()
+			ts.Broadcast(SSERichEvent{
+				Type:        "runtime_meta",
+				RuntimeMeta: &snap,
+			})
 		}
 
 		entries, err := os.ReadDir(workDir)
@@ -774,6 +829,18 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 
 		done := manifest.CompletedCount()
 		total := len(manifest.Tasks)
+		missing := 0
+		for _, item := range manifest.Tasks {
+			if item == nil || item.OutputFile == "" {
+				continue
+			}
+			if _, statErr := os.Stat(filepath.Join(workDir, item.OutputFile)); statErr != nil {
+				missing++
+			}
+		}
+		if ts.runtimeMeta != nil {
+			ts.runtimeMeta.RecordSlideProgress(done, total, missing)
+		}
 
 		if done == lastDone && total > 0 {
 			continue

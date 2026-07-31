@@ -82,7 +82,7 @@ func WithToolResultPreserveCount(n int) CompressorOption {
 //   - MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT: 每个留边 pair 保留的 tool result 条数（默认 0，不限制）
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold:         EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
+		MessageThreshold:        EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
 		TokenThreshold:          EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
 		PreserveCount:           EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
 		ToolResultPreserveCount: EnvInt("MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", 0),
@@ -108,6 +108,9 @@ type CompressionSummary struct {
 
 	// ConversationSummary 自由格式对话摘要，描述中间轮次的交互过程
 	ConversationSummary string `json:"conversation_summary"`
+
+	// RuntimeMeta preserves code-maintained state across compression.
+	RuntimeMeta *RuntimeMetaSnapshot `json:"runtime_meta,omitempty"`
 }
 
 // ExtractKeyDecisions 从对话历史中解析关键决策
@@ -232,6 +235,7 @@ type ChatModelCompressor struct {
 	summarizer model.ToolCallingChatModel
 	cfg        *CompressorConfig
 	tracker    *TokenTracker // optional; if set, summarizer calls are tracked
+	runtime    *RuntimeMeta
 }
 
 // NewChatModelCompressor 创建上下文压缩包装器
@@ -253,7 +257,7 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 			summarizerFactory: func() (model.ToolCallingChatModel, error) {
 				return summarizer, nil
 			},
-			messageThreshold:         cfg.MessageThreshold,
+			messageThreshold:        cfg.MessageThreshold,
 			tokenThreshold:          cfg.TokenThreshold,
 			preserveCount:           cfg.PreserveCount,
 			toolResultPreserveCount: cfg.ToolResultPreserveCount,
@@ -267,6 +271,11 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 // 实现准确的任务级 token 统计。
 func (c *ChatModelCompressor) SetTracker(tracker *TokenTracker) {
 	c.tracker = tracker
+}
+
+// SetRuntimeMeta attaches the task runtime metadata sink for compression stats.
+func (c *ChatModelCompressor) SetRuntimeMeta(meta *RuntimeMeta) {
+	c.runtime = meta
 }
 
 // Generate 实现 model.ToolCallingChatModel 接口
@@ -294,6 +303,9 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		"before_msgs", len(messages), "before_tokens", beforeLen,
 		"after_msgs", len(compressed), "after_tokens", afterLen,
 		"saved_pct", fmt.Sprintf("%.1f%%", saved))
+	if c.runtime != nil {
+		c.runtime.RecordCompression(beforeLen, afterLen, fmt.Sprintf("%.1f%%", saved))
+	}
 
 	return c.inner.Generate(ctx, compressed, opts...)
 }
@@ -323,6 +335,9 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		"before_msgs", len(messages), "before_tokens", beforeLen,
 		"after_msgs", len(compressed), "after_tokens", afterLen,
 		"saved_pct", fmt.Sprintf("%.1f%%", saved))
+	if c.runtime != nil {
+		c.runtime.RecordCompression(beforeLen, afterLen, fmt.Sprintf("%.1f%%", saved))
+	}
 
 	return c.inner.Stream(ctx, compressed, opts...)
 }
@@ -344,6 +359,8 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 		inner:      innerWithTools,
 		summarizer: summarizerWithTools,
 		cfg:        c.cfg,
+		tracker:    c.tracker,
+		runtime:    c.runtime,
 	}, nil
 }
 
@@ -444,6 +461,9 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		promptTokens := tokenEstimate(summaryPrompt)
 		completionTokens := tokenEstimate(convSummary)
 		c.tracker.Add(promptTokens, completionTokens, promptTokens+completionTokens)
+		if c.runtime != nil {
+			c.runtime.RecordLLMTokens(int64(promptTokens), int64(completionTokens), int64(promptTokens+completionTokens))
+		}
 	}
 	if err != nil {
 		logger.Warn("conversation_summary_failed", "error", err.Error())
@@ -459,8 +479,9 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 			TotalPages  int      `json:"total_pages,omitempty"`
 			SlideTypes  []string `json:"slide_types,omitempty"`
 		} `json:"key_decisions"`
-		ProgressSummary     string `json:"progress_summary"`
-		ConversationSummary string `json:"conversation_summary"`
+		ProgressSummary     string               `json:"progress_summary"`
+		ConversationSummary string               `json:"conversation_summary"`
+		RuntimeMeta         *RuntimeMetaSnapshot `json:"runtime_meta,omitempty"`
 	}{
 		ConversationSummary: convSummary,
 	}
@@ -469,6 +490,10 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	summaryData.KeyDecisions.Theme = keyDecisions.KeyDecisions.Theme
 	summaryData.KeyDecisions.TotalPages = keyDecisions.KeyDecisions.TotalPages
 	summaryData.KeyDecisions.SlideTypes = keyDecisions.KeyDecisions.SlideTypes
+	if c.runtime != nil {
+		snap := c.runtime.Snapshot()
+		summaryData.RuntimeMeta = &snap
+	}
 
 	summaryJSON, _ := json.Marshal(summaryData)
 	progressPart := keyDecisions.ProgressSummary

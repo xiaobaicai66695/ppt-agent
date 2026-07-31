@@ -264,6 +264,9 @@ func NewLogHandler() callbacks.Handler {
 			switch info.Component {
 			case components.ComponentOfTool:
 				args := extractToolArgs(input)
+				if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
+					meta.RecordToolStart(info.Name, args)
+				}
 				logger.Default().Info("tool_call_start", append(fields, "args", args)...)
 			case components.ComponentOfChatModel:
 				logger.Default().Info("llm_call_start", fields...)
@@ -304,6 +307,9 @@ func NewLogHandler() callbacks.Handler {
 					if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
 						tt.Add(tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
 					}
+					if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
+						meta.RecordLLMTokens(int64(tu.PromptTokens), int64(tu.CompletionTokens), int64(tu.TotalTokens))
+					}
 				}
 			case adk.ComponentOfAgent:
 				logger.Default().Info("agent_end", fields...)
@@ -315,41 +321,46 @@ func NewLogHandler() callbacks.Handler {
 				return ctx
 			}
 			name := "?"
+			infoName := "?"
 			if info != nil {
 				name = getAgentName(ctx, info)
+				infoName = info.Name
 			}
-		logger.Default().Error("callback_error",
-			"elapsed_ms", elapsed(),
-			"agent", name,
-			"name", info.Name,
-			"error", err.Error(),
-		)
-
-		// 提取 volcengine HTTP 错误的详细信息
-		if httpErr := extractHTTPErrors(err); httpErr != nil {
-			logger.Default().Error("callback_http_error",
+			logger.Default().Error("callback_error",
 				"elapsed_ms", elapsed(),
 				"agent", name,
-				"name", info.Name,
-				"http_status", httpErr.statusCode,
-				"request_id", httpErr.requestID,
+				"name", infoName,
+				"error", err.Error(),
 			)
-		}
-
-		if info != nil {
-			switch info.Component {
-			case components.ComponentOfChatModel:
-				if utils.IsRateLimitError(err) {
-					metrics.RecordLLMCall("rate_limit")
-				} else if httpErr := extractHTTPErrors(err); httpErr != nil && httpErr.statusCode > 0 {
-					metrics.RecordLLMCall(fmt.Sprintf("http_%d", httpErr.statusCode))
-				} else {
-					metrics.RecordLLMCall("error")
-				}
-			case components.ComponentOfTool:
-				metrics.RecordToolCall(info.Name, "error")
+			if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
+				meta.RecordToolError(infoName, err.Error())
 			}
-		}
+
+			// 提取 volcengine HTTP 错误的详细信息
+			if httpErr := extractHTTPErrors(err); httpErr != nil {
+				logger.Default().Error("callback_http_error",
+					"elapsed_ms", elapsed(),
+					"agent", name,
+					"name", infoName,
+					"http_status", httpErr.statusCode,
+					"request_id", httpErr.requestID,
+				)
+			}
+
+			if info != nil {
+				switch info.Component {
+				case components.ComponentOfChatModel:
+					if utils.IsRateLimitError(err) {
+						metrics.RecordLLMCall("rate_limit")
+					} else if httpErr := extractHTTPErrors(err); httpErr != nil && httpErr.statusCode > 0 {
+						metrics.RecordLLMCall(fmt.Sprintf("http_%d", httpErr.statusCode))
+					} else {
+						metrics.RecordLLMCall("error")
+					}
+				case components.ComponentOfTool:
+					metrics.RecordToolCall(info.Name, "error")
+				}
+			}
 			return ctx
 		}).
 		OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {

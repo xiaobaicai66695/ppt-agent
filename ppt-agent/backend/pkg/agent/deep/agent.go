@@ -65,6 +65,12 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 			compressor.SetTracker(cfg.CompressorTracker)
 		}
 	}
+	if cfg.RuntimeMeta != nil {
+		if compressor, ok := chatModel.(*agentutils.ChatModelCompressor); ok {
+			compressor.SetRuntimeMeta(cfg.RuntimeMeta)
+		}
+	}
+	chatModel = agentutils.NewRuntimeStatusChatModel(chatModel, cfg.RuntimeMeta)
 
 	slideExecutor, err := newSlideExecutorAgent(ctx, cfg)
 	if err != nil {

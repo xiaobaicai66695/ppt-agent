@@ -367,9 +367,10 @@ func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 	operator commandline.Operator, fixRequest string, onEvent AgentEventCallback) error {
 
 	cfg := &PPTTaskConfig{
-		WorkDir:   workDir,
-		SkillsDir: skillsDir,
-		Operator:  operator,
+		WorkDir:     workDir,
+		SkillsDir:   skillsDir,
+		Operator:    operator,
+		RuntimeMeta: agentutils.RuntimeMetaFromContext(ctx),
 	}
 
 	agent, err := newFixerAgent(ctx, cfg, fixRequest)
@@ -479,9 +480,10 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 	operator commandline.Operator, userMessage string, targetPages []int, onEvent AgentEventCallback) error {
 
 	cfg := &PPTTaskConfig{
-		WorkDir:   workDir,
-		SkillsDir: skillsDir,
-		Operator:  operator,
+		WorkDir:     workDir,
+		SkillsDir:   skillsDir,
+		Operator:    operator,
+		RuntimeMeta: agentutils.RuntimeMetaFromContext(ctx),
 	}
 
 	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
@@ -494,6 +496,12 @@ func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDi
 		return err
 	}
 	cm = wrapSlideExecutorCompressor(ctx, cm)
+	if cfg.RuntimeMeta != nil {
+		if compressor, ok := cm.(*agentutils.ChatModelCompressor); ok {
+			compressor.SetRuntimeMeta(cfg.RuntimeMeta)
+		}
+	}
+	cm = agentutils.NewRuntimeStatusChatModel(cm, cfg.RuntimeMeta)
 
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)

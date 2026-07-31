@@ -45,6 +45,12 @@ func newSlideExecutorAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, 
 	}
 
 	cm = wrapSlideExecutorCompressor(ctx, cm)
+	if cfg.RuntimeMeta != nil {
+		if compressor, ok := cm.(*agentutils.ChatModelCompressor); ok {
+			compressor.SetRuntimeMeta(cfg.RuntimeMeta)
+		}
+	}
+	cm = agentutils.NewRuntimeStatusChatModel(cm, cfg.RuntimeMeta)
 
 	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
 	readTool := tools.NewReadFileTool(cfg.Operator)
@@ -98,12 +104,12 @@ func buildSlideExecutorInstruction(workDir, skillsDir string, profile *style.Enh
 	// Convert EnhancedProfile to UserPreferences for template
 	if profile != nil {
 		data.UserPreferences = &prompts.UserPreferences{
-			LanguageTone:    profile.LanguageTone,
+			LanguageTone:     profile.LanguageTone,
 			PreferredColors:  profile.PreferredColors,
 			PreferredLayouts: profile.LayoutPreferences,
-			PreferredFonts:  nil, // EnhancedProfile doesn't have font field yet
-			PreferredThemes: profile.PreferredThemes,
-			AnimationLevel:  profile.AnimationLevel.String(),
+			PreferredFonts:   nil, // EnhancedProfile doesn't have font field yet
+			PreferredThemes:  profile.PreferredThemes,
+			AnimationLevel:   profile.AnimationLevel.String(),
 			TypicalPageCount: profile.TypicalPageCount,
 		}
 
@@ -125,7 +131,7 @@ func buildSlideExecutorInstruction(workDir, skillsDir string, profile *style.Enh
 		if profile.BrandElements.LogoPosition != "" || profile.BrandElements.FooterText != "" {
 			data.UserPreferences.BrandElements = &prompts.BrandPreferenceInfo{
 				LogoPosition:  profile.BrandElements.LogoPosition,
-				FooterText:   profile.BrandElements.FooterText,
+				FooterText:    profile.BrandElements.FooterText,
 				WatermarkText: profile.BrandElements.WatermarkText,
 			}
 		}
@@ -134,8 +140,8 @@ func buildSlideExecutorInstruction(workDir, skillsDir string, profile *style.Enh
 		if len(profile.ChartPreferences.PreferredTypes) > 0 {
 			data.UserPreferences.ChartPreferences = &prompts.ChartPreferenceInfo{
 				PreferredTypes: profile.ChartPreferences.PreferredTypes,
-				Use3D:         profile.ChartPreferences.Use3D,
-				ColorScheme:   profile.ChartPreferences.ColorScheme,
+				Use3D:          profile.ChartPreferences.Use3D,
+				ColorScheme:    profile.ChartPreferences.ColorScheme,
 			}
 		}
 	}
