@@ -9,7 +9,7 @@ from PIL import Image
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR_TYPE
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
 from pptx.oxml.ns import qn
 from lxml import etree
@@ -494,6 +494,42 @@ def add_source_line(
 # Text helpers
 # ---------------------------------------------------------------------------
 
+def _text_units(text: str) -> float:
+    """Estimate rendered text width; CJK glyphs are wider than ASCII."""
+    units = 0.0
+    for ch in str(text or ""):
+        if "\u4e00" <= ch <= "\u9fff" or "\u3000" <= ch <= "\u303f" or "\uff00" <= ch <= "\uffef":
+            units += 1.0
+        elif ch.isspace():
+            units += 0.35
+        else:
+            units += 0.55
+    return units
+
+
+def _estimate_lines(text: str, width_in: float, font_size: float) -> int:
+    chars_per_line = max(1.0, width_in * 72 / max(font_size * 0.55, 1))
+    lines = 0
+    for raw_line in str(text or "").splitlines() or [""]:
+        units = _text_units(raw_line)
+        lines += max(1, int((units + chars_per_line - 1) // chars_per_line))
+    return lines
+
+
+def fit_font_size(text: str, width_in: float, height_in: float, font_size: float, min_font_size: float = None) -> float:
+    """Shrink font size only when estimated wrapped text exceeds the box."""
+    if min_font_size is None:
+        min_font_size = 24 if font_size >= 28 else (14 if font_size >= 14 else font_size)
+    size = float(font_size)
+    while size > min_font_size:
+        lines = _estimate_lines(text, width_in, size)
+        estimated_height_pt = lines * size * 1.22
+        if estimated_height_pt <= height_in * 72:
+            break
+        size -= 1
+    return max(size, min_font_size)
+
+
 def add_text(
     slide,
     text: str,
@@ -509,15 +545,17 @@ def add_text(
     font_name: str = None,
     italic: bool = False,
     colors: dict = None,
+    min_font_size: float = None,
 ) -> "pptx.shapes.shapetree.Shape":
     """Add a text box to the slide with consistent styling."""
     txbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = txbox.text_frame
     tf.word_wrap = True
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     p = tf.paragraphs[0]
     p.text = text
-    p.font.size = Pt(font_size)
+    p.font.size = Pt(fit_font_size(text, width, height, font_size, min_font_size))
     p.font.bold = bold
     p.font.italic = italic
 
@@ -551,11 +589,19 @@ def add_paragraph(
     italic: bool = False,
     font_name: str = None,
     colors: dict = None,
+    min_font_size: float = None,
 ):
     """Add a paragraph to an existing text frame."""
     p = tf.add_paragraph()
     p.text = text
-    p.font.size = Pt(font_size)
+    try:
+        shape = tf._parent
+        width = shape.width / 914400
+        height = shape.height / 914400
+        fitted_size = fit_font_size(text, width, height, font_size, min_font_size)
+    except Exception:
+        fitted_size = font_size
+    p.font.size = Pt(fitted_size)
     p.font.bold = bold
     p.font.italic = italic
     p.space_before = Pt(space_before)
@@ -744,10 +790,12 @@ def add_text_in_shape(
     vertical_alignment: str = "top",
     font_name: str = None,
     italic: bool = False,
+    min_font_size: float = None,
 ):
     """Set text inside an existing shape."""
     tf = shape.text_frame
     tf.word_wrap = True
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
     # Clear existing paragraphs except first
     for i in range(len(tf.paragraphs) - 1, 0, -1):
@@ -756,7 +804,9 @@ def add_text_in_shape(
 
     p = tf.paragraphs[0]
     p.text = text
-    p.font.size = Pt(font_size)
+    width = shape.width / 914400
+    height = shape.height / 914400
+    p.font.size = Pt(fit_font_size(text, width, height, font_size, min_font_size))
     p.font.bold = bold
     p.font.italic = italic
     colors = PALETTES.get(palette, PALETTES["ocean_soft"])

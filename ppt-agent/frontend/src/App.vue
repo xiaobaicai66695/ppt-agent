@@ -25,6 +25,7 @@
   --accent: #6366f1;
   --accent-hover: #4f46e5;
   --accent-soft: #eef2ff;
+  --accent-light: #eef2ff;
   --accent-border: #c7d2fe;
   --accent-text: #4338ca;
 
@@ -33,6 +34,7 @@
   --success-soft: #ecfdf5;
   --success-border: #a7f3d0;
   --danger: #ef4444;
+  --error: #ef4444;
   --danger-soft: #fef2f2;
   --danger-border: #fecaca;
   --warning: #f59e0b;
@@ -100,10 +102,7 @@
   /* Compose page aliases (backward compat) */
   --bg-primary: var(--bg-base);
   --bg-secondary: var(--bg-raised);
-  --border: var(--border);
   --text-primary: var(--text);
-  --text-secondary: var(--text-secondary);
-  --text-muted: var(--text-muted);
   --color-primary: var(--accent);
   --bg-hover: var(--bg-muted);
 }

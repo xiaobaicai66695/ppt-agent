@@ -65,8 +65,8 @@ func streamTimeout() time.Duration {
 // 返回 (event, ok, timeout)
 func nextWithTimeout(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent]) (*adk.AgentEvent, bool, bool) {
 	timeout := streamTimeout()
-		if timeout <= 0 {
-			// 超时禁用 — 使用原始阻塞调用
+	if timeout <= 0 {
+		// 超时禁用 — 使用原始阻塞调用
 		event, ok := iter.Next()
 		return event, ok, false
 	}
@@ -146,7 +146,7 @@ func RunPPTTaskDeepAgentWithHuman(ctx context.Context, agent adk.Agent, cfg *PPT
 		}
 	}
 
-	manifest, err := ReadTasksManifest(cfg.WorkDir)
+	manifest, err := ReconcileTasksManifestOutputFiles(cfg.WorkDir)
 	result := &PPTTaskResult{
 		Message:  lastMsg,
 		Duration: time.Since(start.StartTime),
@@ -281,7 +281,7 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 		lastMsg = answerBuf.String()
 	}
 
-	manifest, manifestErr := ReadTasksManifest(cfg.WorkDir)
+	manifest, manifestErr := ReconcileTasksManifestOutputFiles(cfg.WorkDir)
 	result = &PPTTaskResult{
 		Message:  lastMsg,
 		Duration: time.Since(start.StartTime),
@@ -320,7 +320,7 @@ func isChunkEmittable(chunk *schema.Message) bool {
 	if chunk == nil {
 		return false
 	}
-		// 跳过工具结果块：这些是工具执行输出，不是 LLM 文本
+	// 跳过工具结果块：这些是工具执行输出，不是 LLM 文本
 	if chunk.Role == schema.Tool {
 		return false
 	}

@@ -118,7 +118,7 @@ func NewQAModel(ctx context.Context) (model.ToolCallingChatModel, error) {
 			MaxTokens:       &maxTokens,
 			Temperature:     &temp,
 			TopP:            &topP,
-			DisableThinking:  &disableThink,
+			DisableThinking: &disableThink,
 		})
 		if err == nil {
 			return m, nil
@@ -472,7 +472,10 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 	// The compressor stores itself in the FallbackChatModel so that WithTools can
 	// re-wrap the new models with the same compressor config.
 	if f.compressorCfg != nil {
-		return newChatModelCompressorFromConfig(newModel, f.compressorCfg), nil
+		if compressor := newChatModelCompressorFromConfig(newModel, f.compressorCfg); compressor != nil {
+			return compressor, nil
+		}
+		logger.Warn("compressor_rebuild_failed_fallback_without_compression")
 	}
 
 	return newModel, nil
@@ -480,11 +483,11 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 
 // compressorCfg 存储在 FallbackChatModel 中，以便 WithTools 可以在重新绑定工具后重新应用压缩器。
 type compressorConfig struct {
-	summarizerFactory        func() (model.ToolCallingChatModel, error)
-	messageThreshold         int
-	tokenThreshold           int
-	preserveCount            int
-	toolResultPreserveCount  int
+	summarizerFactory       func() (model.ToolCallingChatModel, error)
+	messageThreshold        int
+	tokenThreshold          int
+	preserveCount           int
+	toolResultPreserveCount int
 }
 
 // newChatModelCompressorFromConfig 从存储的配置创建 ChatModelCompressor。
@@ -504,9 +507,9 @@ func newChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 		inner:      inner,
 		summarizer: summarizer,
 		cfg: &CompressorConfig{
-			MessageThreshold:         msgThresh,
+			MessageThreshold:        msgThresh,
 			TokenThreshold:          tokenThresh,
-			PreserveCount:          preserve,
+			PreserveCount:           preserve,
 			ToolResultPreserveCount: toolResultPreserve,
 		},
 	}

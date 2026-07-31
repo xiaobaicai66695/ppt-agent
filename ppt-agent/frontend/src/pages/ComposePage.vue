@@ -94,6 +94,12 @@ function getPresetGradient(palette: string): string {
   return 'linear-gradient(135deg, ' + color + ', ' + colorAlpha + ')';
 }
 
+function onPresetThumbError(e: Event) {
+  const img = e.target as HTMLImageElement;
+  img.style.display = 'none';
+  img.parentElement?.classList.add('thumb-missing');
+}
+
 // Category filter
 const categories = ['全部', 'tech', 'biz', 'edu', 'gov', 'work', 'other'];
 const categoryMap: Record<string, string> = {
@@ -111,6 +117,9 @@ const filteredPresets = computed(() => {
   if (selectedCategory.value === '全部') return presets.value;
   return presets.value.filter(p => p.category === selectedCategory.value);
 });
+
+const validLayoutNames = computed(() => new Set(layouts.value.map(l => l.name)));
+const validBackgroundNames = computed(() => new Set(backgrounds.value.map(b => b.name)));
 
 // Filter backgrounds by category/scenario
 const filteredBackgrounds = computed(() => {
@@ -212,12 +221,64 @@ function selectPreset(preset: PresetTemplate) {
   // Don't overwrite pptTitle with preset display name — the user's topic
   // (from topicTrimmed input) should be the title. Only use as fallback.
   if (!pptTitle.value) pptTitle.value = topicTrimmed.value || '';
-  selectedTheme.value = preset.default_palette;
+  selectedTheme.value = preset.default_palette || 'ocean_soft';
   slides.value = preset.default_slides.map(s => ({
     title: s.title,
     content_type: s.content_type,
-    description: '', // 预设只提供结构骨架，内容由 AI 根据用户主题生成
+    description: s.description || '',
   }));
+}
+
+function buildOutline(): TaskOutline {
+  return {
+    template: selectedPreset.value?.name || 'custom',
+    theme: selectedTheme.value || 'ocean_soft',
+    title: pptTitle.value || topicTrimmed.value || '未命名PPT',
+    slides: slides.value.map(s => ({
+      title: s.title,
+      content_type: s.content_type,
+      description: s.description || '',
+      content_plan: s.content_plan,
+      background: s.background,
+    })),
+  };
+}
+
+function mergeEnrichedSlides(enriched: SlideOutline[]) {
+  for (let i = 0; i < slides.value.length && i < enriched.length; i++) {
+    const e = enriched[i];
+    const nextType = e.content_type && validLayoutNames.value.has(e.content_type)
+      ? e.content_type
+      : slides.value[i].content_type;
+    const nextBackground = e.background && validBackgroundNames.value.has(e.background)
+      ? e.background
+      : slides.value[i].background;
+    slides.value[i] = {
+      title: e.title || slides.value[i].title,
+      content_type: nextType,
+      background: nextBackground,
+      description: e.description || slides.value[i].description,
+      content_plan: e.content_plan || slides.value[i].content_plan,
+    };
+  }
+}
+
+async function ensureOutlineFilled(): Promise<TaskOutline> {
+  if (!hasEmptyDescriptions.value && slides.value.every(s => s.content_plan)) {
+    return buildOutline();
+  }
+  batchFilling.value = true;
+  batchFillProgress.value = '正在补齐内容规划...';
+  try {
+    const enriched = await generateOutlineWithAI(topicTrimmed.value, buildOutline());
+    if (enriched && enriched.length > 0) {
+      mergeEnrichedSlides(enriched);
+      batchFillProgress.value = `已完成 ${enriched.length} 页内容规划`;
+    }
+    return buildOutline();
+  } finally {
+    batchFilling.value = false;
+  }
 }
 
 function addSlideFromLayout(layout: AtomicLayout) {
@@ -281,29 +342,9 @@ async function handleAIBatchFill() {
   batchFilling.value = true;
   batchFillProgress.value = '正在生成内容规划...';
   try {
-    const outline: TaskOutline = {
-      template: selectedPreset.value?.name || 'custom',
-      theme: selectedTheme.value,
-      title: pptTitle.value || '未命名PPT',
-      slides: slides.value.map(s => ({
-        title: s.title,
-        content_type: s.content_type,
-        description: s.description || '',
-      })),
-    };
-    const enriched = await generateOutlineWithAI(topicTrimmed.value, outline);
+    const enriched = await generateOutlineWithAI(topicTrimmed.value, buildOutline());
     if (enriched && enriched.length > 0) {
-      // Merge enriched data back into slides, preserving title, content_type, and background
-      for (let i = 0; i < slides.value.length && i < enriched.length; i++) {
-        const e = enriched[i];
-        slides.value[i] = {
-          title: slides.value[i].title,
-          content_type: slides.value[i].content_type,
-          background: slides.value[i].background,
-          description: e.description || slides.value[i].description,
-          content_plan: e.content_plan,
-        };
-      }
+      mergeEnrichedSlides(enriched);
       batchFillProgress.value = `已完成 ${enriched.length} 页内容生成`;
     }
   } catch (e) {
@@ -366,30 +407,9 @@ async function testGenerateOutline() {
 
   testingOutline.value = true;
   try {
-    const outline: TaskOutline = {
-      template: selectedPreset.value?.name || 'custom',
-      theme: selectedTheme.value,
-      title: pptTitle.value || topicTrimmed.value || '未命名PPT',
-      slides: slides.value.map(s => ({
-        title: s.title,
-        content_type: s.content_type,
-        description: s.description || '',
-        content_plan: s.content_plan,
-        background: s.background,
-      })),
-    };
-    const enriched = await generateOutlineWithAI(topicTrimmed.value, outline);
+    const enriched = await generateOutlineWithAI(topicTrimmed.value, buildOutline());
     if (enriched && enriched.length > 0) {
-      for (let i = 0; i < slides.value.length && i < enriched.length; i++) {
-        const e = enriched[i];
-        slides.value[i] = {
-          title: e.title || slides.value[i].title,
-          content_type: e.content_type || slides.value[i].content_type,
-          background: e.background || slides.value[i].background,
-          description: e.description || slides.value[i].description,
-          content_plan: e.content_plan || slides.value[i].content_plan,
-        };
-      }
+      mergeEnrichedSlides(enriched);
       alert(`测试成功：已生成 ${enriched.length} 页内容规划`);
     } else {
       alert('测试失败：未返回有效大纲');
@@ -412,28 +432,9 @@ async function startGeneration() {
   }
   if (generating.value) return;
 
-  // Warn if there are empty descriptions
-  if (hasEmptyDescriptions.value) {
-    const confirmed = confirm(
-      `有 ${emptyDescCount.value} 页尚未填写内容描述，AI 将根据主题自动生成。\n\n是否继续？`
-    );
-    if (!confirmed) return;
-  }
-
   generating.value = true;
   try {
-    const outline: TaskOutline = {
-      template: selectedPreset.value?.name || 'custom',
-      theme: selectedTheme.value,
-      title: pptTitle.value || topicTrimmed.value || '未命名PPT',
-      slides: slides.value.map(s => ({
-        title: s.title,
-        content_type: s.content_type,
-        description: s.description,
-        content_plan: s.content_plan,
-        background: s.background,
-      })),
-    };
+    const outline = await ensureOutlineFilled();
     const query = topicTrimmed.value;
     const task = await createTaskWithOutline(query, outline);
     router.push({ name: 'dashboard', query: { select: task.id } });
@@ -482,7 +483,7 @@ async function startGeneration() {
           {{ testingOutline ? '测试中...' : '测试' }}
         </button>
         <button class="btn-primary" :disabled="slides.length === 0 || generating || !topicTrimmed" @click="startGeneration">
-          {{ generating ? '创建中...' : '开始翻译' }}
+          {{ generating ? '创建中...' : '开始生成' }}
         </button>
       </div>
     </div>
@@ -547,8 +548,21 @@ async function startGeneration() {
               :class="['preset-card', { selected: selectedPreset?.name === preset.name }]"
               @click="selectPreset(preset)"
             >
-              <div class="preset-thumb" :style="{ background: getPresetGradient(preset.default_palette) }">
-                <span class="preset-icon">📄</span>
+              <div
+                :class="['preset-thumb', { 'thumb-missing': !preset.thumbnail }]"
+                :style="{ background: getPresetGradient(preset.default_palette) }"
+              >
+                <img
+                  v-if="preset.thumbnail"
+                  :src="preset.thumbnail"
+                  :alt="preset.display_name"
+                  class="preset-thumb-img"
+                  loading="lazy"
+                  @error="onPresetThumbError"
+                />
+                <span class="preset-thumb-lines" aria-hidden="true">
+                  <i></i><i></i><i></i>
+                </span>
               </div>
               <div class="preset-info">
                 <div class="preset-name">{{ preset.display_name }}</div>
@@ -1059,10 +1073,42 @@ async function startGeneration() {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
 }
 
-.preset-icon {
-  font-size: 18px;
+.preset-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.preset-thumb-lines {
+  width: 26px;
+  display: grid;
+  gap: 4px;
+  opacity: 0;
+}
+
+.preset-thumb.thumb-missing .preset-thumb-lines {
+  opacity: 0.85;
+}
+
+.preset-thumb-lines i {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.preset-thumb-lines i:nth-child(2) {
+  width: 80%;
+}
+
+.preset-thumb-lines i:nth-child(3) {
+  width: 58%;
 }
 
 .preset-info {

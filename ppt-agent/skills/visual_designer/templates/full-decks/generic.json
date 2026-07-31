@@ -4,10 +4,10 @@
   "type": "preset",
   "description": "通用演示模板，结构均衡，覆盖封面、目录、内容、图表、总结各类场景",
   "category": "other",
-  "default_palette": "",
+  "default_palette": "ocean_soft",
   "tags": ["通用", "空白", "自由编辑"],
   "thumbnail": "/templates/thumbs/generic.png",
-  "slide_count": 24,
+  "slide_count": 23,
   "background_options": {
     "themes": ["", "party_government", "minimalist_blue", "ink_wash_mountain", "vintage_chinese", "snowy_mountain", "artistic"],
     "labels": ["不使用背景", "党政办公", "简约蓝白", "水墨山水", "复古中国风", "雪山风景", "艺术涂鸦"]

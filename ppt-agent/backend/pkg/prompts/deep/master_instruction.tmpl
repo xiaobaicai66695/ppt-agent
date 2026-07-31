@@ -43,13 +43,13 @@
    - 只关注每种 content_type 的 filling_prompt 字段约束
    - 忽略 slide_structure 列表和模板业务术语
 3. **检查 background 字段**：
-   - 如果 background 为空，根据用户主题推断背景图片主题：
+   - 如果 background 为空，根据用户主题和页面类型推断是否需要背景图片；信息密集页可保持为空，封面/章节页优先考虑背景：
      - "艺术"、"文艺"、"涂鸦"、"创意" → `artistic`（艺术涂鸦）
      - "水墨"、"山水"、"中国风" → `ink_wash_mountain`（水墨山水）
      - "党政"、"党建"、"政府" → `party_government`（党政办公）
      - "复古"、"传统"、"古典" → `vintage_chinese`（复古中国风）
      - "雪山"、"山川"、"自然" → `snowy_mountain`（雪山风景）
-     - 其他 → `minimalist_blue`（简约蓝白）
+     - 商务/科技封面或章节页 → `minimalist_blue`（简约蓝白）
    - edit_file 将推断的背景主题写入对应任务的 background 字段
 4. 检查 description 字段：
    - 有空/不足 50 字 → 进入阶段 B
@@ -225,4 +225,4 @@ Reviewer 的 qa_report 为自然语言文本。提取关键信息：含 "high" �
 4. task description 只写页码范围，不复制整页内容
 5. **所有批次必须同时启动，禁止第一批完成后才开始第二批**
 6. 每页最多重试 2 次，仍失败标记 status=failed
-7. **edit_file 写入 tasks.json 后**：必须用 read_file 重新读取并用 Python json.loads() 验证；验证失败时不要重试，立即报告错误
+7. **edit_file 写入 tasks.json 后**：必须用 read_file 重新读取，确认 JSON 结构完整、引号和逗号无误；验证失败时不要反复重写，立即报告错误

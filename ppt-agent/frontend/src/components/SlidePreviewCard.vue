@@ -28,10 +28,15 @@ function getDownloadUrl(): string {
   return `/api/tasks/${props.taskId}/files/${encodeURIComponent(name)}`;
 }
 
-// 缩略图加载失败时显示 fallback，不再重试（404 通常是缩略图未生成，属于正常情况）。
 function onImgError() {
   thumbLoaded.value = false;
   thumbError.value = true;
+}
+
+function retryThumb() {
+  thumbLoaded.value = false;
+  thumbError.value = false;
+  retryKey.value++;
 }
 
 function handlePreview() {
@@ -71,10 +76,11 @@ const shortName = computed(() => {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
-              <line x1="12" y1="18" x2="12" y2="12"/>
-              <polyline points="9 15 12 18 15 15"/>
+              <line x1="8" y1="13" x2="16" y2="13"/>
+              <line x1="8" y1="17" x2="13" y2="17"/>
             </svg>
-            <span class="thumb-note">预览生成中</span>
+            <span class="thumb-note">预览不可用</span>
+            <button class="thumb-retry" type="button" @click.stop="retryThumb">重试缩略图</button>
           </span>
           <button v-if="!thumbError" class="preview-btn" title="在线预览" @click.stop="handlePreview">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -184,6 +190,20 @@ const shortName = computed(() => {
 }
 .thumb-fallback svg { width: 40px; height: 40px; }
 .thumb-note { font-size: 0.7rem; }
+.thumb-retry {
+  min-height: 28px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+.thumb-retry:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
 .preview-btn {
   position: absolute; inset: 0;

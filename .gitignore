@@ -1,24 +1,42 @@
-output/                 # 匹配任意位置的 output 文件夹
-ppt-agent/output/       # 或者明确指定路径
-**/output/              # 匹配任意层级的 output 文件夹（某些 Git 版本支持）
-
-# 临时脚本（agent 生成的 temp_script.py）
+# Agent / PPT generation outputs
+output/
+weboutput/
+**/output/
+**/weboutput/
 *temp_script.py
+*.pptx
+*.pdf
+*.jpg
+*.jpeg
+*.png
 
-# 后端日志
-backend/*.log
+# Build artifacts and local dependencies
+node_modules/
+dist/
+.next/
+__pycache__/
+*.pyc
+*.pyo
+*.exe
+*.zip
 
-# 前端构建产物（如果有）
-frontend/node_modules/
-frontend/dist/
-frontend/.next/
-frontend/*
-
-.vscode/
+# Logs and local configuration
+*.log
 .env
+.env.*
+.vscode/
 .idea/
 
-*.py
-
-# skill Python 文件不受 *.py 规则限制
+# Keep project source and reusable visual assets trackable.
 !ppt-agent/skills/visual_designer/**/*.py
+!ppt-agent/skills/visual_designer/background_templates/**/*.jpg
+!ppt-agent/skills/visual_designer/background_templates/**/*.jpeg
+!ppt-agent/skills/visual_designer/background_templates/**/*.png
+!ppt-agent/frontend/src/**
+!ppt-agent/frontend/package.json
+!ppt-agent/frontend/package-lock.json
+!ppt-agent/frontend/vite.config.*
+!ppt-agent/frontend/tsconfig*.json
+
+# Generated examples are not source, even if they contain helper scripts.
+ppt-agent/skills/visual_designer/generators/examples_output/

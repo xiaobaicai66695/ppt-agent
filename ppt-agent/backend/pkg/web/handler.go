@@ -144,9 +144,14 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	cfg := s.makeTaskConfig(taskID)
 	cfg.Query = req.Query
 
-	// 如果有 outline，先写入 tasks.json
+	// 如果有 outline，先做服务端兜底校验/补齐，再写入 tasks.json。
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
-		cfg.Outline = req.Outline
+		outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "outline 处理失败: " + err.Error()})
+			return
+		}
+		cfg.Outline = outline
 	}
 
 	// 注入用户风格偏好上下文
@@ -246,7 +251,9 @@ func (s *Server) handleThumbnail(c *gin.Context) {
 
 	jpeg, err := GenerateThumbnail(filePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.Header("Cache-Control", "no-store")
+		c.Header("Retry-After", "10")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 	c.Header("Content-Type", "image/jpeg")
@@ -364,6 +371,7 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 - 布局类型：%s
 - 当前描述：%s
 - 配色主题：%s
+- 容量要求：%s
 
 请根据这些信息，生成一段详细的内容描述，供AI生成PPT页面使用。要求：
 1. 内容与标题紧密相关
@@ -373,7 +381,7 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 5. 中文输出
 6. 描述应该包含该页面的具体内容要点，供AI直接使用生成PPT内容
 
-只返回内容描述，不要返回其他信息。字数控制在200-400字之间。`, req.Title, layoutName, req.Description, themeName, layoutName)
+只返回内容描述，不要返回其他信息。字数严格遵守容量要求。`, req.Title, layoutName, req.Description, themeName, layoutDescriptionTarget(req.ContentType), layoutName)
 
 	resp, err := model.Generate(ctx, []*schema.Message{
 		schema.UserMessage(prompt),
@@ -389,6 +397,221 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"description": content})
+}
+
+func (s *Server) prepareOutline(ctx context.Context, query string, outline *deep.TaskOutline) (*deep.TaskOutline, error) {
+	if outline == nil || len(outline.Slides) == 0 {
+		return outline, nil
+	}
+	if strings.TrimSpace(outline.Theme) == "" {
+		outline.Theme = "ocean_soft"
+	}
+	if _, err := s.getTheme(outline.Theme); err != nil {
+		outline.Theme = "ocean_soft"
+	}
+	if strings.TrimSpace(outline.Title) == "" {
+		outline.Title = strings.TrimSpace(query)
+	}
+
+	for i := range outline.Slides {
+		slide := &outline.Slides[i]
+		slide.Title = strings.TrimSpace(slide.Title)
+		slide.ContentType = strings.TrimSpace(slide.ContentType)
+		slide.Description = strings.TrimSpace(slide.Description)
+		slide.Background = strings.TrimSpace(slide.Background)
+		if slide.Title == "" {
+			slide.Title = fmt.Sprintf("第%d页", i+1)
+		}
+		if s.templateLoader.GetLayout(slide.ContentType) == nil {
+			return nil, fmt.Errorf("第%d页 content_type=%q 不存在", i+1, slide.ContentType)
+		}
+		if slide.Background != "" && !s.isValidBackground(slide.Background) {
+			slide.Background = ""
+		}
+	}
+
+	if !outlineNeedsEnrichment(outline) {
+		return outline, nil
+	}
+	enriched, err := s.generateOutlineSlides(ctx, query, outline)
+	if err != nil {
+		return nil, err
+	}
+	return s.mergeOutlineSlides(outline, enriched), nil
+}
+
+func outlineNeedsEnrichment(outline *deep.TaskOutline) bool {
+	for _, slide := range outline.Slides {
+		if len([]rune(strings.TrimSpace(slide.Description))) < 30 || slide.ContentPlan == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) mergeOutlineSlides(base *deep.TaskOutline, enriched []deep.SlideOutline) *deep.TaskOutline {
+	for i := range base.Slides {
+		if i >= len(enriched) {
+			break
+		}
+		e := enriched[i]
+		if strings.TrimSpace(e.Title) != "" {
+			base.Slides[i].Title = strings.TrimSpace(e.Title)
+		}
+		if s.templateLoader.GetLayout(e.ContentType) != nil {
+			base.Slides[i].ContentType = e.ContentType
+		}
+		if strings.TrimSpace(e.Description) != "" {
+			base.Slides[i].Description = strings.TrimSpace(e.Description)
+		}
+		if e.ContentPlan != nil {
+			base.Slides[i].ContentPlan = e.ContentPlan
+		}
+		if e.Background != "" && s.isValidBackground(e.Background) {
+			base.Slides[i].Background = e.Background
+		}
+	}
+	return base
+}
+
+func (s *Server) isValidBackground(name string) bool {
+	for _, bg := range s.templateLoader.ListBackgrounds() {
+		if bg.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) backgroundCatalog() string {
+	var lines []string
+	for _, bg := range s.templateLoader.ListBackgrounds() {
+		lines = append(lines, fmt.Sprintf("- `%s`：%s；适用场景：%s",
+			bg.Name, bg.DisplayName, strings.Join(bg.Scenarios, "、")))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func layoutDescriptionTarget(contentType string) string {
+	switch contentType {
+	case "title_slide", "section_divider":
+		return "40-80字，给标题、副标题、讲述角度，不写长段落"
+	case "content_slide":
+		return "80-140字，拆成3-5条要点，每条不超过35字"
+	case "two_column", "three_column", "card_grid", "process_flow", "summary_slide":
+		return "100-180字，拆成短标题和短说明，严格控制单项长度"
+	case "kpi_dashboard", "stat_slide", "chart_slide", "comparison_table":
+		return "120-220字，必须包含可结构化的数据、指标、分类或表格字段"
+	case "image_text", "case_study", "example_detail", "deep_dive":
+		return "180-320字，允许稍长，但必须分清段落、案例、数据和结论"
+	case "quote_slide":
+		return "60-120字，必须包含 quote、attribution、kicker 字段含义"
+	default:
+		return "100-180字，内容密度匹配页面容量"
+	}
+}
+
+func (s *Server) generateOutlineSlides(ctx context.Context, query string, outline *deep.TaskOutline) ([]deep.SlideOutline, error) {
+	model, err := s.aiModelFactory(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("模型初始化失败: %w", err)
+	}
+
+	theme, _ := s.getTheme(outline.Theme)
+	themeName := outline.Theme
+	if theme != nil {
+		themeName = theme.DisplayName
+	}
+
+	var slideContexts strings.Builder
+	for i, slide := range outline.Slides {
+		layout := s.templateLoader.GetLayout(slide.ContentType)
+		layoutName := slide.ContentType
+		if layout != nil {
+			layoutName = layout.DisplayName
+		}
+		slideContexts.WriteString(fmt.Sprintf(
+			"\n第%d页：标题「%s」 | content_type=`%s` | 布局「%s」 | 容量要求：%s | 现有描述：%s",
+			i+1, slide.Title, slide.ContentType, layoutName, layoutDescriptionTarget(slide.ContentType), slide.Description,
+		))
+	}
+
+	prompt := fmt.Sprintf(`你是PPT内容规划专家。用户已编排好PPT结构，你的任务是根据用户主题为每一页生成可直接消费的结构化内容。
+
+## 用户主题（所有内容必须围绕此展开）
+%s
+
+## 配色方案
+%s
+
+## 可用背景主题（background 只能从以下 id 中选择；如果页面不适合图片背景，可沿用空值）
+%s
+
+## 页面结构
+%s
+
+## 输出格式（严格返回JSON，不要任何解释）
+{
+  "slides": [
+    {
+      "title": "实际标题",
+      "content_type": "content_slide",
+      "background": "minimalist_blue",
+      "description": "与布局容量匹配的内容描述",
+      "content_plan": {
+        "summary": "一句话概括",
+        "elements": [
+          {"type": "bullet_list", "items": ["短要点1：具体事实", "短要点2：具体数据"]}
+        ]
+      }
+    }
+  ]
+}
+
+## 强制要求
+- 返回 slides 数量必须与页面结构数量一致，顺序也必须一致
+- content_type 必须原样使用页面结构中的英文 id，禁止改成中文显示名或新名字
+- background 只能使用可用背景主题中的 id；信息密集页可以留空，封面/章节页优先选择合适背景
+- description 长度必须遵守每页容量要求，禁止统一生成300-400字长段落
+- content_plan 要为后续生成器提供结构化字段：bullet_list、numbered_list、key_point_card、table、chart_placeholder、callout、quote 等
+- 每页至少包含一个具体实体、数据、场景或案例；确需真实数据时写明需要搜索的数据项和来源方向
+- 只输出JSON`, query, themeName, s.backgroundCatalog(), slideContexts.String())
+
+	resp, err := model.Generate(ctx, []*schema.Message{
+		schema.UserMessage(prompt),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("生成失败: %w", err)
+	}
+
+	content := ""
+	if resp != nil {
+		content = strings.TrimSpace(resp.Content)
+	}
+	if content == "" {
+		return nil, fmt.Errorf("模型返回为空，请重试")
+	}
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, fmt.Errorf("模型返回格式为空，请重试")
+	}
+
+	var result struct {
+		Slides []deep.SlideOutline `json:"slides"`
+	}
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return nil, fmt.Errorf("解析失败: %w", err)
+	}
+	if len(result.Slides) == 0 {
+		return nil, fmt.Errorf("模型未返回有效内容")
+	}
+	if len(result.Slides) != len(outline.Slides) {
+		return nil, fmt.Errorf("模型返回页数不匹配: got=%d want=%d", len(result.Slides), len(outline.Slides))
+	}
+	return result.Slides, nil
 }
 
 // handleAIGenerateOutline 接收带有空描述的部分大纲（幻灯片）和用户主题查询，
@@ -408,112 +631,12 @@ func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 		return
 	}
 
-	ctx := c.Request.Context()
-	model, err := s.aiModelFactory(ctx)
+	outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "模型初始化失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	theme, _ := s.getTheme(req.Outline.Theme)
-	themeName := req.Outline.Theme
-	if theme != nil {
-		themeName = theme.DisplayName
-	}
-
-	// Build per-slide context: structure only, NO content hints from presets
-	var slideContexts strings.Builder
-	for i, slide := range req.Outline.Slides {
-		layout := s.templateLoader.GetLayout(slide.ContentType)
-		layoutName := slide.ContentType
-		if layout != nil {
-			layoutName = layout.DisplayName
-		}
-		slideContexts.WriteString(fmt.Sprintf("\n第%d页：标题「%s」 | 布局「%s」",
-			i+1, slide.Title, layoutName))
-	}
-
-	prompt := fmt.Sprintf(`你是PPT内容规划专家。用户已编排好PPT结构，你的任务是根据用户主题为每一页生成具体内容。
-
-## 用户主题（所有内容必须围绕此展开）
-%s
-
-## 配色方案
-%s
-
-## 背景图片主题
-根据用户主题选择最适合的背景图片主题（必须填入每页的 background 字段）：
-| 主题关键词 | 背景主题 |
-|---------|---------|
-| "艺术"、"文艺"、"涂鸦"、"创意" | artistic |
-| "水墨"、"山水"、"中国风" | ink_wash_mountain |
-| "党政"、"党建"、"政府" | party_government |
-| "复古"、"传统"、"古典" | vintage_chinese |
-| "雪山"、"山川"、"自然" | snowy_mountain |
-| 其他 | minimalist_blue |
-
-## 页面结构
-%s
-
-## 输出格式（严格返回JSON，不要任何解释）
-{
-  "slides": [
-    {"index": 1, "title": "实际标题", "content_type": "布局名", "background": "artistic", "description": "300-400字内容描述", "content_plan": {"summary": "一句话概括", "elements": [{"type": "bullet_list", "items": ["要点1：具体说明", "要点2：具体说明"]}]}}
-  ]
-}
-
-## 强制要求
-- background 字段必须填写，根据上方背景图片主题表选择对应值（如 artistic、minimalist_blue 等）
-- description字数300-400字，必须包含具体数据或案例，禁止空洞泛泛
-- 内容严格围绕用户主题展开，禁止偏离
-- 只输出JSON`, req.Query, themeName, slideContexts.String())
-
-	resp, err := model.Generate(ctx, []*schema.Message{
-		schema.UserMessage(prompt),
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成失败: " + err.Error()})
-		return
-	}
-
-	content := ""
-	if resp != nil {
-		content = strings.TrimSpace(resp.Content)
-	}
-
-	// Guard: empty response from model
-	if content == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "模型返回为空，请重试"})
-		return
-	}
-
-	// 去除 markdown 代码 fences
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	// 防护：去除 fences 后为空
-	if content == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "模型返回格式为空，请重试"})
-		return
-	}
-
-	// 解析响应
-	var result struct {
-		Slides []deep.SlideOutline `json:"slides"`
-	}
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析失败: " + err.Error()})
-		return
-	}
-
-	if len(result.Slides) == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "模型未返回有效内容"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"slides": result.Slides})
+	c.JSON(http.StatusOK, gin.H{"slides": outline.Slides})
 }
 
 // getTheme 根据名称返回主题信息
@@ -1114,8 +1237,8 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 
 	var targetPages []int
 
-		// 处理 add_page 意图
-		if route.Intent == "add_page" {
+	// 处理 add_page 意图
+	if route.Intent == "add_page" {
 		newTask := &deep.TaskItem{
 			TaskID:      fmt.Sprintf("slide-%d", len(manifest.Tasks)+1),
 			PageIndex:   len(manifest.Tasks) + 1,
@@ -1327,13 +1450,13 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":              taskID,
 		"messages":             messages,
-		"conversation_content":  info.ConversationContent,
-		"full_answer":           info.FullAnswer,
+		"conversation_content": info.ConversationContent,
+		"full_answer":          info.FullAnswer,
 		"status":               info.Status,
 		"done_count":           info.DoneCount,
 		"total_count":          info.TotalCount,
 		"files":                info.Files,
-		"duration":              info.Duration,
+		"duration":             info.Duration,
 		"prompt_tokens":        info.PromptTokens,
 		"completion_tokens":    info.CompletionTokens,
 		"total_tokens":         info.TotalTokens,
@@ -1438,10 +1561,9 @@ func (s *Server) handleSummarizeProfile(c *gin.Context) {
 			"special_notes":      p.SpecialNotes,
 		},
 		"task_count": p.TaskCount,
-		"updated_at":  p.UpdatedAt,
+		"updated_at": p.UpdatedAt,
 	})
 }
-
 
 // updateUserStyleFromTask is called when a task completes to extract and save style preferences.
 // 核心逻辑由 LLM 分析 PPTX 文本内容完成，fallback 到规则提取。
@@ -1683,8 +1805,8 @@ func (s *Server) handleAdminStyleProfiles(c *gin.Context) {
 func (s *Server) handleAdminStats(c *gin.Context) {
 	if db.DB == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"user_count":   0,
-			"task_count":   0,
+			"user_count":    0,
+			"task_count":    0,
 			"running_count": 0,
 		})
 		return
@@ -1715,4 +1837,3 @@ func (s *Server) handleAdminDeleteLogAnalysis(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
-

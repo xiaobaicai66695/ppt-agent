@@ -36,54 +36,54 @@ const (
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
-	Type     string          `json:"type"`
-	Content  string          `json:"content,omitempty"`
-	ToolName string          `json:"tool_name,omitempty"`
-	ToolArgs string          `json:"tool_args,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	Tasks    []*deep.TaskItem `json:"tasks,omitempty"`
-	Done     int             `json:"done,omitempty"`
-	Total    int             `json:"total,omitempty"`
-	Files    []string        `json:"files,omitempty"`
-	Message  string          `json:"message,omitempty"`
-	Duration         string          `json:"duration,omitempty"`
-	Status           TaskStatus      `json:"status,omitempty"`
-	PromptTokens     int64           `json:"prompt_tokens,omitempty"`
-	CompletionTokens int64           `json:"completion_tokens,omitempty"`
-	TotalTokens      int64           `json:"total_tokens,omitempty"`
-	Phase            string          `json:"phase,omitempty"`
-	PhaseDetail      string          `json:"phase_detail,omitempty"`
+	Type             string           `json:"type"`
+	Content          string           `json:"content,omitempty"`
+	ToolName         string           `json:"tool_name,omitempty"`
+	ToolArgs         string           `json:"tool_args,omitempty"`
+	Error            string           `json:"error,omitempty"`
+	Tasks            []*deep.TaskItem `json:"tasks,omitempty"`
+	Done             int              `json:"done,omitempty"`
+	Total            int              `json:"total,omitempty"`
+	Files            []string         `json:"files,omitempty"`
+	Message          string           `json:"message,omitempty"`
+	Duration         string           `json:"duration,omitempty"`
+	Status           TaskStatus       `json:"status,omitempty"`
+	PromptTokens     int64            `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64            `json:"completion_tokens,omitempty"`
+	TotalTokens      int64            `json:"total_tokens,omitempty"`
+	Phase            string           `json:"phase,omitempty"`
+	PhaseDetail      string           `json:"phase_detail,omitempty"`
 }
 
 // TaskInfo 是任务的公开可见摘要。
 type TaskInfo struct {
-	ID         string     `json:"id"`
-	UserID     int        `json:"user_id"`
-	Query      string     `json:"query"`
-	Status     TaskStatus `json:"status"`
-	WorkDir    string     `json:"work_dir"`
-	CreatedAt  time.Time  `json:"created_at"`
-	DoneCount  int        `json:"done_count"`
-	TotalCount int        `json:"total_count"`
-	Duration           string   `json:"duration,omitempty"`
-	Error              string   `json:"error,omitempty"`
-	Files              []string `json:"files,omitempty"`
-	PromptTokens       int64    `json:"prompt_tokens"`
-	CompletionTokens   int64    `json:"completion_tokens"`
-	TotalTokens        int64    `json:"total_tokens"`
-	ConversationContent string  `json:"conversation_content,omitempty"` // 拼接后的对话内容
-	FullAnswer          string  `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
+	ID                  string     `json:"id"`
+	UserID              int        `json:"user_id"`
+	Query               string     `json:"query"`
+	Status              TaskStatus `json:"status"`
+	WorkDir             string     `json:"work_dir"`
+	CreatedAt           time.Time  `json:"created_at"`
+	DoneCount           int        `json:"done_count"`
+	TotalCount          int        `json:"total_count"`
+	Duration            string     `json:"duration,omitempty"`
+	Error               string     `json:"error,omitempty"`
+	Files               []string   `json:"files,omitempty"`
+	PromptTokens        int64      `json:"prompt_tokens"`
+	CompletionTokens    int64      `json:"completion_tokens"`
+	TotalTokens         int64      `json:"total_tokens"`
+	ConversationContent string     `json:"conversation_content,omitempty"` // 拼接后的对话内容
+	FullAnswer          string     `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
 }
 
 // TaskState 保存单个任务的内部状态。
 type TaskState struct {
-	Info                 TaskInfo
-	Events               []SSERichEvent
-	listeners            map[string]chan SSERichEvent
-	cancel               context.CancelFunc
-	result               *deep.PPTTaskResult
-	reportedFiles        map[string]bool
-	Mu                   sync.Mutex
+	Info          TaskInfo
+	Events        []SSERichEvent
+	listeners     map[string]chan SSERichEvent
+	cancel        context.CancelFunc
+	result        *deep.PPTTaskResult
+	reportedFiles map[string]bool
+	Mu            sync.Mutex
 
 	// pendingContinueMsg 任务运行中时，用户提交的待处理消息（消费后清空）
 	pendingContinueMsg string
@@ -206,12 +206,12 @@ func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
 
 // TaskManager 管理所有 PPT 生成任务的生命周期。
 type TaskManager struct {
-	mu               sync.RWMutex
-	tasks            map[string]*TaskState
-	baseDir          string
-	onTaskComplete   func(userID int, workDir string, query string)
-	onTaskFailed     func(taskID string)
-	onTaskContinue   func(taskID string) // 任务完成且有待处理消息时触发
+	mu             sync.RWMutex
+	tasks          map[string]*TaskState
+	baseDir        string
+	onTaskComplete func(userID int, workDir string, query string)
+	onTaskFailed   func(taskID string)
+	onTaskContinue func(taskID string) // 任务完成且有待处理消息时触发
 }
 
 // NewTaskManager 创建一个新的 TaskManager。baseDir 是父目录，
@@ -237,19 +237,19 @@ func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir stri
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(info.Files)
 	return &db.TaskRecord{
-		ID:               info.ID,
-		UserID:           uint(info.UserID),
-		Query:            info.Query,
-		Status:           string(info.Status),
-		WorkDir:          info.WorkDir,
-		DoneCount:        info.DoneCount,
-		TotalCount:       info.TotalCount,
-		Duration:         info.Duration,
-		Error:            info.Error,
-		Files:            string(filesJSON),
-		PromptTokens:     info.PromptTokens,
-		CompletionTokens: info.CompletionTokens,
-		TotalTokens:      info.TotalTokens,
+		ID:                  info.ID,
+		UserID:              uint(info.UserID),
+		Query:               info.Query,
+		Status:              string(info.Status),
+		WorkDir:             info.WorkDir,
+		DoneCount:           info.DoneCount,
+		TotalCount:          info.TotalCount,
+		Duration:            info.Duration,
+		Error:               info.Error,
+		Files:               string(filesJSON),
+		PromptTokens:        info.PromptTokens,
+		CompletionTokens:    info.CompletionTokens,
+		TotalTokens:         info.TotalTokens,
 		ConversationContent: info.ConversationContent,
 		FullAnswer:          info.FullAnswer,
 	}
@@ -262,20 +262,20 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		files = []string{}
 	}
 	return &TaskInfo{
-		ID:               r.ID,
-		UserID:           int(r.UserID),
-		Query:            r.Query,
-		Status:           TaskStatus(r.Status),
-		WorkDir:          r.WorkDir,
-		DoneCount:        r.DoneCount,
-		TotalCount:       r.TotalCount,
-		Duration:         r.Duration,
-		Error:            r.Error,
-		Files:            files,
-		CreatedAt:        r.CreatedAt,
-		PromptTokens:     r.PromptTokens,
-		CompletionTokens: r.CompletionTokens,
-		TotalTokens:      r.TotalTokens,
+		ID:                  r.ID,
+		UserID:              int(r.UserID),
+		Query:               r.Query,
+		Status:              TaskStatus(r.Status),
+		WorkDir:             r.WorkDir,
+		DoneCount:           r.DoneCount,
+		TotalCount:          r.TotalCount,
+		Duration:            r.Duration,
+		Error:               r.Error,
+		Files:               files,
+		CreatedAt:           r.CreatedAt,
+		PromptTokens:        r.PromptTokens,
+		CompletionTokens:    r.CompletionTokens,
+		TotalTokens:         r.TotalTokens,
 		ConversationContent: r.ConversationContent,
 		FullAnswer:          r.FullAnswer,
 	}
@@ -289,17 +289,17 @@ func (ts *TaskState) persist() {
 	r := taskInfoToRecord(&ts.Info)
 	ts.Mu.Unlock()
 	if err := db.UpdateTaskRecord(r.ID, map[string]any{
-		"status":                r.Status,
-		"done_count":            r.DoneCount,
-		"total_count":           r.TotalCount,
-		"duration":              r.Duration,
-		"error":                 r.Error,
-		"files":                 r.Files,
-		"prompt_tokens":          r.PromptTokens,
-		"completion_tokens":      r.CompletionTokens,
-		"total_tokens":           r.TotalTokens,
-		"conversation_content":   r.ConversationContent,
-		"full_answer":            r.FullAnswer,
+		"status":               r.Status,
+		"done_count":           r.DoneCount,
+		"total_count":          r.TotalCount,
+		"duration":             r.Duration,
+		"error":                r.Error,
+		"files":                r.Files,
+		"prompt_tokens":        r.PromptTokens,
+		"completion_tokens":    r.CompletionTokens,
+		"total_tokens":         r.TotalTokens,
+		"conversation_content": r.ConversationContent,
+		"full_answer":          r.FullAnswer,
 	}); err != nil {
 		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}
@@ -409,7 +409,9 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	agentCtx, cancel := context.WithCancel(context.Background())
 	// Attach token tracker to context for callbacks to accumulate usage.
 	agentCtx, _ = utils.WithTokenTracker(agentCtx)
-	type workDirSetter interface{ SetWorkDir(context.Context, string) context.Context }
+	type workDirSetter interface {
+		SetWorkDir(context.Context, string) context.Context
+	}
 	if setter, ok := cfg.Operator.(workDirSetter); ok {
 		agentCtx = setter.SetWorkDir(agentCtx, workDir)
 	}
@@ -566,6 +568,22 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.Duration = result.Duration.Round(time.Millisecond).String()
 		ts.Info.Files = result.Files
 	}
+	if manifest, recErr := deep.ReconcileTasksManifestOutputFiles(cfg.WorkDir); recErr == nil && manifest != nil {
+		var files []string
+		for _, t := range manifest.Tasks {
+			if t.OutputFile == "" {
+				continue
+			}
+			if t.Status == deep.StatusDone || t.Status == deep.StatusQADone || t.Status == deep.StatusFixed {
+				files = append(files, filepath.Join(cfg.WorkDir, t.OutputFile))
+			}
+		}
+		ts.Info.DoneCount = manifest.CompletedCount()
+		ts.Info.TotalCount = len(manifest.Tasks)
+		ts.Info.Files = files
+	} else if recErr != nil {
+		logger.Warn("task_manifest_reconcile_failed", "task_id", ts.Info.ID, "error", recErr.Error())
+	}
 
 	// 记录任务完成的 Prometheus 指标。
 	durationSeconds := 0.0
@@ -605,16 +623,16 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 
 	finalEvent := SSERichEvent{
-		Type:            "complete",
-		Status:          ts.Info.Status,
-		Message:         ts.Info.Error,
-		Done:            ts.Info.DoneCount,
-		Total:           ts.Info.TotalCount,
-		Files:           ts.Info.Files,
-		Duration:        ts.Info.Duration,
-		PromptTokens:    ts.Info.PromptTokens,
+		Type:             "complete",
+		Status:           ts.Info.Status,
+		Message:          ts.Info.Error,
+		Done:             ts.Info.DoneCount,
+		Total:            ts.Info.TotalCount,
+		Files:            ts.Info.Files,
+		Duration:         ts.Info.Duration,
+		PromptTokens:     ts.Info.PromptTokens,
 		CompletionTokens: ts.Info.CompletionTokens,
-		TotalTokens:     ts.Info.TotalTokens,
+		TotalTokens:      ts.Info.TotalTokens,
 	}
 	if result != nil {
 		finalEvent.Message = result.Message
@@ -636,11 +654,11 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 
 	deep.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
 		TaskID:       ts.Info.ID,
-		UserID:      ts.Info.UserID,
-		Duration:    result.Duration,
-		Success:     ts.Info.Status == TaskStatusCompleted,
+		UserID:       ts.Info.UserID,
+		Duration:     result.Duration,
+		Success:      ts.Info.Status == TaskStatusCompleted,
 		QualityScore: qualityScore,
-		PageCount:   ts.Info.TotalCount,
+		PageCount:    ts.Info.TotalCount,
 	})
 }
 
@@ -718,10 +736,10 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 				ts.Info.TotalTokens = t
 				ts.Mu.Unlock()
 				ts.Broadcast(SSERichEvent{
-					Type:            "token_usage",
-					PromptTokens:    p,
+					Type:             "token_usage",
+					PromptTokens:     p,
 					CompletionTokens: c,
-					TotalTokens:     t,
+					TotalTokens:      t,
 				})
 			}
 		}
@@ -1191,14 +1209,14 @@ func calculateQualityScoreFromQA(workDir string) float64 {
 func extractScoreFromQAReport(report string) float64 {
 	// 尝试匹配常见的评分模式
 	patterns := []string{
-		`(?i)score[:\s]*(\d+(?:\.\d+)?)`,                          // score: 4.5 或 score 4
-		`(?i)评分[:\s]*(\d+(?:\.\d+)?)`,                            // 评分: 4
-		`(?i)rating[:\s]*(\d+(?:\.\d+)?)`,                          // rating: 4
-		`(?i)quality[:\s]*(\d+(?:\.\d+)?)`,                         // quality: 4
-		`(?i)质量[:\s]*(\d+(?:\.\d+)?)`,                            // 质量: 4
-		`(?i)(\d+(?:\.\d+)?)\s*(?:分|分制)`,                        // 4分 或 4.5分
-		`(?i)(?:优秀|good|excellent).*?(\d+(?:\.\d+)?)`,          // 优秀 4.5
-		`(?i)(\d+(?:\.\d+)?).*?(?:优秀|good|excellent)`,          // 4.5 优秀
+		`(?i)score[:\s]*(\d+(?:\.\d+)?)`,              // score: 4.5 或 score 4
+		`(?i)评分[:\s]*(\d+(?:\.\d+)?)`,                 // 评分: 4
+		`(?i)rating[:\s]*(\d+(?:\.\d+)?)`,             // rating: 4
+		`(?i)quality[:\s]*(\d+(?:\.\d+)?)`,            // quality: 4
+		`(?i)质量[:\s]*(\d+(?:\.\d+)?)`,                 // 质量: 4
+		`(?i)(\d+(?:\.\d+)?)\s*(?:分|分制)`,              // 4分 或 4.5分
+		`(?i)(?:优秀|good|excellent).*?(\d+(?:\.\d+)?)`, // 优秀 4.5
+		`(?i)(\d+(?:\.\d+)?).*?(?:优秀|good|excellent)`, // 4.5 优秀
 	}
 
 	for _, pattern := range patterns {
