@@ -135,7 +135,6 @@ python -m py_compile skills/visual_designer/generators/*.py
 python skills/visual_designer/generators/generator.py
 ```
 
-PPT 视觉相关改动应尽量生成至少一页样例并检查渲染结果。若涉及缩略图/QA，确认 `qa_images`、PDF/JPG 转换链路和前端 `/api/tasks/:id/thumb/:filename` 行为。
 
 不要在没有必要时启动长期服务、数据库迁移、全量生成所有模板或跑高成本 LLM 任务。如果验证因为依赖、数据库、模型凭据、外部服务或沙箱限制失败，应说明执行的命令和阻塞原因。
 

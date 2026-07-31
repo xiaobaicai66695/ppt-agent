@@ -4,6 +4,19 @@
   "type": "atomic",
   "description": "展示引用语或金句，配合大字号和简洁背景",
   "allowed_palettes": ["ocean_soft", "sage_calm", "berry_cream", "lavender_mist", "charcoal_light", "civic_gold"],
+  "contract": {
+    "capacity": {
+      "max_quote_chars": 64,
+      "max_attribution_chars": 28,
+      "density": "low"
+    },
+    "required_fields": ["quote"],
+    "best_for": ["金句", "核心观点", "章节收束"],
+    "avoid_for": ["多条要点", "数据展示", "长段引用"],
+    "overflow_strategy": "shorten_quote_or_split_context",
+    "background_policy": "image_optional",
+    "visual_primitives": ["large_type", "quote_mark", "subtle_overlay"]
+  },
   "fields": [
     {"name": "quote", "label": "引用内容", "type": "textarea", "required": true},
     {"name": "author", "label": "出处/作者", "type": "text", "required": false}

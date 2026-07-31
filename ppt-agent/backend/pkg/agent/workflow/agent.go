@@ -114,8 +114,8 @@ type workflowState struct {
 
 // Node key constants.
 const (
-	nodeKeyPlan            = "plan"
-	nodeKeyPlannerLLM      = "planner_llm"
+	nodeKeyPlan             = "plan"
+	nodeKeyPlannerLLM       = "planner_llm"
 	nodeKeyPlannerToOutline = "planner_to_outline"
 
 	nodeKeyExecute        = "execute"
@@ -128,10 +128,10 @@ const (
 	nodeKeyQATools  = "qa_tools"
 	nodeKeyQAToList = "qa_to_list"
 
-	nodeKeyFix        = "fix"
-	nodeKeyFixLLM     = "fix_llm"
-	nodeKeyFixTools   = "fix_tools"
-	nodeKeyFixToList  = "fix_to_list"
+	nodeKeyFix       = "fix"
+	nodeKeyFixLLM    = "fix_llm"
+	nodeKeyFixTools  = "fix_tools"
+	nodeKeyFixToList = "fix_to_list"
 
 	nodeKeyToMessage = "to_message"
 )
@@ -386,6 +386,7 @@ func toMessageNode(state *workflowState) func(ctx context.Context, in []*schema.
 }
 
 // isQAEnabled returns whether QA is enabled.
+// Online QA is opt-in because it adds model cost and latency.
 func isQAEnabled() bool {
-	return os.Getenv("ENABLE_QA") != "false"
+	return os.Getenv("ENABLE_QA") == "true"
 }

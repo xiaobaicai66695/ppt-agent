@@ -4,6 +4,20 @@
   "type": "atomic",
   "description": "章节过渡页，标识新的内容板块开始",
   "allowed_palettes": ["ocean_soft", "sage_calm", "government_red", "education_blue", "civic_gold"],
+  "contract": {
+    "capacity": {
+      "max_items": 3,
+      "max_title_chars": 24,
+      "max_subtitle_chars": 36,
+      "density": "low"
+    },
+    "required_fields": ["title"],
+    "best_for": ["章节过渡", "叙事分段", "议程推进"],
+    "avoid_for": ["列表正文", "指标看板", "细节说明"],
+    "overflow_strategy": "move_details_to_following_slide",
+    "background_policy": "image_recommended",
+    "visual_primitives": ["section_number", "background_image", "large_type"]
+  },
   "fields": [
     {"name": "title", "label": "章节标题", "type": "text", "required": true},
     {"name": "subtitle", "label": "章节副标题", "type": "text", "required": false}

@@ -269,6 +269,9 @@ func NewLogHandler() callbacks.Handler {
 				}
 				logger.Default().Info("tool_call_start", append(fields, "args", args)...)
 			case components.ComponentOfChatModel:
+				if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
+					meta.RecordLLMStart(info.Name)
+				}
 				logger.Default().Info("llm_call_start", fields...)
 			case adk.ComponentOfAgent:
 				metrics.RecordAgentCall(agentName)
@@ -291,6 +294,9 @@ func NewLogHandler() callbacks.Handler {
 			switch info.Component {
 			case components.ComponentOfTool:
 				result := extractToolResult(output)
+				if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
+					meta.RecordToolEnd(info.Name, result)
+				}
 				logger.Default().Info("tool_call_end", append(fields, "result_preview", truncate(result, 100))...)
 				metrics.RecordToolCall(info.Name, "success")
 			case components.ComponentOfChatModel:
@@ -333,7 +339,11 @@ func NewLogHandler() callbacks.Handler {
 				"error", err.Error(),
 			)
 			if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
-				meta.RecordToolError(infoName, err.Error())
+				if info != nil && info.Component == components.ComponentOfChatModel {
+					meta.RecordLLMError(infoName, err.Error())
+				} else {
+					meta.RecordToolError(infoName, err.Error())
+				}
 			}
 
 			// 提取 volcengine HTTP 错误的详细信息

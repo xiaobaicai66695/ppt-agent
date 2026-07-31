@@ -154,4 +154,3 @@ Agent 记录到 todo.md（状态: pending）
 
 - [需求总池](../issues/todo.md)
 - [预研文档规范](../research/README.md)
-- [架构设计文档](../specs/architecture.md)

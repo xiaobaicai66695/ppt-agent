@@ -4,6 +4,20 @@
   "type": "atomic",
   "description": "演示文稿封面，包含主标题、副标题和演讲者信息",
   "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "government_red", "education_blue"],
+  "contract": {
+    "capacity": {
+      "max_items": 4,
+      "max_title_chars": 28,
+      "max_subtitle_chars": 42,
+      "density": "low"
+    },
+    "required_fields": ["title"],
+    "best_for": ["封面", "主题开场", "品牌或报告标题"],
+    "avoid_for": ["正文要点", "复杂数据", "多维对比"],
+    "overflow_strategy": "shorten_title_or_split_to_agenda",
+    "background_policy": "image_recommended",
+    "visual_primitives": ["background_image", "title_lockup", "subtle_overlay"]
+  },
   "fields": [
     {"name": "title", "label": "主标题", "type": "text", "required": true},
     {"name": "subtitle", "label": "副标题", "type": "text", "required": false},

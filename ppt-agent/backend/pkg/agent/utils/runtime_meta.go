@@ -20,11 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
+
+const runtimeRecentEventLimit = 80
 
 // RuntimeMeta is a code-maintained status bar for an agent run. It keeps
 // frequently needed operational facts out of long trajectory scans.
@@ -62,6 +66,10 @@ type RuntimeMeta struct {
 	QAHighIssues   int
 	QAMediumIssues int
 	QALowIssues    int
+
+	EventSeq     int64
+	EventCounts  map[string]int
+	RecentEvents []RuntimeEvent
 }
 
 type RuntimeBudgets struct {
@@ -104,18 +112,44 @@ type RuntimeMetaSnapshot struct {
 	QAHighIssues   int `json:"qa_high_issues,omitempty"`
 	QAMediumIssues int `json:"qa_medium_issues,omitempty"`
 	QALowIssues    int `json:"qa_low_issues,omitempty"`
+
+	EventCounts  map[string]int `json:"event_counts,omitempty"`
+	RecentEvents []RuntimeEvent `json:"recent_events,omitempty"`
+}
+
+type RuntimeEvent struct {
+	ID        int64          `json:"id"`
+	TaskID    string         `json:"task_id,omitempty"`
+	Timestamp string         `json:"timestamp"`
+	ElapsedMS int64          `json:"elapsed_ms"`
+	Kind      string         `json:"kind"`
+	Phase     string         `json:"phase,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Status    string         `json:"status,omitempty"`
+	Detail    string         `json:"detail,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+type RuntimeReport struct {
+	TaskID      string              `json:"task_id,omitempty"`
+	WorkDir     string              `json:"work_dir,omitempty"`
+	Status      string              `json:"status"`
+	WrittenAt   string              `json:"written_at"`
+	Snapshot    RuntimeMetaSnapshot `json:"snapshot"`
+	EventCounts map[string]int      `json:"event_counts,omitempty"`
 }
 
 type runtimeMetaKey struct{}
 
 func NewRuntimeMeta(taskID, workDir string) *RuntimeMeta {
 	return &RuntimeMeta{
-		TaskID:     taskID,
-		WorkDir:    workDir,
-		StartedAt:  time.Now(),
-		Phase:      "preparing",
-		ToolCalls:  map[string]int{},
-		ToolErrors: map[string]int{},
+		TaskID:      taskID,
+		WorkDir:     workDir,
+		StartedAt:   time.Now(),
+		Phase:       "preparing",
+		ToolCalls:   map[string]int{},
+		ToolErrors:  map[string]int{},
+		EventCounts: map[string]int{},
 		Budgets: RuntimeBudgets{
 			SameToolArgsWarn:     EnvInt("PPT_SAME_TOOL_ARGS_WARN", 3),
 			MaxToolCallsPerTool:  EnvInt("PPT_MAX_TOOL_CALLS_PER_TOOL", 20),
@@ -152,6 +186,7 @@ func (m *RuntimeMeta) RecordPhase(phase, detail string) {
 	if strings.TrimSpace(detail) != "" {
 		m.PhaseDetail = strings.TrimSpace(detail)
 	}
+	m.recordEventLocked("phase_changed", phase, "ok", detail, nil)
 }
 
 func (m *RuntimeMeta) RecordToolStart(name, args string) {
@@ -173,6 +208,24 @@ func (m *RuntimeMeta) RecordToolStart(name, args string) {
 	m.LastTool = name
 	m.LastToolArgs = args
 	m.refreshBudgetWarningsLocked()
+	m.recordEventLocked("tool_start", name, "running", "", map[string]any{
+		"args_preview": truncateString(args, 220),
+	})
+}
+
+func (m *RuntimeMeta) RecordToolEnd(name, resultPreview string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "unknown"
+	}
+	m.recordEventLocked("tool_end", name, "ok", "", map[string]any{
+		"result_preview": truncateString(strings.TrimSpace(resultPreview), 220),
+	})
 }
 
 func (m *RuntimeMeta) RecordToolError(name, errText string) {
@@ -188,6 +241,20 @@ func (m *RuntimeMeta) RecordToolError(name, errText string) {
 	m.ToolErrors[name]++
 	m.LastError = truncateString(strings.TrimSpace(errText), 240)
 	m.refreshBudgetWarningsLocked()
+	m.recordEventLocked("tool_error", name, "error", m.LastError, nil)
+}
+
+func (m *RuntimeMeta) RecordLLMStart(name string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "chat_model"
+	}
+	m.recordEventLocked("llm_start", name, "running", "", nil)
 }
 
 func (m *RuntimeMeta) RecordLLMTokens(prompt, completion, total int64) {
@@ -199,6 +266,25 @@ func (m *RuntimeMeta) RecordLLMTokens(prompt, completion, total int64) {
 	m.PromptTokens += prompt
 	m.CompletionTokens += completion
 	m.TotalTokens += total
+	m.recordEventLocked("llm_end", "chat_model", "ok", "", map[string]any{
+		"prompt_tokens":     prompt,
+		"completion_tokens": completion,
+		"total_tokens":      total,
+	})
+}
+
+func (m *RuntimeMeta) RecordLLMError(name, errText string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "chat_model"
+	}
+	m.LastError = truncateString(strings.TrimSpace(errText), 240)
+	m.recordEventLocked("llm_error", name, "error", m.LastError, nil)
 }
 
 func (m *RuntimeMeta) SetLLMTokens(prompt, completion, total int64) {
@@ -222,6 +308,11 @@ func (m *RuntimeMeta) RecordCompression(beforeTokens, afterTokens int, savedPct 
 	m.CompressionBeforeTokens = beforeTokens
 	m.CompressionAfterTokens = afterTokens
 	m.CompressionSavedPct = savedPct
+	m.recordEventLocked("compression", "context_compressor", "ok", "", map[string]any{
+		"before_tokens": beforeTokens,
+		"after_tokens":  afterTokens,
+		"saved_pct":     savedPct,
+	})
 }
 
 func (m *RuntimeMeta) RecordSlideProgress(done, total, missing int) {
@@ -230,9 +321,17 @@ func (m *RuntimeMeta) RecordSlideProgress(done, total, missing int) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.DoneSlides == done && m.TotalSlides == total && m.MissingFiles == missing {
+		return
+	}
 	m.DoneSlides = done
 	m.TotalSlides = total
 	m.MissingFiles = missing
+	m.recordEventLocked("slide_progress", "tasks_manifest", "ok", "", map[string]any{
+		"done":    done,
+		"total":   total,
+		"missing": missing,
+	})
 }
 
 func (m *RuntimeMeta) RecordQAIssues(high, medium, low int) {
@@ -244,6 +343,64 @@ func (m *RuntimeMeta) RecordQAIssues(high, medium, low int) {
 	m.QAHighIssues += high
 	m.QAMediumIssues += medium
 	m.QALowIssues += low
+	if high+medium+low > 0 {
+		m.recordEventLocked("qa_issues", "qa", "warning", "", map[string]any{
+			"high":   high,
+			"medium": medium,
+			"low":    low,
+		})
+	}
+}
+
+func (m *RuntimeMeta) RecordFileCreated(fileName string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordEventLocked("file_created", filepath.Base(fileName), "ok", fileName, nil)
+}
+
+func (m *RuntimeMeta) RecordManifestValidation(done, total int, missingFiles, pendingTasks []string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	status := "ok"
+	if len(missingFiles) > 0 || len(pendingTasks) > 0 {
+		status = "warning"
+	}
+	m.recordEventLocked("manifest_validated", "tasks.json", status, "", map[string]any{
+		"done":          done,
+		"total":         total,
+		"missing_files": missingFiles,
+		"pending_tasks": pendingTasks,
+	})
+}
+
+func (m *RuntimeMeta) RecordTaskTerminal(status, detail string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	eventStatus := "ok"
+	if status == "failed" || status == "cancelled" {
+		eventStatus = status
+	}
+	m.recordEventLocked("task_terminal", "task", eventStatus, detail, map[string]any{
+		"status": status,
+	})
+}
+
+func (m *RuntimeMeta) RecordEvent(kind, name, status, detail string, metadata map[string]any) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordEventLocked(kind, name, status, detail, metadata)
 }
 
 func (m *RuntimeMeta) Snapshot() RuntimeMetaSnapshot {
@@ -282,6 +439,8 @@ func (m *RuntimeMeta) Snapshot() RuntimeMetaSnapshot {
 		QAHighIssues:            m.QAHighIssues,
 		QAMediumIssues:          m.QAMediumIssues,
 		QALowIssues:             m.QALowIssues,
+		EventCounts:             cloneIntMap(m.EventCounts),
+		RecentEvents:            append([]RuntimeEvent(nil), m.RecentEvents...),
 	}
 }
 
@@ -351,6 +510,81 @@ func (m *RuntimeMeta) refreshBudgetWarningsLocked() {
 		warnings = append(warnings, fmt.Sprintf("run duration exceeded %ds; prefer finishing or asking for help", b.PhaseDurationWarnSec))
 	}
 	m.BudgetWarnings = warnings
+}
+
+func (m *RuntimeMeta) WriteReport(status string) error {
+	if m == nil {
+		return nil
+	}
+	snap := m.Snapshot()
+	report := RuntimeReport{
+		TaskID:      snap.TaskID,
+		WorkDir:     snap.WorkDir,
+		Status:      status,
+		WrittenAt:   time.Now().Format(time.RFC3339Nano),
+		Snapshot:    snap,
+		EventCounts: snap.EventCounts,
+	}
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(m.WorkDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(m.WorkDir, "runtime_report.json"), data, 0644)
+}
+
+func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metadata map[string]any) {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = "event"
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "ok"
+	}
+	started := m.StartedAt
+	if started.IsZero() {
+		started = time.Now()
+	}
+	m.EventSeq++
+	event := RuntimeEvent{
+		ID:        m.EventSeq,
+		TaskID:    m.TaskID,
+		Timestamp: time.Now().Format(time.RFC3339Nano),
+		ElapsedMS: time.Since(started).Milliseconds(),
+		Kind:      kind,
+		Phase:     m.Phase,
+		Name:      truncateString(strings.TrimSpace(name), 80),
+		Status:    status,
+		Detail:    truncateString(strings.TrimSpace(detail), 240),
+		Metadata:  metadata,
+	}
+	if m.EventCounts == nil {
+		m.EventCounts = map[string]int{}
+	}
+	m.EventCounts[kind]++
+	m.RecentEvents = append(m.RecentEvents, event)
+	if len(m.RecentEvents) > runtimeRecentEventLimit {
+		m.RecentEvents = m.RecentEvents[len(m.RecentEvents)-runtimeRecentEventLimit:]
+	}
+	if m.WorkDir == "" {
+		return
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(m.WorkDir, 0755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(m.WorkDir, "runtime_events.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(data, '\n'))
 }
 
 func (s RuntimeMetaSnapshot) MarshalJSONBytes() []byte {

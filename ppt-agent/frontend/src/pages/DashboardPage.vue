@@ -222,6 +222,12 @@ const runtimeQATotal = computed(() =>
   + (runtimeMeta.value?.qa_low_issues || 0)
 );
 const runtimeWarnings = computed(() => runtimeMeta.value?.budget_warnings || []);
+const runtimeTimeline = computed(() => (runtimeMeta.value?.recent_events || []).slice(-24).reverse());
+
+function eventStatusLabel(status?: string): string {
+  if (!status) return 'ok';
+  return status;
+}
 
 const sampleQueries = [
   '做一个关于新能源汽车的行业分析报告',
@@ -1010,6 +1016,28 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
             <span v-for="w in runtimeWarnings" :key="w" class="dev-warning">{{ w }}</span>
             <span v-if="runtimeMeta.last_error" class="dev-warning danger">{{ runtimeMeta.last_error }}</span>
           </div>
+          <div v-if="runtimeTimeline.length > 0" class="runtime-timeline">
+            <div class="timeline-head">
+              <span>Timeline</span>
+              <small>{{ runtimeTimeline.length }} recent events</small>
+            </div>
+            <div class="timeline-list">
+              <div
+                v-for="evt in runtimeTimeline"
+                :key="evt.id"
+                class="timeline-row"
+                :class="evt.status || 'ok'"
+              >
+                <span class="timeline-time">{{ fmtElapsed(evt.elapsed_ms) }}</span>
+                <span class="timeline-kind">{{ evt.kind }}</span>
+                <span class="timeline-main">
+                  <strong>{{ evt.name || evt.phase || 'task' }}</strong>
+                  <small>{{ evt.phase || 'phase' }} · {{ eventStatusLabel(evt.status) }}</small>
+                </span>
+                <span v-if="evt.detail" class="timeline-detail">{{ evt.detail }}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Left-Right Split -->
@@ -1395,13 +1423,98 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   border-color: var(--danger-border);
   color: var(--danger);
 }
+.runtime-timeline {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.65rem;
+}
+.timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
+}
+.timeline-head small {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.timeline-row {
+  display: grid;
+  grid-template-columns: 56px 118px minmax(150px, 1fr) minmax(120px, 1.2fr);
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  padding: 0.22rem 0.45rem;
+}
+.timeline-row.error,
+.timeline-row.failed,
+.timeline-row.cancelled {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+.timeline-row.warning {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+}
+.timeline-time,
+.timeline-kind {
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+.timeline-kind {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timeline-main {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.timeline-main strong {
+  color: var(--text);
+  font-size: 0.68rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-main small,
+.timeline-detail {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 @media (max-width: 1100px) {
   .dev-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .timeline-row { grid-template-columns: 52px 96px minmax(140px, 1fr); }
+  .timeline-detail { display: none; }
 }
 @media (max-width: 720px) {
   .dev-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dev-status-head { align-items: flex-start; flex-direction: column; }
+  .timeline-row { grid-template-columns: 50px minmax(0, 1fr); }
+  .timeline-kind { display: none; }
 }
 
 /* ── Split layout with distinct section backgrounds ─────────── */

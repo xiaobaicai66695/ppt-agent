@@ -384,6 +384,9 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	}
 	cfg.WorkDir = workDir
 	runtimeMeta := utils.NewRuntimeMeta(cfg.TaskID, workDir)
+	runtimeMeta.RecordEvent("task_created", "task", "ok", query, map[string]any{
+		"user_id": userID,
+	})
 	agentCtx, tokenTracker := utils.WithTokenTracker(context.Background())
 	agentCtx = utils.WithRuntimeMeta(agentCtx, runtimeMeta)
 	agentCtx, cancel := context.WithCancel(agentCtx)
@@ -525,6 +528,12 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 				Status: ts.Info.Status,
 				Error:  ts.Info.Error,
 			})
+			if ts.runtimeMeta != nil {
+				ts.runtimeMeta.RecordTaskTerminal(string(TaskStatusFailed), ts.Info.Error)
+				if err := ts.runtimeMeta.WriteReport(string(TaskStatusFailed)); err != nil {
+					logger.Warn("runtime_report_write_failed", "task_id", ts.Info.ID, "error", err.Error())
+				}
+			}
 		}
 	}()
 
@@ -605,6 +614,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	if validation, valErr := deep.ValidateTasksManifestOutcome(cfg.WorkDir); valErr == nil && validation != nil {
 		if ts.runtimeMeta != nil {
 			ts.runtimeMeta.RecordSlideProgress(validation.Done, validation.Total, len(validation.MissingFiles))
+			ts.runtimeMeta.RecordManifestValidation(validation.Done, validation.Total, validation.MissingFiles, validation.PendingTasks)
 		}
 		if validation.Invalid {
 			logger.Warn("task_outcome_validation_warning",
@@ -669,6 +679,10 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		finalEvent.Message = result.Message
 	}
 	if ts.runtimeMeta != nil {
+		ts.runtimeMeta.RecordTaskTerminal(string(ts.Info.Status), finalEvent.Message)
+		if err := ts.runtimeMeta.WriteReport(string(ts.Info.Status)); err != nil {
+			logger.Warn("runtime_report_write_failed", "task_id", ts.Info.ID, "error", err.Error())
+		}
 		snap := ts.runtimeMeta.Snapshot()
 		finalEvent.RuntimeMeta = &snap
 	}
@@ -810,6 +824,9 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 					if !ts.reportedFiles[entry.Name()] {
 						ts.reportedFiles[entry.Name()] = true
 						ts.Mu.Unlock()
+						if ts.runtimeMeta != nil {
+							ts.runtimeMeta.RecordFileCreated(entry.Name())
+						}
 						ts.Broadcast(SSERichEvent{
 							Type:     "file_ready",
 							ToolName: entry.Name(),

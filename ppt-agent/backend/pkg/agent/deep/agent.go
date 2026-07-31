@@ -134,11 +134,11 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	return deepAgent, nil
 }
 
-// isQAEnabled 返回 QA 质量检查是否启用
-// 如果未设置 ENABLE_QA 或设置为 "true"，则默认为 true
-// 设置为 "false" 可禁用 QA 检查
+// isQAEnabled 返回 QA 质量检查是否启用。
+// 默认关闭在线 QA/Reviewer 以节省生成时间和模型成本；仅显式设置
+// ENABLE_QA=true 时启用。
 func isQAEnabled() bool {
-	return os.Getenv("ENABLE_QA") != "false"
+	return os.Getenv("ENABLE_QA") == "true"
 }
 
 // getConcurrency 从路由决策获取并发数，默认 5

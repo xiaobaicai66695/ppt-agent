@@ -4,6 +4,20 @@
   "type": "atomic",
   "description": "用图标+文字网格展示核心要点，视觉冲击力强。适合展示功能特性、服务内容、方法步骤等",
   "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta"],
+  "contract": {
+    "capacity": {
+      "max_items": 9,
+      "min_items": 4,
+      "max_label_chars": 16,
+      "density": "normal"
+    },
+    "required_fields": ["title", "icons"],
+    "best_for": ["功能特性", "服务范围", "方法步骤"],
+    "avoid_for": ["长段正文", "复杂数据", "案例详解"],
+    "overflow_strategy": "split_grid_or_group_items",
+    "background_policy": "clean_default",
+    "visual_primitives": ["local_icons", "glyph_badges", "shape_grid"]
+  },
   "fields": [
     {"name": "title", "label": "页面标题", "type": "text", "required": true},
     {"name": "subtitle", "label": "副标题", "type": "text", "required": false},

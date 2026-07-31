@@ -90,6 +90,19 @@ export interface RuntimeBudgets {
   phase_duration_warn_sec?: number;
 }
 
+export interface RuntimeEvent {
+  id: number;
+  task_id?: string;
+  timestamp: string;
+  elapsed_ms: number;
+  kind: string;
+  phase?: string;
+  name?: string;
+  status?: string;
+  detail?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface RuntimeMeta {
   task_id?: string;
   work_dir?: string;
@@ -115,6 +128,8 @@ export interface RuntimeMeta {
   qa_high_issues?: number;
   qa_medium_issues?: number;
   qa_low_issues?: number;
+  event_counts?: Record<string, number>;
+  recent_events?: RuntimeEvent[];
 }
 
 export interface SSEEvent {

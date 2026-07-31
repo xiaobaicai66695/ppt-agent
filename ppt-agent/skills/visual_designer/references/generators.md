@@ -48,6 +48,31 @@ from generators import (
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
+## 模板契约元数据
+
+`templates/single-page/*.json` 可以声明可选的 `contract` 对象，用于让规划器或 layout selector 在生成内容前判断“这个模板能装多少、适合什么、不适合什么”。该字段为附加元数据，不改变现有 generator 调用方式。
+
+推荐字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `contract.capacity` | object | 容量约束，例如 `max_items`、`max_chars_per_item`、`max_labels`、`density` |
+| `contract.required_fields` | string[] | 生成器参数维度的必填字段，例如 `title`、`bullets`、`data` |
+| `contract.best_for` | string[] | 最适合的内容场景 |
+| `contract.avoid_for` | string[] | 应避免使用的内容场景 |
+| `contract.overflow_strategy` | string | 内容超量时的推荐动作，例如 `split_slide`、`reduce_series` |
+| `contract.background_policy` | string | 背景策略：`image_recommended`、`image_optional`、`clean_default` |
+| `contract.visual_primitives` | string[] | 首选视觉 primitives，例如 `local_icons`、`shapes`、`charts`、`cards` |
+
+> 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
+
+## 背景与素材策略
+
+- 标题页、章节分隔页、视觉冲击页优先考虑背景图，背景必须服务标题识别和主题氛围。
+- 信息密集页默认使用干净背景：`content_slide`、`card_grid`、`two_column`、`kpi_dashboard`、`chart_slide`、`comparison_table` 等不应默认叠复杂背景图。
+- 当前阶段优先使用本地图标、文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素。
+- 不默认使用外部图片搜索或生成式图片资产；确需真实照片、产品图、人物图时，应作为单独需求确认来源、授权和成本。
+
 ## 生成器函数参数
 
 ### 结构引导类
