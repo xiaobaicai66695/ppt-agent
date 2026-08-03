@@ -9,6 +9,8 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .asset_manager import add_local_icon, asset_path, icon_id_from_text
+from .layout_intelligence import title_font_size
 
 
 def generate(
@@ -40,12 +42,12 @@ def generate(
     """
     if icons is None:
         icons = [
-            {"icon": "研", "label": "基础研究", "color": "primary"},
-            {"icon": "算", "label": "算力平台", "color": "secondary"},
-            {"icon": "数", "label": "数据治理", "color": "accent"},
-            {"icon": "模", "label": "模型训练", "color": "primary"},
-            {"icon": "工", "label": "工程落地", "color": "secondary"},
-            {"icon": "安", "label": "安全合规", "color": "accent"},
+            {"icon": "source", "label": "基础研究", "color": "primary"},
+            {"icon": "runtime", "label": "算力平台", "color": "secondary"},
+            {"icon": "density", "label": "数据治理", "color": "accent"},
+            {"icon": "llm", "label": "模型训练", "color": "primary"},
+            {"icon": "tool", "label": "工程落地", "color": "secondary"},
+            {"icon": "review", "label": "安全合规", "color": "accent"},
         ]
 
     if prs is None:
@@ -84,7 +86,7 @@ def generate(
         slide,
         text=title,
         left=0.7, top=y_offset, width=11.5, height=0.65,
-        font_size=30, bold=True,
+        font_size=title_font_size(title, base=32, sparse_boost=6, max_size=42), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -120,8 +122,8 @@ def generate(
     cell_height = (grid_height - gap_y * (rows - 1)) / rows
 
     # Icon and label dimensions
-    icon_size = min(cell_width, cell_height) * 0.5
-    icon_size = min(icon_size, 1.0)  # Cap at 1 inch
+    icon_size = min(cell_width, cell_height) * 0.62
+    icon_size = min(icon_size, 1.22)  # Cap at 1.22 inch
 
     for idx, icon_data in enumerate(visible_icons):
         row = idx // cols
@@ -134,36 +136,40 @@ def generate(
         label = icon_data.get("label", "")
         color_key = icon_data.get("color", ["primary", "secondary", "accent"][idx % 3])
 
-        # Icon background circle
+        # Icon background
         icon_center_x = cell_x + cell_width / 2
         icon_center_y = cell_y + cell_height * 0.35
-
-        add_round_rect(
+        icon_id = icon_text if icon_text and asset_path(icon_text) else icon_id_from_text(label, fallback="primitive")
+        if not add_local_icon(
             slide,
+            icon_id,
             left=icon_center_x - icon_size / 2,
             top=icon_center_y - icon_size / 2,
-            width=icon_size,
-            height=icon_size,
-            fill_color=color_key, palette=palette,
-        )
-
-        # Icon text
-        icon_font_size = int(icon_size * 24)  # Scale font to icon size
-        icon_font_size = min(max(icon_font_size, 18), 36)  # Clamp
-
-        add_text(
-            slide,
-            text=icon_text,
-            left=icon_center_x - icon_size / 2,
-            top=icon_center_y - icon_size / 2,
-            width=icon_size,
-            height=icon_size,
-            font_size=icon_font_size,
-            bold=True,
-            color="background", alignment="center",
+            size=icon_size,
             palette=palette,
-            colors=colors,
-        )
+            with_badge=True,
+        ):
+            add_round_rect(
+                slide,
+                left=icon_center_x - icon_size / 2,
+                top=icon_center_y - icon_size / 2,
+                width=icon_size,
+                height=icon_size,
+                fill_color=color_key, palette=palette,
+            )
+            add_text(
+                slide,
+                text=icon_text[:2],
+                left=icon_center_x - icon_size / 2,
+                top=icon_center_y - icon_size / 2,
+                width=icon_size,
+                height=icon_size,
+                font_size=24,
+                bold=True,
+                color="background", alignment="center",
+                palette=palette,
+                colors=colors,
+            )
 
         # Label below icon
         label_y = icon_center_y + icon_size / 2 + 0.15

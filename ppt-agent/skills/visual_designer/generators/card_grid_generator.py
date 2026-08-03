@@ -10,6 +10,8 @@ from .base import (
     set_slide_background, add_text_in_shape,
     resolve_background, set_image_background,
 )
+from .asset_manager import add_local_icon, icon_id_from_text
+from .layout_intelligence import body_font_size, card_layout_for_count, density_level, title_font_size
 
 
 def generate(
@@ -60,6 +62,10 @@ def generate(
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
+    layout = card_layout_for_count(len(cards), layout)
+    all_body = " ".join([c.get("body", "") for c in cards])
+    level = density_level([c.get("header", "") for c in cards], title=title, body=all_body)
+
     # Kicker (above title)
     y_title = 0.4
     if kicker:
@@ -79,7 +85,7 @@ def generate(
         slide,
         text=title,
         left=0.5, top=y_title, width=12.0, height=0.7,
-        font_size=36, bold=True,
+        font_size=title_font_size(title, base=36, sparse_boost=6, max_size=46), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -109,7 +115,7 @@ def generate(
     margin_top = y_cards
     gap = 0.25
     card_area_w = 12.133 - margin_x * 2
-    card_area_h = 5.2
+    card_area_h = 5.15
     card_w = (card_area_w - gap * (cols - 1)) / cols
     card_h = (card_area_h - gap * (card_rows - 1)) / card_rows
 
@@ -142,25 +148,12 @@ def generate(
             fill_color="primary", palette=palette,
         )
 
-        # Circular number badge
-        badge_size = 0.45
+        # Semantic icon badge
+        badge_size = 0.5 if level != "dense" else 0.42
         badge_x = x + 0.2
         badge_y = y + 0.15
-        add_round_rect(
-            slide,
-            left=badge_x, top=badge_y, width=badge_size, height=badge_size,
-            fill_color="primary", palette=palette,
-        )
-        add_text(
-            slide,
-            text=icon,
-            left=badge_x, top=badge_y + 0.05,
-            width=badge_size, height=badge_size - 0.05,
-            font_size=14, bold=True,
-            color="background", alignment="center",
-            palette=palette,
-            colors=colors,
-        )
+        icon_id = icon if icon and not icon.isdigit() else icon_id_from_text(header + " " + body, fallback="card")
+        add_local_icon(slide, icon_id, left=badge_x, top=badge_y, size=badge_size, palette=palette, with_badge=True)
 
         # Card header (next to badge)
         add_text(
@@ -168,7 +161,7 @@ def generate(
             text=header,
             left=badge_x + badge_size + 0.1, top=badge_y + 0.05,
             width=card_w - badge_size - 0.5, height=0.45,
-            font_size=16, bold=True,
+            font_size=17 if level == "sparse" else 15, bold=True,
             color="primary", alignment="left",
             palette=palette,
             colors=colors,
@@ -181,7 +174,7 @@ def generate(
             text=body,
             left=x + 0.2, top=body_top,
             width=card_w - 0.4, height=card_h - (body_top - y) - 0.5,
-            font_size=14, bold=False,
+            font_size=body_font_size([body], base=14), bold=False,
             color="text", alignment="left",
             palette=palette,
             colors=colors,

@@ -10,6 +10,8 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .asset_manager import apply_asset_background, add_local_icon
+from .layout_intelligence import title_font_size
 
 
 def generate(
@@ -42,12 +44,16 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    bg_path = resolve_background(background) if background else None
-    if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    colors = apply_asset_background(slide, background, palette, role="section", brightness=0.96)
+    if colors:
+        pass
     else:
-        set_slide_background(slide, palette)
-        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+        bg_path = resolve_background(background) if background else None
+        if bg_path:
+            colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+        else:
+            set_slide_background(slide, palette)
+            colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Large background color block (left 40% of slide)
     add_rect(
@@ -55,6 +61,7 @@ def generate(
         left=0, top=0, width=5.2, height=7.5,
         fill_color="primary", palette=palette,
     )
+    add_local_icon(slide, "layout", left=3.95, top=5.8, size=0.78, palette=palette)
 
     # Kicker (above number)
     if kicker:
@@ -84,7 +91,7 @@ def generate(
         slide,
         text=title,
         left=5.8, top=3.1, width=6.8, height=1.2,
-        font_size=44, bold=True,
+        font_size=title_font_size(title, base=44, sparse_boost=6, max_size=52), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,

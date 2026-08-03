@@ -10,6 +10,8 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .asset_manager import apply_asset_background, add_local_icon, icon_id_from_text
+from .layout_intelligence import body_font_size, title_font_size
 
 
 def generate(
@@ -52,12 +54,16 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    bg_path = resolve_background(background) if background else None
-    if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    colors = apply_asset_background(slide, background, palette, role="summary", brightness=0.96)
+    if colors:
+        pass
     else:
-        set_slide_background(slide, palette)
-        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+        bg_path = resolve_background(background) if background else None
+        if bg_path:
+            colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+        else:
+            set_slide_background(slide, palette)
+            colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above title)
     y_title = 0.4
@@ -78,7 +84,7 @@ def generate(
         slide,
         text=title,
         left=0.5, top=y_title, width=12.0, height=0.7,
-        font_size=36, bold=True,
+        font_size=title_font_size(title, base=36, sparse_boost=6, max_size=46), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -92,21 +98,22 @@ def generate(
     )
 
     # Key points with left accent bar
+    point_font = body_font_size(key_points[:4], base=16)
     for i, point in enumerate(key_points[:4]):
         y = 1.5 + i * 1.0
 
-        # Left accent bar
-        add_rect(
+        add_local_icon(
             slide,
-            left=0.65, top=y + 0.05, width=0.06, height=0.55,
-            fill_color="primary", palette=palette,
+            icon_id_from_text(point, fallback="review"),
+            left=0.72, top=y + 0.04, size=0.36,
+            palette=palette,
         )
 
         add_text(
             slide,
             text=point,
-            left=0.85, top=y, width=7.8, height=0.7,
-            font_size=16, bold=False,
+            left=1.18, top=y, width=7.35, height=0.7,
+            font_size=point_font, bold=False,
             color="text", alignment="left",
             palette=palette,
             colors=colors,
@@ -124,7 +131,7 @@ def generate(
         slide,
         text=thank_you,
         left=9.3, top=2.8, width=3.5, height=0.8,
-        font_size=24, bold=True,
+        font_size=28 if len(thank_you) <= 10 else 22, bold=True,
         color="background", alignment="center",
         palette=palette,
         colors=colors,

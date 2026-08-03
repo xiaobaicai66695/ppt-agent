@@ -10,6 +10,8 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .asset_manager import apply_asset_background, add_local_icon
+from .layout_intelligence import focal_font_size
 
 
 def generate(
@@ -40,12 +42,16 @@ def generate(
 
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
-    bg_path = resolve_background(background) if background else None
-    if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+    colors = apply_asset_background(slide, background, palette, role="quote", brightness=0.96)
+    if colors:
+        pass
     else:
-        set_slide_background(slide, palette)
-        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+        bg_path = resolve_background(background) if background else None
+        if bg_path:
+            colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+        else:
+            set_slide_background(slide, palette)
+            colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     # Kicker (above everything)
     y_start = 0.15
@@ -61,6 +67,8 @@ def generate(
         )
         y_start += 0.35
 
+    add_local_icon(slide, "align", left=11.0, top=0.7, size=0.75, palette=palette)
+
     # Large decorative opening quote mark (top left)
     add_text(
         slide,
@@ -75,7 +83,7 @@ def generate(
     # Quote background box
     add_rect(
         slide,
-        left=1.5, top=y_start + 1.5, width=10.333, height=3.2,
+        left=1.35, top=y_start + 1.45, width=10.633, height=3.35,
         fill_color="light_bg", palette=palette,
     )
 
@@ -83,8 +91,8 @@ def generate(
     add_text(
         slide,
         text=quote,
-        left=1.8, top=y_start + 1.8, width=9.733, height=2.8,
-        font_size=28, bold=False,
+        left=1.85, top=y_start + 1.76, width=9.633, height=2.9,
+        font_size=focal_font_size(quote, base=30, max_size=42, min_size=22), bold=False,
         color="text", alignment="center",
         palette=palette,
         colors=colors,
@@ -94,17 +102,17 @@ def generate(
     add_text(
         slide,
         text=f"—— {attribution}",
-        left=5.0, top=y_start + 4.8, width=7.5, height=0.5,
+        left=5.0, top=y_start + 4.9, width=7.5, height=0.5,
         font_size=14, bold=False,
         color="secondary", alignment="right",
         palette=palette,
         colors=colors,
     )
 
-    # Bottom-right decorative circle
+    # Bottom-right editorial block
     add_rect(
         slide,
-        left=11.5, top=6.2, width=1.5, height=1.0,
+        left=11.35, top=6.1, width=1.35, height=0.92,
         fill_color="accent", palette=palette,
     )
 

@@ -12,6 +12,8 @@ from .base import (
     new_presentation, resolve_background,
     set_image_background,
 )
+from .asset_manager import apply_asset_background
+from .layout_intelligence import title_font_size
 
 
 def generate(
@@ -55,12 +57,30 @@ def generate(
     slide = prs.slides.add_slide(blank_layout)
 
     # 设置背景
-    bg_path = resolve_background(background) if background else None
-    if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=background_brightness, palette=palette)
+    colors = apply_asset_background(slide, background, palette, role="title", brightness=max(background_brightness, 0.92))
+    if colors:
+        pass
     else:
-        set_slide_background(slide, palette)
-        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+        bg_path = resolve_background(background) if background else None
+        if bg_path:
+            colors = set_image_background(slide, bg_path, brightness=background_brightness, palette=palette)
+        else:
+            set_slide_background(slide, palette)
+            colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+
+    title_size = title_font_size(title, base=44, sparse_boost=8, max_size=56)
+
+    # Editorial side panel makes sparse title pages feel intentionally composed.
+    add_rect(
+        slide,
+        left=0, top=0, width=0.22, height=7.5,
+        fill_color="primary", palette=palette,
+    )
+    add_rect(
+        slide,
+        left=0.45, top=5.95, width=2.8, height=0.12,
+        fill_color="accent", palette=palette,
+    )
 
     # Kicker (above title)
     if kicker:
@@ -74,33 +94,16 @@ def generate(
             colors=colors,
         )
 
-    # Decorative bottom-left corner rounded rect
-    add_rect(
-        slide,
-        left=-0.3, top=6.2, width=3.5, height=1.8,
-        fill_color="primary", palette=palette,
-    )
-
-    # Decorative bottom-right small circle
-    add_ellipse(
-        slide,
-        left=11.8, top=6.0, width=1.2, height=1.2,
-        fill_color="accent", palette=palette,
-    )
-
-    # Decorative top-right small circle
-    add_ellipse(
-        slide,
-        left=11.5, top=0.2, width=0.8, height=0.8,
-        fill_color="secondary", palette=palette,
-    )
+    # Low-key editorial accents; avoid the old generic corner blobs.
+    add_ellipse(slide, left=11.25, top=0.35, width=0.95, height=0.95, fill_color="secondary", palette=palette)
+    add_ellipse(slide, left=11.75, top=6.25, width=0.7, height=0.7, fill_color="accent", palette=palette)
 
     # Main title - centered, large
     add_text(
         slide,
         text=title,
-        left=1.0, top=2.35, width=11.333, height=1.2,
-        font_size=44, bold=True,
+        left=1.0, top=2.24, width=11.333, height=1.35,
+        font_size=title_size, bold=True,
         color="text", alignment="center",
         palette=palette,
         colors=colors,
@@ -110,8 +113,8 @@ def generate(
     add_text(
         slide,
         text=subtitle,
-        left=1.5, top=3.65, width=10.333, height=0.6,
-        font_size=20, bold=False,
+        left=1.7, top=3.7, width=9.933, height=0.65,
+        font_size=22 if len(subtitle) <= 26 else 18, bold=False,
         color="secondary", alignment="center",
         palette=palette,
         colors=colors,
@@ -121,9 +124,9 @@ def generate(
     add_text(
         slide,
         text=author,
-        left=0.5, top=6.5, width=4.0, height=0.4,
+        left=0.55, top=6.52, width=4.0, height=0.4,
         font_size=14, bold=False,
-        color="background", alignment="left",
+        color="primary", alignment="left",
         palette=palette,
         colors=colors,
     )

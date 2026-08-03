@@ -1,0 +1,587 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "runtime",
+      "type": "icon",
+      "path": "icons/core/runtime.png",
+      "tags": [
+        "runtime",
+        "observability",
+        "status"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "timeline",
+      "type": "icon",
+      "path": "icons/core/timeline.png",
+      "tags": [
+        "timeline",
+        "event",
+        "history"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "tool",
+      "type": "icon",
+      "path": "icons/core/tool.png",
+      "tags": [
+        "tool",
+        "execution",
+        "operation"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "llm",
+      "type": "icon",
+      "path": "icons/core/llm.png",
+      "tags": [
+        "llm",
+        "model",
+        "agent"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "file",
+      "type": "icon",
+      "path": "icons/core/file.png",
+      "tags": [
+        "file",
+        "artifact",
+        "output"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "report",
+      "type": "icon",
+      "path": "icons/core/report.png",
+      "tags": [
+        "report",
+        "summary",
+        "runtime"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "contract",
+      "type": "icon",
+      "path": "icons/core/contract.png",
+      "tags": [
+        "contract",
+        "schema",
+        "template"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "capacity",
+      "type": "icon",
+      "path": "icons/core/capacity.png",
+      "tags": [
+        "capacity",
+        "density",
+        "layout"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "layout",
+      "type": "icon",
+      "path": "icons/core/layout.png",
+      "tags": [
+        "layout",
+        "composition",
+        "template"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "split",
+      "type": "icon",
+      "path": "icons/core/split.png",
+      "tags": [
+        "split",
+        "overflow",
+        "pagination"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "align",
+      "type": "icon",
+      "path": "icons/core/align.png",
+      "tags": [
+        "align",
+        "center",
+        "balance"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "density",
+      "type": "icon",
+      "path": "icons/core/density.png",
+      "tags": [
+        "density",
+        "content",
+        "text"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "chart",
+      "type": "icon",
+      "path": "icons/core/chart.png",
+      "tags": [
+        "chart",
+        "data",
+        "analysis"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "kpi",
+      "type": "icon",
+      "path": "icons/core/kpi.png",
+      "tags": [
+        "kpi",
+        "metric",
+        "dashboard"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "trend",
+      "type": "icon",
+      "path": "icons/core/trend.png",
+      "tags": [
+        "trend",
+        "growth",
+        "line"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "source",
+      "type": "icon",
+      "path": "icons/core/source.png",
+      "tags": [
+        "source",
+        "citation",
+        "data"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "warning",
+      "type": "icon",
+      "path": "icons/core/warning.png",
+      "tags": [
+        "warning",
+        "risk",
+        "budget"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "fix",
+      "type": "icon",
+      "path": "icons/core/fix.png",
+      "tags": [
+        "fix",
+        "repair",
+        "continue"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "template",
+      "type": "icon",
+      "path": "icons/core/template.png",
+      "tags": [
+        "template",
+        "slide",
+        "layout"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "background",
+      "type": "icon",
+      "path": "icons/core/background.png",
+      "tags": [
+        "background",
+        "visual",
+        "hero"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "primitive",
+      "type": "icon",
+      "path": "icons/core/primitive.png",
+      "tags": [
+        "primitive",
+        "shape",
+        "icon"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "card",
+      "type": "icon",
+      "path": "icons/core/card.png",
+      "tags": [
+        "card",
+        "grid",
+        "module"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "flow",
+      "type": "icon",
+      "path": "icons/core/flow.png",
+      "tags": [
+        "flow",
+        "process",
+        "step"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "review",
+      "type": "icon",
+      "path": "icons/core/review.png",
+      "tags": [
+        "review",
+        "qa",
+        "check"
+      ],
+      "style": "soft-line",
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "editorial_blue",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_blue.png",
+      "tags": [
+        "title",
+        "section",
+        "hero",
+        "editorial",
+        "soft"
+      ],
+      "style": "soft-editorial",
+      "recommended_templates": [
+        "title",
+        "section",
+        "hero"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "editorial_sage",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_sage.png",
+      "tags": [
+        "title",
+        "quote",
+        "summary",
+        "editorial",
+        "soft"
+      ],
+      "style": "soft-editorial",
+      "recommended_templates": [
+        "title",
+        "quote",
+        "summary"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "editorial_gold",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_gold.png",
+      "tags": [
+        "section",
+        "summary",
+        "editorial",
+        "soft"
+      ],
+      "style": "soft-editorial",
+      "recommended_templates": [
+        "section",
+        "summary"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "editorial_ink",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_ink.png",
+      "tags": [
+        "title",
+        "quote",
+        "editorial",
+        "soft"
+      ],
+      "style": "soft-editorial",
+      "recommended_templates": [
+        "title",
+        "quote"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "editorial_coral",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_coral.png",
+      "tags": [
+        "title",
+        "section",
+        "editorial",
+        "soft"
+      ],
+      "style": "soft-editorial",
+      "recommended_templates": [
+        "title",
+        "section"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "editorial_lavender",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_lavender.png",
+      "tags": [
+        "quote",
+        "summary",
+        "editorial",
+        "soft"
+      ],
+      "style": "soft-editorial",
+      "recommended_templates": [
+        "quote",
+        "summary"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "pattern_grid",
+      "type": "pattern",
+      "path": "patterns/subtle/pattern_grid.png",
+      "tags": [
+        "grid",
+        "subtle",
+        "clean"
+      ],
+      "style": "subtle-pattern",
+      "recommended_templates": [
+        "content_slide",
+        "card_grid",
+        "chart_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "pattern_dots",
+      "type": "pattern",
+      "path": "patterns/subtle/pattern_dots.png",
+      "tags": [
+        "dots",
+        "subtle",
+        "clean"
+      ],
+      "style": "subtle-pattern",
+      "recommended_templates": [
+        "content_slide",
+        "card_grid",
+        "chart_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "pattern_waves",
+      "type": "pattern",
+      "path": "patterns/subtle/pattern_waves.png",
+      "tags": [
+        "waves",
+        "subtle",
+        "clean"
+      ],
+      "style": "subtle-pattern",
+      "recommended_templates": [
+        "content_slide",
+        "card_grid",
+        "chart_slide"
+      ],
+      "license": "project-generated"
+    },
+    {
+      "id": "pattern_diagonal",
+      "type": "pattern",
+      "path": "patterns/subtle/pattern_diagonal.png",
+      "tags": [
+        "diagonal",
+        "subtle",
+        "clean"
+      ],
+      "style": "subtle-pattern",
+      "recommended_templates": [
+        "content_slide",
+        "card_grid",
+        "chart_slide"
+      ],
+      "license": "project-generated"
+    }
+  ]
+}

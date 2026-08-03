@@ -73,6 +73,27 @@ from generators import (
 - 当前阶段优先使用本地图标、文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素。
 - 不默认使用外部图片搜索或生成式图片资产；确需真实照片、产品图、人物图时，应作为单独需求确认来源、授权和成本。
 
+## 本地素材库和动态排版
+
+本地素材库位于 `skills/visual_designer/assets/`，由 `assets/manifest.json` 统一登记。
+
+| 类型 | 目录 | 用途 |
+|------|------|------|
+| `icon` | `assets/icons/core/` | 替换单字 glyph，用于卡片、图标网格和少字内容页 |
+| `background` | `assets/backgrounds/editorial/` | 标题页、章节页、金句页、总结页的低干扰背景 |
+| `pattern` | `assets/patterns/subtle/` | 信息页轻量纹理或后续装饰 |
+
+生成器辅助模块：
+
+- `generators/asset_manager.py`：通过 manifest 解析素材，按 id/tag 查找图标和背景。
+- `generators/layout_intelligence.py`：计算内容密度，提供动态字号、对齐和网格选择。
+
+内容密度约定：
+
+- `sparse`：1-3 条短内容，应使用居中焦点布局、较大字号和语义图标。
+- `normal`：常规扫描布局，保持左对齐和稳定层级。
+- `dense`：压缩间距和字号但不牺牲可读性；超出模板容量时拆页。
+
 ## 生成器函数参数
 
 ### 结构引导类

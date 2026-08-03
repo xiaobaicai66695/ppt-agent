@@ -19,6 +19,7 @@ def generate(
     bg_path = resolve_background(background) if background else None
     if bg_path:
         set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
     else:
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])

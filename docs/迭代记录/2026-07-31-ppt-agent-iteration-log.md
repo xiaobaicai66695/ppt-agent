@@ -18,6 +18,15 @@
 - 为 12 个高频单页模板补充 `contract` 元数据：容量、必填字段、适用/避免场景、溢出策略、背景策略和视觉 primitives。
 - OpenSpec changes：`openspec/changes/ppt-agent-runtime-event-log/`、`openspec/changes/visual-designer-contract-upgrade/` 均已通过 `--strict` 校验。
 
+## 本轮追加落地：动态排版与本地素材库
+
+- 建立 `openspec/changes/visual-designer-dynamic-assets/`，对应 `PPT-SKILL-002`。
+- 新增 `visual_designer/assets/manifest.json`，登记 24 个核心 PNG 图标、6 张编辑型浅色背景、4 张 subtle pattern。
+- 新增 `generators/asset_manager.py` 和 `generators/layout_intelligence.py`，用于素材选择、图标放置、内容密度判断、动态字号和对齐策略。
+- 接入 `title_slide`、`section_divider`、`content_slide`、`card_grid`、`icon_grid`、`quote_slide`、`summary_slide`，少字内容页可切换到居中焦点布局，卡片/图标页可使用本地语义图标。
+- 修复 `image_hero` 传入背景时 `colors` 未初始化的问题。
+- 生成 review deck 并通过 LibreOffice PDF 转换、Poppler PNG 渲染和总览图检查。
+
 ## 新决策
 
 - 为节省时间和模型成本，默认放弃在线 QA/Reviewer 流程。

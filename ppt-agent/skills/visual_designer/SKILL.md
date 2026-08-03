@@ -160,6 +160,23 @@ description: 为PPT幻灯片提供视觉设计指导。遵循本Skill生成设�
 
 当前阶段优先使用生成器已有的本地图标、文字 glyph、几何形状、卡片、图表和分隔组件。不要默认接外部图片搜索或生成式图片资产；只有用户明确要求真实图片、产品图、人物图或外部素材时再单独设计检索/生成流程。
 
+### 本地素材库
+
+本 skill 内置离线素材库：`assets/manifest.json` 统一登记 PNG 图标、编辑型背景和 subtle pattern。
+
+- 图标：`assets/icons/core/`，覆盖 runtime、timeline、tool、llm、file、report、contract、layout、chart、kpi、fix 等常用概念。
+- 背景：`assets/backgrounds/editorial/`，用于标题页、章节页、金句页、总结页等低密度叙事页。
+- 纹理：`assets/patterns/subtle/`，用于信息页的轻量层次，不应抢正文。
+- 生成器应通过 `generators/asset_manager.py` 读取 manifest，不要在各模板中散落硬编码素材路径。
+
+### 动态排版策略
+
+生成器应先判断内容密度，再决定字号、对齐和视觉锚点：
+
+- `sparse`：1-3 条短内容，优先居中、大字号、本地图标或视觉锚点，避免左上角小列表造成空洞。
+- `normal`：常规信息页，保持可扫描的左对齐和分组。
+- `dense`：内容多时收紧行距和字号，但不低于可读下限；超过容量仍应拆页。
+
 ---
 
 ## 内容充实度标准（强制要求）
