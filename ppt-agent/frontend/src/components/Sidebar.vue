@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { Check, Clock3, History, LoaderCircle, Plus, Save, Settings2, Trash2, X } from 'lucide-vue-next';
 import type { TaskInfo } from '../types';
 import { isLoggedIn, summarizeProfile, updateUserProfile, type PreferenceSummary } from '../api';
 
@@ -24,55 +25,52 @@ const emit = defineEmits<{
 
 const router = useRouter();
 const query = ref('');
-
-const hasActiveTask = computed(() =>
-  props.tasks.some(t => t.status === 'running')
-);
+const hasActiveTask = computed(() => props.tasks.some(task => task.status === 'running'));
+const taskCount = computed(() => props.tasks.length);
 
 function fmtTime(iso: string): string {
   if (!iso) return '';
-  const d = new Date(iso);
-  const today = new Date();
-  const isToday = d.toDateString() === today.toDateString();
-  if (isToday) {
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  }
-  return `${d.getMonth() + 1}/${d.getDate()} ` + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const date = new Date(iso);
+  return date.toDateString() === new Date().toDateString()
+    ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function fmtTokens(n: number): string {
-  if (!n || n <= 0) return '';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1000).toFixed(1) + 'K';
-  return String(n);
+function fmtTokens(value: number): string {
+  if (!value || value <= 0) return '';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1000).toFixed(1)}K`;
+  return String(value);
+}
+
+function statusLabel(status: string): string {
+  return ({ running: '运行中', completed: '已完成', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status] || status;
 }
 
 function handleCreate() {
-  const q = query.value.trim();
-  if (!q || props.creating || props.hasRunningTask) return;
+  const value = query.value.trim();
+  if (!value || props.creating || props.hasRunningTask) return;
   if (!isLoggedIn()) {
     router.push('/auth');
     return;
   }
-  emit('createTask', q);
+  emit('createTask', value);
   query.value = '';
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
     handleCreate();
   }
 }
 
-function onLogout() { emit('logout'); router.push('/'); }
-
-const taskCount = computed(() => props.tasks.length);
-
-// ── Preference editor ─────────────────────────────────────────────────
 const showPrefs = ref(false);
 const prefsLoading = ref(false);
 const prefsSummary = ref<PreferenceSummary | null>(null);
+const prefsSaved = ref(false);
+const prefsError = ref('');
+
 interface PreferenceDraft {
   preferred_themes: string;
   preferred_colors: string;
@@ -81,17 +79,11 @@ interface PreferenceDraft {
   language_tone: string;
   typical_page_count: number;
 }
+
 const prefsEditing = ref<PreferenceDraft | null>(null);
-const prefsSaved = ref(false);
-const prefsError = ref('');
 
-function listToDraft(values?: string[]): string {
-  return (values || []).join(', ');
-}
-
-function draftToList(value: string): string[] {
-  return value.split(/[,，]/).map(item => item.trim()).filter(Boolean);
-}
+function listToDraft(values?: string[]): string { return (values || []).join(', '); }
+function draftToList(value: string): string[] { return value.split(/[,，]/).map(item => item.trim()).filter(Boolean); }
 
 async function openPrefs() {
   showPrefs.value = true;
@@ -109,10 +101,10 @@ async function openPrefs() {
       language_tone: data.summary.language_tone || '',
       typical_page_count: data.summary.typical_page_count || 0,
     };
-  } catch (e) {
+  } catch (error) {
     prefsSummary.value = null;
     prefsEditing.value = null;
-    prefsError.value = e instanceof Error ? e.message : '偏好加载失败';
+    prefsError.value = error instanceof Error ? error.message : '偏好加载失败';
   } finally {
     prefsLoading.value = false;
   }
@@ -132,8 +124,8 @@ async function savePrefs() {
     });
     prefsSaved.value = true;
     setTimeout(() => { prefsSaved.value = false; }, 2000);
-  } catch (e) {
-    prefsError.value = e instanceof Error ? e.message : '偏好保存失败';
+  } catch (error) {
+    prefsError.value = error instanceof Error ? error.message : '偏好保存失败';
   }
 }
 
@@ -145,542 +137,194 @@ function closePrefs() {
 </script>
 
 <template>
-  <aside class="sidebar">
-    <button class="sidebar-header" type="button" @click="router.push('/')">
-      <div class="logo-icon">
-        <svg viewBox="0 0 40 40" fill="none">
-          <rect x="5" y="7" width="30" height="22" rx="4" fill="var(--accent-soft)" stroke="var(--accent-border)" stroke-width="1.5"/>
-          <rect x="5" y="7" width="30" height="5" rx="4" fill="var(--accent)"/>
-          <circle cx="12" cy="15" r="2" fill="var(--accent)"/>
-          <circle cx="19" cy="15" r="2" fill="var(--accent)" opacity="0.6"/>
-          <circle cx="26" cy="15" r="2" fill="var(--accent)" opacity="0.4"/>
-          <rect x="10" y="20" width="16" height="1.5" rx="0.75" fill="var(--accent)" opacity="0.4"/>
-          <rect x="10" y="23" width="20" height="1.5" rx="0.75" fill="var(--accent)" opacity="0.25"/>
-        </svg>
-      </div>
-      <div>
-        <h1 class="sidebar-logo">PPT Agent</h1>
-        <span class="sidebar-sub">AI 驱动的幻灯片生成</span>
-      </div>
-    </button>
-
-    <!-- User bar -->
-    <div class="user-bar" role="region" aria-label="用户信息">
-      <template v-if="user">
-        <span class="user-avatar" :class="{ admin: props.user?.is_admin }" aria-hidden="true">{{ user.email[0].toUpperCase() }}</span>
-        <span class="user-name" :title="user.email">{{ user.email.split('@')[0] }}</span>
-        <button class="prefs-btn" @click="openPrefs" title="偏好设置">偏好</button>
-        <button class="logout-btn" @click="onLogout" title="退出登录">退出</button>
-      </template>
-      <template v-else>
-        <span class="user-avatar guest" aria-hidden="true">?</span>
-        <span class="user-name dim">未登录</span>
-        <button class="logout-btn" @click="router.push('/auth')">登录</button>
-      </template>
-    </div>
-
-    <!-- Admin shortcut -->
-    <div class="admin-shortcut">
-      <button class="admin-shortcut-btn" @click="router.push('/admin')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M18 12a2 2 0 0 0-2-2h-1"/></svg>
-        管理后台
-      </button>
-    </div>
-
-    <!-- Create form -->
-    <div class="create-form">
-      <label class="create-label" for="create-input">新建 PPT 任务</label>
-      <textarea
-        id="create-input"
-        class="create-input"
-        placeholder="描述你的 PPT 需求，例如：做一个关于新能源汽车行业分析报告..."
-        v-model="query"
-        @keydown="handleKeydown"
-        rows="3"
-        :disabled="creating || hasActiveTask"
-        aria-label="PPT 需求描述"
-      ></textarea>
-      <button
-        class="create-btn"
-        :class="{ loading: creating, busy: hasActiveTask }"
-        :disabled="creating || hasActiveTask"
-        @click="handleCreate"
-        :aria-disabled="creating || hasActiveTask"
-      >
-        <span v-if="creating" class="btn-spinner" aria-hidden="true"></span>
-        <span>{{ creating ? '创建中...' : hasActiveTask ? '任务执行中...' : '生成 PPT' }}</span>
-      </button>
-      <p v-if="hasActiveTask && !creating" class="busy-hint" role="status">
-        有任务正在执行中，请稍候
-      </p>
-      <p v-if="error" class="error-hint" role="alert">
-        {{ error }}
-      </p>
-    </div>
-
-    <!-- Compose / New Task Action Row -->
-    <div class="action-row">
-      <button class="compose-btn" @click="emit('compose')" title="单页编排 / 单张幻灯片设计">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <rect x="2" y="1" width="12" height="10" rx="2"/>
-          <line x1="5" y1="5" x2="11" y2="5"/>
-          <line x1="5" y1="8" x2="9" y2="8"/>
-        </svg>
-        单页编排
-      </button>
-    </div>
-
-    <!-- Task history -->
-    <div class="task-list" role="region" aria-label="任务历史">
-      <div class="task-list-header">
-        <h3 class="task-list-title">
-          任务历史
-          <span v-if="taskCount" class="task-count" aria-label="任务数量">{{ taskCount }}</span>
-        </h3>
-        <button class="new-session-btn" @click="emit('newSession')" title="新建会话（清空当前选中的任务）">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <line x1="8" y1="3" x2="8" y2="13"/>
-            <line x1="3" y1="8" x2="13" y2="8"/>
-          </svg>
-          新建会话
+  <aside class="task-sidebar" aria-label="任务工作区">
+    <header class="task-sidebar-head">
+      <span class="head-copy">
+        <History :size="17" />
+        <strong>任务</strong>
+        <small>{{ taskCount }}</small>
+      </span>
+      <span class="head-actions">
+        <button type="button" title="生成偏好" aria-label="生成偏好" @click="openPrefs">
+          <Settings2 :size="17" />
         </button>
+        <button type="button" title="新建会话" aria-label="新建会话" @click="emit('newSession')">
+          <Plus :size="18" />
+        </button>
+      </span>
+    </header>
+
+    <form class="task-create" @submit.prevent="handleCreate">
+      <label for="dashboard-create-input">新建生成任务</label>
+      <textarea
+        id="dashboard-create-input"
+        v-model="query"
+        rows="3"
+        placeholder="输入演示主题、场景和受众"
+        :disabled="creating || hasActiveTask"
+        @keydown="handleKeydown"
+      />
+      <button type="submit" :disabled="creating || hasActiveTask || !query.trim()">
+        <LoaderCircle v-if="creating" :size="16" class="spin" />
+        <Plus v-else :size="16" />
+        {{ creating ? '创建中' : hasActiveTask ? '已有任务运行中' : '开始生成' }}
+      </button>
+      <p v-if="error" class="create-error" role="alert">{{ error }}</p>
+    </form>
+
+    <div class="task-list" role="list">
+      <div v-if="tasks.length === 0" class="task-empty">
+        <History :size="22" />
+        <strong>还没有生成记录</strong>
+        <span>从上方输入一个演示需求</span>
       </div>
-      <p v-if="tasks.length === 0" class="empty-hint">暂无任务，在上方输入需求开始</p>
-      <TransitionGroup name="task-list" tag="div" role="list">
-        <div
-          v-for="t in tasks"
-          :key="t.id"
-          class="task-item"
-          :class="{ active: t.id === selectedId, running: t.status === 'running' }"
-          role="listitem"
+
+      <article
+        v-for="task in tasks"
+        :key="task.id"
+        class="task-item"
+        :class="{ active: task.id === selectedId }"
+        role="listitem"
+      >
+        <button
+          class="task-select"
+          type="button"
+          :aria-current="task.id === selectedId ? 'true' : undefined"
+          @click="emit('selectTask', task.id)"
         >
-          <button
-            class="task-select-btn"
-            type="button"
-            :aria-current="t.id === selectedId ? 'true' : undefined"
-            @click="emit('selectTask', t.id)"
-          >
-            <div class="task-item-top">
-              <span class="task-item-query" :title="t.query || ''">{{ t.query || '' }}</span>
-            </div>
-            <div class="task-item-meta">
-              <span class="task-badge" :class="t.status" :aria-label="t.status">
-                <span class="badge-dot" aria-hidden="true"></span>
-                {{ t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : t.status === 'cancelled' ? '已中断' : '失败' }}
-              </span>
-              <span class="task-item-time" aria-label="创建时间">{{ fmtTime(t.created_at) }}</span>
-            </div>
-            <div v-if="t.total_count > 0" class="task-item-progress" role="progressbar" :aria-valuenow="t.done_count" :aria-valuemax="t.total_count">
-              <div class="mini-bar"><div class="mini-bar-fill" :class="{ done: t.status === 'completed' }" :style="{ width: Math.round((t.done_count / t.total_count) * 100) + '%' }" /></div>
-              <span class="mini-count" aria-hidden="true">{{ t.done_count }}/{{ t.total_count }}</span>
-            </div>
-            <div v-if="(t.total_tokens ?? 0) > 0" class="task-item-tokens" aria-label="消耗 tokens">
-              {{ fmtTokens(t.total_tokens ?? 0) }} tokens
-            </div>
-          </button>
-          <button
-            v-if="t.status !== 'running'"
-            class="task-delete-btn"
-            :title="'删除: ' + (t.query || t.id)"
-            @click="emit('deleteTask', t.id)"
-            aria-label="删除任务"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>
-            </svg>
-          </button>
-        </div>
-      </TransitionGroup>
+          <strong :title="task.query || ''">{{ task.query || '未命名任务' }}</strong>
+          <span class="task-meta">
+            <span class="task-state" :class="task.status">
+              <i aria-hidden="true"></i>{{ statusLabel(task.status) }}
+            </span>
+            <span><Clock3 :size="12" />{{ fmtTime(task.created_at) }}</span>
+          </span>
+          <span v-if="task.total_count > 0" class="mini-progress">
+            <i :style="{ width: `${Math.round((task.done_count / task.total_count) * 100)}%` }"></i>
+          </span>
+          <small v-if="(task.total_tokens || 0) > 0">{{ fmtTokens(task.total_tokens || 0) }} tokens</small>
+        </button>
+        <button
+          v-if="task.status !== 'running'"
+          class="task-delete"
+          type="button"
+          :aria-label="`删除任务：${task.query || task.id}`"
+          title="删除任务"
+          @click="emit('deleteTask', task.id)"
+        >
+          <Trash2 :size="15" />
+        </button>
+      </article>
     </div>
 
-    <!-- Preference editor modal -->
     <Teleport to="body">
       <div v-if="showPrefs" class="prefs-overlay" @click.self="closePrefs">
-        <div class="prefs-modal" role="dialog" aria-label="偏好设置">
-          <div class="prefs-header">
-            <h3>风格偏好设置</h3>
-            <button class="prefs-close" @click="closePrefs" aria-label="关闭">&times;</button>
+        <section class="prefs-modal" role="dialog" aria-modal="true" aria-labelledby="prefs-title">
+          <header>
+            <span>
+              <small>创作设置</small>
+              <h2 id="prefs-title">生成偏好</h2>
+            </span>
+            <button type="button" aria-label="关闭偏好设置" @click="closePrefs"><X :size="20" /></button>
+          </header>
+
+          <div v-if="prefsLoading" class="prefs-loading" role="status">
+            <LoaderCircle :size="22" class="spin" />
+            正在读取偏好
           </div>
 
-          <div v-if="prefsLoading" class="prefs-loading">正在加载 LLM 偏好分析...</div>
-
-          <template v-else-if="prefsEditing">
-            <p class="prefs-hint">以下是根据您的历史任务自动总结的偏好，可手动修改后保存。</p>
-
-            <label class="prefs-field">配色主题 (逗号分隔)
-              <input v-model="prefsEditing.preferred_themes" :placeholder="(prefsSummary?.preferred_themes || []).join(', ') || '如 ocean_soft, sage_calm'" class="prefs-input"/>
-            </label>
-
-            <label class="prefs-field">偏好颜色 (逗号分隔)
-              <input v-model="prefsEditing.preferred_colors" :placeholder="(prefsSummary?.preferred_colors || []).join(', ') || '如 蓝色系, 暖色调'" class="prefs-input"/>
-            </label>
-
-            <label class="prefs-field">语言风格
-              <select v-model="prefsEditing.language_tone" class="prefs-input">
-                <option value="">自动</option>
-                <option value="formal">正式</option>
-                <option value="semi-formal">半正式</option>
-                <option value="casual">轻松</option>
-              </select>
-            </label>
-
-            <label class="prefs-field">典型页数
-              <input v-model.number="prefsEditing.typical_page_count" type="number" min="4" max="50" class="prefs-input"/>
-            </label>
-
-            <label class="prefs-field">布局偏好 (逗号分隔)
-              <input v-model="prefsEditing.layout_preferences" :placeholder="(prefsSummary?.layout_preferences || []).join(', ') || '如 图表优先, 双栏对比'" class="prefs-input"/>
-            </label>
-
-            <label class="prefs-field">内容模式 (逗号分隔)
-              <input v-model="prefsEditing.content_patterns" :placeholder="(prefsSummary?.content_patterns || []).join(', ') || '如 案例驱动, 数据支撑'" class="prefs-input"/>
-            </label>
-
+          <form v-else-if="prefsEditing" class="prefs-form" @submit.prevent="savePrefs">
+            <label>配色主题<input v-model="prefsEditing.preferred_themes" :placeholder="(prefsSummary?.preferred_themes || []).join(', ') || 'ocean_soft, sage_calm'" /></label>
+            <label>偏好颜色<input v-model="prefsEditing.preferred_colors" :placeholder="(prefsSummary?.preferred_colors || []).join(', ') || '蓝色系, 高对比度'" /></label>
+            <div class="prefs-row">
+              <label>语言风格
+                <select v-model="prefsEditing.language_tone">
+                  <option value="">自动</option><option value="formal">正式</option><option value="semi-formal">半正式</option><option value="casual">轻松</option>
+                </select>
+              </label>
+              <label>典型页数<input v-model.number="prefsEditing.typical_page_count" type="number" min="4" max="50" /></label>
+            </div>
+            <label>布局偏好<input v-model="prefsEditing.layout_preferences" placeholder="图表优先, 双栏对比" /></label>
+            <label>内容模式<input v-model="prefsEditing.content_patterns" placeholder="案例驱动, 数据支撑" /></label>
             <p v-if="prefsError" class="prefs-error" role="alert">{{ prefsError }}</p>
-
-            <div class="prefs-actions">
-              <button class="prefs-save-btn" @click="savePrefs" :disabled="prefsSaved">
+            <footer>
+              <button type="button" class="secondary" @click="closePrefs">取消</button>
+              <button type="submit" class="primary" :disabled="prefsSaved">
+                <Check v-if="prefsSaved" :size="16" /><Save v-else :size="16" />
                 {{ prefsSaved ? '已保存' : '保存偏好' }}
               </button>
-              <button class="prefs-cancel-btn" @click="closePrefs">关闭</button>
-            </div>
-          </template>
+            </footer>
+          </form>
 
-          <p v-else class="prefs-loading" :class="{ error: prefsError }">{{ prefsError || '暂无历史数据，完成几个任务后将自动生成偏好分析。' }}</p>
-        </div>
+          <div v-else class="prefs-loading error" role="alert">{{ prefsError || '暂无可用偏好数据' }}</div>
+        </section>
       </div>
     </Teleport>
   </aside>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════════════ */
-/* Sidebar — Modern Light Theme                                      */
-/* ═══════════════════════════════════════════════════════════════════ */
-.sidebar {
-  width: var(--sidebar-w); min-width: var(--sidebar-w);
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
-  color: var(--text);
-  display: flex; flex-direction: column;
-  height: 100vh; position: sticky; top: 0;
-  overflow-y: auto; overflow-x: hidden;
-}
+.task-sidebar { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--surface-muted); border-right: 1px solid var(--border); }
+.task-sidebar-head { min-height: 52px; padding: 0 12px 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+.head-copy { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.head-copy strong { color: var(--text); font-size: 13px; }
+.head-copy small { min-width: 20px; height: 20px; padding: 0 5px; display: grid; place-items: center; border-radius: 10px; color: var(--text-muted); background: var(--surface-pressed); font-size: 10px; }
+.head-actions { display: flex; gap: 2px; }
+.head-actions button { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.head-actions button:hover { color: var(--text); background: var(--surface-hover); }
 
-/* ── Header ─────────────────────────────────────────────────────── */
-.sidebar-header {
-  width: 100%;
-  padding: 1.25rem 1.25rem 1rem;
-  border-bottom: 1px solid var(--border-light);
-  border-top: 0; border-left: 0; border-right: 0;
-  background: transparent; color: inherit; text-align: left;
-  cursor: pointer;
-  display: flex; align-items: center; gap: 0.75rem;
-}
-.logo-icon svg { width: 36px; height: 36px; flex-shrink: 0; }
-.sidebar-logo { font-size: 1rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
-.sidebar-sub { font-size: 0.68rem; color: var(--text-muted); display: block; margin-top: 1px; }
+.task-create { padding: 14px; display: grid; gap: 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.task-create label { color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.task-create textarea { width: 100%; min-height: 72px; padding: 9px 10px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); line-height: 1.5; }
+.task-create textarea:focus { border-color: var(--info); outline: 2px solid var(--info-soft); }
+.task-create button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--action-ink); border-radius: 5px; color: #fff; background: var(--action-ink); font-weight: 700; cursor: pointer; }
+.create-error { margin: 0; color: var(--danger); font-size: 11px; }
 
-/* ── User Bar ───────────────────────────────────────────────────── */
-.user-bar {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.65rem 1.25rem;
-  border-bottom: 1px solid var(--border-light);
-}
-.user-avatar {
-  width: 28px; height: 28px; border-radius: var(--radius-full);
-  background: var(--accent-soft); color: var(--accent);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
-}
-.user-avatar.guest { background: var(--bg-muted); color: var(--text-muted); }
-.user-name { font-size: 0.75rem; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-name.dim { color: var(--text-muted); }
-.logout-btn {
-  background: none; border: 1px solid var(--border);
-  color: var(--text-muted); padding: 0.18rem 0.55rem; border-radius: var(--radius-sm);
-  cursor: pointer; font-size: 0.65rem; font-weight: 500;
-  transition: all var(--transition); font-family: inherit;
-}
-.logout-btn:hover { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger); }
-.user-avatar.admin { background: var(--accent-soft); color: var(--accent-text); }
+.task-list { min-height: 0; padding: 8px; display: grid; align-content: start; gap: 4px; overflow-y: auto; }
+.task-empty { min-height: 150px; padding: 22px; display: grid; place-content: center; justify-items: center; gap: 5px; color: var(--text-muted); text-align: center; }
+.task-empty strong { color: var(--text-secondary); font-size: 12px; }
+.task-empty span { font-size: 11px; }
+.task-item { position: relative; min-width: 0; border: 1px solid transparent; border-radius: 6px; }
+.task-item:hover { background: var(--surface); }
+.task-item.active { border-color: var(--border-strong); background: var(--surface); box-shadow: inset 3px 0 0 var(--action-ink); }
+.task-select { width: 100%; min-height: 84px; padding: 10px 34px 10px 11px; display: flex; flex-direction: column; align-items: stretch; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.task-select strong { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 650; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.task-meta { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); font-size: 10px; }
+.task-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.task-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
+.task-state.running { color: var(--info); }.task-state.running i { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
+.task-state.completed { color: var(--success); }.task-state.completed i { background: var(--success); }
+.task-state.failed { color: var(--danger); }.task-state.failed i { background: var(--danger); }
+.mini-progress { height: 3px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: var(--surface-pressed); }
+.mini-progress i { display: block; height: 100%; background: var(--action-ink); }
+.task-select > small { margin-top: 5px; color: var(--text-muted); font-size: 9px; }
+.task-delete { position: absolute; top: 6px; right: 4px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 4px; color: var(--text-muted); background: transparent; opacity: 0; cursor: pointer; }
+.task-item:hover .task-delete, .task-delete:focus-visible { opacity: 1; }
+.task-delete:hover { color: var(--danger); background: var(--danger-soft); }
 
-.admin-shortcut {
-  padding: 0.5rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-}
-.admin-shortcut-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0.5rem 0.8rem;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-.admin-shortcut-btn:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent-text);
-}
+.prefs-overlay { position: fixed; inset: 0; z-index: var(--z-modal); padding: 20px; display: grid; place-items: center; background: rgba(15, 17, 18, 0.55); }
+.prefs-modal { width: min(560px, 100%); max-height: min(720px, calc(100dvh - 40px)); overflow: auto; border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-lg); }
+.prefs-modal > header { min-height: 64px; padding: 12px 16px 12px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+.prefs-modal header span { display: flex; flex-direction: column; }.prefs-modal header small { color: var(--text-muted); font-size: 10px; font-weight: 700; }.prefs-modal h2 { margin: 2px 0 0; font-size: 16px; }
+.prefs-modal header button { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.prefs-modal header button:hover { background: var(--surface-muted); }
+.prefs-loading { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); }.prefs-loading.error { color: var(--danger); }
+.prefs-form { padding: 20px; display: grid; gap: 14px; }
+.prefs-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.prefs-form input, .prefs-form select { min-width: 0; width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); }
+.prefs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.prefs-error { margin: 0; color: var(--danger); font-size: 11px; }
+.prefs-form footer { padding-top: 14px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--divider); }
+.prefs-form footer button { min-height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); font-weight: 700; cursor: pointer; }
+.prefs-form footer .primary { border-color: var(--action-ink); color: #fff; background: var(--action-ink); }
 
-/* ── Action Row (compose shortcut) ────────────────────────────────── */
-.action-row {
-  padding: 0.65rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-}
-.compose-btn {
-  width: 100%; padding: 0.55rem 0.8rem;
-  border: 1.5px dashed var(--border);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.75rem; font-weight: 600;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  gap: 0.4rem;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-.compose-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
-.compose-btn:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-  color: var(--accent-text);
-}
-.compose-btn:active { transform: scale(0.98); }
-
-/* ── Create Form ────────────────────────────────────────────────── */
-.create-form {
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-/* Accent marker for the primary creation workflow. */
-.create-form::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: var(--accent);
-  border-radius: 0;
-}
-.create-label {
-  font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--text-muted); margin-bottom: 0.5rem; display: block;
-}
-.create-input {
-  width: 100%; padding: 0.65rem 0.8rem;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-base);
-  color: var(--text); font-size: 0.8rem; resize: none; outline: none;
-  font-family: inherit; line-height: 1.5;
-  transition: border-color var(--transition), box-shadow var(--transition);
-  box-shadow: var(--shadow-xs);
-}
-.create-input::placeholder { color: var(--text-disabled); }
-.create-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-.create-btn {
-  width: 100%; margin-top: 0.5rem; padding: 0.6rem;
-  border: none; border-radius: var(--radius);
-  background: var(--accent);
-  color: #fff; font-size: 0.82rem; font-weight: 600;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  gap: 0.4rem;
-  transition: transform var(--transition-md), box-shadow var(--transition-md), background var(--transition);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
-}
-.create-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
-  background: var(--accent-hover);
-}
-.create-btn:active { transform: translateY(0); }
-.create-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
-.create-btn.loading { pointer-events: none; }
-.create-btn.busy { background: var(--warning); box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25); }
-.busy-hint { font-size: 0.63rem; color: var(--warning); margin-top: 0.35rem; text-align: center; }
-.error-hint { font-size: 0.63rem; color: var(--error); margin-top: 0.35rem; text-align: center; padding: 0.25rem 0.5rem; background: color-mix(in srgb, var(--error) 10%, transparent); border-radius: 4px; }
-.btn-spinner {
-  width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff; border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  flex-shrink: 0;
-}
-
-/* ── Task List ─────────────────────────────────────────────────── */
-.task-list { flex: 1; overflow-y: auto; padding: 0.6rem 0.75rem; }
-.task-list-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 0.5rem; padding: 0 0.5rem;
-}
-.task-list-title {
-  font-size: 0.68rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--text-muted);
-  display: flex; align-items: center; gap: 0.4rem;
-}
-.task-count {
-  background: var(--accent-soft); color: var(--accent);
-  font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: var(--radius-full);
-  font-weight: 600;
-}
-.new-session-btn {
-  display: flex; align-items: center; gap: 0.25rem;
-  padding: 0.2rem 0.5rem; border-radius: var(--radius-sm);
-  border: 1px solid var(--accent-border);
-  background: var(--accent-soft); color: var(--accent-text);
-  font-size: 0.65rem; font-weight: 600;
-  cursor: pointer; transition: all var(--transition);
-  font-family: inherit;
-}
-.new-session-btn svg { width: 11px; height: 11px; }
-.new-session-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-.task-item {
-  border-radius: var(--radius);
-  position: relative; margin-bottom: 0.2rem;
-  transition: background var(--transition), border-color var(--transition);
-  border: 1px solid transparent;
-}
-.task-item:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-}
-.task-item.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-}
-.task-item.running {
-  border-left: 3px solid var(--accent);
-}
-
-.task-select-btn {
-  width: 100%;
-  padding: 0.6rem 0.7rem;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-.task-item.running .task-select-btn { padding-left: calc(0.7rem - 2px); }
-
-.task-item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.3rem; }
-.task-delete-btn {
-  background: none; border: none; color: var(--text-disabled);
-  cursor: pointer; padding: 0; line-height: 1;
-  width: 32px; height: 32px;
-  flex-shrink: 0; opacity: 0.4;
-  transition: opacity var(--transition), color var(--transition);
-  display: flex; align-items: center; justify-content: center;
-  position: absolute; top: 0.35rem; right: 0.35rem; z-index: 1;
-}
-.task-delete-btn svg { width: 14px; height: 14px; }
-.task-item:hover .task-delete-btn, .task-item.active .task-delete-btn { opacity: 1; }
-.task-delete-btn:hover { color: var(--danger); }
-.task-select-btn:focus-visible, .sidebar-header:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  outline-offset: 2px;
-}
-.task-item-query {
-  font-size: 0.78rem; color: var(--text-secondary); line-height: 1.35;
-  overflow: hidden; display: -webkit-box;
-  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  flex: 1; min-width: 0;
-}
-.task-item-meta { display: flex; align-items: center; gap: 0.5rem; }
-.task-badge {
-  font-size: 0.6rem; font-weight: 600;
-  padding: 0.12rem 0.4rem; border-radius: var(--radius-full);
-  display: flex; align-items: center; gap: 0.2rem;
-}
-.task-badge.running { background: var(--info-soft); color: var(--info); }
-.task-badge.completed { background: var(--success-soft); color: var(--success); }
-.task-badge.cancelled { background: var(--warning-soft); color: var(--warning); }
-.task-badge.failed { background: var(--danger-soft); color: var(--danger); }
-.badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.task-badge.running .badge-dot { animation: pulse 1.5s infinite; }
-.task-item-time { font-size: 0.6rem; color: var(--text-muted); }
-.task-item-progress { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; }
-.mini-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-.mini-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.6s; }
-.mini-bar-fill.done { background: var(--success); }
-.mini-count { font-size: 0.6rem; color: var(--text-muted); min-width: 2.5em; text-align: right; }
-.task-item-tokens { font-size: 0.6rem; color: var(--accent); margin-top: 0.2rem; opacity: 0.7; }
-.empty-hint { font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0.25rem; line-height: 1.5; }
-
-.task-list-enter-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-.task-list-leave-active { transition: all 0.2s ease-in; }
-.task-list-enter-from { opacity: 0; transform: translateX(-16px); }
-.task-list-leave-to { opacity: 0; transform: translateX(-16px); }
-
-/* ═══════════════════════════════════════════════════════════════════ */
-/* Keyframes                                                        */
-/* ═══════════════════════════════════════════════════════════════════ */
+.spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes pulse { 50% { opacity: 0.4; } }
 
-/* ── Preference Editor ────────────────────────────────────────── */
-.prefs-btn {
-  background: transparent; border: 1px solid var(--accent-border);
-  color: var(--accent-text); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);
-  font-size: 0.65rem; cursor: pointer; margin-right: 0.25rem;
-}
-.prefs-btn:hover { background: var(--accent-soft); }
-
-.prefs-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999;
-}
-.prefs-modal {
-  background: var(--bg-primary); border-radius: 12px;
-  padding: 1.5rem; width: min(480px, 90vw); max-height: 80vh;
-  overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-}
-.prefs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-.prefs-header h3 { font-size: 1rem; font-weight: 600; }
-.prefs-close { width: 40px; height: 40px; background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); }
-.prefs-loading { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem; }
-.prefs-loading.error, .prefs-error { color: var(--danger); }
-.prefs-error { font-size: 0.72rem; margin-top: 0.5rem; }
-.prefs-hint { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-.prefs-field { display: block; margin-bottom: 0.6rem; font-size: 0.75rem; color: var(--text-secondary); }
-.prefs-input {
-  display: block; width: 100%; margin-top: 0.15rem;
-  padding: 0.4rem 0.5rem; border: 1px solid var(--accent-border);
-  border-radius: 6px; font-size: 0.82rem; background: var(--bg-primary);
-}
-.prefs-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.prefs-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
-.prefs-save-btn {
-  padding: 0.4rem 1.25rem; border-radius: 6px; border: none;
-  background: var(--accent); color: #fff; font-size: 0.82rem; font-weight: 600; cursor: pointer;
-}
-.prefs-save-btn:disabled { opacity: 0.5; cursor: default; }
-.prefs-save-btn:hover:not(:disabled) { background: var(--accent-hover); }
-.prefs-cancel-btn {
-  padding: 0.4rem 1rem; border-radius: 6px; border: 1px solid var(--accent-border);
-  background: transparent; color: var(--text-secondary); font-size: 0.82rem; cursor: pointer;
-}
-
-@media (max-width: 1100px) {
-  .sidebar { width: min(88vw, 320px); min-width: min(88vw, 320px); height: 100dvh; position: static; }
-  .prefs-btn, .logout-btn { min-height: 40px; padding-left: 0.65rem; padding-right: 0.65rem; }
-  .task-item { min-height: 64px; }
-  .task-delete-btn { width: 44px; height: 44px; opacity: 1; }
-  .new-session-btn, .admin-shortcut-btn, .compose-btn, .create-btn { min-height: 44px; }
+@media (max-width: 520px) {
+  .prefs-overlay { padding: 0; align-items: end; }
+  .prefs-modal { width: 100%; max-height: 92dvh; border-radius: 8px 8px 0 0; }
+  .prefs-row { grid-template-columns: 1fr; }
 }
 </style>

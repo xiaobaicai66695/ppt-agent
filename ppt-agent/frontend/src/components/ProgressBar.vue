@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { Check, Clock3, LoaderCircle } from 'lucide-vue-next';
 import type { TaskItem } from '../types';
 
 const props = defineProps<{
@@ -13,10 +14,8 @@ const props = defineProps<{
   createdAt?: string;
 }>();
 
-// ── ETA Estimation ─────────────────────────────────────────────────────
-// Track timestamps of each done slide for rate estimation
 const completionTimestamps = ref<number[]>([]);
-const taskStartTime = ref<number>(Date.now());
+const taskStartTime = ref(Date.now());
 const lastDoneCount = ref(0);
 const now = ref(Date.now());
 let clockTimer: ReturnType<typeof setInterval> | null = null;
@@ -30,312 +29,185 @@ function resetTracking() {
 }
 
 watch(() => props.taskId, resetTracking, { immediate: true });
-
 watch(() => props.isRunning, (running) => {
-  if (clockTimer) {
-    clearInterval(clockTimer);
-    clockTimer = null;
-  }
-  now.value = Date.now();
-  if (running) {
-    clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
-  }
-}, { immediate: true });
-
-onUnmounted(() => {
   if (clockTimer) clearInterval(clockTimer);
-});
-
-// Track when doneCount increases
+  clockTimer = null;
+  now.value = Date.now();
+  if (running) clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+}, { immediate: true });
 watch(() => props.doneCount, (newDone) => {
-  if (newDone > lastDoneCount.value) {
-    const now = Date.now();
-    completionTimestamps.value.push(now);
-    // Keep only last 20 timestamps for rolling average
-    if (completionTimestamps.value.length > 20) {
-      completionTimestamps.value.shift();
-    }
-    lastDoneCount.value = newDone;
-  }
+  if (newDone <= lastDoneCount.value) return;
+  completionTimestamps.value.push(Date.now());
+  if (completionTimestamps.value.length > 20) completionTimestamps.value.shift();
+  lastDoneCount.value = newDone;
 });
+onUnmounted(() => { if (clockTimer) clearInterval(clockTimer); });
 
-const elapsedMs = computed(() => {
-  if (!props.isRunning && props.doneCount === 0) return 0;
-  return now.value - taskStartTime.value;
-});
+const progressPct = computed(() => props.totalCount > 0
+  ? Math.min(100, Math.round((props.doneCount / props.totalCount) * 100))
+  : 0);
+const elapsedMs = computed(() => Math.max(0, now.value - taskStartTime.value));
+const remainingCount = computed(() => Math.max(0, props.totalCount - props.doneCount));
+const failedCount = computed(() => props.taskItems.filter(item => item.status === 'failed').length);
 
 const etaMs = computed(() => {
-  const pending = props.totalCount - props.doneCount;
-  if (pending <= 0 || props.totalCount <= 0) return 0;
-
-  const timestamps = completionTimestamps.value;
-  if (timestamps.length < 2) return 0;
-
-  // Use the last N intervals for rate calculation
-  const windowSize = Math.min(timestamps.length, 10);
-  const recent = timestamps.slice(-windowSize);
-  const firstTs = recent[0];
-  const lastTs = recent[recent.length - 1];
-  const duration = lastTs - firstTs;
-
-  if (duration <= 0 || recent.length < 2) return 0;
-
-  const slidesPerMs = (recent.length - 1) / duration;
-  const remainingMs = pending / slidesPerMs;
-
-  // Cap ETA at reasonable bounds (max 2 hours, min 5 seconds)
-  if (remainingMs > 2 * 60 * 60 * 1000) return 0;
-  if (remainingMs < 5000) return 0;
-
-  return Math.round(remainingMs);
+  const recent = completionTimestamps.value.slice(-10);
+  if (remainingCount.value <= 0 || recent.length < 2) return 0;
+  const duration = recent[recent.length - 1] - recent[0];
+  if (duration <= 0) return 0;
+  const estimate = remainingCount.value * duration / (recent.length - 1);
+  return estimate >= 5000 && estimate <= 7_200_000 ? Math.round(estimate) : 0;
 });
 
-const etaLabel = computed(() => {
-  const ms = etaMs.value;
-  if (ms === 0) return '';
-  const secs = Math.ceil(ms / 1000);
-  if (secs < 60) return `约 ${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  if (mins < 60) {
-    return remSecs > 0 ? `约 ${mins}m ${remSecs}s` : `约 ${mins}m`;
-  }
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return `约 ${hours}h ${remMins}m`;
-});
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) return `${minutes}m${rest ? ` ${rest}s` : ''}`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
 
-const elapsedLabel = computed(() => {
-  const ms = elapsedMs.value;
-  if (ms === 0) return '';
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  if (mins < 60) {
-    return remSecs > 0 ? `${mins}m ${remSecs}s` : `${mins}m`;
-  }
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return `${hours}h ${remMins}m`;
-});
-
-// ── Progress Stats ────────────────────────────────────────────────────
-const progressPct = computed(() =>
-  props.totalCount > 0 ? Math.round((props.doneCount / props.totalCount) * 100) : 0
-);
-
-const doneItems = computed(() =>
-  props.taskItems.filter(t => t.status === 'done' || t.status === 'qa_done' || t.status === 'fixed')
-);
-const pendingItems = computed(() =>
-  props.taskItems.filter(t => t.status === 'pending' || t.status === 'generating')
-);
-const generatingItems = computed(() =>
-  props.taskItems.filter(t => t.status === 'generating')
-);
-const failedItems = computed(() =>
-  props.taskItems.filter(t => t.status === 'failed')
-);
-
-// Completion rate: slides per minute
-const slidesPerMinute = computed(() => {
-  const timestamps = completionTimestamps.value;
-  if (timestamps.length < 2) return null;
-  const durationMs = timestamps[timestamps.length - 1] - timestamps[0];
-  if (durationMs <= 0) return null;
-  const rate = ((timestamps.length - 1) / durationMs) * 60 * 1000;
-  return Math.round(rate * 10) / 10;
-});
-
-const phaseLabel = (phase: string) => {
+const etaLabel = computed(() => etaMs.value ? `预计还需 ${formatDuration(etaMs.value)}` : '正在估算剩余时间');
+const phaseLabel = computed(() => {
+  if (!props.isRunning && props.totalCount > 0 && props.doneCount >= props.totalCount) return '全部完成';
   const labels: Record<string, string> = {
-    preparing: '读取模板',
-    planning: '创建任务',
-    generating: '生成幻灯片',
-    qa: '质量审查',
-    fixing: '优化修复',
-    complete: '完成',
+    preparing: '准备资源',
+    planning: '规划内容',
+    generating: '生成页面',
+    qa: '整理输出',
+    fixing: '完善页面',
+    complete: '全部完成',
+    completed: '全部完成',
+    failed: '生成失败',
+    cancelled: '已中断',
   };
-  return labels[phase] || phase;
-};
+  return props.phaseDetail || labels[props.phase || ''] || (props.isRunning ? '正在启动' : '等待开始');
+});
+const steps = computed(() => [
+  { key: 'planning', label: '规划', done: props.totalCount > 0 || props.doneCount > 0 },
+  { key: 'generating', label: '生成', done: props.totalCount > 0 && props.doneCount >= props.totalCount },
+  { key: 'complete', label: '交付', done: !props.isRunning && props.totalCount > 0 && props.doneCount >= props.totalCount },
+]);
 </script>
 
 <template>
-  <div v-if="isRunning || totalCount > 0" class="progress-section" aria-live="polite">
-    <div class="progress-header">
-      <div class="progress-title-row">
-        <span>生成进度</span>
-        <span v-if="isRunning && phase !== 'complete'" class="phase-badge" :class="`phase-${phase || 'preparing'}`">
-          {{ phaseDetail || phaseLabel(phase || 'preparing') }}
+  <section v-if="isRunning || totalCount > 0" class="progress-panel" aria-live="polite">
+    <header class="progress-head">
+      <div class="progress-heading">
+        <span class="phase-icon" :class="{ running: isRunning }" aria-hidden="true">
+          <LoaderCircle v-if="isRunning" :size="18" />
+          <Check v-else :size="18" />
+        </span>
+        <span>
+          <strong>{{ phaseLabel }}</strong>
+          <small v-if="isRunning">生成完成的页面会立即出现在下方</small>
+          <small v-else>{{ failedCount ? `${failedCount} 页需要关注` : '页面已经可以预览和下载' }}</small>
         </span>
       </div>
-      <div class="progress-meta">
-        <span class="progress-num">
-          <strong>{{ doneCount }}</strong> / {{ totalCount }} 页
-          <span class="progress-pct">({{ progressPct }}%)</span>
-        </span>
-        <span v-if="elapsedMs > 0 && isRunning" class="elapsed-time">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="7" cy="7" r="6"/><path d="M7 3.5v3.5l2.5 1.5"/>
-          </svg>
-          {{ elapsedLabel }}
-        </span>
-        <span v-if="etaLabel" class="eta-time">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="7" cy="7" r="6"/><path d="M7 3.5v3.5l2.5 1.5"/>
-          </svg>
-          {{ etaLabel }}
-        </span>
-        <span v-if="slidesPerMinute !== null && isRunning" class="rate-badge">
-          {{ slidesPerMinute }} 页/分钟
-        </span>
+      <div class="progress-count">
+        <strong>{{ progressPct }}%</strong>
+        <span>{{ doneCount }} / {{ totalCount || '—' }} 页</span>
       </div>
-    </div>
+    </header>
+
     <div
-	  class="progress-track"
-	  role="progressbar"
-	  :aria-label="totalCount > 0 ? 'PPT 生成进度' : '正在规划 PPT'"
-	  :aria-valuenow="totalCount > 0 ? progressPct : undefined"
-	  aria-valuemin="0"
-	  aria-valuemax="100"
-	>
-      <div
+      class="progress-track"
+      role="progressbar"
+      :aria-label="totalCount > 0 ? 'PPT 生成进度' : '正在规划 PPT'"
+      :aria-valuenow="totalCount > 0 ? progressPct : undefined"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
+      <span
         class="progress-fill"
-		:class="{ shimmer: isRunning && totalCount > 0, indeterminate: isRunning && totalCount === 0 }"
-		:style="totalCount > 0 ? { width: progressPct + '%' } : undefined"
+        :class="{ indeterminate: isRunning && totalCount === 0 }"
+        :style="totalCount > 0 ? { width: `${progressPct}%` } : undefined"
       />
     </div>
-    <div class="progress-legend">
-      <span class="legend-item">
-        <span class="legend-dot done"></span>
-        已完成 {{ doneItems.length }}
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot pending"></span>
-        处理中 {{ pendingItems.length }}
-      </span>
-      <span v-if="generatingItems.length" class="legend-item active">
-        <span class="legend-dot generating"></span>
-        并行生成 {{ generatingItems.length }}
-      </span>
-      <span v-if="failedItems.length" class="legend-item">
-        <span class="legend-dot failed"></span>
-        失败 {{ failedItems.length }}
-      </span>
-    </div>
-  </div>
+
+    <footer class="progress-foot">
+      <ol class="progress-steps" aria-label="生成阶段">
+        <li v-for="step in steps" :key="step.key" :class="{ done: step.done, active: phase === step.key || (step.key === 'generating' && isRunning && totalCount > 0) }">
+          <span aria-hidden="true"><Check v-if="step.done" :size="11" /></span>
+          {{ step.label }}
+        </li>
+      </ol>
+      <div v-if="isRunning" class="time-copy">
+        <Clock3 :size="15" />
+        <span>已运行 {{ formatDuration(elapsedMs) }}</span>
+        <span class="divider" aria-hidden="true"></span>
+        <span>{{ etaLabel }}</span>
+      </div>
+    </footer>
+  </section>
 </template>
 
 <style scoped>
-.progress-section {
-  background: var(--bg-base);
+.progress-panel {
+  padding: 18px 20px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.85rem 1.1rem;
-  margin-bottom: 1rem;
-  box-shadow: var(--shadow-sm);
-}
-.progress-header {
-  display: flex; justify-content: space-between;
-  margin-bottom: 0.5rem; font-size: 0.8rem;
-  align-items: flex-start;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.progress-title-row {
-  display: flex; align-items: center; gap: 0.5rem;
-}
-.phase-badge {
-  font-size: 0.65rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  animation: fadeIn 0.3s ease;
-}
-.phase-preparing { background: #fef3c7; color: #92400e; }
-.phase-planning  { background: #dbeafe; color: #1e40af; }
-.phase-generating { background: #ede9fe; color: #5b21b6; }
-.phase-qa        { background: #d1fae5; color: #065f46; }
-.phase-fixing    { background: #fee2e2; color: #991b1b; }
-.phase-complete  { background: #d1fae5; color: #065f46; }
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.progress-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.progress-num { color: var(--text-muted); font-size: 0.78rem; }
-.progress-num strong { color: var(--accent); font-size: 1rem; }
-.progress-pct { font-size: 0.72rem; color: var(--text-muted); }
-
-.elapsed-time, .eta-time {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-.eta-time { color: #7c3aed; font-weight: 500; }
-.elapsed-time svg, .eta-time svg { width: 12px; height: 12px; }
-
-.rate-badge {
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
 }
 
-.progress-track {
-  height: 8px; background: var(--border-light);
-  border-radius: 4px; overflow: hidden;
-}
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #818cf8, #6366f1);
-  background-size: 200% 100%;
-  border-radius: 4px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.progress-fill.shimmer {
-  animation: shimmer 2s linear infinite;
-}
-.progress-fill.indeterminate {
-  width: 35%;
-  animation: indeterminate 1.4s ease-in-out infinite;
-}
-.progress-legend {
-  display: flex; gap: 1rem; margin-top: 0.5rem; flex-wrap: wrap;
-}
-.legend-item {
-  font-size: 0.68rem; color: var(--text-muted);
-  display: flex; align-items: center; gap: 0.25rem;
-}
-.legend-item.active { color: #b45309; font-weight: 500; }
-.legend-dot { width: 7px; height: 7px; border-radius: 50%; }
-.legend-dot.done { background: var(--success); }
-.legend-dot.pending { background: var(--accent); animation: pulse 1.5s infinite; }
-.legend-dot.generating { background: var(--warning); animation: pulse 0.8s infinite; }
-.legend-dot.failed { background: var(--danger); }
+.progress-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.progress-heading { min-width: 0; display: flex; align-items: center; gap: 11px; }
+.progress-heading > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.progress-heading strong { overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.progress-heading small { margin-top: 2px; color: var(--text-muted); font-size: 11px; }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+.phase-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: var(--success);
+  background: var(--success-soft);
 }
-@keyframes indeterminate {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(360%); }
+.phase-icon.running { color: var(--info); background: var(--info-soft); }
+.phase-icon.running svg { animation: spin 1s linear infinite; }
+
+.progress-count { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.progress-count strong { color: var(--text); font-size: 20px; line-height: 1; }
+.progress-count span { color: var(--text-muted); font-size: 11px; }
+
+.progress-track { height: 6px; margin: 17px 0 14px; overflow: hidden; border-radius: 3px; background: var(--surface-pressed); }
+.progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--action-ink); transition: width var(--motion-medium); }
+.progress-fill.indeterminate { width: 34%; animation: indeterminate 1.35s ease-in-out infinite; }
+
+.progress-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.progress-steps { margin: 0; padding: 0; display: flex; align-items: center; gap: 18px; list-style: none; }
+.progress-steps li { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
+.progress-steps li > span { width: 16px; height: 16px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; }
+.progress-steps li.done { color: var(--success); }
+.progress-steps li.done > span { border-color: var(--success); background: var(--success-soft); }
+.progress-steps li.active { color: var(--info); font-weight: 700; }
+
+.time-copy { display: flex; align-items: center; justify-content: flex-end; gap: 7px; color: var(--text-muted); font-size: 11px; }
+.divider { width: 1px; height: 12px; margin: 0 2px; background: var(--border); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes indeterminate { 0% { transform: translateX(-115%); } 100% { transform: translateX(310%); } }
+
+@media (max-width: 720px) {
+  .progress-panel { padding: 15px; }
+  .progress-heading small { white-space: normal; }
+  .progress-count { flex-direction: column; align-items: flex-end; gap: 2px; }
+  .progress-foot { align-items: flex-start; flex-direction: column; }
+  .time-copy { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
 }
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+@media (max-width: 420px) {
+  .progress-steps { width: 100%; justify-content: space-between; gap: 8px; }
+  .progress-heading small { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-icon.running svg,
+  .progress-fill.indeterminate { animation: none; }
 }
 </style>

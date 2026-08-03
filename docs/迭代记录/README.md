@@ -14,4 +14,5 @@
 | 文件 | 内容 |
 | --- | --- |
 | `2026-07-31-ppt-agent-iteration-log.md` | Runtime harness、默认放弃在线 QA、可观测性和 Visual Designer Skill 后续方向 |
+| `2026-08-03-ppt-agent-frontend-rebuild.md` | 统一设计系统、应用壳和 Home/Auth/Compose/Dashboard/Admin 全面重构 |
 | `99-迭代过程（历史归档）.md` | 早期架构演进、PPT 生成、上下文管理和技术债务归档 |

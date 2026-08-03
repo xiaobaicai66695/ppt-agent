@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { ArrowDown, ArrowUp, Check, Copy, GripVertical, Image, LayoutTemplate, ListPlus, PanelsTopLeft, Play, Plus, Sparkles, TestTube2, Trash2, WandSparkles, X } from 'lucide-vue-next';
+import AppShell from '../components/AppShell.vue';
 import { fetchPresets, fetchLayouts, fetchThemes, fetchBackgrounds, createTaskWithOutline, expandWithAI, generateOutlineWithAI } from '../api';
 import type { PresetTemplate, AtomicLayout, ThemeInfo, BackgroundTheme, TaskOutline, SlideOutline } from '../api';
 import { authState } from '../stores/auth';
 
+const route = useRoute();
 const router = useRouter();
 const auth = authState;
 
@@ -15,6 +18,7 @@ const layouts = ref<AtomicLayout[]>([]);
 const themes = ref<ThemeInfo[]>([]);
 const backgrounds = ref<BackgroundTheme[]>([]);
 const loading = ref(false);
+const loadError = ref('');
 const generating = ref(false);
 const testingOutline = ref(false);
 
@@ -221,8 +225,9 @@ const emptyDescCount = computed(() => {
 const hasEmptyDescriptions = computed(() => emptyDescCount.value > 0);
 
 // Load data
-onMounted(async () => {
+async function loadWorkspaceData() {
   loading.value = true;
+  loadError.value = '';
   try {
     const [p, l, t, b] = await Promise.all([
       fetchPresets(),
@@ -234,12 +239,24 @@ onMounted(async () => {
     layouts.value = l;
     themes.value = t;
     backgrounds.value = b;
+
+    const initialBrief = typeof route.query.brief === 'string' ? route.query.brief.trim() : '';
+    if (initialBrief) {
+      topicInput.value = initialBrief;
+      pptTitle.value = initialBrief.length > 36 ? initialBrief.slice(0, 36) : initialBrief;
+    }
+    const initialTemplate = typeof route.query.template === 'string' ? route.query.template : '';
+    const preset = presets.value.find(item => item.name === initialTemplate);
+    if (preset) selectPreset(preset);
   } catch (e) {
     console.error('Failed to load templates:', e);
+    loadError.value = (e as Error).message || '模板资源加载失败';
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(loadWorkspaceData);
 
 function selectPreset(preset: PresetTemplate) {
   selectedPreset.value = preset;
@@ -474,1329 +491,429 @@ async function startGeneration() {
 </script>
 
 <template>
-  <div class="compose-page">
-    <!-- Top Toolbar -->
-    <div class="compose-toolbar">
-      <div class="toolbar-left">
-        <button class="btn-back" @click="router.push({ name: 'dashboard' })">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M15 18l-6-6 6-6"/>
-          </svg>
-          返回
-        </button>
-        <span class="toolbar-title">模板编排</span>
+  <AppShell :title="pptTitle || '编排演示'" eyebrow="Outline editor" content-class="compose-workspace">
+    <template #actions>
+      <span class="page-count">{{ slides.length }} 页</span>
+      <span v-if="hasEmptyDescriptions" class="outline-warning">{{ emptyDescCount }} 页待补充</span>
+      <button class="toolbar-action optional" type="button" :disabled="batchFilling || slides.length === 0 || !topicTrimmed" @click="handleAIBatchFill">
+        <WandSparkles :size="17" />
+        <span>{{ batchFilling ? batchFillProgress : '批量续写' }}</span>
+      </button>
+      <button class="toolbar-action optional" type="button" :disabled="testingOutline || slides.length === 0 || !topicTrimmed" @click="testGenerateOutline">
+        <TestTube2 :size="17" />
+        <span>{{ testingOutline ? '测试中' : '测试大纲' }}</span>
+      </button>
+      <button class="toolbar-action primary" type="button" :disabled="slides.length === 0 || generating || !topicTrimmed" @click="startGeneration">
+        <Play :size="17" fill="currentColor" />
+        <span>{{ generating ? '创建中' : '开始生成' }}</span>
+      </button>
+    </template>
+
+    <section class="brief-strip" aria-label="演示文稿设置">
+      <div>
+        <label for="ppt-title">演示标题</label>
+        <input id="ppt-title" v-model="pptTitle" placeholder="未命名演示" />
       </div>
-      <div class="toolbar-center">
-        <input
-          v-model="pptTitle"
-          class="title-input"
-          placeholder="输入PPT标题..."
-        />
-        <select v-model="selectedTheme" class="theme-select">
-          <option v-for="t in themes" :key="t.name" :value="t.name">
-            {{ t.display_name }}
-          </option>
+      <div>
+        <label for="topic-input">内容目标</label>
+        <textarea id="topic-input" v-model="topicInput" rows="2" :disabled="slides.length === 0" placeholder="说明受众、场景、重点结论和期望页数。" />
+      </div>
+      <div class="theme-field">
+        <label for="theme-select">配色主题</label>
+        <select id="theme-select" v-model="selectedTheme">
+          <option v-for="theme in themes" :key="theme.name" :value="theme.name">{{ theme.display_name }}</option>
         </select>
       </div>
-      <div class="toolbar-right">
-        <span class="slide-count">{{ slides.length }} 页</span>
-        <span v-if="hasEmptyDescriptions" class="empty-desc-hint">
-          {{ emptyDescCount }} 页待填充
-        </span>
-        <button class="btn-ai-batch" :disabled="batchFilling || slides.length === 0 || !topicTrimmed" @click="handleAIBatchFill">
-          {{ batchFilling ? batchFillProgress : 'AI 批量续写' }}
-        </button>
-        <button class="btn-secondary" :disabled="testingOutline || slides.length === 0 || !topicTrimmed" @click="testGenerateOutline">
-          {{ testingOutline ? '测试中...' : '测试' }}
-        </button>
-        <button class="btn-primary" :disabled="slides.length === 0 || generating || !topicTrimmed" @click="startGeneration">
-          {{ generating ? '创建中...' : '开始生成' }}
-        </button>
-      </div>
-    </div>
+    </section>
 
-    <!-- Topic input — the core content that drives generation -->
-    <div class="topic-bar">
-      <label class="topic-label" for="topic-input">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.5"/>
-          <path d="M8 5v3.5M8 10.5v.5"/>
-        </svg>
-        PPT 内容主题
-      </label>
-      <textarea
-        id="topic-input"
-        v-model="topicInput"
-        class="topic-input"
-        placeholder="描述你希望这个 PPT 呈现的内容，例如：新能源汽车行业发展趋势分析，包含市场概况、竞争格局、技术路线、政策环境、未来展望..."
-        rows="2"
-        :disabled="slides.length === 0"
-      ></textarea>
-      <p class="topic-hint">编排好幻灯片结构后，输入你的 PPT 内容主题，AI 将据此生成各页面的具体内容</p>
-    </div>
+    <p v-if="loadError" class="workspace-error" role="alert">
+      <span>{{ loadError }}</span>
+      <button type="button" @click="loadWorkspaceData">重新加载</button>
+    </p>
 
-    <!-- Main Layout -->
-    <div class="compose-body">
-      <!-- Left Panel: Template Library -->
-      <div class="left-panel">
-        <div class="panel-tabs">
-          <button
-            :class="['tab-btn', { active: activeTab === 'presets' }]"
-            @click="activeTab = 'presets'"
-          >预设模板</button>
-          <button
-            :class="['tab-btn', { active: activeTab === 'layouts' }]"
-            @click="activeTab = 'layouts'"
-          >原子布局</button>
-          <button
-            :class="['tab-btn', { active: activeTab === 'backgrounds' }]"
-            @click="activeTab = 'backgrounds'"
-          >背景图片</button>
+    <div class="editor-workspace">
+      <aside class="resource-panel" aria-label="模板与布局资源">
+        <div class="resource-tabs" role="tablist" aria-label="资源类型">
+          <button type="button" role="tab" :aria-selected="activeTab === 'presets'" :class="{ active: activeTab === 'presets' }" @click="activeTab = 'presets'">
+            <LayoutTemplate :size="17" /><span>模板</span>
+          </button>
+          <button type="button" role="tab" :aria-selected="activeTab === 'layouts'" :class="{ active: activeTab === 'layouts' }" @click="activeTab = 'layouts'">
+            <PanelsTopLeft :size="17" /><span>布局</span>
+          </button>
+          <button type="button" role="tab" :aria-selected="activeTab === 'backgrounds'" :class="{ active: activeTab === 'backgrounds' }" @click="activeTab = 'backgrounds'">
+            <Image :size="17" /><span>背景</span>
+          </button>
         </div>
 
-        <!-- Presets Tab -->
-        <div v-if="activeTab === 'presets'" class="preset-section">
-          <div class="category-filter">
-            <button
-              v-for="cat in categories"
-              :key="cat"
-              :class="['cat-btn', { active: selectedCategory === cat }]"
-              @click="selectedCategory = cat"
-            >
-              {{ categoryMap[cat] || cat }}
-            </button>
-          </div>
-
-          <div v-if="loading" class="loading-placeholder">加载中...</div>
-          <div v-else class="preset-grid">
-            <button
-              v-for="preset in filteredPresets"
-              :key="preset.name"
-              :class="['preset-card', { selected: selectedPreset?.name === preset.name }]"
-              type="button"
-              @click="selectPreset(preset)"
-            >
-              <div
-                :class="['preset-thumb', { 'thumb-missing': !preset.thumbnail }]"
-              >
-                <img
-                  v-if="preset.thumbnail"
-                  :src="preset.thumbnail"
-                  :alt="preset.display_name"
-                  class="preset-thumb-img"
-                  loading="lazy"
-                  @error="onPresetThumbError"
-                />
-                <span class="preset-missing-label">预览缺失</span>
-              </div>
-              <div class="preset-info">
-                <div class="preset-name">{{ preset.display_name }}</div>
-                <div class="preset-meta">{{ preset.slide_count }}页 · {{ categoryMap[preset.category] || preset.category }}</div>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <!-- Layouts Tab -->
-        <div v-if="activeTab === 'layouts'" class="layout-section">
-          <div v-for="group in groupedLayouts" :key="group.label" class="layout-group">
-            <div class="layout-group-label">{{ group.label }}</div>
-            <div class="layout-list">
-              <button
-                v-for="layout in group.items"
-                :key="layout.name"
-                class="layout-item"
-                type="button"
-                @click="addSlideFromLayout(layout)"
-              >
-                <span class="layout-icon" aria-hidden="true"></span>
-                <span class="layout-name">{{ layout.display_name }}</span>
+        <div class="resource-scroll">
+          <section v-if="activeTab === 'presets'">
+            <div class="filter-row" aria-label="模板分类">
+              <button v-for="cat in categories" :key="cat" type="button" :class="{ active: selectedCategory === cat }" @click="selectedCategory = cat">
+                {{ categoryMap[cat] || cat }}
               </button>
             </div>
-          </div>
-        </div>
-
-        <!-- Backgrounds Tab -->
-        <div v-if="activeTab === 'backgrounds'" class="background-section">
-          <div class="bg-category-filter">
-            <button
-              v-for="cat in bgCategories"
-              :key="cat"
-              :class="['cat-btn', { active: selectedBgCategory === cat }]"
-              @click="selectedBgCategory = cat"
-            >
-              {{ cat }}
-            </button>
-          </div>
-          <div class="bg-grid">
-            <button
-              v-for="bg in filteredBackgrounds"
-              :key="bg.name"
-              :class="[
-                'bg-card',
-                { selected: selectedSlideIndex >= 0 && slides[selectedSlideIndex]?.background === bg.name }
-              ]"
-              type="button"
-              @click="applyBackgroundToSlide(bg.name)"
-              :title="bg.description"
-            >
-              <div class="bg-thumb-wrapper">
-                <img
-                  v-if="bg.preview_path"
-                  :src="bg.preview_path"
-                  :alt="bg.display_name"
-                  class="bg-thumb"
-                  @error="(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.classList.add('bg-thumb-placeholder'); }"
-                />
-                <div v-else class="bg-thumb-placeholder">
-                  <span>预览缺失</span>
-                </div>
-              </div>
-              <div class="bg-info">
-                <div class="bg-name">{{ bg.display_name }}</div>
-                <div class="bg-scenarios">
-                  <span v-for="s in bg.scenarios?.slice(0, 2)" :key="s" class="bg-tag">{{ s }}</span>
-                </div>
-              </div>
-            </button>
-          </div>
-          <div v-if="selectedSlideIndex < 0 && filteredBackgrounds.length > 0" class="bg-hint">
-            请先在中间选择一张幻灯片，再应用背景
-          </div>
-        </div>
-      </div>
-
-      <!-- Center: Slide Canvas -->
-      <div class="center-panel">
-        <div class="canvas-header">
-          <span>幻灯片列表</span>
-          <button class="btn-add-slide" @click="addBlankSlide">+ 添加页面</button>
-        </div>
-          <div class="slide-list">
-          <div
-            v-for="(slide, index) in slides"
-            :key="slide.title + '-' + index"
-            :class="['slide-card', { selected: selectedSlideIndex === index, 'drag-over': dragOverIndex === index, 'is-dragging': draggingIndex === index }]"
-            draggable="true"
-            @dragstart="onDragStart(index)"
-            @dragover.prevent="onDragOver(index)"
-            @drop.prevent="onDrop($event, index)"
-            @dragend="draggingIndex = -1"
-            @dragleave="onDragLeave"
-          >
-            <div class="slide-index">{{ index + 1 }}</div>
-            <button class="slide-open-btn" type="button" @click="openSlideEditor(index)">
-              <div class="slide-info">
-                <div class="slide-title">{{ slide.title || '未命名' }}</div>
-                <div class="slide-type">{{ getLayoutDisplayName(slide.content_type) }}</div>
-                <div v-if="slide.background" class="slide-bg-badge">
-                  <span class="bg-dot"></span>
-                  {{ getBgDisplayName(slide.background) }}
-                </div>
-              </div>
-            </button>
-            <div class="slide-actions" @click.stop>
-              <button class="action-btn" @click="moveSlide(index, 'up')" title="上移" aria-label="上移">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M8 12V4M4 8l4-4 4 4"/>
-                </svg>
-              </button>
-              <button class="action-btn" @click="moveSlide(index, 'down')" title="下移" aria-label="下移">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M8 4v8M4 8l4 4 4-4"/>
-                </svg>
-              </button>
-              <button class="action-btn" @click="duplicateSlide(index)" title="复制" aria-label="复制">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                  <rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/>
-                </svg>
-              </button>
-              <button class="action-btn danger" @click="deleteSlide(index)" title="删除" aria-label="删除">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                  <path d="M3 4h10M5.5 4V3a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v1M6 6v5M10 6v5M4 4l1 9a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1l1-9"/>
-                </svg>
+            <div v-if="loading" class="resource-loading" aria-live="polite"><span v-for="item in 3" :key="item" /></div>
+            <div v-else class="preset-list">
+              <button v-for="preset in filteredPresets" :key="preset.name" class="preset-card" :class="{ selected: selectedPreset?.name === preset.name }" type="button" :aria-pressed="selectedPreset?.name === preset.name" @click="selectPreset(preset)">
+                <span class="preset-thumb" :class="{ 'thumb-missing': !preset.thumbnail }">
+                  <img v-if="preset.thumbnail" :src="preset.thumbnail" :alt="`${preset.display_name}模板预览`" loading="lazy" width="640" height="360" @error="onPresetThumbError" />
+                  <span class="preset-missing-label">预览缺失</span>
+                  <span v-if="selectedPreset?.name === preset.name" class="preset-selected"><Check :size="14" /></span>
+                </span>
+                <span class="preset-info"><strong>{{ preset.display_name }}</strong><small>{{ preset.slide_count }} 页 · {{ categoryMap[preset.category] || preset.category }}</small></span>
               </button>
             </div>
-          </div>
+          </section>
 
-          <div v-if="slides.length === 0" class="empty-canvas">
-            <p>从左侧选择一个预设模板开始<br/>或点击下方按钮添加空白幻灯片</p>
-            <button class="btn-primary" @click="activeTab = 'presets'" style="margin-top: 1rem;">
-              浏览预设模板
+          <section v-else-if="activeTab === 'layouts'">
+            <div v-for="group in groupedLayouts" :key="group.label" class="layout-group">
+              <h3>{{ group.label }}</h3>
+              <div class="layout-list">
+                <button v-for="layout in group.items" :key="layout.name" type="button" @click="addSlideFromLayout(layout)">
+                  <span class="layout-icon"><PanelsTopLeft :size="17" /></span>
+                  <span><strong>{{ layout.display_name }}</strong><small>{{ layout.description || '添加到页面列表' }}</small></span>
+                  <Plus :size="16" />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section v-else>
+            <div class="filter-row" aria-label="背景分类">
+              <button v-for="cat in bgCategories" :key="cat" type="button" :class="{ active: selectedBgCategory === cat }" @click="selectedBgCategory = cat">{{ cat }}</button>
+            </div>
+            <p v-if="selectedSlideIndex < 0" class="resource-note">先选择中间的一张页面，再应用背景。</p>
+            <div class="background-list">
+              <button v-for="bg in filteredBackgrounds" :key="bg.name" class="background-card" :class="{ selected: selectedSlideIndex >= 0 && slides[selectedSlideIndex]?.background === bg.name }" type="button" :title="bg.description" @click="applyBackgroundToSlide(bg.name)">
+                <span class="background-thumb">
+                  <img v-if="bg.preview_path" :src="bg.preview_path" :alt="`${bg.display_name}背景预览`" loading="lazy" @error="(event) => { (event.target as HTMLImageElement).style.display = 'none'; }" />
+                  <span v-else>无预览</span>
+                </span>
+                <span class="background-info"><strong>{{ bg.display_name }}</strong><small>{{ bg.description || '背景主题' }}</small></span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="outline-panel" aria-labelledby="outline-heading">
+        <header class="panel-header">
+          <div><span class="panel-kicker">页面轨道</span><h2 id="outline-heading">演示结构</h2></div>
+          <button class="add-slide-button" type="button" @click="addBlankSlide"><ListPlus :size="17" /><span>添加页面</span></button>
+        </header>
+
+        <div class="slide-list">
+          <article v-for="(slide, index) in slides" :key="`${slide.title}-${index}`" class="slide-card" :class="{ selected: selectedSlideIndex === index, 'drag-over': dragOverIndex === index, 'is-dragging': draggingIndex === index }" draggable="true" @dragstart="onDragStart(index)" @dragover.prevent="onDragOver(index)" @drop.prevent="onDrop($event, index)" @dragend="draggingIndex = -1" @dragleave="onDragLeave">
+            <span class="drag-handle" title="拖动排序" aria-hidden="true"><GripVertical :size="18" /></span>
+            <button class="slide-open-button" type="button" @click="openSlideEditor(index)">
+              <span class="slide-miniature" aria-hidden="true"><span>{{ index + 1 }}</span><LayoutTemplate :size="20" /></span>
+              <span class="slide-copy">
+                <strong>{{ slide.title || '未命名页面' }}</strong>
+                <small>{{ getLayoutDisplayName(slide.content_type) }}</small>
+                <span v-if="slide.description" class="slide-description">{{ slide.description }}</span>
+                <span v-else class="slide-description missing">尚未填写内容描述</span>
+              </span>
+              <span v-if="slide.background" class="slide-background">{{ getBgDisplayName(slide.background) }}</span>
             </button>
+            <div class="slide-actions">
+              <button type="button" title="上移" aria-label="上移页面" @click="moveSlide(index, 'up')"><ArrowUp :size="16" /></button>
+              <button type="button" title="下移" aria-label="下移页面" @click="moveSlide(index, 'down')"><ArrowDown :size="16" /></button>
+              <button type="button" title="复制" aria-label="复制页面" @click="duplicateSlide(index)"><Copy :size="16" /></button>
+              <button class="danger" type="button" title="删除" aria-label="删除页面" @click="deleteSlide(index)"><Trash2 :size="16" /></button>
+            </div>
+          </article>
+
+          <div v-if="slides.length === 0 && !loading" class="empty-outline">
+            <span><Sparkles :size="22" /></span>
+            <h3>先选择一个叙事结构</h3>
+            <p>从左侧模板开始，或添加一张空白页面逐步搭建。</p>
+            <button type="button" @click="activeTab = 'presets'">浏览模板</button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- Right: Slide Editor -->
-      <button
-        v-if="editingSlide"
-        class="editor-scrim"
-        type="button"
-        aria-label="关闭页面编辑器"
-        @click="cancelEdit"
-      ></button>
-      <div class="right-panel" :class="{ open: editingSlide }">
-        <div v-if="editingSlide" class="slide-editor">
-          <div class="editor-header">
-            <span>编辑页面</span>
-            <button class="btn-close" type="button" aria-label="关闭页面编辑器" @click="cancelEdit">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18"/>
-              </svg>
-            </button>
-          </div>
-          <div class="editor-body">
-            <div class="field-group">
-              <label for="field-title">页面标题</label>
-              <input
-                id="field-title"
-                v-model="editingSlide.title"
-                class="field-input"
-                placeholder="输入页面标题"
-              />
-            </div>
+      <button v-if="editingSlide" class="editor-scrim" type="button" aria-label="关闭页面属性" @click="cancelEdit" />
+
+      <aside class="property-panel" :class="{ open: editingSlide }" aria-label="页面属性">
+        <template v-if="editingSlide">
+          <header class="panel-header">
+            <div><span class="panel-kicker">第 {{ selectedSlideIndex + 1 }} 页</span><h2>页面属性</h2></div>
+            <button class="close-property" type="button" title="关闭" aria-label="关闭页面属性" @click="cancelEdit"><X :size="19" /></button>
+          </header>
+
+          <div class="property-body">
+            <div class="field-group"><label for="field-title">页面标题</label><input id="field-title" v-model="editingSlide.title" placeholder="输入页面标题" /></div>
             <div class="field-group">
               <label for="field-type">布局类型</label>
-              <select id="field-type" v-model="editingSlide.content_type" class="field-select">
-                <option v-for="layout in layouts" :key="layout.name" :value="layout.name">
-                  {{ layout.display_name }}
-                </option>
+              <select id="field-type" v-model="editingSlide.content_type">
+                <option v-for="layout in layouts" :key="layout.name" :value="layout.name">{{ layout.display_name }}</option>
               </select>
             </div>
+
             <section v-if="selectedLayout" class="layout-guidance" aria-label="布局容量说明">
-              <div class="guidance-head">
-                <strong>{{ selectedLayout.display_name }}</strong>
-                <span>{{ selectedLayout.description }}</span>
-              </div>
-              <div v-if="requiredFields.length" class="guidance-row">
-                <span class="guidance-label">必填字段</span>
-                <span class="guidance-values">
-                  <span v-for="field in requiredFields" :key="field.name" class="guidance-chip">
-                    {{ field.label }}
-                  </span>
-                </span>
-              </div>
-              <div v-if="capacityGuidance.length" class="guidance-row">
-                <span class="guidance-label">容量建议</span>
-                <span class="capacity-list">
-                  <span v-for="item in capacityGuidance" :key="item.key">
-                    {{ item.label }} {{ item.value }}
-                  </span>
-                </span>
-              </div>
+              <strong>{{ selectedLayout.display_name }}</strong>
+              <p>{{ selectedLayout.description }}</p>
+              <div v-if="requiredFields.length"><span>必填</span><p><small v-for="field in requiredFields" :key="field.name">{{ field.label }}</small></p></div>
+              <div v-if="capacityGuidance.length"><span>容量</span><p><small v-for="item in capacityGuidance" :key="item.key">{{ item.label }} {{ item.value }}</small></p></div>
             </section>
+
             <div class="field-group">
-              <label for="field-bg">背景图片</label>
-              <div class="bg-selector">
-                <select id="field-bg" v-model="editingSlide.background" class="field-select">
-                  <option value="">不使用背景</option>
-                  <option v-for="bg in backgrounds" :key="bg.name" :value="bg.name">
-                    {{ bg.display_name }}
-                  </option>
-                </select>
-                <div v-if="editingSlide.background" class="bg-preview-thumb">
-                  <img
-                    :src="getBackgroundPreview(editingSlide.background)"
-                    :alt="editingSlide.background"
-                    @error="(e) => (e.target as HTMLImageElement).style.display = 'none'"
-                  />
-                </div>
-              </div>
-              <div v-if="editingSlide.background" class="bg-scenarios">
-                <span v-for="s in getBgScenarios(editingSlide.background)" :key="s" class="bg-tag">{{ s }}</span>
+              <label for="field-bg">背景</label>
+              <select id="field-bg" v-model="editingSlide.background">
+                <option value="">不使用背景</option>
+                <option v-for="bg in backgrounds" :key="bg.name" :value="bg.name">{{ bg.display_name }}</option>
+              </select>
+              <div v-if="editingSlide.background" class="selected-background">
+                <img :src="getBackgroundPreview(editingSlide.background)" :alt="`${getBgDisplayName(editingSlide.background)}背景预览`" @error="(event) => { (event.target as HTMLImageElement).style.display = 'none'; }" />
+                <span><strong>{{ getBgDisplayName(editingSlide.background) }}</strong><small>{{ getBgDescription(editingSlide.background) }}</small></span>
               </div>
             </div>
+
             <div class="field-group">
               <label for="field-desc">内容描述</label>
-              <textarea
-                id="field-desc"
-                v-model="editingSlide.description"
-                class="field-textarea"
-                placeholder="描述此页面的内容要点，AI将根据此描述生成具体内容..."
-                rows="6"
-              ></textarea>
+              <textarea id="field-desc" v-model="editingSlide.description" rows="8" placeholder="写清本页要表达的结论、事实和结构，AI 将据此填充字段。" />
             </div>
           </div>
-          <div class="editor-footer">
-            <button class="btn-cancel" @click="cancelEdit">取消</button>
-            <button class="btn-save" @click="saveSlideEdit">保存</button>
-            <button class="btn-ai" :disabled="expanding" @click="handleAIAutoFill">
-              {{ expanding ? '生成中...' : 'AI 续写' }}
-            </button>
-          </div>
+
+          <footer class="property-footer">
+            <button type="button" @click="cancelEdit">取消</button>
+            <button type="button" @click="saveSlideEdit">保存</button>
+            <button class="ai-fill-button" type="button" :disabled="expanding" @click="handleAIAutoFill"><WandSparkles :size="16" /><span>{{ expanding ? '生成中' : 'AI 续写' }}</span></button>
+          </footer>
+        </template>
+
+        <div v-else class="property-empty">
+          <span><PanelsTopLeft :size="22" /></span><h3>选择一张页面</h3><p>在这里编辑布局、背景、标题和内容描述。</p>
         </div>
-        <div v-else class="editor-empty">
-          <p>点击幻灯片卡片进行编辑</p>
-        </div>
-      </div>
+      </aside>
     </div>
-  </div>
+  </AppShell>
 </template>
 
 <style scoped>
-.compose-page {
+:global(.compose-workspace) {
+  height: calc(100dvh - var(--topbar-height));
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.compose-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  gap: 16px;
-}
-
-.toolbar-left {
-  display: flex;
-  align-items: center;
   gap: 12px;
-  min-width: 200px;
-}
-
-.btn-back {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.btn-back:hover {
-  background: var(--bg-hover);
-}
-
-.toolbar-title {
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.toolbar-center {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  justify-content: center;
-}
-
-.title-input {
-  padding: 8px 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-base);
-  color: var(--text);
-  font-size: 14px;
-  width: 100%;
-  max-width: 400px;
-  text-align: center;
-}
-
-.title-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.theme-select {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-base);
-  color: var(--text);
-  font-size: 13px;
-  appearance: auto;
-}
-
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 200px;
-  justify-content: flex-end;
-}
-
-.slide-count {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.empty-desc-hint {
-  font-size: 12px;
-  color: #f59e0b;
-  background: #fef3c7;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-weight: 500;
-}
-
-.btn-ai-batch {
-  padding: 8px 16px;
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.btn-ai-batch:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  padding: 8px 20px;
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Topic bar */
-.topic-bar {
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-base);
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.topic-label {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  padding-top: 0.5rem;
-  flex-shrink: 0;
-}
-.topic-label svg { width: 14px; height: 14px; color: var(--accent); }
-.topic-input {
-  flex: 1;
-  min-width: 300px;
-  padding: 0.55rem 0.8rem;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-base);
-  color: var(--text);
-  font-size: 0.82rem;
-  font-family: inherit;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-.topic-input::placeholder { color: var(--text-disabled); }
-.topic-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-.topic-input:disabled { opacity: 0.5; cursor: not-allowed; }
-.topic-hint {
-  width: 100%;
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  margin-top: 0.25rem;
-  padding-left: calc(14px + 0.35rem + 0.75rem);
-}
-
-.compose-body {
-  display: flex;
-  flex: 1;
   overflow: hidden;
 }
-
-/* Left Panel */
-.left-panel {
-  width: 280px;
-  min-width: 280px;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.page-count, .outline-warning { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.outline-warning { color: var(--warning); }
+.toolbar-action {
+  min-height: 38px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--surface);
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
 }
+.toolbar-action:hover:not(:disabled) { border-color: #aeb7ba; background: var(--surface-muted); }
+.toolbar-action:active:not(:disabled) { transform: scale(0.98); }
+.toolbar-action.primary { border-color: var(--action-ink); color: #fff; background: var(--action-ink); }
+.toolbar-action.primary:hover:not(:disabled) { background: #064d48; }
 
-.panel-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
+.brief-strip {
+  min-height: 84px; padding: 12px 14px; display: grid;
+  grid-template-columns: minmax(180px,.7fr) minmax(320px,1.6fr) minmax(150px,.45fr);
+  gap: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
 }
+.brief-strip > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.brief-strip label, .field-group label { color: var(--text-muted); font-size: 10px; font-weight: 750; }
+.brief-strip input, .brief-strip textarea, .brief-strip select { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; }
+.brief-strip input { height: 34px; font-size: 14px; font-weight: 700; }
+.brief-strip textarea { min-height: 42px; resize: none; font-size: 13px; line-height: 1.5; }
+.brief-strip select { height: 36px; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-muted); font-size: 12px; }
 
-.tab-btn {
-  flex: 1;
-  padding: 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
+.workspace-error { margin: 0; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-left: 3px solid var(--danger); color: var(--danger); background: var(--danger-soft); font-size: 12px; }
+.workspace-error button { min-height: 36px; border: 0; color: var(--danger); background: transparent; font-weight: 700; cursor: pointer; }
+
+.editor-workspace {
+  min-height: 0; flex: 1; display: grid; grid-template-columns: 276px minmax(420px,1fr) 334px;
+  overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
 }
+.resource-panel, .outline-panel, .property-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.resource-panel { border-right: 1px solid var(--border); background: var(--surface-muted); }
+.property-panel { border-left: 1px solid var(--border); background: var(--surface); }
 
-.tab-btn.active {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+.resource-tabs { padding: 8px; display: grid; grid-template-columns: repeat(3,1fr); gap: 3px; border-bottom: 1px solid var(--border); }
+.resource-tabs button {
+  min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; font-size: 11px; font-weight: 700; cursor: pointer;
 }
+.resource-tabs button:hover { color: var(--text); background: var(--surface-hover); }
+.resource-tabs button.active { color: var(--action-ink); background: var(--surface); box-shadow: var(--shadow-xs); }
+.resource-scroll { min-height: 0; flex: 1; overflow: auto; padding: 10px; }
 
-.category-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
-}
+.filter-row { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 9px; scrollbar-width: none; }
+.filter-row::-webkit-scrollbar { display: none; }
+.filter-row button { min-height: 32px; padding: 0 9px; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); background: var(--surface); font-size: 10px; cursor: pointer; }
+.filter-row button.active { border-color: var(--action-ink); color: var(--action-ink); background: var(--action-soft); }
 
-.cat-btn {
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.cat-btn.active {
-  background: var(--color-primary);
-  color: white;
-  border-color: var(--color-primary);
-}
-
-.preset-section, .layout-section {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.loading-placeholder {
-  padding: 24px;
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.preset-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
+.resource-loading, .preset-list, .layout-list { display: grid; gap: 9px; }
+.resource-loading span { display: block; aspect-ratio: 16/9; border-radius: 6px; background: #e5e9e9; animation: pulse 1.4s ease-in-out infinite; }
 .preset-card {
-  display: flex;
-  width: 100%;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.15s;
+  min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); background: var(--surface); text-align: left; cursor: pointer;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
+.preset-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.preset-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,.1); }
+.preset-thumb { position: relative; display: block; aspect-ratio: 16/9; overflow: hidden; background: #e6eaea; border-bottom: 1px solid var(--divider); }
+.preset-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.preset-missing-label { position: absolute; inset: 0; display: none; place-items: center; color: var(--text-muted); font-size: 10px; }
+.preset-thumb.thumb-missing .preset-missing-label { display: grid; }
+.preset-selected { position: absolute; top: 7px; right: 7px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--action-ink); }
+.preset-info { padding: 9px 10px 10px; display: flex; flex-direction: column; }
+.preset-info strong { font-size: 11px; }
+.preset-info small { margin-top: 3px; color: var(--text-muted); font-size: 9px; }
 
-.preset-card:hover {
-  border-color: var(--color-primary);
-  background: var(--bg-hover);
+.layout-group + .layout-group { margin-top: 16px; }
+.layout-group h3 { margin: 0 0 7px; color: var(--text-muted); font-size: 10px; font-weight: 750; }
+.layout-list button {
+  min-height: 54px; padding: 7px 8px; display: grid; grid-template-columns: 32px minmax(0,1fr) auto;
+  align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 6px; color: var(--text-secondary); background: transparent; text-align: left; cursor: pointer;
 }
+.layout-list button:hover { border-color: var(--border); background: var(--surface); }
+.layout-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 5px; color: var(--info); background: var(--info-soft); }
+.layout-list button > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; }
+.layout-list strong { color: var(--text); font-size: 11px; }
+.layout-list small { margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 
-.preset-card.selected {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+.resource-note { margin: 0 0 9px; padding: 8px 9px; border-left: 2px solid var(--warning); color: var(--warning); background: var(--warning-soft); font-size: 10px; }
+.background-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.background-card { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; }
+.background-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,.1); }
+.background-thumb { display: grid; place-items: center; aspect-ratio: 16/9; overflow: hidden; color: var(--text-muted); background: #e5e9e9; font-size: 9px; }
+.background-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.background-info { padding: 7px; display: flex; flex-direction: column; }
+.background-info strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.background-info small { display: -webkit-box; margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 8px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+.outline-panel { background: var(--canvas); }
+.panel-header {
+  min-height: 58px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--border); background: var(--surface);
 }
-
-.preset-thumb {
-  width: 48px;
-  height: 36px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  overflow: hidden;
-  position: relative;
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
+.panel-kicker { display: block; color: var(--text-muted); font-size: 9px; font-weight: 750; }
+.panel-header h2 { margin: 2px 0 0; font-size: 13px; }
+.add-slide-button {
+  min-height: 38px; padding: 0 11px; display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--surface); font-size: 11px; font-weight: 700; cursor: pointer;
 }
+.add-slide-button:hover { border-color: var(--action-ink); color: var(--action-ink); }
 
-.preset-thumb-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  inset: 0;
-}
-
-.preset-missing-label {
-  display: none;
-  padding: 0 4px;
-  color: var(--text-muted);
-  font-size: 9px;
-  text-align: center;
-}
-.preset-thumb.thumb-missing .preset-missing-label { display: block; }
-
-.preset-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.preset-name {
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.preset-meta {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.layout-section {
-  padding: 0;
-}
-
-.layout-group {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.layout-group:last-child {
-  border-bottom: none;
-}
-
-.layout-group-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.layout-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.layout-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  color: var(--text-primary);
-}
-
-.layout-item:hover {
-  border-color: var(--color-primary);
-  background: var(--bg-hover);
-}
-
-.layout-icon {
-  width: 14px;
-  height: 10px;
-  border: 1.5px solid currentColor;
-  box-shadow: inset 4px 0 0 color-mix(in srgb, currentColor 20%, transparent);
-  opacity: 0.65;
-}
-
-/* Center Panel */
-.center-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-primary);
-}
-
-.canvas-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.btn-add-slide {
-  padding: 5px 12px;
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.slide-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 12px;
-}
-
+.slide-list { min-height: 0; flex: 1; overflow: auto; padding: 14px; display: grid; align-content: start; gap: 9px; }
 .slide-card {
-  width: 160px;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  cursor: grab;
-  transition: all 0.15s;
-  position: relative;
+  min-width: 0; min-height: 106px; display: grid; grid-template-columns: 30px minmax(0,1fr) auto;
+  align-items: stretch; overflow: hidden; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface); box-shadow: var(--shadow-xs);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), opacity var(--motion-fast);
 }
+.slide-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.slide-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,.1); }
+.slide-card.drag-over { border-color: var(--info); box-shadow: 0 0 0 2px rgba(47,111,237,.14); }
+.slide-card.is-dragging { opacity: .45; }
+.drag-handle { display: grid; place-items: center; color: var(--text-disabled); cursor: grab; }
+.slide-open-button {
+  min-width: 0; padding: 10px 6px; display: grid; grid-template-columns: 112px minmax(0,1fr) auto;
+  align-items: center; gap: 13px; border: 0; color: var(--text); background: transparent; text-align: left; cursor: pointer;
+}
+.slide-miniature { width: 112px; aspect-ratio: 16/9; display: grid; grid-template-columns: 1fr auto; align-items: end; padding: 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); background: var(--surface-muted); font-size: 10px; }
+.slide-copy { min-width: 0; display: flex; flex-direction: column; }
+.slide-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.slide-copy small { margin-top: 3px; color: var(--action-ink); font-size: 10px; }
+.slide-description { display: -webkit-box; margin-top: 8px; overflow: hidden; color: var(--text-secondary); font-size: 11px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.slide-description.missing { color: var(--warning); }
+.slide-background { max-width: 100px; padding: 4px 6px; overflow: hidden; border-radius: 4px; color: var(--info); background: var(--info-soft); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.slide-actions { padding: 8px 7px; display: grid; grid-template-columns: repeat(2,34px); align-content: center; gap: 3px; border-left: 1px solid var(--divider); }
+.slide-actions button, .close-property {
+  width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; cursor: pointer;
+}
+.slide-actions button:hover, .close-property:hover { color: var(--text); background: var(--surface-hover); }
+.slide-actions button.danger:hover { color: var(--danger); background: var(--danger-soft); }
 
-.slide-card:active {
-  cursor: grabbing;
+.empty-outline, .property-empty {
+  min-height: 260px; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--text-muted); text-align: center;
 }
+.empty-outline > span, .property-empty > span { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 7px; color: var(--action-ink); background: var(--action-soft); }
+.empty-outline h3, .property-empty h3 { margin: 13px 0 0; color: var(--text); font-size: 13px; }
+.empty-outline p, .property-empty p { max-width: 280px; margin: 6px 0 0; font-size: 11px; line-height: 1.6; }
+.empty-outline button { min-height: 38px; margin-top: 15px; padding: 0 12px; border: 1px solid var(--action-ink); border-radius: 6px; color: #fff; background: var(--action-ink); font-size: 11px; font-weight: 700; cursor: pointer; }
 
-.slide-card:hover {
-  border-color: var(--color-primary);
+.property-body { min-height: 0; flex: 1; overflow: auto; padding: 14px; display: grid; align-content: start; gap: 16px; }
+.field-group { min-width: 0; display: grid; gap: 7px; }
+.field-group input, .field-group select, .field-group textarea {
+  width: 100%; min-height: 42px; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: 6px;
+  outline: 0; color: var(--text); background: var(--surface); font-size: 12px;
 }
+.field-group textarea { min-height: 142px; resize: vertical; line-height: 1.55; }
+.field-group input:focus, .field-group select:focus, .field-group textarea:focus { border-color: var(--action-ink); box-shadow: 0 0 0 3px rgba(7,94,87,.09); }
 
-.slide-card.selected {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-secondary));
-}
+.layout-guidance { padding: 11px; border-left: 3px solid var(--info); background: var(--info-soft); }
+.layout-guidance > strong { color: var(--text); font-size: 11px; }
+.layout-guidance > p { margin: 4px 0 10px; color: var(--text-secondary); font-size: 10px; line-height: 1.5; }
+.layout-guidance > div { margin-top: 8px; }
+.layout-guidance > div > span { color: var(--text-muted); font-size: 9px; font-weight: 750; }
+.layout-guidance div p { margin: 5px 0 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.layout-guidance small { padding: 3px 5px; border-radius: 4px; color: var(--info); background: rgba(255,255,255,.72); font-size: 8px; }
 
-.slide-card.drag-over {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 15%, var(--bg-secondary));
-  transform: scale(1.02);
-}
+.selected-background { min-width: 0; padding: 7px; display: grid; grid-template-columns: 80px minmax(0,1fr); align-items: center; gap: 9px; border: 1px solid var(--border); border-radius: 6px; }
+.selected-background img { width: 80px; aspect-ratio: 16/9; object-fit: cover; border-radius: 3px; background: var(--surface-muted); }
+.selected-background span { min-width: 0; display: flex; flex-direction: column; }
+.selected-background strong { font-size: 10px; }
+.selected-background small { display: -webkit-box; margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 8px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
-.slide-card.is-dragging {
-  opacity: 0.4;
-  transform: scale(0.98);
-}
-
-.slide-index {
-  position: absolute;
-  top: -8px;
-  left: -8px;
-  width: 20px;
-  height: 20px;
-  background: var(--color-primary);
-  color: white;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.slide-info {
-  margin-top: 8px;
-  margin-bottom: 8px;
-}
-
-.slide-title {
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
-}
-
-.slide-type {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.slide-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.slide-card:hover .slide-actions {
-  opacity: 1;
-}
-
-.slide-open-btn {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-
-.slide-open-btn:focus-visible,
-.preset-card:focus-visible,
-.layout-item:focus-visible,
-.bg-card:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
-  outline-offset: 2px;
-}
-
-.action-btn {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--text-secondary);
-  padding: 0;
-  transition: all var(--transition);
-}
-.action-btn svg { width: 14px; height: 14px; }
-
-.action-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.action-btn.danger:hover {
-  background: #fef2f2;
-  color: #ef4444;
-  border-color: #fecaca;
-}
-
-.empty-canvas {
-  width: 100%;
-  text-align: center;
-  padding: 48px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.8;
-}
-
-/* Right Panel */
-.right-panel {
-  width: 320px;
-  min-width: 320px;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-}
+.property-footer { padding: 10px 12px; display: grid; grid-template-columns: .7fr .7fr 1fr; gap: 7px; border-top: 1px solid var(--border); }
+.property-footer button { min-height: 40px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--surface); font-size: 11px; font-weight: 700; cursor: pointer; }
+.property-footer button:hover { background: var(--surface-muted); }
+.property-footer .ai-fill-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-color: var(--action-ink); color: #fff; background: var(--action-ink); }
 
 .editor-scrim { display: none; }
+@keyframes pulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }
 
-.slide-editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+@media (max-width:1240px) {
+  .editor-workspace { grid-template-columns: 250px minmax(400px,1fr) 310px; }
+  .toolbar-action.optional span { display:none; }
+  .toolbar-action.optional { width:40px; padding:0; }
 }
-
-.editor-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.btn-close {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-.btn-close svg { width: 20px; height: 20px; }
-
-.editor-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field-group label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.field-input, .field-select, .field-textarea {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-}
-
-.field-input:focus, .field-select:focus, .field-textarea:focus {
-  outline: none;
-  border-color: var(--color-primary);
-}
-
-.field-textarea {
-  resize: vertical;
-  min-height: 120px;
-  line-height: 1.6;
-}
-
-.layout-guidance {
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.guidance-head {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.guidance-head strong { font-size: 12px; }
-.guidance-head > span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
-.guidance-row { display: flex; flex-direction: column; gap: 6px; }
-.guidance-label { color: var(--text-muted); font-size: 10px; font-weight: 600; }
-.guidance-values, .capacity-list { display: flex; flex-wrap: wrap; gap: 5px; }
-.guidance-chip, .capacity-list > span {
-  padding: 3px 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 10px;
-}
-
-.bg-selector {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.bg-preview-thumb {
-  width: 48px;
-  height: 36px;
-  border-radius: 4px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.bg-preview-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.bg-scenarios {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.bg-tag {
-  font-size: 10px;
-  padding: 1px 6px;
-  background: var(--bg-hover);
-  border-radius: 4px;
-  color: var(--text-secondary);
-}
-
-.slide-bg-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.bg-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.editor-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.btn-cancel {
-  padding: 8px 16px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-save {
-  padding: 8px 20px;
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-ai {
-  padding: 8px 20px;
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-ai:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.editor-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-/* Backgrounds Tab */
-.background-section {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0;
-}
-
-.bg-category-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.bg-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  padding: 12px;
-}
-
-.bg-card {
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: pointer;
-  transition: all 0.15s;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 0;
-  text-align: left;
-}
-
-.bg-card:hover {
-  border-color: var(--color-primary);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.bg-card.selected {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
-}
-
-.bg-thumb-wrapper {
-  width: 100%;
-  height: 72px;
-  overflow: hidden;
-  background: var(--bg-secondary);
-}
-
-.bg-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.bg-thumb-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-secondary);
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-@media (max-width: 1100px) {
-  .left-panel { width: 260px; min-width: 260px; }
-  .right-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(390px, 92vw);
-    min-width: 0;
-    z-index: 61;
-    box-shadow: -12px 0 32px rgba(15, 23, 42, 0.16);
-    transform: translateX(105%);
-    transition: transform 0.2s ease;
+@media (max-width:1000px) {
+  :global(.compose-workspace) { height:auto; min-height:calc(100dvh - 56px); overflow:visible; }
+  .brief-strip { grid-template-columns:1fr 1.5fr; }
+  .theme-field { grid-column:1/-1; }
+  .editor-workspace { min-height:760px; grid-template-columns:250px minmax(0,1fr); overflow:visible; }
+  .property-panel {
+    position:fixed; inset:0 0 0 auto; z-index:var(--z-modal); width:min(92vw,380px);
+    transform:translateX(102%); box-shadow:var(--shadow-lg); transition:transform var(--motion-medium);
   }
-  .right-panel.open { transform: translateX(0); }
-  .editor-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    border: 0;
-    background: rgba(15, 23, 42, 0.28);
-  }
+  .property-panel.open { transform:translateX(0); }
+  .editor-scrim { position:fixed; inset:0; z-index:calc(var(--z-modal) - 1); display:block; border:0; background:rgba(15,17,18,.5); cursor:pointer; }
 }
-
-@media (max-width: 820px) {
-  .compose-page { height: auto; min-height: 100dvh; overflow-x: hidden; }
-  .compose-toolbar { flex-wrap: wrap; padding: 10px 12px; }
-  .toolbar-left, .toolbar-center, .toolbar-right { width: 100%; min-width: 0; }
-  .toolbar-left { justify-content: space-between; }
-  .toolbar-center { order: 2; }
-  .toolbar-right { order: 3; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
-  .title-input { max-width: none; text-align: left; }
-  .theme-select { flex: 0 0 auto; }
-  .topic-bar { padding: 10px 12px; }
-  .topic-input { width: 100%; min-width: 0; }
-  .topic-hint { padding-left: 0; }
-  .compose-body { flex-direction: column; overflow: visible; }
-  .left-panel {
-    width: 100%;
-    min-width: 0;
-    height: min(44vh, 410px);
-    min-height: 300px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .center-panel { min-height: 55vh; overflow: visible; }
-  .slide-list {
-    overflow: visible;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .slide-card { width: auto; min-width: 0; }
-  .slide-actions { opacity: 1; }
-  .action-btn { width: 40px; height: 40px; }
-  .right-panel { width: 100%; height: 100dvh; }
-  .editor-header, .editor-footer { flex: 0 0 auto; background: var(--bg-secondary); }
-  .editor-body { padding-bottom: 24px; }
-  .btn-back, .btn-ai-batch, .btn-secondary, .btn-primary,
-  .btn-add-slide, .btn-cancel, .btn-save, .btn-ai { min-height: 44px; }
+@media (max-width:720px) {
+  :global(.compose-workspace) { padding:10px; }
+  .page-count, .outline-warning, .toolbar-action.optional { display:none; }
+  .toolbar-action.primary { min-width:44px; padding:0 10px; }
+  .toolbar-action.primary span { display:none; }
+  .brief-strip { grid-template-columns:1fr; }
+  .theme-field { grid-column:auto; }
+  .editor-workspace { min-height:0; display:block; border:0; background:transparent; }
+  .resource-panel { max-height:370px; margin-bottom:10px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .outline-panel { min-height:560px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .slide-list { padding:9px; }
+  .slide-card { grid-template-columns:24px minmax(0,1fr); }
+  .slide-open-button { grid-template-columns:80px minmax(0,1fr); gap:9px; }
+  .slide-miniature { width:80px; }
+  .slide-background { display:none; }
+  .slide-actions { grid-column:1/-1; padding:5px 7px; grid-template-columns:repeat(4,40px); justify-content:end; border-top:1px solid var(--divider); border-left:0; }
+  .slide-actions button { width:40px; height:40px; }
 }
-
-@media (max-width: 520px) {
-  .toolbar-center { flex-wrap: wrap; }
-  .theme-select { width: 100%; min-height: 44px; }
-  .preset-grid, .slide-list { grid-template-columns: minmax(0, 1fr); }
-  .slide-card { padding: 14px; }
-  .slide-actions { justify-content: flex-end; }
-  .action-btn { width: 44px; height: 44px; }
-  .editor-footer { justify-content: stretch; padding: 10px; }
-  .editor-footer button { flex: 1; padding-left: 8px; padding-right: 8px; }
-}
-
-.bg-info {
-  padding: 8px;
-}
-
-.bg-name {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 4px;
-}
-
-.bg-scenarios {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-}
-
-.bg-hint {
-  margin: 12px;
-  padding: 10px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 6px;
-  font-size: 11px;
-  color: #92400e;
-  text-align: center;
+@media (max-width:420px) {
+  .slide-card { min-height:0; }
+  .slide-open-button { grid-template-columns:1fr; padding:9px; }
+  .slide-miniature { width:100%; }
+  .slide-description { -webkit-line-clamp:3; }
+  .background-list { grid-template-columns:1fr; }
+  .property-panel { width:100vw; }
 }
 </style>

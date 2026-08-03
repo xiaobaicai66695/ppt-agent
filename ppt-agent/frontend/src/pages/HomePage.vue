@@ -1,376 +1,408 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import {
+  ArrowRight,
+  Clock3,
+  FilePlus2,
+  LayoutTemplate,
+  MessageSquareText,
+  Presentation,
+  Sparkles,
+} from 'lucide-vue-next';
+import AppShell from '../components/AppShell.vue';
 import { authState } from '../stores/auth';
 import { isLoggedIn } from '../api';
 
 const router = useRouter();
 const auth = authState;
+const brief = ref('');
+const selectedTemplate = ref('generic');
 
-const featuresRef = ref<HTMLElement | null>(null);
+const templates = [
+  { id: 'generic', name: '通用演示', meta: '清晰、克制、适合大多数主题', image: '/templates/thumbs/generic.jpg' },
+  { id: 'pitch-deck', name: '商业路演', meta: '问题、方案、市场与增长', image: '/templates/thumbs/pitch-deck.jpg' },
+  { id: 'tech-sharing', name: '技术分享', meta: '架构、流程、代码与结论', image: '/templates/thumbs/tech-sharing.jpg' },
+  { id: 'research-report', name: '研究报告', meta: '数据、发现、分析与建议', image: '/templates/thumbs/research-report.jpg' },
+  { id: 'weekly-report', name: '周报复盘', meta: '进展、指标、问题与计划', image: '/templates/thumbs/weekly-report.jpg' },
+  { id: 'course-module', name: '课程模块', meta: '目标、知识点、练习与总结', image: '/templates/thumbs/course-module.jpg' },
+];
 
-function scrollToFeatures() {
-  featuresRef.value?.scrollIntoView({ behavior: 'smooth' });
-}
-
-function handleGetStarted() {
-  if (isLoggedIn()) {
-    router.push('/dashboard');
-  } else {
-    router.push('/auth');
-  }
-}
+const canStart = computed(() => brief.value.trim().length > 0);
 
 onMounted(async () => {
-  if (isLoggedIn()) await auth.init();
+  if (isLoggedIn() && !auth.user) await auth.init();
 });
+
+function startCompose() {
+  router.push({
+    path: '/compose',
+    query: {
+      template: selectedTemplate.value,
+      ...(brief.value.trim() ? { brief: brief.value.trim() } : {}),
+    },
+  });
+}
+
+function useTemplate(id: string) {
+  selectedTemplate.value = id;
+  router.push({ path: '/compose', query: { template: id } });
+}
 </script>
 
 <template>
-  <div class="home">
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- HERO (full viewport)                                        -->
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <section class="hero">
-      <div class="hero-bg">
-        <div class="bg-grid"></div>
-        <div class="bg-orb orb-1"></div>
-        <div class="bg-orb orb-2"></div>
-        <div class="bg-orb orb-3"></div>
+  <AppShell title="开始创作" eyebrow="PPT 工作区" content-class="home-workspace">
+    <template #actions>
+      <button class="ui-button" type="button" @click="router.push('/dashboard')">
+        <Clock3 :size="17" />
+        <span>任务记录</span>
+      </button>
+    </template>
+
+    <section class="creation-zone" aria-labelledby="creation-title">
+      <div class="creation-copy">
+        <span class="section-kicker"><Sparkles :size="15" /> AI 演示文稿</span>
+        <h2 id="creation-title">今天要讲清楚什么？</h2>
+        <p>描述受众、场景和希望传达的结论。你可以先生成结构，再逐页调整。</p>
       </div>
 
-      <div class="hero-content">
-        <div class="hero-badge">
-          <span class="badge-dot"></span>
-          AI-Powered Presentation Generator
-        </div>
-
-        <h1 class="hero-title">
-          <span class="title-line">用 AI 重新定义</span>
-          <span class="title-line accent">PPT 制作</span>
-        </h1>
-
-        <p class="hero-sub">
-          只需一句话描述你的需求，智能体自动规划大纲、生成幻灯片、视觉质检、迭代修复<br/>
-          从想法到专业演示文稿，最快仅需 <strong>2 分钟</strong>
-        </p>
-
-        <div class="hero-actions">
-          <button class="hero-btn primary" @click="handleGetStarted">
-            {{ auth.loggedIn ? '进入工作台' : '立即开始' }}
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4l8 6-8 6"/></svg>
+      <div class="prompt-composer">
+        <label for="presentation-brief">演示文稿需求</label>
+        <textarea
+          id="presentation-brief"
+          v-model="brief"
+          rows="5"
+          placeholder="例如：为产品委员会准备一份 10 页的季度复盘，突出增长、用户反馈和下一阶段取舍，语气务实。"
+          @keydown.ctrl.enter.prevent="startCompose"
+          @keydown.meta.enter.prevent="startCompose"
+        />
+        <div class="composer-footer">
+          <div class="selected-mode">
+            <LayoutTemplate :size="16" />
+            <span>{{ templates.find(item => item.id === selectedTemplate)?.name }}</span>
+          </div>
+          <button class="start-button" type="button" :disabled="!canStart" @click="startCompose">
+            <span>规划演示</span>
+            <ArrowRight :size="18" />
           </button>
-          <button class="hero-btn secondary" @click="scrollToFeatures">
-            了解更多
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 8l3 3 3-3"/></svg>
-          </button>
-        </div>
-
-        <div class="hero-stats">
-          <div class="stat">
-            <span class="stat-num">3-5x</span>
-            <span class="stat-label">并行加速比</span>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat">
-            <span class="stat-num">AI</span>
-            <span class="stat-label">全自动质检</span>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat">
-            <span class="stat-num">36+</span>
-            <span class="stat-label">内置主题模板</span>
-          </div>
         </div>
       </div>
 
-      <div class="scroll-indicator" @click="scrollToFeatures">
-        <span class="scroll-text">向下滚动</span>
-        <div class="scroll-mouse">
-          <div class="scroll-wheel"></div>
+      <div class="workflow-strip" aria-label="生成流程">
+        <div>
+          <span class="workflow-index">01</span>
+          <MessageSquareText :size="18" />
+          <p><strong>描述目标</strong><small>受众、场景、页数与结论</small></p>
+        </div>
+        <div>
+          <span class="workflow-index">02</span>
+          <FilePlus2 :size="18" />
+          <p><strong>确认结构</strong><small>选择模板并调整页面大纲</small></p>
+        </div>
+        <div>
+          <span class="workflow-index">03</span>
+          <Presentation :size="18" />
+          <p><strong>渐进交付</strong><small>生成一页，立即预览一页</small></p>
         </div>
       </div>
     </section>
 
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- FEATURES                                                   -->
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <section ref="featuresRef" class="features">
-      <div class="features-header">
-        <h2 class="section-title">为什么选择 PPT Agent</h2>
-        <p class="section-sub">不是简单的模板填充 — 而是从内容到设计的全链路 AI 生成</p>
+    <section class="template-section" aria-labelledby="template-heading">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">模板起点</span>
+          <h2 id="template-heading">从熟悉的叙事结构开始</h2>
+        </div>
+        <button class="text-action" type="button" @click="router.push('/compose')">
+          查看全部
+          <ArrowRight :size="16" />
+        </button>
       </div>
 
-      <div class="features-grid">
-        <div class="feature-card">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-            </svg>
-          </div>
-          <h3>智能并行生成</h3>
-          <p>多张幻灯片同时生成，效率提升 3-5 倍。智能依赖分析保证内容连贯性。</p>
-          <ul class="feature-details">
-            <li>自适应并发控制</li>
-            <li>内容逻辑依赖管理</li>
-            <li>实时追踪每页状态</li>
-          </ul>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          </div>
-          <h3>视觉质量审查</h3>
-          <p>自动将 PPTX 渲染为图片，多模态 LLM 审查排版、对齐、配色。</p>
-          <ul class="feature-details">
-            <li>PPTX→PDF→JPEG 管线</li>
-            <li>多模态视觉审查</li>
-            <li>自动修复 ≤ 2 次迭代</li>
-          </ul>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <line x1="7" y1="8" x2="17" y2="8"/>
-              <line x1="7" y1="12" x2="17" y2="12"/>
-              <line x1="7" y1="16" x2="12" y2="16"/>
-            </svg>
-          </div>
-          <h3>结构化内容设计</h3>
-          <p>从大纲规划到元素排版，全自动处理标题、正文、图表、图片布局。</p>
-          <ul class="feature-details">
-            <li>智能大纲生成</li>
-            <li>36 套内置主题</li>
-            <li>多内容类型支持</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- CTA -->
-      <div class="cta-banner">
-        <div class="cta-glow"></div>
-        <h2>准备好提升你的 PPT 效率了吗？</h2>
-        <p>无需学习复杂操作，只需用自然语言描述想法</p>
-        <button class="hero-btn primary large" @click="handleGetStarted">
-          {{ auth.loggedIn ? '进入工作台' : '免费开始使用' }}
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4l8 6-8 6"/></svg>
+      <div class="template-grid">
+        <button
+          v-for="item in templates"
+          :key="item.id"
+          class="template-card"
+          :class="{ selected: selectedTemplate === item.id }"
+          type="button"
+          :aria-pressed="selectedTemplate === item.id"
+          @click="selectedTemplate = item.id"
+          @dblclick="useTemplate(item.id)"
+        >
+          <span class="template-media">
+            <img :src="item.image" :alt="`${item.name}模板预览`" loading="lazy" width="640" height="360" />
+            <span class="template-use">选择模板</span>
+          </span>
+          <span class="template-copy">
+            <strong>{{ item.name }}</strong>
+            <small>{{ item.meta }}</small>
+          </span>
         </button>
       </div>
     </section>
 
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- FOOTER                                                     -->
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <footer class="footer">
-      <div class="footer-content">
-        <div class="footer-brand">
-          <svg viewBox="0 0 40 40" fill="none" class="footer-logo">
-            <rect x="4" y="6" width="32" height="24" rx="3" fill="var(--accent-soft)"/>
-            <rect x="4" y="6" width="32" height="6" rx="3" fill="var(--accent)"/>
-            <rect x="10" y="16" width="14" height="2" rx="1" fill="var(--accent)"/>
-            <rect x="10" y="20" width="20" height="2" rx="1" fill="var(--border)"/>
-            <rect x="10" y="24" width="16" height="2" rx="1" fill="var(--border)"/>
-          </svg>
-          <span>PPT Agent</span>
-        </div>
-        <p class="footer-copy">Powered by Eino ADK &amp; Multi-Agent Architecture</p>
+    <section class="resume-band" aria-label="继续工作">
+      <div>
+        <span class="resume-icon"><Clock3 :size="19" /></span>
+        <p>
+          <strong>{{ auth.loggedIn ? '继续之前的生成任务' : '登录后保存任务与偏好' }}</strong>
+          <small>{{ auth.loggedIn ? '查看生成进度、下载页面或继续修改。' : '跨会话查看生成进度，并让模板选择更贴近你的习惯。' }}</small>
+        </p>
       </div>
-    </footer>
-  </div>
+      <button class="ui-button" type="button" @click="router.push(auth.loggedIn ? '/dashboard' : '/auth')">
+        {{ auth.loggedIn ? '打开任务工作台' : '登录工作区' }}
+        <ArrowRight :size="17" />
+      </button>
+    </section>
+  </AppShell>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════════════════ */
-/* HERO — Clean Light Modern                                         */
-/* ═══════════════════════════════════════════════════════════════════════ */
-.hero {
-  min-height: 100vh;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  position: relative; overflow: hidden;
-  background: var(--bg-base);
+:global(.home-workspace) {
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  padding: 42px clamp(20px, 4vw, 64px) 64px;
 }
 
-/* Top gradient accent bar */
-.hero::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 4px;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6, var(--info));
+.creation-zone {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.7fr) minmax(420px, 1.3fr);
+  gap: 28px 56px;
+  align-items: start;
 }
 
-.hero-bg { position: absolute; inset: 0; pointer-events: none; }
-
-.bg-grid {
-  position: absolute; inset: 0;
-  background-image:
-    linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
+.creation-copy { padding-top: 14px; }
+.section-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--action-ink);
+  font-size: 11px;
+  font-weight: 750;
 }
 
-.bg-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.07; }
-.orb-1 { width: 500px; height: 500px; background: var(--accent); top: -200px; right: -100px; animation: float 12s ease-in-out infinite; }
-.orb-2 { width: 350px; height: 350px; background: var(--info); bottom: -100px; left: -50px; animation: float 10s ease-in-out infinite reverse; }
-.orb-3 { width: 280px; height: 280px; background: #8b5cf6; top: 40%; left: 50%; transform: translate(-50%,-50%); animation: float 14s ease-in-out infinite 3s; }
-
-.hero-content { position: relative; z-index: 1; text-align: center; max-width: 760px; padding: 0 2rem; }
-
-.hero-badge {
-  display: inline-flex; align-items: center; gap: 0.5rem;
-  padding: 0.35rem 0.9rem;
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-full);
-  background: var(--accent-soft);
-  color: var(--accent); font-size: 0.75rem; font-weight: 500;
-  margin-bottom: 2rem;
-  letter-spacing: 0.01em;
-}
-.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
-
-.hero-title { font-size: 3.5rem; font-weight: 800; line-height: 1.15; margin-bottom: 1.5rem; letter-spacing: -0.025em; }
-.title-line { display: block; color: var(--text); }
-.title-line.accent {
-  background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  font-size: 4rem;
+.creation-copy h2,
+.section-heading h2 {
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 720;
+  line-height: 1.15;
+  letter-spacing: 0;
 }
 
-.hero-sub { font-size: 1.05rem; color: var(--text-secondary); line-height: 1.7; margin-bottom: 2.5rem; max-width: 560px; margin-left: auto; margin-right: auto; }
-.hero-sub strong { color: var(--accent); font-weight: 600; }
-
-.hero-actions { display: flex; gap: 0.75rem; justify-content: center; margin-bottom: 3rem; }
-
-.hero-btn {
-  display: inline-flex; align-items: center; gap: 0.4rem;
-  padding: 0.8rem 1.6rem; border-radius: var(--radius-md);
-  font-size: 0.9rem; font-weight: 600; cursor: pointer; border: none;
-  transition: all var(--transition-md);
-  font-family: inherit;
-  text-decoration: none;
+.creation-copy p {
+  max-width: 440px;
+  margin: 16px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
 }
-.hero-btn svg { width: 16px; height: 16px; transition: transform var(--transition-md); }
-.hero-btn:hover svg { transform: translateX(3px); }
-.hero-btn.primary {
-  background: var(--accent); color: #fff;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+
+.prompt-composer {
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
-.hero-btn.primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
-  background: var(--accent-hover);
+
+.prompt-composer label {
+  display: block;
+  margin: 0 0 9px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
 }
-.hero-btn.secondary {
-  background: var(--bg-base); color: var(--text-secondary);
-  border: 1.5px solid var(--border);
-  box-shadow: var(--shadow-xs);
+
+.prompt-composer textarea {
+  width: 100%;
+  min-height: 132px;
+  padding: 4px 2px 12px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1.65;
 }
-.hero-btn.secondary:hover { background: var(--bg-muted); border-color: var(--accent-border); color: var(--text); }
-.hero-btn.large { padding: 0.95rem 2rem; font-size: 0.95rem; }
 
-.hero-stats { display: flex; align-items: center; gap: 2.5rem; justify-content: center; }
-.stat { text-align: center; }
-.stat-num { display: block; font-size: 1.4rem; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
-.stat-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
-.stat-divider { width: 1px; height: 28px; background: var(--border); }
+.prompt-composer textarea::placeholder { color: #939b9f; }
 
-.scroll-indicator {
-  position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
-  cursor: pointer; z-index: 1;
+.composer-footer {
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--divider);
 }
-.scroll-text { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
-.scroll-mouse { width: 22px; height: 36px; border: 1.5px solid var(--border); border-radius: 11px; display: flex; justify-content: center; padding-top: 6px; }
-.scroll-wheel { width: 3px; height: 7px; background: var(--accent); border-radius: 2px; animation: scrollWheel 2s ease-in-out infinite; }
 
-/* ═══════════════════════════════════════════════════════════════════════ */
-/* FEATURES — Clean Light Cards                                       */
-/* ═══════════════════════════════════════════════════════════════════════ */
-.features { background: var(--bg-muted); padding: 5rem 2rem; }
-
-.features-header { text-align: center; margin-bottom: 3.5rem; }
-.section-title { font-size: 2rem; font-weight: 700; color: var(--text); margin-bottom: 0.75rem; letter-spacing: -0.02em; }
-.section-sub { font-size: 0.95rem; color: var(--text-secondary); }
-
-.features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; max-width: 960px; margin: 0 auto 5rem; }
-
-.feature-card {
-  background: var(--bg-base); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 1.75rem 1.5rem;
-  transition: transform var(--transition-md), box-shadow var(--transition-md), border-color var(--transition-md);
-  position: relative; overflow: hidden;
-  box-shadow: var(--shadow-card);
+.selected-mode {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
-.feature-card::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: 0; transition: opacity var(--transition-md);
+
+.selected-mode span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.start-button {
+  min-height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--action-ink);
+  border-radius: 6px;
+  color: #ffffff;
+  background: var(--action-ink);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--motion-fast), transform var(--motion-fast);
 }
-.feature-card:hover {
-  transform: translateY(-4px); border-color: var(--accent-border);
-  box-shadow: var(--shadow-card-hover);
+.start-button:hover:not(:disabled) { background: #064d48; }
+.start-button:active:not(:disabled) { transform: scale(0.98); }
+
+.workflow-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
-.feature-card:hover::before { opacity: 1; }
 
-.feature-icon {
-  width: 44px; height: 44px; border-radius: var(--radius-md);
-  background: var(--accent-soft); color: var(--accent);
-  display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem;
-  box-shadow: 0 0 0 4px rgba(99,102,241,0.06);
+.workflow-strip > div {
+  min-width: 0;
+  padding: 18px 22px;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
 }
-.feature-icon svg { width: 22px; height: 22px; }
-.feature-card h3 { font-size: 1rem; font-weight: 700; color: var(--text); margin-bottom: 0.5rem; }
-.feature-card > p { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.65; margin-bottom: 1rem; }
+.workflow-strip > div + div { border-left: 1px solid var(--border); }
+.workflow-index { color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.workflow-strip svg { color: var(--action-ink); }
+.workflow-strip p { min-width: 0; margin: 0; display: flex; flex-direction: column; }
+.workflow-strip strong { color: var(--text); font-size: 12px; }
+.workflow-strip small { margin-top: 2px; color: var(--text-muted); font-size: 10px; }
 
-.feature-details { list-style: none; padding: 0; }
-.feature-details li { font-size: 0.75rem; color: var(--text-secondary); padding: 0.2rem 0 0.2rem 1rem; position: relative; }
-.feature-details li::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
-
-/* CTA BANNER */
-.cta-banner {
-  max-width: 760px; margin: 0 auto; text-align: center;
-  background: var(--bg-base); border: 1px solid var(--border);
-  border-radius: var(--radius-xl); padding: 3rem 2rem;
-  position: relative; overflow: hidden;
-  box-shadow: var(--shadow-card);
-  display: flex; flex-direction: column; align-items: center;
+.template-section { margin-top: 48px; }
+.section-heading {
+  margin-bottom: 18px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
 }
-.cta-banner::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+.section-heading h2 { margin-top: 6px; font-size: 21px; }
+
+.text-action {
+  min-height: 40px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  color: var(--action-ink);
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
 }
-.cta-glow { position: absolute; width: 300px; height: 200px; background: var(--accent); border-radius: 50%; filter: blur(80px); opacity: 0.05; top: -50px; left: 50%; transform: translateX(-50%); }
-.cta-banner h2 { font-size: 1.5rem; font-weight: 700; color: var(--text); margin-bottom: 0.5rem; letter-spacing: -0.01em; position: relative; }
-.cta-banner p { color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem; position: relative; }
 
-/* FOOTER */
-.footer { background: var(--bg-base); border-top: 1px solid var(--border); padding: 2rem; text-align: center; }
-.footer-brand { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-.footer-logo { width: 26px; height: 26px; }
-.footer-brand span { font-size: 0.85rem; font-weight: 600; color: var(--text); }
-.footer-copy { font-size: 0.7rem; color: var(--text-muted); }
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
 
-/* KEYFRAMES */
-@keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-35px) scale(1.03); } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-@keyframes scrollWheel { 0%, 100% { transform: translateY(0); opacity: 1; } 50% { transform: translateY(5px); opacity: 0.3; } }
+.template-card {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+.template-card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.template-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,0.12); }
 
-/* RESPONSIVE */
-@media (max-width: 768px) {
-  .hero-title { font-size: 2.4rem; }
-  .title-line.accent { font-size: 2.6rem; }
-  .hero-sub { font-size: 0.9rem; }
-  .hero-actions { flex-direction: column; align-items: center; }
-  .hero-stats { gap: 1.5rem; flex-wrap: wrap; }
-  .stat-divider { display: none; }
-  .features-grid { grid-template-columns: 1fr; }
-  .features { padding: 3rem 1.25rem; }
-  .feature-card { padding: 1.25rem 1rem; }
-  .section-title { font-size: 1.6rem; }
-  .cta-banner { padding: 2rem 1.25rem; }
+.template-media {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--divider);
+}
+.template-media img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-medium); }
+.template-card:hover img { transform: scale(1.015); }
+.template-use {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: #ffffff;
+  background: rgba(23,26,28,0.86);
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+.template-card:hover .template-use,
+.template-card:focus-visible .template-use,
+.template-card.selected .template-use { opacity: 1; }
+
+.template-copy { padding: 12px 13px 13px; display: flex; flex-direction: column; }
+.template-copy strong { font-size: 13px; }
+.template-copy small { margin-top: 4px; color: var(--text-muted); font-size: 11px; }
+
+.resume-band {
+  margin-top: 42px;
+  padding: 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.resume-band > div { display: flex; align-items: center; gap: 12px; }
+.resume-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 6px; color: var(--info); background: var(--info-soft); }
+.resume-band p { margin: 0; display: flex; flex-direction: column; }
+.resume-band strong { font-size: 13px; }
+.resume-band small { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+
+@media (max-width: 900px) {
+  .creation-zone { grid-template-columns: 1fr; gap: 22px; }
+  .creation-copy { padding-top: 0; }
+  .workflow-strip { grid-template-columns: 1fr; }
+  .workflow-strip > div + div { border-left: 0; border-top: 1px solid var(--border); }
+  .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  :global(.home-workspace) { padding: 24px 14px 40px; }
+  :global(.home-workspace + *) { max-width: 100%; }
+  .creation-copy h2 { font-size: 28px; }
+  .creation-copy p { font-size: 14px; }
+  .prompt-composer { padding: 13px; }
+  .composer-footer { align-items: stretch; flex-direction: column; }
+  .start-button { width: 100%; }
+  .template-grid { grid-template-columns: 1fr; }
+  .section-heading { align-items: flex-start; }
+  .resume-band { align-items: stretch; flex-direction: column; }
+  .resume-band .ui-button { width: 100%; }
 }
 </style>
