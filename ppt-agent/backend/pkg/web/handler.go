@@ -1648,13 +1648,7 @@ func (s *Server) handleSubmitFeedback(c *gin.Context) {
 		return
 	}
 
-	userID, ok := c.Get("userID")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
-		return
-	}
-
-	uid := userID.(int)
+	uid := userIDGin(c)
 
 	engine := deep.GetLearningEngine()
 	if engine == nil {
@@ -1682,13 +1676,7 @@ func (s *Server) handleSubmitFeedback(c *gin.Context) {
 }
 
 func (s *Server) handleGetUserInsights(c *gin.Context) {
-	userID, ok := c.Get("userID")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
-		return
-	}
-
-	uid := userID.(int)
+	uid := userIDGin(c)
 
 	engine := deep.GetLearningEngine()
 	if engine == nil {
@@ -1706,13 +1694,7 @@ func (s *Server) handleGetUserInsights(c *gin.Context) {
 }
 
 func (s *Server) handleGetRecommendations(c *gin.Context) {
-	userID, ok := c.Get("userID")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
-		return
-	}
-
-	uid := userID.(int)
+	uid := userIDGin(c)
 	domain := c.Query("domain")
 
 	engine := deep.GetLearningEngine()

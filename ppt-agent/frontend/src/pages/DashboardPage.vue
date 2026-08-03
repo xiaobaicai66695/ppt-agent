@@ -27,9 +27,37 @@ const finalMessage = ref('');
 const duration = ref('');
 const activeWorkers = ref(0);
 const runtimeMeta = ref<RuntimeMeta | null>(null);
+const thumbnailVersions = ref<Record<string, number>>({});
+const thumbnailFailures = ref<Record<string, string>>({});
 const cancelling = ref(false);
 const creating = ref(false);
 const loadError = ref('');
+const sidebarOpen = ref(false);
+
+function closeSidebar() {
+  sidebarOpen.value = false;
+}
+
+function handleSidebarSelect(id: string) {
+  closeSidebar();
+  selectTask(id);
+}
+
+function handleSidebarCreate(query: string) {
+  closeSidebar();
+  void handleCreateTask(query);
+}
+
+function handleSidebarCompose() {
+  closeSidebar();
+  router.push('/compose');
+}
+
+function handleSidebarLogout() {
+  closeSidebar();
+  auth.logout();
+  router.push('/');
+}
 
 // ── Chat bar state ─────────────────────────────────────────────────────────────
 const showChatInput = ref(false);
@@ -94,17 +122,17 @@ function connectChatSSE(taskId: string) {
   chatEs = new EventSource(`/api/tasks/${taskId}/stream`);
 
   chatEs.onerror = () => {
-    chatEs?.close();
-    chatEs = null;
-    chatLoading.value = false;
+	addLog('error', '对话连接暂时中断，正在自动重连...');
   };
 
   const handler = (e: MessageEvent) => {
     let evt: SSEEvent;
     try { evt = JSON.parse(e.data); } catch { return; }
 
-    if (evt.type === 'answer') {
-      addLog('answer', evt.content || '');
+	if (evt.type === 'answer') {
+	  addLog('answer', evt.content || '');
+	} else if (evt.type === 'system_step') {
+	  addLog('worker', evt.content || '正在处理任务');
     } else if (evt.type === 'tool_call') {
       addLog('tool', `[${evt.tool_name || 'tool'}]`);
     } else if (evt.type === 'file_ready' && evt.files) {
@@ -112,15 +140,18 @@ function connectChatSSE(taskId: string) {
         if (!finalFiles.value.includes(f)) {
           finalFiles.value = [...finalFiles.value, f];
           addLog('file', `${f} 已更新`);
-          cachePPT(taskId, f);
         }
       }
     } else if (evt.type === 'progress' && evt.tasks) {
       taskItems.value = evt.tasks;
       if (evt.done !== undefined) doneCount.value = evt.done;
       if (evt.total !== undefined) totalCount.value = evt.total;
-    } else if (evt.type === 'runtime_meta' && evt.runtime_meta) {
-      runtimeMeta.value = evt.runtime_meta;
+	} else if (evt.type === 'runtime_meta' && evt.runtime_meta) {
+	  runtimeMeta.value = evt.runtime_meta;
+	} else if (evt.type === 'thumbnail_ready' && evt.files) {
+	  markThumbnailReady(evt.files);
+	} else if (evt.type === 'thumbnail_error' && evt.files) {
+	  markThumbnailFailed(evt.files, '缩略图转换失败，可重试或直接下载 PPTX');
     } else if (evt.type === 'error') {
       addLog('error', evt.error || '');
     } else if (evt.type === 'continue_queued') {
@@ -147,10 +178,13 @@ function connectChatSSE(taskId: string) {
   };
 
   chatEs.addEventListener('answer', handler);
+  chatEs.addEventListener('system_step', handler);
   chatEs.addEventListener('tool_call', handler);
   chatEs.addEventListener('progress', handler);
   chatEs.addEventListener('file_ready', handler);
   chatEs.addEventListener('runtime_meta', handler);
+  chatEs.addEventListener('thumbnail_ready', handler);
+  chatEs.addEventListener('thumbnail_error', handler);
   chatEs.addEventListener('error', handler);
   chatEs.addEventListener('continue_complete', handler);
   chatEs.addEventListener('complete', handler);
@@ -234,15 +268,6 @@ const sampleQueries = [
   '制作一个产品发布会演示文稿',
   '做一个 AI 大模型技术分享的 PPT',
   '制作一个公司季度总结汇报',
-];
-
-const sampleThemes = [
-  { name: '科技蓝', emoji: '🔷', color: 'linear-gradient(135deg, #2563eb, #3b82f6)', desc: '企业/技术' },
-  { name: '商务灰', emoji: '⬜', color: 'linear-gradient(135deg, #475569, #64748b)', desc: '商务/正式' },
-  { name: '活力橙', emoji: '🟠', color: 'linear-gradient(135deg, #ea580c, #f97316)', desc: '创意/营销' },
-  { name: '自然绿', emoji: '🟢', color: 'linear-gradient(135deg, #16a34a, #22c55e)', desc: '环保/教育' },
-  { name: '优雅紫', emoji: '🟣', color: 'linear-gradient(135deg, #7c3aed, #8b5cf6)', desc: '设计/时尚' },
-  { name: '海洋风', emoji: '🌊', color: 'linear-gradient(135deg, #0891b2, #06b6d4)', desc: '医疗/金融' },
 ];
 
 const orderedSlides = computed(() => {
@@ -332,9 +357,8 @@ function addLog(kind: import('../types').LogKind, text: string) {
 }
 
 // ── SSE ────────────────────────────────────────────────────────────────
-let sseRetryCount = 0;
 let sseCompleted = false;
-const SSE_MAX_RETRIES = 10;
+let sseConnectionInterrupted = false;
 
 // 追踪上一条 answer 事件的完整内容，用于计算增量。
 let lastAnswerContent = '';
@@ -347,24 +371,17 @@ function connectSSE(taskId: string) {
   es = new EventSource(`/api/tasks/${taskId}/stream`);
   activeWorkers.value = 0;
 
+  es.onopen = () => {
+	if (sseConnectionInterrupted) {
+	  addLog('worker', '实时连接已恢复');
+	}
+	sseConnectionInterrupted = false;
+  };
+
   es.onerror = () => {
-    es!.close();
-    es = null;
-
-    if (sseCompleted) return; // already received complete
-
-    const task = tasks.value.find(t => t.id === taskId);
-
-    // 已完成/已取消/已失败：不再重试 SSE，交给 fetchConversation 兜底。
-    if (!task || task.status !== 'running') {
-      return;
-    }
-
-    // 正在运行：无限重试（带退避），因为 agent 可能长时间思考/空闲。
-    sseRetryCount++;
-    const delay = Math.min(2000 * Math.pow(1.5, sseRetryCount - 1), 15000);
-    addLog('error', `连接中断，${(delay / 1000).toFixed(0)}s 后自动重连 (第 ${sseRetryCount} 次)...`);
-    setTimeout(() => connectSSE(taskId), delay);
+	if (sseCompleted || sseConnectionInterrupted) return;
+	sseConnectionInterrupted = true;
+	addLog('error', '实时连接暂时中断，浏览器正在自动重连；任务状态仍会通过轮询同步');
   };
 
   const handler = (e: MessageEvent) => {
@@ -372,7 +389,7 @@ function connectSSE(taskId: string) {
     try { evt = JSON.parse(e.data); } catch { return; }
 
     switch (evt.type) {
-      case 'answer': {
+	  case 'answer': {
         const newContent = evt.content || '';
         if (newContent) {
           // evt.content 是从本轮开头的完整累加文本，只取增量部分追加。
@@ -387,8 +404,12 @@ function connectSSE(taskId: string) {
           }
           lastAnswerContent = newContent;
         }
-        break;
-      }
+		break;
+	  }
+
+	  case 'system_step':
+		if (evt.content) addLog('worker', evt.content);
+		break;
 
       case 'tool_call': {
         const name = evt.tool_name || '';
@@ -427,26 +448,37 @@ function connectSSE(taskId: string) {
               if (!finalFiles.value.includes(t.output_file)) {
                 finalFiles.value = [...finalFiles.value, t.output_file];
                 addLog('file', `${t.output_file} 已生成`);
-                cachePPT(taskId, t.output_file);
               }
             }
           }
         }
-        if (evt.done !== undefined) doneCount.value = evt.done;
-        if (evt.total !== undefined) totalCount.value = evt.total;
-        break;
+		if (evt.done !== undefined) doneCount.value = evt.done;
+		if (evt.total !== undefined) totalCount.value = evt.total;
+		const summary = tasks.value.find(task => task.id === taskId);
+		if (summary) {
+		  if (evt.done !== undefined) summary.done_count = evt.done;
+		  if (evt.total !== undefined) summary.total_count = evt.total;
+		}
+		break;
 
-      case 'file_ready':
+	  case 'file_ready':
         if (evt.files) {
           for (const f of evt.files) {
             if (!finalFiles.value.includes(f)) {
               finalFiles.value = [...finalFiles.value, f];
               addLog('file', `${f} 已生成`);
-              cachePPT(taskId, f);
             }
           }
         }
-        break;
+		break;
+
+	  case 'thumbnail_ready':
+		if (evt.files) markThumbnailReady(evt.files);
+		break;
+
+	  case 'thumbnail_error':
+		if (evt.files) markThumbnailFailed(evt.files, '缩略图转换失败，可重试或直接下载 PPTX');
+		break;
 
       case 'token_usage':
         if (evt.total_tokens) {
@@ -477,7 +509,6 @@ function connectSSE(taskId: string) {
         if (evt.files) {
           for (const f of evt.files) {
             if (!finalFiles.value.includes(f)) finalFiles.value.push(f);
-            cachePPT(taskId, f);
           }
         }
         if (evt.message) finalMessage.value = evt.message;
@@ -500,9 +531,12 @@ function connectSSE(taskId: string) {
   };
 
   es.addEventListener('answer', handler);
+  es.addEventListener('system_step', handler);
   es.addEventListener('tool_call', handler);
   es.addEventListener('progress', handler);
   es.addEventListener('file_ready', handler);
+  es.addEventListener('thumbnail_ready', handler);
+  es.addEventListener('thumbnail_error', handler);
   es.addEventListener('token_usage', handler);
   es.addEventListener('runtime_meta', handler);
   es.addEventListener('error', handler);
@@ -516,6 +550,36 @@ function disconnectSSE() {
   currentPhase.value = '';
   phaseDetail.value = '';
   runtimeMeta.value = null;
+  sseConnectionInterrupted = false;
+}
+
+function markThumbnailReady(files: string[]) {
+  const versions = { ...thumbnailVersions.value };
+  const failures = { ...thumbnailFailures.value };
+  for (const file of files) {
+	const key = thumbnailKey(file);
+	versions[key] = (versions[key] || 0) + 1;
+	delete failures[key];
+  }
+  thumbnailVersions.value = versions;
+  thumbnailFailures.value = failures;
+}
+
+function markThumbnailFailed(files: string[], message: string) {
+  const failures = { ...thumbnailFailures.value };
+  for (const file of files) failures[thumbnailKey(file)] = message;
+  thumbnailFailures.value = failures;
+}
+
+function thumbnailKey(file: string) {
+  return file.split(/[/\\]/).pop() || file;
+}
+
+function thumbnailStatus(file: string): 'pending' | 'ready' | 'error' {
+  const key = thumbnailKey(file);
+  if (thumbnailFailures.value[key]) return 'error';
+  if (thumbnailVersions.value[key]) return 'ready';
+  return selectedTask.value?.status === 'running' ? 'pending' : 'ready';
 }
 
 // ── Polling fallback ────────────────────────────────────────────────────
@@ -526,8 +590,10 @@ function startPolling(taskId: string) {
   stopPolling();
   pollTimer = setInterval(async () => {
     try {
-      const info = await fetchTask(taskId);
-      if (!info) return;
+	  const info = await fetchTask(taskId);
+	  if (!info) return;
+	  const taskIndex = tasks.value.findIndex(task => task.id === taskId);
+	  if (taskIndex >= 0) tasks.value[taskIndex] = info;
       // Update file list from API (catches files missed by SSE file_ready)
       if (info.files?.length) {
         for (const f of info.files) {
@@ -536,12 +602,16 @@ function startPolling(taskId: string) {
           }
         }
       }
-      doneCount.value = info.done_count;
-      totalCount.value = info.total_count;
-      // Stop polling when task finishes
-      if (info.status !== 'running') {
-        stopPolling();
-      }
+	  doneCount.value = info.done_count;
+	  totalCount.value = info.total_count;
+	  // Stop polling when task finishes
+	  if (info.status !== 'running') {
+		sseCompleted = true;
+		if (es) { es.close(); es = null; }
+		duration.value = info.duration || duration.value;
+		currentPhase.value = info.status === 'completed' ? 'complete' : info.status;
+		stopPolling();
+	  }
     } catch { /* ignore fetch errors during polling */ }
   }, 3000);
 }
@@ -585,28 +655,6 @@ function restoreFromConversation(sess: import('../types').ConversationSession) {
   if (lines.length > 0) {
     logLines.value = lines;
   }
-}
-
-// Cache PPT files in background for completed tasks (no SSE connection).
-async function preloadFiles(taskId: string, files?: string[]) {
-  if (!files?.length) return;
-  for (const f of files) {
-    await cachePPT(taskId, f);
-  }
-}
-
-// Cache PPT files and thumbnails via Cache API (service worker storage)
-async function cachePPT(taskId: string, filename: string) {
-  try {
-    const cache = await caches.open('ppt-agent-v1');
-    const name = filename.split(/[/\\]/).pop() || filename;
-    // Cache the file
-    const fileUrl = `/api/tasks/${taskId}/files/${encodeURIComponent(name)}`;
-    if (!await cache.match(fileUrl)) {
-      const res = await fetch(fileUrl);
-      if (res.ok) cache.put(fileUrl, res.clone());
-    }
-  } catch { /* non-critical */ }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -714,9 +762,9 @@ function selectTask(id: string) {
       logLines.value = [];
       taskItems.value = [];
       batches.value = [];
-      sseRetryCount = 0;
-      sseCompleted = false;
-      connectSSE(id);
+	  sseCompleted = false;
+	  connectSSE(id);
+	  startPolling(id);
     }
     return;
   }
@@ -733,8 +781,7 @@ function selectTask(id: string) {
   batches.value = [];
   runtimeMeta.value = null;
   selectedSlides.value = new Set();
-  sseRetryCount = 0;
-  sseCompleted = false;
+	sseCompleted = false;
 
   if (t.status !== 'failed') {
     if (t.status === 'running') {
@@ -754,8 +801,6 @@ function selectTask(id: string) {
         }
         if (sess.done_count !== undefined) doneCount.value = sess.done_count;
         if (sess.total_count !== undefined) totalCount.value = sess.total_count;
-        // 预缓存所有 PPT 文件（供后续预览 / 下载）。
-        preloadFiles(id, sess.files);
       }).catch(() => { /* ignore */ });
     }
   }
@@ -847,20 +892,46 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 
 <template>
   <div class="layout">
-    <Sidebar
-      :user="auth.user"
-      :tasks="tasks"
-      :selected-id="selectedId"
-      :has-running-task="hasRunningTask"
-      :creating="creating"
-      :error="loadError"
-      @logout="auth.logout(); router.push('/')"
-      @select-task="selectTask"
-      @create-task="handleCreateTask"
-      @delete-task="handleDeleteTask"
-      @compose="router.push('/compose')"
-      @new-session="handleNewSession"
-    />
+    <button
+      class="mobile-nav-btn"
+      type="button"
+      aria-label="打开任务导航"
+      :aria-expanded="sidebarOpen"
+      @click="sidebarOpen = true"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"/>
+      </svg>
+      <span>任务</span>
+    </button>
+    <button
+      v-if="sidebarOpen"
+      class="sidebar-scrim"
+      type="button"
+      aria-label="关闭任务导航"
+      @click="closeSidebar"
+    ></button>
+    <div class="sidebar-shell" :class="{ open: sidebarOpen }">
+      <Sidebar
+        :user="auth.user"
+        :tasks="tasks"
+        :selected-id="selectedId"
+        :has-running-task="hasRunningTask"
+        :creating="creating"
+        :error="loadError"
+        @logout="handleSidebarLogout"
+        @select-task="handleSidebarSelect"
+        @create-task="handleSidebarCreate"
+        @delete-task="handleDeleteTask"
+        @compose="handleSidebarCompose"
+        @new-session="handleNewSession(); closeSidebar()"
+      />
+      <button class="sidebar-close-btn" type="button" aria-label="关闭任务导航" @click="closeSidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </div>
 
     <main class="main" id="main-content">
       <!-- Welcome -->
@@ -880,7 +951,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
             </svg>
           </div>
           <h2>在左侧输入需求，开始生成 PPT</h2>
-          <p>AI 将自动规划大纲、生成幻灯片、视觉质检、迭代修复</p>
+          <p>AI 将自动规划大纲、逐页生成幻灯片，并实时提供预览与下载</p>
         </div>
 
         <!-- Quick start examples -->
@@ -903,17 +974,6 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
           </button>
         </div>
 
-        <!-- Theme showcase -->
-        <div class="welcome-themes">
-          <h3>内置主题风格</h3>
-          <div class="themes-grid">
-            <div v-for="t in sampleThemes" :key="t.name" class="theme-card">
-              <div class="theme-swatch" :style="{ background: t.color }">{{ t.emoji }}</div>
-              <span class="theme-name">{{ t.name }}</span>
-              <span class="theme-desc">{{ t.desc }}</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Dashboard -->
@@ -971,16 +1031,25 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
           :total-count="totalCount"
           :task-items="taskItems"
           :is-running="selectedTask?.status === 'running'"
-          :phase="currentPhase"
-          :phase-detail="phaseDetail"
-        />
+		  :phase="currentPhase"
+		  :phase-detail="phaseDetail"
+		  :task-id="selectedTask?.id"
+		  :created-at="selectedTask?.created_at"
+		/>
 
-        <div v-if="runtimeMeta" class="dev-status-panel">
-          <div class="dev-status-head">
-            <span class="dev-status-title">Agent Runtime</span>
+        <details v-if="runtimeMeta" class="dev-status-panel">
+          <summary class="dev-status-summary">
+            <span class="dev-status-title">运行诊断</span>
             <span class="dev-status-phase">{{ runtimeMeta.phase || currentPhase || 'preparing' }}</span>
-          </div>
-          <div class="dev-status-grid">
+            <span v-if="runtimeWarnings.length || runtimeMeta.last_error" class="diagnostic-alert">
+              {{ runtimeWarnings.length + (runtimeMeta.last_error ? 1 : 0) }} 条警告
+            </span>
+            <svg class="diagnostic-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path d="M4 6l4 4 4-4"/>
+            </svg>
+          </summary>
+          <div class="dev-status-body">
+            <div class="dev-status-grid">
             <div class="dev-stat">
               <span class="dev-stat-label">运行</span>
               <strong>{{ fmtElapsed(runtimeMeta.elapsed_ms) }}</strong>
@@ -1001,8 +1070,8 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
               <strong>{{ runtimeMeta.done_slides || doneCount }} / {{ runtimeMeta.total_slides || totalCount }}</strong>
               <small>缺失文件 {{ runtimeMeta.missing_files || 0 }}</small>
             </div>
-            <div class="dev-stat">
-              <span class="dev-stat-label">QA</span>
+            <div v-if="runtimeQATotal > 0" class="dev-stat">
+              <span class="dev-stat-label">问题记录</span>
               <strong>{{ runtimeQATotal }}</strong>
               <small>H {{ runtimeMeta.qa_high_issues || 0 }} · M {{ runtimeMeta.qa_medium_issues || 0 }} · L {{ runtimeMeta.qa_low_issues || 0 }}</small>
             </div>
@@ -1011,12 +1080,12 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
               <strong>{{ runtimeMeta.compression_saved_pct || '0%' }}</strong>
               <small>{{ fmtTokens(runtimeMeta.compression_before_tokens || 0) }} → {{ fmtTokens(runtimeMeta.compression_after_tokens || 0) }}</small>
             </div>
-          </div>
-          <div v-if="runtimeWarnings.length > 0 || (runtimeMeta.last_error || '')" class="dev-status-warnings">
+            </div>
+            <div v-if="runtimeWarnings.length > 0 || (runtimeMeta.last_error || '')" class="dev-status-warnings">
             <span v-for="w in runtimeWarnings" :key="w" class="dev-warning">{{ w }}</span>
             <span v-if="runtimeMeta.last_error" class="dev-warning danger">{{ runtimeMeta.last_error }}</span>
           </div>
-          <div v-if="runtimeTimeline.length > 0" class="runtime-timeline">
+            <div v-if="runtimeTimeline.length > 0" class="runtime-timeline">
             <div class="timeline-head">
               <span>Timeline</span>
               <small>{{ runtimeTimeline.length }} recent events</small>
@@ -1037,8 +1106,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
                 <span v-if="evt.detail" class="timeline-detail">{{ evt.detail }}</span>
               </div>
             </div>
+            </div>
           </div>
-        </div>
+        </details>
 
         <!-- Left-Right Split -->
         <div class="split-layout">
@@ -1097,6 +1167,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
                   :task-id="selectedTask?.id"
                   :file-ready="s.fileReady"
                   :selected="selectedSlides.has(s.task.task_id)"
+                  :thumbnail-status="thumbnailStatus(s.task.output_file)"
+                  :thumbnail-version="thumbnailVersions[thumbnailKey(s.task.output_file)] || 0"
+                  :thumbnail-error="thumbnailFailures[thumbnailKey(s.task.output_file)]"
                   @toggle="toggleSelect(s.task.task_id)"
                   @preview="openPreview"
                 />
@@ -1124,7 +1197,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="previewVisible" class="preview-modal-overlay" @click.self="closePreview">
-          <div class="preview-modal">
+          <div class="preview-modal" role="dialog" aria-modal="true" aria-label="幻灯片预览">
             <div class="preview-modal-header">
               <h3>{{ previewTask?.title || '幻灯片预览' }}</h3>
               <div class="preview-modal-actions">
@@ -1136,7 +1209,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
                   </svg>
                   下载 PPTX
                 </button>
-                <button class="modal-close-btn" @click="closePreview">
+                <button class="modal-close-btn" aria-label="关闭预览" @click="closePreview">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
@@ -1161,13 +1234,13 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 
     <!-- Persistent Chat Bar (bottom of main) -->
     <div v-if="selectedTask" class="chat-bar" :class="{ expanded: showChatInput }">
-      <div v-if="!showChatInput" class="chat-bar-collapsed" @click="openChatBar">
+      <button v-if="!showChatInput" class="chat-bar-collapsed" type="button" @click="openChatBar">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M14 10c0 .5-.3 1-.7 1.2L9.5 13 6 11.5V10c0-.5.3-1 .7-1.2l3.8-1.8L14 10z"/>
           <path d="M2 10c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8-8 3.6-8 8z"/>
         </svg>
         <span>与 AI 对话，改进 PPT 内容</span>
-      </div>
+      </button>
       <div v-else class="chat-bar-expanded">
         <div class="chat-bar-header">
           <span class="chat-bar-title">AI 对话</span>
@@ -1221,6 +1294,8 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 
 <style scoped>
 .layout { display: flex; height: 100vh; overflow: hidden; }
+.sidebar-shell { flex: 0 0 var(--sidebar-w); min-width: var(--sidebar-w); }
+.mobile-nav-btn, .sidebar-close-btn, .sidebar-scrim { display: none; }
 .main {
   flex: 1;
   background: var(--bg-muted);
@@ -1242,8 +1317,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 .welcome-icon svg { width: 100px; height: 100px; margin: 0 auto 1.25rem; }
 .welcome h2 {
   font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, var(--text) 0%, var(--text-secondary) 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  color: var(--text);
 }
 .welcome p { color: var(--text-muted); font-size: 0.9rem; }
 
@@ -1280,25 +1354,6 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   box-shadow: 0 6px 20px rgba(99,102,241,0.35);
   background: var(--accent-hover);
 }
-
-/* Welcome themes */
-.welcome-themes { max-width: 600px; margin: 0 auto; text-align: center; }
-.welcome-themes h3 { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.75rem; }
-.themes-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; }
-.theme-card {
-  background: var(--bg-base); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 0.75rem 0.5rem;
-  text-align: center; transition: transform var(--transition), box-shadow var(--transition);
-  cursor: default;
-}
-.theme-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
-.theme-swatch {
-  width: 40px; height: 40px; border-radius: var(--radius);
-  margin: 0 auto 0.4rem; display: flex; align-items: center; justify-content: center;
-  font-size: 1.1rem;
-}
-.theme-name { display: block; font-size: 0.75rem; font-weight: 600; color: var(--text); margin-bottom: 0.1rem; }
-.theme-desc { font-size: 0.65rem; color: var(--text-muted); }
 
 /* ── Dashboard working area ───────────────────────────────────── */
 .dash-header {
@@ -1344,17 +1399,42 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.85rem 1rem;
+  padding: 0;
   margin: 0 0 0.75rem;
   box-shadow: var(--shadow-xs);
+  overflow: hidden;
 }
-.dev-status-head {
+.dev-status-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.75rem;
-  margin-bottom: 0.65rem;
+  min-height: 44px;
+  padding: 0.55rem 0.85rem;
+  cursor: pointer;
+  list-style: none;
 }
+.dev-status-summary::-webkit-details-marker { display: none; }
+.dev-status-summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: -3px;
+}
+.dev-status-body {
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 1rem 1rem;
+}
+.diagnostic-alert {
+  margin-left: auto;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-full);
+  background: var(--warning-soft);
+  color: var(--warning);
+  padding: 0.15rem 0.5rem;
+  font-size: 0.64rem;
+  font-weight: 600;
+}
+.diagnostic-chevron { width: 16px; height: 16px; color: var(--text-muted); transition: transform 0.2s ease; }
+.dev-status-panel[open] .diagnostic-chevron { transform: rotate(180deg); }
 .dev-status-title {
   color: var(--text);
   font-size: 0.78rem;
@@ -1509,6 +1589,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   .dev-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .timeline-row { grid-template-columns: 52px 96px minmax(140px, 1fr); }
   .timeline-detail { display: none; }
+  .split-layout { display: flex; flex-direction: column; overflow: visible; }
+  .split-right { order: 1; overflow: visible; padding-right: 0; }
+  .split-left { order: 2; max-height: 360px; overflow-y: auto; }
 }
 @media (max-width: 720px) {
   .dev-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1768,8 +1851,10 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .chat-bar-collapsed {
+  width: 100%;
   display: flex; align-items: center; gap: 0.5rem;
   padding: 0.6rem 1.25rem;
+  border: 0; background: var(--bg-base); text-align: left;
   cursor: pointer;
   color: var(--accent); font-size: 0.8rem; font-weight: 500;
   transition: background var(--transition);
@@ -1866,4 +1951,106 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 .continue-panel-leave-active { transition: all 0.2s ease-in; }
 .continue-panel-enter-from, .continue-panel-leave-to { opacity: 0; }
 .continue-panel-enter-from .continue-panel, .continue-panel-leave-to .continue-panel { transform: scale(0.95) translateY(10px); }
+
+@media (max-width: 1100px) {
+  .layout { display: block; height: 100dvh; }
+  .mobile-nav-btn {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 80;
+    min-width: 72px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-base);
+    color: var(--text);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .mobile-nav-btn svg { width: 18px; height: 18px; }
+  .sidebar-shell {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 91;
+    width: min(88vw, 320px);
+    min-width: 0;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: 14px 0 36px rgba(15, 23, 42, 0.18);
+  }
+  .sidebar-shell.open { transform: translateX(0); }
+  .sidebar-shell :deep(.sidebar) { position: static; }
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    border: 0;
+    background: rgba(15, 23, 42, 0.35);
+  }
+  .sidebar-close-btn {
+    display: flex;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-base);
+    color: var(--text-secondary);
+  }
+  .sidebar-close-btn svg { width: 20px; height: 20px; }
+  .main {
+    width: 100%;
+    height: 100dvh;
+    padding: 4.2rem 1rem 5rem;
+  }
+  .dash-header { flex-direction: column; gap: 0.75rem; }
+  .dash-header-left { max-width: none; width: 100%; }
+  .dash-title { white-space: normal; overflow-wrap: anywhere; }
+  .dash-status { width: 100%; }
+  .split-layout { display: flex; flex-direction: column; overflow: visible; }
+  .split-right { order: 1; overflow: visible; padding-right: 0; }
+  .split-left { order: 2; max-height: 360px; overflow-y: auto; }
+  .chat-bar { width: 100%; }
+  .chat-bar-collapsed { min-height: 48px; }
+  .chat-bar-close, .chat-send-btn { width: 44px; height: 44px; }
+  .chat-msg-bubble { max-width: 88%; }
+  .chat-input { min-height: 44px; }
+  .tool-btn, .chat-trigger-btn, .cancel-btn { min-height: 44px; }
+  .modal-close-btn { width: 44px; height: 44px; }
+}
+
+@media (max-width: 600px) {
+  .main { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .welcome { justify-content: flex-start; padding-top: 1rem; }
+  .welcome-icon svg { width: 72px; height: 72px; }
+  .welcome h2 { font-size: 1.2rem; }
+  .examples-grid { grid-template-columns: minmax(0, 1fr); }
+  .dev-status-grid { grid-template-columns: minmax(0, 1fr); }
+  .dev-status-summary { flex-wrap: wrap; gap: 0.45rem; }
+  .diagnostic-alert { margin-left: 0; }
+  .diagnostic-chevron { margin-left: auto; }
+  .slides-toolbar { align-items: stretch; }
+  .toolbar-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tool-btn.primary { grid-column: 1 / -1; }
+  .batch-card { min-width: 0; width: 100%; }
+  .preview-modal-overlay { padding: 0.5rem; }
+  .preview-modal-header { padding: 0.75rem; align-items: flex-start; }
+  .preview-modal-actions { gap: 0.25rem; }
+  .modal-action-btn { min-height: 44px; padding: 0.4rem 0.6rem; }
+  .preview-modal-body { padding: 0.5rem; }
+  .chat-bar-expanded { max-height: 65vh; }
+}
 </style>

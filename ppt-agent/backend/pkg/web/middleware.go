@@ -9,6 +9,8 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 )
 
+const taskInfoContextKey = "ownedTaskInfo"
+
 func (s *Server) authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractTokenFromGin(c)
@@ -25,6 +27,31 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+// taskOwnershipMiddleware keeps every task-specific route behind the same
+// owner-or-admin authorization rule. Unauthorized task IDs intentionally look
+// missing so the API does not expose whether another user's task exists.
+func (s *Server) taskOwnershipMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		info := s.tasks.GetTask(c.Param("id"))
+		if info == nil {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+
+		if !canAccessTask(info.UserID, userIDGin(c), isAdminGin(c)) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+
+		c.Set(taskInfoContextKey, info)
+		c.Next()
+	}
+}
+
+func canAccessTask(ownerID, userID int, isAdmin bool) bool {
+	return isAdmin || (ownerID > 0 && ownerID == userID)
 }
 
 // adminMiddleware 要求用户已登录且具有管理员权限。

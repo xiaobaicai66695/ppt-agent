@@ -32,6 +32,7 @@ __pycache__/
 !ppt-agent/skills/visual_designer/background_templates/**/*.jpg
 !ppt-agent/skills/visual_designer/background_templates/**/*.jpeg
 !ppt-agent/skills/visual_designer/background_templates/**/*.png
+!ppt-agent/frontend/public/templates/thumbs/*.jpg
 !ppt-agent/frontend/src/**
 !ppt-agent/frontend/package.json
 !ppt-agent/frontend/package-lock.json

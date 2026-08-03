@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/task"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
@@ -26,10 +27,22 @@ func thumbLock(workDir string) func() {
 
 var thumbCache sync.Map
 
+type thumbnailConverter func(workDir, qaDir string, files []string)
+
 // GenerateThumbnail 从 qa_images/ 读取预生成的 JPEG。
 // 首次请求时，增量转换缺失的文件（单次增量转换）。
 // 调用者负责传递完整的 .pptx 文件路径。
 func GenerateThumbnail(pptxPath string) ([]byte, error) {
+	return generateThumbnail(pptxPath, func(workDir, qaDir string, files []string) {
+		converter := findConverterPy(workDir)
+		if converter == "" {
+			return
+		}
+		runConverter(converter, workDir, qaDir, files)
+	})
+}
+
+func generateThumbnail(pptxPath string, convert thumbnailConverter) ([]byte, error) {
 	if cached, ok := thumbCache.Load(pptxPath); ok {
 		return cached.([]byte), nil
 	}
@@ -48,9 +61,22 @@ func GenerateThumbnail(pptxPath string) ([]byte, error) {
 		return jpeg, nil
 	}
 
-	// 未缓存且不在磁盘上 — 转换，按 workDir 序列化。
-	// 不再运行两次传递；一次增量转换尝试已足够。
-	convertMissingFiles(workDir, []string{base})
+	// 浏览器请求和后台预生成可能同时到达。拿锁后必须再次检查，
+	// 避免前一个调用已经生成图片后再次启动转换进程。
+	release := thumbLock(workDir)
+	defer release()
+	if cached, ok := thumbCache.Load(pptxPath); ok {
+		return cached.([]byte), nil
+	}
+	if jpeg, err = os.ReadFile(jpegPath); err == nil {
+		thumbCache.Store(pptxPath, jpeg)
+		return jpeg, nil
+	}
+
+	if err := os.MkdirAll(qaDir, 0755); err != nil {
+		return nil, fmt.Errorf("create thumbnail directory: %w", err)
+	}
+	convert(workDir, qaDir, []string{base})
 
 	jpeg, err = os.ReadFile(jpegPath)
 	if err != nil {
@@ -58,6 +84,28 @@ func GenerateThumbnail(pptxPath string) ([]byte, error) {
 	}
 	thumbCache.Store(pptxPath, jpeg)
 	return jpeg, nil
+}
+
+func (s *Server) prepareThumbnail(taskID, workDir, filename string) {
+	pptxPath := filepath.Join(workDir, filename)
+	ts := s.tasks.GetTaskState(taskID)
+	if ts == nil {
+		return
+	}
+
+	if _, err := GenerateThumbnail(pptxPath); err != nil {
+		logger.Warn("thumbnail_prepare_failed", "task_id", taskID, "file", filename, "error", err.Error())
+		ts.Broadcast(task.SSERichEvent{
+			Type:  "thumbnail_error",
+			Files: []string{filename},
+			Error: err.Error(),
+		})
+		return
+	}
+	ts.Broadcast(task.SSERichEvent{
+		Type:  "thumbnail_ready",
+		Files: []string{filename},
+	})
 }
 
 // GenerateQAImages 对 workDir 中所有 PPTX 文件运行 Python PPTX→JPG 转换器。

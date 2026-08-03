@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import type { TaskItem } from '../types';
 
 const props = defineProps<{
@@ -9,6 +9,8 @@ const props = defineProps<{
   isRunning: boolean;
   phase?: string;
   phaseDetail?: string;
+  taskId?: string;
+  createdAt?: string;
 }>();
 
 // ── ETA Estimation ─────────────────────────────────────────────────────
@@ -16,14 +18,32 @@ const props = defineProps<{
 const completionTimestamps = ref<number[]>([]);
 const taskStartTime = ref<number>(Date.now());
 const lastDoneCount = ref(0);
+const now = ref(Date.now());
+let clockTimer: ReturnType<typeof setInterval> | null = null;
 
-// Reset when total count changes (new task)
-watch(() => props.totalCount, (newTotal) => {
-  if (newTotal > 0) {
-    taskStartTime.value = Date.now();
-    lastDoneCount.value = 0;
-    completionTimestamps.value = [];
+function resetTracking() {
+  const created = props.createdAt ? Date.parse(props.createdAt) : NaN;
+  taskStartTime.value = Number.isFinite(created) ? created : Date.now();
+  now.value = Date.now();
+  lastDoneCount.value = props.doneCount;
+  completionTimestamps.value = [];
+}
+
+watch(() => props.taskId, resetTracking, { immediate: true });
+
+watch(() => props.isRunning, (running) => {
+  if (clockTimer) {
+    clearInterval(clockTimer);
+    clockTimer = null;
   }
+  now.value = Date.now();
+  if (running) {
+    clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+  }
+}, { immediate: true });
+
+onUnmounted(() => {
+  if (clockTimer) clearInterval(clockTimer);
 });
 
 // Track when doneCount increases
@@ -41,7 +61,7 @@ watch(() => props.doneCount, (newDone) => {
 
 const elapsedMs = computed(() => {
   if (!props.isRunning && props.doneCount === 0) return 0;
-  return Date.now() - taskStartTime.value;
+  return now.value - taskStartTime.value;
 });
 
 const etaMs = computed(() => {
@@ -142,12 +162,12 @@ const phaseLabel = (phase: string) => {
 </script>
 
 <template>
-  <div v-if="totalCount > 0" class="progress-section">
+  <div v-if="isRunning || totalCount > 0" class="progress-section" aria-live="polite">
     <div class="progress-header">
       <div class="progress-title-row">
         <span>生成进度</span>
-        <span v-if="phase && phase !== 'complete'" class="phase-badge" :class="`phase-${phase}`">
-          {{ phaseDetail || phaseLabel(phase) }}
+        <span v-if="isRunning && phase !== 'complete'" class="phase-badge" :class="`phase-${phase || 'preparing'}`">
+          {{ phaseDetail || phaseLabel(phase || 'preparing') }}
         </span>
       </div>
       <div class="progress-meta">
@@ -172,11 +192,18 @@ const phaseLabel = (phase: string) => {
         </span>
       </div>
     </div>
-    <div class="progress-track">
+    <div
+	  class="progress-track"
+	  role="progressbar"
+	  :aria-label="totalCount > 0 ? 'PPT 生成进度' : '正在规划 PPT'"
+	  :aria-valuenow="totalCount > 0 ? progressPct : undefined"
+	  aria-valuemin="0"
+	  aria-valuemax="100"
+	>
       <div
         class="progress-fill"
-        :class="{ shimmer: isRunning }"
-        :style="{ width: progressPct + '%' }"
+		:class="{ shimmer: isRunning && totalCount > 0, indeterminate: isRunning && totalCount === 0 }"
+		:style="totalCount > 0 ? { width: progressPct + '%' } : undefined"
       />
     </div>
     <div class="progress-legend">
@@ -281,6 +308,10 @@ const phaseLabel = (phase: string) => {
 .progress-fill.shimmer {
   animation: shimmer 2s linear infinite;
 }
+.progress-fill.indeterminate {
+  width: 35%;
+  animation: indeterminate 1.4s ease-in-out infinite;
+}
 .progress-legend {
   display: flex; gap: 1rem; margin-top: 0.5rem; flex-wrap: wrap;
 }
@@ -298,6 +329,10 @@ const phaseLabel = (phase: string) => {
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+@keyframes indeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(360%); }
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }

@@ -39,9 +39,9 @@
 ### 阶段 A：准备
 
 1. read_file {{ .TasksJSON }} 了解页面结构
-2. read_file `{{ .TmplDir }}/{{ .OutlineTemplate }}.py`
-   - 只关注每种 content_type 的 filling_prompt 字段约束
-   - 忽略 slide_structure 列表和模板业务术语
+2. read_file `{{ .TmplDir }}/{{ .OutlineTemplate }}.json`
+   - 只关注 `default_slides`、合法 `content_type`、`description` 和背景字段
+   - 忽略模板业务示例中的默认话题，所有内容必须围绕用户主题改写
 3. **检查 background 字段**：
    - 如果 background 为空，根据用户主题和页面类型推断是否需要背景图片；信息密集页可保持为空，封面/章节页优先考虑背景：
      - "艺术"、"文艺"、"涂鸦"、"创意" → `artistic`（艺术涂鸦）
@@ -57,7 +57,14 @@
 
 ### 阶段 B：补充内容
 
-对 description 不足的页面，围绕 `{{ .OutlineQuery }}` 填充（150-300字 + content_plan）。写入后进入阶段 C。
+对 description 不足的页面，围绕 `{{ .OutlineQuery }}` 按页面类型补齐 description 和 content_plan。不要套用统一长段落：
+- `content_slide`：4-6 条要点，每条 25-35 字
+- `card_grid`：4-6 张卡片，每张 header 8-15 字、body 40-60 字
+- `chart_slide`：补齐 `chart_type`、labels、datasets 和来源要求
+- `kpi_dashboard`：最多 4 个 KPI，每个含 value、label、delta、baseline
+- `image_text`、`case_study`、`example_detail` 可使用较长叙事段落
+
+写入后进入阶段 C。
 
 {{else}}
 ## 开始前自行确认
@@ -72,7 +79,7 @@
 
 ### 阶段 A：制定计划
 
-1. read_file 选定模板 `{{ .TmplDir }}/<模板名>.py`（只读 1 个）
+1. read_file 选定模板 `{{ .TmplDir }}/<模板名>.json`（只读 1 个）
 2. 参考 slide_structure 创建 tasks.json（{{ .TasksJSON }}）
 3. edit_file 写入
 
@@ -111,52 +118,43 @@ content_type 详见 {{ .SkillsDir }}/visual_designer/references/slide_types.md�
 
 ## 分批生成 + 质检 + 修复（核心循环）
 
-> **所有批次同时启动，完全并行执行。每批内部最多 {{ .Concurrency }} 页并行生成，每批独立完成质检+修复。禁止顺序等待。**
+> **主 Agent 要并行生成 PPT，但并发边界必须可控。每一轮最多同时启动 {{ .Concurrency }} 个 SlideExecutor 子任务；本轮全部返回并完成文件落地确认后，再推进下一轮。**
 
-对于 N 页任务：
-- N≤{{ .Concurrency }}  → 1 批
-- N≤{{ mul .Concurrency 2 }} → 2 批并行
-- N≤{{ mul .Concurrency 3 }} → 3 批并行
-- N≤{{ mul .Concurrency 4 }} → 4 批并行
-- N≤{{ mul .Concurrency 5 }} → 5 批并行
+对于 N 页任务，按页序切成多个生成窗口，每个窗口 ≤ {{ .Concurrency }} 页：
+- N≤{{ .Concurrency }}  → 1 个窗口
+- N≤{{ mul .Concurrency 2 }} → 2 个窗口
+- N≤{{ mul .Concurrency 3 }} → 3 个窗口
+- N≤{{ mul .Concurrency 4 }} → 4 个窗口
+- N≤{{ mul .Concurrency 5 }} → 5 个窗口
 
-### 全部批次并行启动（核心）
+### 窗口内并行启动（核心）
 
-**在同一个思考周期内，同时发起所有批次的 SlideExecutor 调用。不分先后，不等待结果再发下一批。**
+**同一窗口内的所有 SlideExecutor 调用要一次性并行发起；不要逐页等待。窗口之间允许顺序推进，用于保护 tasks.json、文件输出和模型/工具速率。**
 
-示例（17 页，分 4 批）：
-
-```
-# 同时发 4 批，每批并行生成
-task(description="生成第 1-5 页: [task_id=1-5]", subagent_type="SlideExecutor")
-task(description="生成第 6-10 页: [task_id=6-10]", subagent_type="SlideExecutor")
-task(description="生成第 11-15 页: [task_id=11-15]", subagent_type="SlideExecutor")
-task(description="生成第 16-17 页: [task_id=16-17]", subagent_type="SlideExecutor")
-```
-
-**每批内部用多个 task 并行生成该批所有页**（不能发一个等结果再发下一个）：
+示例（17 页，{{ .Concurrency }}=5）：
 
 ```
-# 第 1 批（5 页）内部并行
+# 第 1 个生成窗口（5 页）内部并行
 task(description="生成第 1 页: [task_id=1, title=xxx, content_type=title_slide]", subagent_type="SlideExecutor")
-task(description="生成第 2 页: [task_id=2, title=xxx, content_type=toc_slide]", subagent_type="SlideExecutor")
+task(description="生成第 2 页: [task_id=2, title=xxx, content_type=agenda]", subagent_type="SlideExecutor")
 task(description="生成第 3 页: [task_id=3, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 task(description="生成第 4 页: [task_id=4, title=xxx, content_type=section_divider]", subagent_type="SlideExecutor")
 task(description="生成第 5 页: [task_id=5, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 
-# 第 2 批（5 页）内部并行
+# 第 1 个窗口全部返回并确认文件后，再启动第 2 个窗口
 task(description="生成第 6 页: [task_id=6, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 ...
 ```
 
-### 步骤 1：并行生成（所有批次同时启动）
+### 步骤 1：并行生成（窗口内并行）
 
 1. read_file tasks.json，取所有 status=pending 的任务
-2. 按页序均分，每批 ≤ {{ .Concurrency }} 页
-3. **立即同时发起所有批次的 task 调用（总调用数 = 总页数）**
-4. 等待所有 task 返回
-5. SlideExecutor 返回后：✅ → edit_file 将 status 更新为 done；❌ → 该页重试（最多 2 次）
+2. 按页序取下一窗口，窗口大小 ≤ {{ .Concurrency }}
+3. **立即同时发起该窗口内所有 task 调用**
+4. 等待该窗口所有 task 返回
+5. SlideExecutor 返回后：✅ → edit_file 将该页 status 更新为 done；❌ → 该页重试（最多 2 次）
+6. read_file 重新确认 tasks.json 结构完整，再进入下一窗口
 
 ### 步骤 2：文件落地确认
 
@@ -165,18 +163,20 @@ task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_s
 3. 前端缩略图按需生成（/api/thumbnail），QA 有内置 PDF 转换，无需批量转换
 
 {{if .EnableQA}}
-### 步骤 3：质检（Reviewer）—— 所有批次并行
+### 步骤 3：质检（Reviewer）—— 按 QA 批次并行
 
 1. 确认所有 status=done
 2. **跳过 title_slide、section_divider、summary_slide**
-3. 按批次并行调用 Reviewer（每批独立）
+3. 按 QA 工具的固定 5 页批次调用 Reviewer；task description 必须写成 `对 batch_idx=N 的批次进行质检`，例如：
+   `task(description="对 batch_idx=0 的批次进行质检", subagent_type="Reviewer")`
 4. edit_file 写入 qa_report，status → qa_done
 
-### 步骤 4：定点修复（所有批次并行）
+### 步骤 4：按生成器修复
 
 1. 筛选 status=qa_done 且 fix_attempts < 2 的页
-2. 按批次并行调用 Fixer
-3. 更新 fix_attempts，成功则 status → fixed
+2. 按窗口并行调用 Fixer，窗口大小 ≤ {{ .Concurrency }}
+3. Fixer 必须优先读取对应 generator 源码并重新生成整页；不要直接修改 skill 或生成器文件
+4. 更新 fix_attempts，成功则 status → fixed
 {{else}}
 ### 步骤 3：质检跳过
 
@@ -223,6 +223,6 @@ Reviewer 的 qa_report 为自然语言文本。提取关键信息：含 "high" �
 2. 禁止用 python3 读/写 tasks.json（JSON 引号转义是 LLM 的常见错误，会破坏文件）
 3. 禁止相对路径
 4. task description 只写页码范围，不复制整页内容
-5. **所有批次必须同时启动，禁止第一批完成后才开始第二批**
+5. **生成阶段必须窗口内并行**：同一窗口内不要逐页等待；窗口之间要在文件和 tasks.json 确认后再推进
 6. 每页最多重试 2 次，仍失败标记 status=failed
 7. **edit_file 写入 tasks.json 后**：必须用 read_file 重新读取，确认 JSON 结构完整、引号和逗号无误；验证失败时不要反复重写，立即报告错误

@@ -34,7 +34,7 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 **python3 代码中，script_dir 必须硬编码为工作目录绝对路径，禁止用 __file__ 或 cwd。**
 
-## ⚠️ 禁止写原始 python-pptx 代码（最高优先级，违反必死）
+## ⚠️ 禁止写原始 python-pptx 代码
 
 必须通过 generators 包生成 PPT，绝不能自己写 python-pptx 代码。
 以下写法全部禁止，违反任意一条都会导致 attribute 错误：
@@ -54,7 +54,7 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
   script_dir = Path("{{ .WorkDir }}")
   generators_pkg_dir = (script_dir / ".." / ".." / "skills" / "visual_designer").resolve()
   sys.path.insert(0, str(generators_pkg_dir))
-  from generators import new_presentation, save_slide, generate_chart_slide, generate_icon_grid, generate_swot_analysis, generate_comparison_table
+  from generators import new_presentation, save_slide, generate_process_flow, generate_chart_slide, generate_icon_grid, generate_swot_analysis, generate_comparison_table
   prs = new_presentation(palette="ocean_soft")
   prs = generate_process_flow(prs=prs, palette="ocean_soft", ..., source="来源: 新华网 2025年 | https://...")
   save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
@@ -62,13 +62,13 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
   ⚠️ save_slide 的第一个参数必须是 slide 对象（prs.slides[-1]），不是 prs。
   有数据来源时，必须传 source 参数，格式："来源: {机构名} {年份} | {URL}"
 
-## ⚠️ 参数名严格对照 generators.md（最高优先级，违反必死）
+## ⚠️ 参数名严格对照 generators.md
 
 **模板文件的字段名 ≠ 生成器函数的参数名，禁止混用。**
 
-模板文件（templates/single-page/*.py）中的 TEMPLATE 字典是给人看的设计规范（JSON 描述），其中包含大量描述性字段如 image_caption、image_placeholder、description、layout_hint、visual_elements 等，这些字段**统统不是函数参数**。
+模板文件（templates/single-page/*.json）是给人看的设计规范，其中包含大量描述性字段如 image_caption、image_placeholder、description、layout_hint、visual_elements 等，这些字段**统统不是函数参数**。
 
-生成器函数参数表**唯一权威来源**是 references/generators.md，其中的参数表列出的参数才是合法参数。
+生成器函数参数以 references/generators.md 为常用速查；如果文档和源码不一致，以对应 `generators/<content_type>_generator.py` 中的实际函数签名为准。
 
 ❌ 错误示例（用模板字段名当函数参数）：
   generate_image_text(..., image_caption="桂林山水甲天下")       # image_caption 不存在
@@ -97,15 +97,14 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 | tasks.json 中的 content_type | 对应生成器函数 | 特殊参数 |
 |------------------------------|----------------|----------|
-| `bar_chart` | `generate_chart_slide` | `chart_type="bar"` |
-| `line_chart` | `generate_chart_slide` | `chart_type="line"` |
-| `pie_chart` | `generate_chart_slide` | `chart_type="pie"` |
-| `doughnut_chart` | `generate_chart_slide` | `chart_type="doughnut"` |
-| `table` | `generate_comparison_table` | 用 headers/rows 参数 |
+| `chart_slide` | `generate_chart_slide` | `chart_type` 可取 `bar` / `line` / `pie` / `doughnut` / `stacked_bar` |
+| `comparison_table` | `generate_comparison_table` | 用 headers/rows 参数 |
+
+`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 是历史别名，不是合法 content_type。若在旧任务中遇到它们，只能在本次生成时兼容映射为 `chart_slide` 或 `comparison_table`，不要把这些别名写入新的 tasks.json。
 
 **错误示例：**
 ```python
-# ❌ 错误：bar_chart 没有对应的 generate_bar_chart 函数
+# ❌ 错误：bar_chart 不是合法 content_type，也没有对应的 generate_bar_chart 函数
 generate_bar_chart(...)
 ```
 
@@ -207,7 +206,7 @@ generate_title_slide(
 
 **禁止**：使用背景图片时仍用 `palette="ocean_soft"`，这会导致背景是复古中国风但文字是蓝色，严重违和。
 
-背景默认亮度 0.95（图片清晰可见）。文字颜色会自动适配浅色/深色背景。
+背景亮度由生成器按页面类型和背景来源自动处理。文字颜色会自动适配浅色/深色背景。
 
 ## 生成器使用（核心）
 
@@ -217,7 +216,7 @@ generate_title_slide(
 
 ## 设计规范参考
 
-模板文件（{{ .SkillsDir }}/visual_designer/templates/single-page/*.py）是设计规范参考，用 read_file 读取后理解布局、字号、颜色、NEVER 清单等规范，实际代码生成统一走 generators 包。
+模板文件（{{ .SkillsDir }}/visual_designer/templates/single-page/*.json）是设计规范参考，用 read_file 读取后理解布局、字号、颜色、NEVER 清单等规范，实际代码生成统一走 generators 包。
 
 ## 内容质量要求
 
@@ -268,14 +267,14 @@ generate_chart_slide(
 
 | content_type | 必须提取的参数 | 说明 |
 |-------------|--------------|------|
-| `line_chart` / `bar_chart` / `pie_chart` | `data = {labels, datasets}` | 从描述中找出指标名称、数值、分类标签 |
+| `chart_slide` | `chart_type`, `data = {labels, datasets}` | 从描述或 content_plan 中找出图表类型、指标名称、数值、分类标签 |
 | `process_flow` | `steps = [{num, title, desc}, ...]` | 从描述中提取流程步骤 |
 | `timeline` | `nodes = [{year, event, icon}, ...]` | 从描述中提取时间节点 |
 | `kpi_dashboard` | `kpis = [{value, label, delta, baseline}, ...]` | 每个 KPI 必须有4个字段 |
 | `card_grid` | `cards = [{header, body}, ...]` | 从描述中提取卡片内容 |
 | `deep_dive` | `key_points`, `analysis`, `case_example`, `data_evidence` | 分左右栏提取 |
 | `stat_slide` | `stats = [{number, unit, label}, ...]` | 提取具体数字和单位 |
-| `table` | `headers`, `rows` | 提取表头和行数据 |
+| `comparison_table` | `headers`, `rows` | 提取表头和行数据 |
 | `quote_slide` | `quote`, `attribution`, `kicker` | 从 description 中解析 quote:/attribution:/kicker: 字段，**必须原文使用，禁止替换或改写** |
 
 **参数提取示例：**
@@ -363,7 +362,7 @@ generate_quote_slide(
 2. 根据任务的 content_type 确定使用的生成器函数（参考 generators.md 参数表）
 3. **重要：检查任务的 background 字段，如果非空则传递给生成器函数**
 4. **重要：从 description 字段中提取结构化参数（如 quote/attribution/kicker/source 等），原文使用，不得用训练数据替换**
-5. 用 search 搜索真实数据来充实内容（注意限流，每个任务搜索不超过10次）
+5. 仅当图表、KPI、案例或任务描述缺少事实依据时，用 search 搜索真实数据来充实内容（注意限流，每个任务搜索不超过10次）；不要为了普通结构页或背景图片默认搜索
 5. 用 python3 执行生成代码
 6. **不要修改 tasks.json 状态**，SlideExecutor 只负责生成 PPT 文件
 

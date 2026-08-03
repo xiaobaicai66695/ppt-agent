@@ -10,7 +10,7 @@
     "毕业",
     "学术"
   ],
-  "thumbnail": "/templates/thumbs/design-defense.png",
+  "thumbnail": "/templates/thumbs/design-defense.jpg",
   "slide_count": 16,
   "default_slides": [
     {
@@ -85,8 +85,8 @@
     },
     {
       "title": "消融实验结果",
-      "content_type": "bar_chart",
-      "description": "柱状图展示各模块贡献度"
+      "content_type": "chart_slide",
+      "description": "柱状图展示各模块贡献度，content_plan 中使用 chart_type=bar、labels 和 datasets 表达数据"
     },
     {
       "title": "总结与展望",

@@ -124,8 +124,8 @@ export async function fetchMe(): Promise<AuthUser> {
 // ── Task API ──────────────────────────────────────────────────────────────
 
 export async function fetchTasks(): Promise<TaskInfo[]> {
-  const res = await apiFetch('/api/tasks', { headers: authHeaders() });
-  return res.json();
+	const res = await checkResponse(await apiFetch('/api/tasks', { headers: authHeaders() }));
+	return res.json();
 }
 
 async function checkResponse(res: Response): Promise<Response> {
@@ -152,19 +152,19 @@ export async function fetchTask(id: string): Promise<TaskInfo> {
 }
 
 export async function cancelTask(id: string): Promise<TaskInfo> {
-  const res = await apiFetch(`/api/tasks/${id}/cancel`, {
-    method: 'POST',
-    headers: authHeaders(),
-  });
-  return res.json();
+	const res = await checkResponse(await apiFetch(`/api/tasks/${id}/cancel`, {
+		method: 'POST',
+		headers: authHeaders(),
+	}));
+	return res.json();
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  const res = await apiFetch(`/api/tasks/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error('删除失败');
+	const res = await checkResponse(await apiFetch(`/api/tasks/${id}`, {
+		method: 'DELETE',
+		headers: authHeaders(),
+	}));
+	await res.json().catch(() => undefined);
 }
 
 // ── Template API ──────────────────────────────────────────────────────────────
@@ -226,7 +226,18 @@ export interface AtomicLayout {
     label: string;
     type: string;
     required: boolean;
+    placeholder?: string;
+    options?: Array<string | { value: string; label: string }>;
   }[];
+  contract?: {
+    capacity?: Record<string, string | number | boolean>;
+    required_fields?: string[];
+    best_for?: string[];
+    avoid_for?: string[];
+    overflow_strategy?: string;
+    background_policy?: string;
+    visual_primitives?: string[];
+  };
 }
 
 export interface ThemeInfo {
@@ -248,7 +259,7 @@ export interface BackgroundTheme {
 }
 
 export async function fetchPresets(): Promise<PresetTemplate[]> {
-  const res = await apiFetch('/api/templates');
+	const res = await checkResponse(await apiFetch('/api/templates'));
   const data = await res.json();
   return data.presets || [];
 }
@@ -260,19 +271,19 @@ export async function fetchPreset(name: string): Promise<PresetTemplate | null> 
 }
 
 export async function fetchLayouts(): Promise<AtomicLayout[]> {
-  const res = await apiFetch('/api/templates/layouts');
+	const res = await checkResponse(await apiFetch('/api/templates/layouts'));
   const data = await res.json();
   return data.layouts || [];
 }
 
 export async function fetchThemes(): Promise<ThemeInfo[]> {
-  const res = await apiFetch('/api/themes');
+	const res = await checkResponse(await apiFetch('/api/themes'));
   const data = await res.json();
   return data.themes || [];
 }
 
 export async function fetchBackgrounds(): Promise<BackgroundTheme[]> {
-  const res = await apiFetch('/api/backgrounds');
+	const res = await checkResponse(await apiFetch('/api/backgrounds'));
   const data = await res.json();
   return data.backgrounds || [];
 }
@@ -287,11 +298,11 @@ export async function createTaskWithOutline(query: string, outline: TaskOutline)
 }
 
 export async function expandWithAI(title: string, contentType: string, description: string, theme: string): Promise<string> {
-  const res = await apiFetch('/api/ai/expand', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ title, content_type: contentType, description, theme }),
-  });
+	const res = await checkResponse(await apiFetch('/api/ai/expand', {
+		method: 'POST',
+		headers: authHeaders(),
+		body: JSON.stringify({ title, content_type: contentType, description, theme }),
+	}));
   const data = await res.json();
   return data.description || '';
 }
@@ -325,39 +336,39 @@ export async function generateOutlineWithAI(query: string, outline: TaskOutline)
 // ── Continue / Session API ──────────────────────────────────────────────────────
 
 export async function continueTask(taskId: string, message: string): Promise<Response> {
-  return apiFetch(`/api/tasks/${taskId}/continue`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ message }),
-  });
+	return checkResponse(await apiFetch(`/api/tasks/${taskId}/continue`, {
+		method: 'POST',
+		headers: authHeaders(),
+		body: JSON.stringify({ message }),
+	}));
 }
 
 export async function fetchConversation(taskId: string): Promise<import('./types').ConversationSession> {
-  const res = await apiFetch(`/api/tasks/${taskId}/conversation`, { headers: authHeaders() });
+	const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/conversation`, { headers: authHeaders() }));
   return res.json();
 }
 
 // ── User profile API ──────────────────────────────────────────────────────────────
 
 export async function fetchUserProfile(): Promise<import('./types').UserStyleProfile> {
-  const res = await apiFetch('/api/users/me/profile', { headers: authHeaders() });
+	const res = await checkResponse(await apiFetch('/api/users/me/profile', { headers: authHeaders() }));
   const data = await res.json();
   return data.profile;
 }
 
 export async function updateUserProfile(profile: Partial<import('./types').UserStyleProfile>): Promise<void> {
-  await apiFetch('/api/users/me/profile', {
-    method: 'PUT',
-    headers: authHeaders(),
-    body: JSON.stringify(profile),
-  });
+	await checkResponse(await apiFetch('/api/users/me/profile', {
+		method: 'PUT',
+		headers: authHeaders(),
+		body: JSON.stringify(profile),
+	}));
 }
 
 export async function resetUserProfile(): Promise<void> {
-  await apiFetch('/api/users/me/profile/reset', {
-    method: 'POST',
-    headers: authHeaders(),
-  });
+	await checkResponse(await apiFetch('/api/users/me/profile/reset', {
+		method: 'POST',
+		headers: authHeaders(),
+	}));
 }
 
 export interface PreferenceSummary {
@@ -371,10 +382,10 @@ export interface PreferenceSummary {
 }
 
 export async function summarizeProfile(): Promise<{ summary: PreferenceSummary; task_count: number; updated_at: string }> {
-  const res = await apiFetch('/api/users/me/profile/summarize', {
-    method: 'POST',
-    headers: authHeaders(),
-  });
+	const res = await checkResponse(await apiFetch('/api/users/me/profile/summarize', {
+		method: 'POST',
+		headers: authHeaders(),
+	}));
   const data = await res.json();
   return data;
 }
@@ -393,11 +404,11 @@ export interface FeedbackRequest {
 }
 
 export async function submitFeedback(feedback: FeedbackRequest): Promise<void> {
-  await apiFetch('/api/feedback', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(feedback),
-  });
+	await checkResponse(await apiFetch('/api/feedback', {
+		method: 'POST',
+		headers: authHeaders(),
+		body: JSON.stringify(feedback),
+	}));
 }
 
 export async function submitRating(taskId: string, rating: number): Promise<void> {
@@ -434,8 +445,7 @@ export interface InsightsReport {
 }
 
 export async function fetchUserInsights(): Promise<InsightsReport | null> {
-  const res = await apiFetch('/api/users/me/insights', { headers: authHeaders() });
-  if (!res.ok) return null;
+	const res = await checkResponse(await apiFetch('/api/users/me/insights', { headers: authHeaders() }));
   const data = await res.json();
   return data.insights;
 }
@@ -451,9 +461,8 @@ export interface Recommendation {
 }
 
 export async function fetchRecommendations(domain?: string): Promise<Recommendation | null> {
-  const url = domain ? `/api/recommendations?domain=${encodeURIComponent(domain)}` : '/api/recommendations';
-  const res = await apiFetch(url, { headers: authHeaders() });
-  if (!res.ok) return null;
+	const url = domain ? `/api/recommendations?domain=${encodeURIComponent(domain)}` : '/api/recommendations';
+	const res = await checkResponse(await apiFetch(url, { headers: authHeaders() }));
   const data = await res.json();
   return data.recommendation;
 }

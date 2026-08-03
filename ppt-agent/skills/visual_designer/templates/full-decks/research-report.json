@@ -10,7 +10,7 @@
     "分析",
     "市场"
   ],
-  "thumbnail": "/templates/thumbs/research-report.png",
+  "thumbnail": "/templates/thumbs/research-report.jpg",
   "slide_count": 16,
   "default_slides": [
     {
@@ -60,8 +60,8 @@
     },
     {
       "title": "竞争格局分析",
-      "content_type": "bar_chart",
-      "description": "以条形图展示头部厂商市场份额对比"
+      "content_type": "chart_slide",
+      "description": "以条形图展示头部厂商市场份额对比，content_plan 中使用 chart_type=bar、labels 和 datasets 表达数据"
     },
     {
       "title": "典型企业案例",

@@ -36,7 +36,7 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 **python3 代码中，script_dir 必须硬编码为工作目录绝对路径，禁止用 __file__ 或 cwd。**
 
-## ⚠️ 禁止写原始 python-pptx 代码（最高优先级，违反必死）
+## ⚠️ 禁止写原始 python-pptx 代码
 
 必须通过 generators 包生成 PPT，绝不能自己写 python-pptx 代码。
 
@@ -48,7 +48,7 @@ from pathlib import Path
 script_dir = Path("{{ .WorkDir }}")
 generators_pkg_dir = (script_dir / ".." / ".." / "skills" / "visual_designer").resolve()
 sys.path.insert(0, str(generators_pkg_dir))
-from generators import new_presentation, save_slide, generate_process_flow
+from generators import new_presentation, save_slide, generate_process_flow, generate_chart_slide
 prs = new_presentation(palette="ocean_soft")
 prs = generate_process_flow(prs=prs, palette="ocean_soft", ..., source="来源: 新华网 2025年 | https://...")
 save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
@@ -56,30 +56,41 @@ save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
 
 ⚠️ save_slide 的第一个参数必须是 slide 对象（prs.slides[-1]），不是 prs。
 
-## ⚠️ 参数名严格对照 generators.md
+## ⚠️ 参数名严格对照 generators.md 和生成器源码
 
 **模板文件的字段名 ≠ 生成器函数的参数名，禁止混用。**
 
-每个生成器的合法参数速查（详细参数表见 generators.md）：
+每个生成器的合法参数先查 `{{ .SkillsDir }}/visual_designer/references/generators.md`；如果文档和源码不一致，以 `{{ .SkillsDir }}/visual_designer/generators/<content_type>_generator.py` 的实际函数签名为准。
 
-  generate_image_text:       prs, palette, source, title, layout, header, paragraph, kicker, sub_header
-  generate_section_divider:   prs, palette, source, number, title, subtitle, kicker
-  generate_kpi_dashboard:    prs, palette, source, kicker, title, kpis, subtitle
+常用生成器速查：
+
+  generate_title_slide:       prs, palette, source, title, subtitle, author, date, kicker, background
+  generate_section_divider:   prs, palette, source, number, title, subtitle, kicker, background
+  generate_agenda:            prs, palette, source, kicker, title, items, background
+  generate_content_slide:     prs, palette, source, title, section_header, bullets, kicker, lede
+  generate_image_text:        prs, palette, source, title, layout, header, paragraph, kicker, sub_header, background
+  generate_card_grid:         prs, palette, source, title, layout, cards, kicker, subtitle, background
+  generate_kpi_dashboard:     prs, palette, source, kicker, title, kpis, subtitle, background
+  generate_chart_slide:       prs, palette, source, kicker, title, subtitle, chart_type, data, show_legend, background
+  generate_comparison_table:  prs, palette, source, kicker, title, subtitle, headers, rows, recommendation, background
+
+合法 content_type 以 `{{ .SkillsDir }}/visual_designer/references/slide_types.md` 为准。`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 是历史别名，不要写入新的 tasks.json；旧任务中遇到时，仅在生成代码内兼容映射为 `chart_slide` 或 `comparison_table`。
 
 ## 可用工具
 
 - read_file：读取文件（参数：path，**必须用绝对路径**）
 - python3：执行 Python 代码生成 PPT（参数：code）
-- search：网络搜索，获取真实数据
+- search：网络搜索，仅在图表、KPI、案例或任务缺少事实依据时获取真实数据
 
 ## 执行流程
 
 1. 用 read_file 读取 {{ .WorkDir }}/tasks.json（绝对路径）
 2. 找到需要处理的页面（指定页码或所有 pending 页面）
 3. 根据每个任务的 content_type 确定使用的生成器函数
-4. 用 search 搜索真实数据来充实内容
-5. 用 python3 执行生成代码
-6. **不要修改 tasks.json 状态**，只负责生成 PPT 文件
+4. 检查任务的 background 字段；非空时必须作为 background 参数传给对应生成器，空值时只在封面、章节页、图文页或氛围页确有需要时自行选择
+5. 仅在图表、KPI、案例或任务描述缺少事实依据时，用 search 搜索真实数据来充实内容
+6. 用 python3 执行生成代码
+7. **不要修改 tasks.json 状态**，只负责生成 PPT 文件
 
 ## 内容质量要求
 

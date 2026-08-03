@@ -36,6 +36,7 @@ const (
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
+	ID               uint64                     `json:"id,omitempty"`
 	Type             string                     `json:"type"`
 	Content          string                     `json:"content,omitempty"`
 	ToolName         string                     `json:"tool_name,omitempty"`
@@ -80,6 +81,7 @@ type TaskInfo struct {
 type TaskState struct {
 	Info          TaskInfo
 	Events        []SSERichEvent
+	nextEventID   uint64
 	listeners     map[string]chan SSERichEvent
 	cancel        context.CancelFunc
 	result        *deep.PPTTaskResult
@@ -174,6 +176,12 @@ func (ts *TaskState) RemoveListener(id string) {
 
 func (ts *TaskState) Broadcast(event SSERichEvent) {
 	ts.Mu.Lock()
+	if event.ID == 0 {
+		ts.nextEventID++
+		event.ID = ts.nextEventID
+	} else if event.ID > ts.nextEventID {
+		ts.nextEventID = event.ID
+	}
 	ts.Events = append(ts.Events, event)
 	if len(ts.Events) > 500 {
 		ts.Events = ts.Events[len(ts.Events)-300:]
@@ -189,6 +197,31 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		}
 	}
 	ts.Mu.Unlock()
+}
+
+// SubscribeFrom atomically snapshots buffered events newer than afterEventID
+// and registers a live listener when the task is still running. Keeping these
+// operations under one lock prevents events from falling between replay and
+// subscription.
+func (ts *TaskState) SubscribeFrom(listenerID string, listenerCh chan SSERichEvent, afterEventID uint64) ([]SSERichEvent, bool) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+
+	events := make([]SSERichEvent, 0, len(ts.Events))
+	for _, event := range ts.Events {
+		if event.ID > afterEventID {
+			events = append(events, event)
+		}
+	}
+
+	done := ts.Info.Status != TaskStatusRunning
+	if !done {
+		if ts.listeners == nil {
+			ts.listeners = make(map[string]chan SSERichEvent)
+		}
+		ts.listeners[listenerID] = listenerCh
+	}
+	return events, done
 }
 
 func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
@@ -214,6 +247,7 @@ type TaskManager struct {
 	onTaskComplete func(userID int, workDir string, query string)
 	onTaskFailed   func(taskID string)
 	onTaskContinue func(taskID string) // 任务完成且有待处理消息时触发
+	onFileReady    func(taskID string, workDir string, filename string)
 }
 
 // NewTaskManager 创建一个新的 TaskManager。baseDir 是父目录，
@@ -232,6 +266,29 @@ func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir stri
 		onTaskComplete: onTaskComplete,
 		onTaskFailed:   onTaskFailed,
 		onTaskContinue: onTaskContinue,
+	}
+}
+
+// SetFileReadyCallback 注册单页 PPTX 落盘后的异步处理回调。
+// 回调不得阻塞任务进度轮询；TaskManager 会在独立 goroutine 中调用它。
+func (tm *TaskManager) SetFileReadyCallback(callback func(taskID string, workDir string, filename string)) {
+	tm.mu.Lock()
+	tm.onFileReady = callback
+	tm.mu.Unlock()
+}
+
+func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) {
+	ts.Broadcast(SSERichEvent{
+		Type:     "file_ready",
+		ToolName: filename,
+		Files:    []string{filename},
+	})
+
+	tm.mu.RLock()
+	callback := tm.onFileReady
+	tm.mu.RUnlock()
+	if callback != nil {
+		go callback(ts.Info.ID, workDir, filename)
 	}
 }
 
@@ -827,11 +884,7 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 						if ts.runtimeMeta != nil {
 							ts.runtimeMeta.RecordFileCreated(entry.Name())
 						}
-						ts.Broadcast(SSERichEvent{
-							Type:     "file_ready",
-							ToolName: entry.Name(),
-							Files:    []string{entry.Name()},
-						})
+						tm.reportFileReady(ts, workDir, entry.Name())
 						continue
 					}
 					ts.Mu.Unlock()

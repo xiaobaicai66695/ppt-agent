@@ -2,7 +2,22 @@
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type SSEEventType = 'answer' | 'tool_call' | 'progress' | 'file_ready' | 'token_usage' | 'runtime_meta' | 'error' | 'complete' | 'continue_complete' | 'continue_queued';
+export type SSEEventType =
+  | 'answer'
+  | 'answer_end'
+  | 'system_step'
+  | 'system_step_end'
+  | 'tool_call'
+  | 'progress'
+  | 'file_ready'
+  | 'thumbnail_ready'
+  | 'thumbnail_error'
+  | 'token_usage'
+  | 'runtime_meta'
+  | 'error'
+  | 'complete'
+  | 'continue_complete'
+  | 'continue_queued';
 export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
 
 // ── Session types ────────────────────────────────────────────────────────────
@@ -133,6 +148,7 @@ export interface RuntimeMeta {
 }
 
 export interface SSEEvent {
+  id?: number;
   type: SSEEventType;
   content?: string;
   tool_name?: string;

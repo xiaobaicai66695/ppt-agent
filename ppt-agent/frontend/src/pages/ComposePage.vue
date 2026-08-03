@@ -78,22 +78,6 @@ function onDrop(e: DragEvent, index: number) {
   dragOverIndex.value = -1;
 }
 
-// Theme color map for preset thumbnails
-const themeColors: Record<string, string> = {
-  ocean_soft: '#0891b2', sage_calm: '#16a34a', charcoal_light: '#475569',
-  government_red: '#dc2626', patriotic_blue: '#1d4ed8', warm_terracotta: '#ea580c',
-  berry_cream: '#7c3aed', lavender_mist: '#9333ea', civic_gold: '#ca8a04',
-  debate_purple: '#6d28d9', activity_orange: '#c2410c', report_green: '#15803d',
-  simple_gray: '#374151', medical_blue: '#0284c7', finance_gold: '#b45309',
-  education_blue: '#1e40af',
-};
-
-function getPresetGradient(palette: string): string {
-  const color = themeColors[palette] || '#0891b2';
-  const colorAlpha = color + '88';
-  return 'linear-gradient(135deg, ' + color + ', ' + colorAlpha + ')';
-}
-
 function onPresetThumbError(e: Event) {
   const img = e.target as HTMLImageElement;
   img.style.display = 'none';
@@ -143,20 +127,61 @@ const layoutCategories = [
 ];
 
 const groupedLayouts = computed(() => {
-  return layoutCategories.map(group => ({
+  const groups = layoutCategories.map(group => ({
     label: group.label,
     items: layouts.value.filter(l => group.names.includes(l.name)),
   })).filter(g => g.items.length > 0);
+  const groupedNames = new Set(layoutCategories.flatMap(group => group.names));
+  const remaining = layouts.value.filter(layout => !groupedNames.has(layout.name));
+  if (remaining.length) groups.push({ label: '更多布局', items: remaining });
+  return groups;
 });
 
-const contentTypeLabels: Record<string, string> = {
-  title_slide: '封面', agenda: '目录', section_divider: '章节',
-  content_slide: '内容', two_column: '双栏', three_column: '三栏',
-  card_grid: '卡片', process_flow: '流程',
-  stat_slide: '数据', quote_slide: '引用', image_text: '图文',
-  case_study: '案例', kpi_dashboard: '仪表盘', summary_slide: '总结',
-  deep_dive: '深度解析',
+const selectedLayout = computed(() => layouts.value.find(
+  layout => layout.name === editingSlide.value?.content_type,
+) || null);
+
+const capacityLabels: Record<string, string> = {
+  density: '信息密度',
+  max_analysis_chars: '分析文字上限',
+  max_attribution_chars: '出处字数上限',
+  max_body_chars: '正文单项上限',
+  max_chars_per_item: '单项字数上限',
+  max_datasets: '数据系列上限',
+  max_header_chars: '小标题字数上限',
+  max_intro_chars: '引导文字上限',
+  max_items: '内容项上限',
+  max_items_per_column: '每栏内容项上限',
+  max_label_chars: '标签字数上限',
+  max_labels: '分类标签上限',
+  max_paragraph_chars: '段落字数上限',
+  max_quote_chars: '引用字数上限',
+  max_subtitle_chars: '副标题字数上限',
+  max_title_chars: '标题字数上限',
+  min_items: '内容项下限',
+  min_paragraph_chars: '段落字数下限',
 };
+
+const densityLabels: Record<string, string> = { low: '低', normal: '中', high: '高' };
+
+const capacityGuidance = computed(() => Object.entries(selectedLayout.value?.contract?.capacity || {}).map(
+  ([key, value]) => ({
+    key,
+    label: capacityLabels[key] || key,
+    value: key === 'density' ? (densityLabels[String(value)] || String(value)) : String(value),
+  }),
+));
+
+const requiredFields = computed(() => {
+  const layout = selectedLayout.value;
+  if (!layout) return [];
+  const contractFields = new Set(layout.contract?.required_fields || []);
+  return layout.fields.filter(field => field.required || contractFields.has(field.name));
+});
+
+function getLayoutDisplayName(name: string): string {
+  return layouts.value.find(layout => layout.name === name)?.display_name || name;
+}
 
 function getBackgroundPreview(name: string): string {
   const bg = backgrounds.value.find(b => b.name === name);
@@ -287,12 +312,14 @@ function addSlideFromLayout(layout: AtomicLayout) {
     content_type: layout.name,
     description: '',
   };
+  let insertIndex = slides.value.length;
   if (selectedSlideIndex.value >= 0) {
-    slides.value.splice(selectedSlideIndex.value + 1, 0, slide);
+    insertIndex = selectedSlideIndex.value + 1;
+    slides.value.splice(insertIndex, 0, slide);
   } else {
     slides.value.push(slide);
   }
-  selectedSlideIndex.value = slides.value.length - 1;
+  selectedSlideIndex.value = insertIndex;
   editingSlide.value = { ...slide };
 }
 
@@ -542,15 +569,15 @@ async function startGeneration() {
 
           <div v-if="loading" class="loading-placeholder">加载中...</div>
           <div v-else class="preset-grid">
-            <div
+            <button
               v-for="preset in filteredPresets"
               :key="preset.name"
               :class="['preset-card', { selected: selectedPreset?.name === preset.name }]"
+              type="button"
               @click="selectPreset(preset)"
             >
               <div
                 :class="['preset-thumb', { 'thumb-missing': !preset.thumbnail }]"
-                :style="{ background: getPresetGradient(preset.default_palette) }"
               >
                 <img
                   v-if="preset.thumbnail"
@@ -560,15 +587,13 @@ async function startGeneration() {
                   loading="lazy"
                   @error="onPresetThumbError"
                 />
-                <span class="preset-thumb-lines" aria-hidden="true">
-                  <i></i><i></i><i></i>
-                </span>
+                <span class="preset-missing-label">预览缺失</span>
               </div>
               <div class="preset-info">
                 <div class="preset-name">{{ preset.display_name }}</div>
                 <div class="preset-meta">{{ preset.slide_count }}页 · {{ categoryMap[preset.category] || preset.category }}</div>
               </div>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -577,16 +602,16 @@ async function startGeneration() {
           <div v-for="group in groupedLayouts" :key="group.label" class="layout-group">
             <div class="layout-group-label">{{ group.label }}</div>
             <div class="layout-list">
-              <div
+              <button
                 v-for="layout in group.items"
                 :key="layout.name"
                 class="layout-item"
-                draggable="true"
+                type="button"
                 @click="addSlideFromLayout(layout)"
               >
-                <span class="layout-icon">◫</span>
+                <span class="layout-icon" aria-hidden="true"></span>
                 <span class="layout-name">{{ layout.display_name }}</span>
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -604,13 +629,14 @@ async function startGeneration() {
             </button>
           </div>
           <div class="bg-grid">
-            <div
+            <button
               v-for="bg in filteredBackgrounds"
               :key="bg.name"
               :class="[
                 'bg-card',
                 { selected: selectedSlideIndex >= 0 && slides[selectedSlideIndex]?.background === bg.name }
               ]"
+              type="button"
               @click="applyBackgroundToSlide(bg.name)"
               :title="bg.description"
             >
@@ -623,7 +649,7 @@ async function startGeneration() {
                   @error="(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.classList.add('bg-thumb-placeholder'); }"
                 />
                 <div v-else class="bg-thumb-placeholder">
-                  <span>🖼️</span>
+                  <span>预览缺失</span>
                 </div>
               </div>
               <div class="bg-info">
@@ -632,10 +658,10 @@ async function startGeneration() {
                   <span v-for="s in bg.scenarios?.slice(0, 2)" :key="s" class="bg-tag">{{ s }}</span>
                 </div>
               </div>
-            </div>
+            </button>
           </div>
           <div v-if="selectedSlideIndex < 0 && filteredBackgrounds.length > 0" class="bg-hint">
-            ⚠️ 请先在中间选择一张幻灯片，再点击背景进行应用
+            请先在中间选择一张幻灯片，再应用背景
           </div>
         </div>
       </div>
@@ -652,7 +678,6 @@ async function startGeneration() {
             :key="slide.title + '-' + index"
             :class="['slide-card', { selected: selectedSlideIndex === index, 'drag-over': dragOverIndex === index, 'is-dragging': draggingIndex === index }]"
             draggable="true"
-            @click="openSlideEditor(index)"
             @dragstart="onDragStart(index)"
             @dragover.prevent="onDragOver(index)"
             @drop.prevent="onDrop($event, index)"
@@ -660,14 +685,16 @@ async function startGeneration() {
             @dragleave="onDragLeave"
           >
             <div class="slide-index">{{ index + 1 }}</div>
-            <div class="slide-info">
-              <div class="slide-title">{{ slide.title || '未命名' }}</div>
-              <div class="slide-type">{{ contentTypeLabels[slide.content_type] || slide.content_type }}</div>
-              <div v-if="slide.background" class="slide-bg-badge">
-                <span class="bg-dot"></span>
-                {{ getBgDisplayName(slide.background) }}
+            <button class="slide-open-btn" type="button" @click="openSlideEditor(index)">
+              <div class="slide-info">
+                <div class="slide-title">{{ slide.title || '未命名' }}</div>
+                <div class="slide-type">{{ getLayoutDisplayName(slide.content_type) }}</div>
+                <div v-if="slide.background" class="slide-bg-badge">
+                  <span class="bg-dot"></span>
+                  {{ getBgDisplayName(slide.background) }}
+                </div>
               </div>
-            </div>
+            </button>
             <div class="slide-actions" @click.stop>
               <button class="action-btn" @click="moveSlide(index, 'up')" title="上移" aria-label="上移">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -702,11 +729,22 @@ async function startGeneration() {
       </div>
 
       <!-- Right: Slide Editor -->
-      <div class="right-panel">
+      <button
+        v-if="editingSlide"
+        class="editor-scrim"
+        type="button"
+        aria-label="关闭页面编辑器"
+        @click="cancelEdit"
+      ></button>
+      <div class="right-panel" :class="{ open: editingSlide }">
         <div v-if="editingSlide" class="slide-editor">
           <div class="editor-header">
             <span>编辑页面</span>
-            <button class="btn-close" @click="cancelEdit">✕</button>
+            <button class="btn-close" type="button" aria-label="关闭页面编辑器" @click="cancelEdit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
           </div>
           <div class="editor-body">
             <div class="field-group">
@@ -726,6 +764,28 @@ async function startGeneration() {
                 </option>
               </select>
             </div>
+            <section v-if="selectedLayout" class="layout-guidance" aria-label="布局容量说明">
+              <div class="guidance-head">
+                <strong>{{ selectedLayout.display_name }}</strong>
+                <span>{{ selectedLayout.description }}</span>
+              </div>
+              <div v-if="requiredFields.length" class="guidance-row">
+                <span class="guidance-label">必填字段</span>
+                <span class="guidance-values">
+                  <span v-for="field in requiredFields" :key="field.name" class="guidance-chip">
+                    {{ field.label }}
+                  </span>
+                </span>
+              </div>
+              <div v-if="capacityGuidance.length" class="guidance-row">
+                <span class="guidance-label">容量建议</span>
+                <span class="capacity-list">
+                  <span v-for="item in capacityGuidance" :key="item.key">
+                    {{ item.label }} {{ item.value }}
+                  </span>
+                </span>
+              </div>
+            </section>
             <div class="field-group">
               <label for="field-bg">背景图片</label>
               <div class="bg-selector">
@@ -882,7 +942,7 @@ async function startGeneration() {
 
 .btn-ai-batch {
   padding: 8px 16px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: var(--color-primary);
   color: white;
   border: none;
   border-radius: 8px;
@@ -1047,10 +1107,14 @@ async function startGeneration() {
 
 .preset-card {
   display: flex;
+  width: 100%;
   gap: 12px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1075,6 +1139,8 @@ async function startGeneration() {
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
 }
 
 .preset-thumb-img {
@@ -1085,31 +1151,14 @@ async function startGeneration() {
   inset: 0;
 }
 
-.preset-thumb-lines {
-  width: 26px;
-  display: grid;
-  gap: 4px;
-  opacity: 0;
+.preset-missing-label {
+  display: none;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
 }
-
-.preset-thumb.thumb-missing .preset-thumb-lines {
-  opacity: 0.85;
-}
-
-.preset-thumb-lines i {
-  display: block;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.preset-thumb-lines i:nth-child(2) {
-  width: 80%;
-}
-
-.preset-thumb-lines i:nth-child(3) {
-  width: 58%;
-}
+.preset-thumb.thumb-missing .preset-missing-label { display: block; }
 
 .preset-info {
   flex: 1;
@@ -1168,6 +1217,7 @@ async function startGeneration() {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
+  color: var(--text-primary);
 }
 
 .layout-item:hover {
@@ -1176,8 +1226,11 @@ async function startGeneration() {
 }
 
 .layout-icon {
-  font-size: 14px;
-  opacity: 0.6;
+  width: 14px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  box-shadow: inset 4px 0 0 color-mix(in srgb, currentColor 20%, transparent);
+  opacity: 0.65;
 }
 
 /* Center Panel */
@@ -1300,6 +1353,25 @@ async function startGeneration() {
   opacity: 1;
 }
 
+.slide-open-btn {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.slide-open-btn:focus-visible,
+.preset-card:focus-visible,
+.layout-item:focus-visible,
+.bg-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  outline-offset: 2px;
+}
+
 .action-btn {
   width: 26px;
   height: 26px;
@@ -1346,6 +1418,8 @@ async function startGeneration() {
   flex-direction: column;
 }
 
+.editor-scrim { display: none; }
+
 .slide-editor {
   display: flex;
   flex-direction: column;
@@ -1367,8 +1441,14 @@ async function startGeneration() {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 16px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
+.btn-close svg { width: 20px; height: 20px; }
 
 .editor-body {
   flex: 1;
@@ -1410,6 +1490,34 @@ async function startGeneration() {
   resize: vertical;
   min-height: 120px;
   line-height: 1.6;
+}
+
+.layout-guidance {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.guidance-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.guidance-head strong { font-size: 12px; }
+.guidance-head > span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.guidance-row { display: flex; flex-direction: column; gap: 6px; }
+.guidance-label { color: var(--text-muted); font-size: 10px; font-weight: 600; }
+.guidance-values, .capacity-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.guidance-chip, .capacity-list > span {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 10px;
 }
 
 .bg-selector {
@@ -1495,7 +1603,7 @@ async function startGeneration() {
 
 .btn-ai {
   padding: 8px 20px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: var(--color-primary);
   color: white;
   border: none;
   border-radius: 6px;
@@ -1546,6 +1654,9 @@ async function startGeneration() {
   cursor: pointer;
   transition: all 0.15s;
   background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 0;
+  text-align: left;
 }
 
 .bg-card:hover {
@@ -1579,9 +1690,83 @@ async function startGeneration() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--bg-secondary), var(--bg-hover));
+  background: var(--bg-secondary);
   color: var(--text-muted);
-  font-size: 24px;
+  font-size: 11px;
+}
+
+@media (max-width: 1100px) {
+  .left-panel { width: 260px; min-width: 260px; }
+  .right-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(390px, 92vw);
+    min-width: 0;
+    z-index: 61;
+    box-shadow: -12px 0 32px rgba(15, 23, 42, 0.16);
+    transform: translateX(105%);
+    transition: transform 0.2s ease;
+  }
+  .right-panel.open { transform: translateX(0); }
+  .editor-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    border: 0;
+    background: rgba(15, 23, 42, 0.28);
+  }
+}
+
+@media (max-width: 820px) {
+  .compose-page { height: auto; min-height: 100dvh; overflow-x: hidden; }
+  .compose-toolbar { flex-wrap: wrap; padding: 10px 12px; }
+  .toolbar-left, .toolbar-center, .toolbar-right { width: 100%; min-width: 0; }
+  .toolbar-left { justify-content: space-between; }
+  .toolbar-center { order: 2; }
+  .toolbar-right { order: 3; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+  .title-input { max-width: none; text-align: left; }
+  .theme-select { flex: 0 0 auto; }
+  .topic-bar { padding: 10px 12px; }
+  .topic-input { width: 100%; min-width: 0; }
+  .topic-hint { padding-left: 0; }
+  .compose-body { flex-direction: column; overflow: visible; }
+  .left-panel {
+    width: 100%;
+    min-width: 0;
+    height: min(44vh, 410px);
+    min-height: 300px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .center-panel { min-height: 55vh; overflow: visible; }
+  .slide-list {
+    overflow: visible;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .slide-card { width: auto; min-width: 0; }
+  .slide-actions { opacity: 1; }
+  .action-btn { width: 40px; height: 40px; }
+  .right-panel { width: 100%; height: 100dvh; }
+  .editor-header, .editor-footer { flex: 0 0 auto; background: var(--bg-secondary); }
+  .editor-body { padding-bottom: 24px; }
+  .btn-back, .btn-ai-batch, .btn-secondary, .btn-primary,
+  .btn-add-slide, .btn-cancel, .btn-save, .btn-ai { min-height: 44px; }
+}
+
+@media (max-width: 520px) {
+  .toolbar-center { flex-wrap: wrap; }
+  .theme-select { width: 100%; min-height: 44px; }
+  .preset-grid, .slide-list { grid-template-columns: minmax(0, 1fr); }
+  .slide-card { padding: 14px; }
+  .slide-actions { justify-content: flex-end; }
+  .action-btn { width: 44px; height: 44px; }
+  .editor-footer { justify-content: stretch; padding: 10px; }
+  .editor-footer button { flex: 1; padding-left: 8px; padding-right: 8px; }
 }
 
 .bg-info {

@@ -73,20 +73,46 @@ const taskCount = computed(() => props.tasks.length);
 const showPrefs = ref(false);
 const prefsLoading = ref(false);
 const prefsSummary = ref<PreferenceSummary | null>(null);
-const prefsEditing = ref<PreferenceSummary | null>(null);
+interface PreferenceDraft {
+  preferred_themes: string;
+  preferred_colors: string;
+  content_patterns: string;
+  layout_preferences: string;
+  language_tone: string;
+  typical_page_count: number;
+}
+const prefsEditing = ref<PreferenceDraft | null>(null);
 const prefsSaved = ref(false);
+const prefsError = ref('');
+
+function listToDraft(values?: string[]): string {
+  return (values || []).join(', ');
+}
+
+function draftToList(value: string): string[] {
+  return value.split(/[,，]/).map(item => item.trim()).filter(Boolean);
+}
 
 async function openPrefs() {
   showPrefs.value = true;
   prefsLoading.value = true;
   prefsSaved.value = false;
+  prefsError.value = '';
   try {
     const data = await summarizeProfile();
     prefsSummary.value = data.summary;
-    prefsEditing.value = JSON.parse(JSON.stringify(data.summary)); // deep clone
-  } catch {
+    prefsEditing.value = {
+      preferred_themes: listToDraft(data.summary.preferred_themes),
+      preferred_colors: listToDraft(data.summary.preferred_colors),
+      content_patterns: listToDraft(data.summary.content_patterns),
+      layout_preferences: listToDraft(data.summary.layout_preferences),
+      language_tone: data.summary.language_tone || '',
+      typical_page_count: data.summary.typical_page_count || 0,
+    };
+  } catch (e) {
     prefsSummary.value = null;
     prefsEditing.value = null;
+    prefsError.value = e instanceof Error ? e.message : '偏好加载失败';
   } finally {
     prefsLoading.value = false;
   }
@@ -94,11 +120,21 @@ async function openPrefs() {
 
 async function savePrefs() {
   if (!prefsEditing.value) return;
+  prefsError.value = '';
   try {
-    await updateUserProfile(prefsEditing.value);
+    await updateUserProfile({
+      preferred_themes: draftToList(prefsEditing.value.preferred_themes),
+      preferred_colors: draftToList(prefsEditing.value.preferred_colors),
+      content_patterns: draftToList(prefsEditing.value.content_patterns),
+      layout_preferences: draftToList(prefsEditing.value.layout_preferences),
+      language_tone: prefsEditing.value.language_tone,
+      typical_page_count: prefsEditing.value.typical_page_count,
+    });
     prefsSaved.value = true;
     setTimeout(() => { prefsSaved.value = false; }, 2000);
-  } catch { /* ignore */ }
+  } catch (e) {
+    prefsError.value = e instanceof Error ? e.message : '偏好保存失败';
+  }
 }
 
 function closePrefs() {
@@ -110,7 +146,7 @@ function closePrefs() {
 
 <template>
   <aside class="sidebar">
-    <div class="sidebar-header" @click="router.push('/')">
+    <button class="sidebar-header" type="button" @click="router.push('/')">
       <div class="logo-icon">
         <svg viewBox="0 0 40 40" fill="none">
           <rect x="5" y="7" width="30" height="22" rx="4" fill="var(--accent-soft)" stroke="var(--accent-border)" stroke-width="1.5"/>
@@ -126,7 +162,7 @@ function closePrefs() {
         <h1 class="sidebar-logo">PPT Agent</h1>
         <span class="sidebar-sub">AI 驱动的幻灯片生成</span>
       </div>
-    </div>
+    </button>
 
     <!-- User bar -->
     <div class="user-bar" role="region" aria-label="用户信息">
@@ -172,7 +208,7 @@ function closePrefs() {
         :aria-disabled="creating || hasActiveTask"
       >
         <span v-if="creating" class="btn-spinner" aria-hidden="true"></span>
-        <span>{{ creating ? '创建中...' : hasActiveTask ? '任务执行中...' : '✦ 生成 PPT' }}</span>
+        <span>{{ creating ? '创建中...' : hasActiveTask ? '任务执行中...' : '生成 PPT' }}</span>
       </button>
       <p v-if="hasActiveTask && !creating" class="busy-hint" role="status">
         有任务正在执行中，请稍候
@@ -216,38 +252,43 @@ function closePrefs() {
           :key="t.id"
           class="task-item"
           :class="{ active: t.id === selectedId, running: t.status === 'running' }"
-          @click="emit('selectTask', t.id)"
           role="listitem"
-          :aria-current="t.id === selectedId ? 'true' : undefined"
         >
-          <div class="task-item-top">
-            <span class="task-item-query" :title="t.query || ''">{{ t.query || '' }}</span>
-            <button
-              v-if="t.status !== 'running'"
-              class="task-delete-btn"
-              :title="'删除: ' + (t.query || t.id)"
-              @click.stop="emit('deleteTask', t.id)"
-              aria-label="删除任务"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>
-              </svg>
-            </button>
-          </div>
-          <div class="task-item-meta">
-            <span class="task-badge" :class="t.status" :aria-label="t.status">
-              <span class="badge-dot" aria-hidden="true"></span>
-              {{ t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : t.status === 'cancelled' ? '已中断' : '失败' }}
-            </span>
-            <span class="task-item-time" aria-label="创建时间">{{ fmtTime(t.created_at) }}</span>
-          </div>
-          <div v-if="t.total_count > 0" class="task-item-progress" role="progressbar" :aria-valuenow="t.done_count" :aria-valuemax="t.total_count">
-            <div class="mini-bar"><div class="mini-bar-fill" :class="{ done: t.status === 'completed' }" :style="{ width: Math.round((t.done_count / t.total_count) * 100) + '%' }" /></div>
-            <span class="mini-count" aria-hidden="true">{{ t.done_count }}/{{ t.total_count }}</span>
-          </div>
-          <div v-if="(t.total_tokens ?? 0) > 0" class="task-item-tokens" aria-label="消耗 tokens">
-            {{ fmtTokens(t.total_tokens ?? 0) }} tokens
-          </div>
+          <button
+            class="task-select-btn"
+            type="button"
+            :aria-current="t.id === selectedId ? 'true' : undefined"
+            @click="emit('selectTask', t.id)"
+          >
+            <div class="task-item-top">
+              <span class="task-item-query" :title="t.query || ''">{{ t.query || '' }}</span>
+            </div>
+            <div class="task-item-meta">
+              <span class="task-badge" :class="t.status" :aria-label="t.status">
+                <span class="badge-dot" aria-hidden="true"></span>
+                {{ t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : t.status === 'cancelled' ? '已中断' : '失败' }}
+              </span>
+              <span class="task-item-time" aria-label="创建时间">{{ fmtTime(t.created_at) }}</span>
+            </div>
+            <div v-if="t.total_count > 0" class="task-item-progress" role="progressbar" :aria-valuenow="t.done_count" :aria-valuemax="t.total_count">
+              <div class="mini-bar"><div class="mini-bar-fill" :class="{ done: t.status === 'completed' }" :style="{ width: Math.round((t.done_count / t.total_count) * 100) + '%' }" /></div>
+              <span class="mini-count" aria-hidden="true">{{ t.done_count }}/{{ t.total_count }}</span>
+            </div>
+            <div v-if="(t.total_tokens ?? 0) > 0" class="task-item-tokens" aria-label="消耗 tokens">
+              {{ fmtTokens(t.total_tokens ?? 0) }} tokens
+            </div>
+          </button>
+          <button
+            v-if="t.status !== 'running'"
+            class="task-delete-btn"
+            :title="'删除: ' + (t.query || t.id)"
+            @click="emit('deleteTask', t.id)"
+            aria-label="删除任务"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>
+            </svg>
+          </button>
         </div>
       </TransitionGroup>
     </div>
@@ -267,11 +308,11 @@ function closePrefs() {
             <p class="prefs-hint">以下是根据您的历史任务自动总结的偏好，可手动修改后保存。</p>
 
             <label class="prefs-field">配色主题 (逗号分隔)
-              <input v-model="(prefsEditing.preferred_themes as any)" :placeholder="(prefsSummary?.preferred_themes || []).join(', ') || '如 ocean_soft, sage_calm'" class="prefs-input"/>
+              <input v-model="prefsEditing.preferred_themes" :placeholder="(prefsSummary?.preferred_themes || []).join(', ') || '如 ocean_soft, sage_calm'" class="prefs-input"/>
             </label>
 
             <label class="prefs-field">偏好颜色 (逗号分隔)
-              <input v-model="(prefsEditing.preferred_colors as any)" :placeholder="(prefsSummary?.preferred_colors || []).join(', ') || '如 蓝色系, 暖色调'" class="prefs-input"/>
+              <input v-model="prefsEditing.preferred_colors" :placeholder="(prefsSummary?.preferred_colors || []).join(', ') || '如 蓝色系, 暖色调'" class="prefs-input"/>
             </label>
 
             <label class="prefs-field">语言风格
@@ -288,12 +329,14 @@ function closePrefs() {
             </label>
 
             <label class="prefs-field">布局偏好 (逗号分隔)
-              <input v-model="(prefsEditing.layout_preferences as any)" :placeholder="(prefsSummary?.layout_preferences || []).join(', ') || '如 图表优先, 双栏对比'" class="prefs-input"/>
+              <input v-model="prefsEditing.layout_preferences" :placeholder="(prefsSummary?.layout_preferences || []).join(', ') || '如 图表优先, 双栏对比'" class="prefs-input"/>
             </label>
 
             <label class="prefs-field">内容模式 (逗号分隔)
-              <input v-model="(prefsEditing.content_patterns as any)" :placeholder="(prefsSummary?.content_patterns || []).join(', ') || '如 案例驱动, 数据支撑'" class="prefs-input"/>
+              <input v-model="prefsEditing.content_patterns" :placeholder="(prefsSummary?.content_patterns || []).join(', ') || '如 案例驱动, 数据支撑'" class="prefs-input"/>
             </label>
+
+            <p v-if="prefsError" class="prefs-error" role="alert">{{ prefsError }}</p>
 
             <div class="prefs-actions">
               <button class="prefs-save-btn" @click="savePrefs" :disabled="prefsSaved">
@@ -303,7 +346,7 @@ function closePrefs() {
             </div>
           </template>
 
-          <p v-else class="prefs-loading">暂无历史数据，完成几个任务后将自动生成偏好分析。</p>
+          <p v-else class="prefs-loading" :class="{ error: prefsError }">{{ prefsError || '暂无历史数据，完成几个任务后将自动生成偏好分析。' }}</p>
         </div>
       </div>
     </Teleport>
@@ -322,13 +365,15 @@ function closePrefs() {
   display: flex; flex-direction: column;
   height: 100vh; position: sticky; top: 0;
   overflow-y: auto; overflow-x: hidden;
-  background-image: radial-gradient(ellipse at 100% 0%, rgba(99,102,241,0.04) 0%, transparent 60%);
 }
 
 /* ── Header ─────────────────────────────────────────────────────── */
 .sidebar-header {
+  width: 100%;
   padding: 1.25rem 1.25rem 1rem;
   border-bottom: 1px solid var(--border-light);
+  border-top: 0; border-left: 0; border-right: 0;
+  background: transparent; color: inherit; text-align: left;
   cursor: pointer;
   display: flex; align-items: center; gap: 0.75rem;
 }
@@ -418,11 +463,11 @@ function closePrefs() {
   border-bottom: 1px solid var(--border);
   position: relative;
 }
-/* Decorative top gradient bar on create section */
+/* Accent marker for the primary creation workflow. */
 .create-form::before {
   content: '';
   position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  background: var(--accent);
   border-radius: 0;
 }
 .create-label {
@@ -503,8 +548,8 @@ function closePrefs() {
 .new-session-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .task-item {
-  padding: 0.6rem 0.7rem; border-radius: var(--radius);
-  cursor: pointer; margin-bottom: 0.2rem;
+  border-radius: var(--radius);
+  position: relative; margin-bottom: 0.2rem;
   transition: background var(--transition), border-color var(--transition);
   border: 1px solid transparent;
 }
@@ -518,20 +563,37 @@ function closePrefs() {
 }
 .task-item.running {
   border-left: 3px solid var(--accent);
-  padding-left: calc(0.7rem - 2px);
 }
+
+.task-select-btn {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.task-item.running .task-select-btn { padding-left: calc(0.7rem - 2px); }
 
 .task-item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.3rem; }
 .task-delete-btn {
   background: none; border: none; color: var(--text-disabled);
-  cursor: pointer; padding: 0 0.15rem; line-height: 1;
+  cursor: pointer; padding: 0; line-height: 1;
+  width: 32px; height: 32px;
   flex-shrink: 0; opacity: 0.4;
   transition: opacity var(--transition), color var(--transition);
   display: flex; align-items: center; justify-content: center;
+  position: absolute; top: 0.35rem; right: 0.35rem; z-index: 1;
 }
 .task-delete-btn svg { width: 14px; height: 14px; }
 .task-item:hover .task-delete-btn, .task-item.active .task-delete-btn { opacity: 1; }
 .task-delete-btn:hover { color: var(--danger); }
+.task-select-btn:focus-visible, .sidebar-header:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
+}
 .task-item-query {
   font-size: 0.78rem; color: var(--text-secondary); line-height: 1.35;
   overflow: hidden; display: -webkit-box;
@@ -590,8 +652,10 @@ function closePrefs() {
 }
 .prefs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
 .prefs-header h3 { font-size: 1rem; font-weight: 600; }
-.prefs-close { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); }
+.prefs-close { width: 40px; height: 40px; background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); }
 .prefs-loading { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem; }
+.prefs-loading.error, .prefs-error { color: var(--danger); }
+.prefs-error { font-size: 0.72rem; margin-top: 0.5rem; }
 .prefs-hint { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.75rem; }
 .prefs-field { display: block; margin-bottom: 0.6rem; font-size: 0.75rem; color: var(--text-secondary); }
 .prefs-input {
@@ -610,5 +674,13 @@ function closePrefs() {
 .prefs-cancel-btn {
   padding: 0.4rem 1rem; border-radius: 6px; border: 1px solid var(--accent-border);
   background: transparent; color: var(--text-secondary); font-size: 0.82rem; cursor: pointer;
+}
+
+@media (max-width: 1100px) {
+  .sidebar { width: min(88vw, 320px); min-width: min(88vw, 320px); height: 100dvh; position: static; }
+  .prefs-btn, .logout-btn { min-height: 40px; padding-left: 0.65rem; padding-right: 0.65rem; }
+  .task-item { min-height: 64px; }
+  .task-delete-btn { width: 44px; height: 44px; opacity: 1; }
+  .new-session-btn, .admin-shortcut-btn, .compose-btn, .create-btn { min-height: 44px; }
 }
 </style>

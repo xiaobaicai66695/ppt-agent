@@ -6,7 +6,7 @@
   "category": "other",
   "default_palette": "ocean_soft",
   "tags": ["通用", "空白", "自由编辑"],
-  "thumbnail": "/templates/thumbs/generic.png",
+  "thumbnail": "/templates/thumbs/generic.jpg",
   "slide_count": 23,
   "background_options": {
     "themes": ["", "party_government", "minimalist_blue", "ink_wash_mountain", "vintage_chinese", "snowy_mountain", "artistic"],

@@ -144,6 +144,7 @@ python skills/visual_designer/generators/generator.py
 
 - **小需求可直接闭环**：若范围清晰、可在当前会话内完成，可直接实现；若过程中发现无法当场闭环，必须补登记到 [][`docs/issues/todo.md`][docs/issues/todo.md](./docs/issues/todo.md)
 - **中大型需求必须先登记**：凡是跨多文件/多层级、需要设计判断、需要跨会话追踪的事项，必须先记录到[docs/issues/todo.md](./docs/issues/todo.md)
+- **TODO 按时间只追加**：`计划时间` 使用首次登记日期；新增事项按计划时间顺序追加到表尾，不得插入或重排历史条目；事项完成时在原行回填 `完成时间`、状态和产出链接
 - **预研文档按需放在 `docs/research/`**：当边界不清、依赖外部系统、存在多方案权衡时，先写预研，再决定实施路线
 - TODO 事项有两条正式路线
   - `direct`：直接进入实现

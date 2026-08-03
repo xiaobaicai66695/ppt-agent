@@ -49,7 +49,7 @@ func newFixerAgent(ctx context.Context, cfg *PPTTaskConfig, userMessage string) 
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "Fixer",
-		Description: "PPT 修复专家，先阅读模板理解设计意图，再定点修复 QA 问题，不破坏原有设计。",
+		Description: "PPT 修复专家，先阅读模板和 generator 源码理解设计意图，再通过重新生成整页修复 QA 问题。",
 		Instruction: instruction,
 		Model:       cm,
 		ToolsConfig: adk.ToolsConfig{

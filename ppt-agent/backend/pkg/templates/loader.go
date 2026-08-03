@@ -18,12 +18,24 @@ const (
 
 // LayoutInfo 原子布局信息
 type LayoutInfo struct {
-	Name             string   `json:"name"`
-	DisplayName      string   `json:"display_name"`
-	Type             TemplateType `json:"type"`
-	Description      string   `json:"description"`
-	AllowedPalettes  []string `json:"allowed_palettes"`
-	Fields           []Field  `json:"fields"`
+	Name            string          `json:"name"`
+	DisplayName     string          `json:"display_name"`
+	Type            TemplateType    `json:"type"`
+	Description     string          `json:"description"`
+	AllowedPalettes []string        `json:"allowed_palettes"`
+	Fields          []Field         `json:"fields"`
+	Contract        *LayoutContract `json:"contract,omitempty"`
+}
+
+// LayoutContract 描述布局的内容容量和使用边界，供规划器和编排页消费。
+type LayoutContract struct {
+	Capacity         map[string]any `json:"capacity,omitempty"`
+	RequiredFields   []string       `json:"required_fields,omitempty"`
+	BestFor          []string       `json:"best_for,omitempty"`
+	AvoidFor         []string       `json:"avoid_for,omitempty"`
+	OverflowStrategy string         `json:"overflow_strategy,omitempty"`
+	BackgroundPolicy string         `json:"background_policy,omitempty"`
+	VisualPrimitives []string       `json:"visual_primitives,omitempty"`
 }
 
 // Field 布局字段定义
@@ -50,17 +62,17 @@ type BackgroundOptions struct {
 
 // TemplateInfo 预设模板信息
 type TemplateInfo struct {
-	Name             string           `json:"name"`
-	DisplayName      string           `json:"display_name"`
-	Type             TemplateType     `json:"type"`
-	Description      string           `json:"description"`
-	Category         string           `json:"category"`
-	DefaultPalette   string           `json:"default_palette"`
-	Tags             []string         `json:"tags"`
-	Thumbnail        string           `json:"thumbnail"`
-	SlideCount       int              `json:"slide_count"`
-	DefaultSlides    []SlideInfo      `json:"default_slides"`
-	BackgroundOpts   *BackgroundOptions `json:"background_options,omitempty"`
+	Name           string             `json:"name"`
+	DisplayName    string             `json:"display_name"`
+	Type           TemplateType       `json:"type"`
+	Description    string             `json:"description"`
+	Category       string             `json:"category"`
+	DefaultPalette string             `json:"default_palette"`
+	Tags           []string           `json:"tags"`
+	Thumbnail      string             `json:"thumbnail"`
+	SlideCount     int                `json:"slide_count"`
+	DefaultSlides  []SlideInfo        `json:"default_slides"`
+	BackgroundOpts *BackgroundOptions `json:"background_options,omitempty"`
 }
 
 // ThemeInfo 配色方案信息

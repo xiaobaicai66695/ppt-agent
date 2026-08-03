@@ -32,7 +32,7 @@ from generators import (
 - `save_slide(slide, output_path)` — 保存单个 slide 为 PPTX 文件（推荐用法）
 - **每个 PPTX 文件 = new_presentation + 一次 generate + save_slide**，禁止复用 prs 生成多个文件
 - **所有参数都用 keyword 形式传递**（如 `palette="ocean_soft"`），不要依赖位置参数
-- **只传函数接受的参数**，所有参数都在各生成器的参数表中列出，未列出的参数请勿传入
+- **只传函数接受的参数**，参数表是常用速查；如果本文档和源码不一致，以 `generators/<content_type>_generator.py` 的实际函数签名为准
 
 ## 通用参数
 
@@ -43,10 +43,11 @@ from generators import (
 | `prs` | `Optional[Presentation]` | `None` | 已有的 Presentation 对象，为 None 时自动创建 |
 | `palette` | `str` | `"ocean_soft"` | 配色方案名，见 palettes.md |
 | `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
-
 | `background` | `str` | `""` | 背景图片主题，传入 `"artistic"`、`"party_government"`、`"minimalist_blue"` 等主题名即启用图片背景（留空则用纯色背景）。可取值见 `background_templates/SKILL.md` |
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
+
+合法 `content_type` 只以 `slide_types.md` 和 `templates/single-page/*.json` 为准。`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 这类历史别名只能在旧任务生成时兼容映射，不能写入新的任务计划。
 
 ## 模板契约元数据
 

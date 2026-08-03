@@ -81,12 +81,12 @@ get_background(scenario="党建汇报")
 
 ### 4. 亮度设置
 
-默认亮度为 0.95（图片清晰可见）。可通过 `set_image_background` 的 `brightness` 参数调整：
+背景亮度由具体生成器按页面类型自动选择，目标是在图片主题可辨识的同时保证标题和正文对比度。直接调用 `set_image_background` 时可通过 `brightness` 参数调整：
 
 ```python
 # brightness 范围 0.0-1.0
 set_image_background(slide, bg_path, brightness=0.8)  # 稍暗
-set_image_background(slide, bg_path, brightness=0.95)  # 默认，明亮清晰
+set_image_background(slide, bg_path, brightness=0.95)  # 明亮清晰
 ```
 
 ## 动态扩充

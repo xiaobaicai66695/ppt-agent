@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,11 +63,13 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 	flusher, _ := c.Writer.(flushWriter)
 	writer := c.Writer
 
-	ts.Mu.Lock()
-	done := ts.Info.Status != task.TaskStatusRunning
-	events := make([]task.SSERichEvent, len(ts.Events))
-	copy(events, ts.Events)
-	ts.Mu.Unlock()
+	afterEventID, _ := strconv.ParseUint(c.GetHeader("Last-Event-ID"), 10, 64)
+	listenerID := uuid.New().String()
+	ch := make(chan task.SSERichEvent, 128)
+	events, done := ts.SubscribeFrom(listenerID, ch, afterEventID)
+	if !done {
+		defer ts.RemoveListener(listenerID)
+	}
 
 	// 分离 answer 和 system_step 的缓冲池，各自独立 flush。
 	answerBuf := &answerBuffer{}
@@ -96,11 +99,6 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 		c.Abort()
 		return
 	}
-
-	listenerID := uuid.New().String()
-	ch := make(chan task.SSERichEvent, 64)
-	ts.AddListener(listenerID, ch)
-	defer ts.RemoveListener(listenerID)
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -225,7 +223,12 @@ func phaseLabel(phase string) string {
 
 func writeSSEToWriter(writer io.Writer, flusher flushWriter, evt task.SSERichEvent) {
 	data, _ := json.Marshal(evt)
-	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", evt.Type, data)
+	msg := ""
+	if evt.ID > 0 {
+		msg = fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", evt.ID, evt.Type, data)
+	} else {
+		msg = fmt.Sprintf("event: %s\ndata: %s\n\n", evt.Type, data)
+	}
 	writer.Write([]byte(msg))
 	if flusher != nil {
 		flusher.Flush()

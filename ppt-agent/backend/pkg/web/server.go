@@ -30,20 +30,20 @@ import (
 
 // Server 提供 REST API + SSE 流式推送 + 静态前端服务（基于 Gin 框架）。
 type Server struct {
-	tasks            *task.TaskManager
-	sessionManager   *session.SessionManager
-	styleStore       *style.ProfileStore
-	styleExtractor   *style.Extractor
-	agentFactory     task.AgentFactory
-	makeTaskConfig   func(taskID string) *deep.PPTTaskConfig
-	taskIDGen        func() string
-	engine           *gin.Engine
-	addr             string
-	templateLoader   *templates.Loader
-	skillDir         string
-	operator         commandline.Operator
-	logAnalysis      *loganalysis.Service
-	aiModelFactory   func(ctx context.Context) (interface {
+	tasks          *task.TaskManager
+	sessionManager *session.SessionManager
+	styleStore     *style.ProfileStore
+	styleExtractor *style.Extractor
+	agentFactory   task.AgentFactory
+	makeTaskConfig func(taskID string) *deep.PPTTaskConfig
+	taskIDGen      func() string
+	engine         *gin.Engine
+	addr           string
+	templateLoader *templates.Loader
+	skillDir       string
+	operator       commandline.Operator
+	logAnalysis    *loganalysis.Service
+	aiModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
 	// textModelFactory 创建轻量级模型，用于意图分类等辅助任务。
@@ -128,8 +128,8 @@ func NewServer(cfg *ServerConfig) *Server {
 		addr:             cfg.Addr,
 		aiModelFactory:   cfg.AIModelFactory,
 		textModelFactory: cfg.TextModelFactory,
-		skillDir:        cfg.SkillsDir,
-		operator:        cfg.Operator,
+		skillDir:         cfg.SkillsDir,
+		operator:         cfg.Operator,
 	}
 
 	// LLM 驱动的风格提取器（从 PPTX 文本内容分析用户偏好）
@@ -168,6 +168,9 @@ func NewServer(cfg *ServerConfig) *Server {
 			s.onTaskContinue(taskID)
 		},
 	)
+	s.tasks.SetFileReadyCallback(func(taskID, workDir, filename string) {
+		s.prepareThumbnail(taskID, workDir, filename)
+	})
 
 	// 初始化日志分析后台服务
 	if cfg.LogAnalysisModelFactory != nil {
@@ -203,15 +206,15 @@ func NewServer(cfg *ServerConfig) *Server {
 	{
 		tasks.POST("", s.handleCreateTask)
 		tasks.GET("", s.handleListTasks)
-		tasks.GET("/:id", s.handleGetTask)
-		tasks.GET("/:id/stream", s.handleStreamTask)
-		tasks.GET("/:id/files/:filename", s.handleDownloadFile)
-		tasks.GET("/:id/thumb/:filename", s.handleThumbnail)
-		tasks.POST("/:id/cancel", s.handleCancelTask)
-		tasks.DELETE("/:id", s.handleDeleteTask)
+		tasks.GET("/:id", s.taskOwnershipMiddleware(), s.handleGetTask)
+		tasks.GET("/:id/stream", s.taskOwnershipMiddleware(), s.handleStreamTask)
+		tasks.GET("/:id/files/:filename", s.taskOwnershipMiddleware(), s.handleDownloadFile)
+		tasks.GET("/:id/thumb/:filename", s.taskOwnershipMiddleware(), s.handleThumbnail)
+		tasks.POST("/:id/cancel", s.taskOwnershipMiddleware(), s.handleCancelTask)
+		tasks.DELETE("/:id", s.taskOwnershipMiddleware(), s.handleDeleteTask)
 		// 会话/继续路由
-		tasks.POST("/:id/continue", s.handleContinueTask)
-		tasks.GET("/:id/conversation", s.handleGetConversation)
+		tasks.POST("/:id/continue", s.taskOwnershipMiddleware(), s.handleContinueTask)
+		tasks.GET("/:id/conversation", s.taskOwnershipMiddleware(), s.handleGetConversation)
 	}
 
 	// 用户资料路由（需要认证）
@@ -221,6 +224,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		users.GET("/me/profile", s.handleGetUserProfile)
 		users.PUT("/me/profile", s.handleUpdateUserProfile)
 		users.POST("/me/profile/reset", s.handleResetUserProfile)
+		users.POST("/me/profile/summarize", s.handleSummarizeProfile)
 		users.GET("/me/insights", s.handleGetUserInsights)
 	}
 

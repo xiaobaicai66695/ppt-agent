@@ -10,7 +10,7 @@
     "科普",
     "产品"
   ],
-  "thumbnail": "/templates/thumbs/tech-intro.png",
+  "thumbnail": "/templates/thumbs/tech-intro.jpg",
   "slide_count": 20,
   "default_slides": [
     {
@@ -100,7 +100,7 @@
     },
     {
       "title": "技术全景图",
-      "content_type": "smart_layout",
+      "content_type": "three_column",
       "description": "用三栏布局展示技术架构全景"
     },
     {

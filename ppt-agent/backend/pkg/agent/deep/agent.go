@@ -163,24 +163,24 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 
 	const templateCatalog = `| 模板文件 | 适用场景 | 页数 |
 |---------|---------|------|
-| tech-intro.py | 新技术介绍、行业科普、知识分享，从基础概念到应用实践，适合非技术受众 | 18页 |
-| tech-sharing.py | 内部技术分享、技术培训、架构讲解，有章节划分，注重内容深度 | 18页 |
-| product-launch.py | 新产品发布会、产品宣讲、客户演示，强调价值主张和差异化优势 | 14页 |
-| weekly-report.py | 团队周报、项目月报、工作汇报，简洁高效，数据驱动 | 9页 |
-| pitch-deck.py | 创业路演，投资人演示、商业计划，逻辑严密，数据驱动，说服力强 | 16页 |
-| course-module.py | 教学课件、培训材料、知识分享，内容系统化，便于学习理解 | 17页 |
-| current-affairs.py | 时政热点分析、政策解读、国际形势分析，稳重专业，数据支撑强 | 14页 |
-| politics-ideology.py | 思政教育、团课培训、爱国主义教育，价值观明确，结构清晰 | 16页 |
-| design-defense.py | 课程设计、毕业设计、项目答辩，逻辑清晰，技术扎实 | 12页 |
-| innovation-compete.py | 大创/挑战杯/互联网+等科创竞赛汇报，创新性强，数据支撑 | 16页 |
-| research-report.py | 市场调研、行业分析、可行性研究，数据详实，结论明确 | 14页 |
-| activity-plan.py | 团建活动、校园活动、节日策划，活泼有创意，执行清晰 | 10页 |
-| personal-summary.py | 个人总结、述职报告、年终总结，重点突出，成果可见 | 10页 |
-| short-class-talk.py | 课堂5-10分钟短时分享、课题介绍，精简高效，快速传达 | 6页 |
-| meeting-minutes.py | 会议记录、工作例会、项目评审会，结构清晰，行动明确 | 8页 |
-| product-intro.py | 产品介绍、客户演示、功能展示，突出价值，增强信任 | 12页 |
-| training-course.py | 内部培训、新人入职培训、技能培训，知识系统，互动引导 | 16页 |
-| project-proposal.py | 新项目立项、项目申请、资源申请，理由充分，方案可行 | 12页 |`
+| tech-intro.json | 新技术介绍、行业科普、知识分享，从基础概念到应用实践，适合非技术受众 | 18页 |
+| tech-sharing.json | 内部技术分享、技术培训、架构讲解，有章节划分，注重内容深度 | 18页 |
+| product-launch.json | 新产品发布会、产品宣讲、客户演示，强调价值主张和差异化优势 | 14页 |
+| weekly-report.json | 团队周报、项目月报、工作汇报，简洁高效，数据驱动 | 9页 |
+| pitch-deck.json | 创业路演，投资人演示、商业计划，逻辑严密，数据驱动，说服力强 | 16页 |
+| course-module.json | 教学课件、培训材料、知识分享，内容系统化，便于学习理解 | 17页 |
+| current-affairs.json | 时政热点分析、政策解读、国际形势分析，稳重专业，数据支撑强 | 14页 |
+| politics-ideology.json | 思政教育、团课培训、爱国主义教育，价值观明确，结构清晰 | 16页 |
+| design-defense.json | 课程设计、毕业设计、项目答辩，逻辑清晰，技术扎实 | 12页 |
+| innovation-compete.json | 大创/挑战杯/互联网+等科创竞赛汇报，创新性强，数据支撑 | 16页 |
+| research-report.json | 市场调研、行业分析、可行性研究，数据详实，结论明确 | 14页 |
+| activity-plan.json | 团建活动、校园活动、节日策划，活泼有创意，执行清晰 | 10页 |
+| personal-summary.json | 个人总结、述职报告、年终总结，重点突出，成果可见 | 10页 |
+| short-class-talk.json | 课堂5-10分钟短时分享、课题介绍，精简高效，快速传达 | 6页 |
+| meeting-minutes.json | 会议记录、工作例会、项目评审会，结构清晰，行动明确 | 8页 |
+| product-intro.json | 产品介绍、客户演示、功能展示，突出价值，增强信任 | 12页 |
+| training-course.json | 内部培训、新人入职培训、技能培训，知识系统，互动引导 | 16页 |
+| project-proposal.json | 新项目立项、项目申请、资源申请，理由充分，方案可行 | 12页 |`
 
 	// 当用户提供了大纲时，tasks.json 已经包含 template/theme
 	// 读取它以便告知代理使用什么

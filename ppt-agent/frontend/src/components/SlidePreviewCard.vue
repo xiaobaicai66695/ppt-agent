@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { TaskItem } from '../types';
+
+type ThumbnailStatus = 'pending' | 'ready' | 'error';
 
 const props = defineProps<{
   task: TaskItem;
   taskId: string;
   fileReady: boolean;
   selected?: boolean;
+  thumbnailStatus?: ThumbnailStatus;
+  thumbnailVersion?: number;
+  thumbnailError?: string;
 }>();
 
 const emit = defineEmits<{
@@ -15,12 +20,28 @@ const emit = defineEmits<{
 }>();
 
 const thumbLoaded = ref(false);
-const thumbError = ref(false);
+const localThumbError = ref(false);
 const retryKey = ref(0);
+const forceRetry = ref(false);
+
+const hasThumbError = computed(() => !forceRetry.value && (
+  localThumbError.value || props.thumbnailStatus === 'error'
+));
+const shouldLoadThumbnail = computed(() => props.fileReady && (
+  props.thumbnailStatus !== 'pending' || forceRetry.value
+));
+
+watch(() => [props.thumbnailVersion, props.thumbnailStatus], () => {
+  if (props.thumbnailStatus === 'ready') {
+    thumbLoaded.value = false;
+    localThumbError.value = false;
+    forceRetry.value = false;
+  }
+});
 
 function getThumbUrl(): string {
   const name = props.task.output_file.split(/[/\\]/).pop() || props.task.output_file;
-  return `/api/tasks/${props.taskId}/thumb/${encodeURIComponent(name)}?t=${retryKey.value}`;
+  return `/api/tasks/${props.taskId}/thumb/${encodeURIComponent(name)}?v=${props.thumbnailVersion || 0}-${retryKey.value}`;
 }
 
 function getDownloadUrl(): string {
@@ -30,12 +51,14 @@ function getDownloadUrl(): string {
 
 function onImgError() {
   thumbLoaded.value = false;
-  thumbError.value = true;
+  localThumbError.value = true;
+  forceRetry.value = false;
 }
 
 function retryThumb() {
   thumbLoaded.value = false;
-  thumbError.value = false;
+  localThumbError.value = false;
+  forceRetry.value = true;
   retryKey.value++;
 }
 
@@ -54,16 +77,22 @@ const shortName = computed(() => {
 <template>
   <div class="slide-preview" :class="{ placeholder: !fileReady, selected }">
     <template v-if="fileReady">
-      <div class="select-overlay" @click.stop="emit('toggle')">
+      <button
+        class="select-overlay"
+        type="button"
+        :aria-label="selected ? `取消选择第 ${task.page_index} 页` : `选择第 ${task.page_index} 页`"
+        :aria-pressed="selected"
+        @click.stop="emit('toggle')"
+      >
         <span class="check-mark" :class="{ on: selected }">
           <svg v-if="selected" viewBox="0 0 16 16" fill="currentColor"><path d="M6 10.8L3.2 8l-.9.9L6 12.6l8-8-.9-.9z"/></svg>
         </span>
-      </div>
+      </button>
       <div class="preview-inner">
-        <div class="preview-thumb" @click.stop="handlePreview">
+        <div class="preview-thumb">
           <img
-            v-if="!thumbError"
-            :key="retryKey"
+            v-if="shouldLoadThumbnail && !hasThumbError"
+            :key="`${thumbnailVersion || 0}-${retryKey}`"
             :src="getThumbUrl()"
             :class="{ loaded: thumbLoaded }"
             @load="thumbLoaded = true"
@@ -71,18 +100,29 @@ const shortName = computed(() => {
             loading="lazy"
             alt=""
           />
-          <span v-if="!thumbLoaded && !thumbError" class="thumb-spinner"></span>
-          <span v-if="thumbError" class="thumb-fallback">
+          <span v-if="shouldLoadThumbnail && !thumbLoaded && !hasThumbError" class="thumb-spinner"></span>
+          <span v-if="thumbnailStatus === 'pending' && !forceRetry" class="thumb-pending">
+            <span class="thumb-skeleton"></span>
+            <span>正在准备预览</span>
+          </span>
+          <span v-if="hasThumbError" class="thumb-fallback">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
               <line x1="8" y1="13" x2="16" y2="13"/>
               <line x1="8" y1="17" x2="13" y2="17"/>
             </svg>
-            <span class="thumb-note">预览不可用</span>
+            <span class="thumb-note">{{ thumbnailError || '预览不可用，可直接下载 PPTX' }}</span>
             <button class="thumb-retry" type="button" @click.stop="retryThumb">重试缩略图</button>
           </span>
-          <button v-if="!thumbError" class="preview-btn" title="在线预览" @click.stop="handlePreview">
+          <button
+            v-if="thumbLoaded && !hasThumbError"
+            class="preview-btn"
+            type="button"
+            title="在线预览"
+            :aria-label="`预览第 ${task.page_index} 页：${task.title}`"
+            @click.stop="handlePreview"
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
               <circle cx="12" cy="12" r="3"/>
@@ -97,6 +137,7 @@ const shortName = computed(() => {
             :href="getDownloadUrl()"
             class="download-btn"
             title="下载"
+            :aria-label="`下载第 ${task.page_index} 页：${task.title}`"
             @click.stop
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -154,7 +195,10 @@ const shortName = computed(() => {
 .preview-inner { display: flex; flex-direction: column; width: 100%; }
 
 .select-overlay {
-  position: absolute; top: 0.4rem; right: 0.4rem; z-index: 3; cursor: pointer;
+  position: absolute; top: 0.25rem; right: 0.25rem; z-index: 3; cursor: pointer;
+  width: 44px; height: 44px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: transparent;
 }
 .check-mark {
   width: 22px; height: 22px; border-radius: 4px;
@@ -184,6 +228,17 @@ const shortName = computed(() => {
   border-radius: 50%; animation: spin 0.7s linear infinite;
 }
 
+.thumb-pending {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.55rem;
+  color: var(--text-muted); font-size: 0.7rem;
+}
+.thumb-skeleton {
+  width: 72%; height: 10px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--border) 20%, var(--bg-base) 50%, var(--border) 80%);
+  background-size: 220% 100%; animation: skeleton 1.4s linear infinite;
+}
+
 .thumb-fallback {
   display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
   color: var(--text-muted);
@@ -191,7 +246,7 @@ const shortName = computed(() => {
 .thumb-fallback svg { width: 40px; height: 40px; }
 .thumb-note { font-size: 0.7rem; }
 .thumb-retry {
-  min-height: 28px;
+  min-height: 36px;
   padding: 0 0.55rem;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -288,5 +343,6 @@ const shortName = computed(() => {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes skeleton { to { background-position: -220% 0; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>

@@ -14,13 +14,12 @@ PPTX QA Converter - 将 PPTX 文件转换为图片供 QA 视觉审查使用。
 依赖：
     pip install python-pptx Pillow python-markdown
 
-环境要求（Linux）：
+环境要求：
     - LibreOffice (soffice) 已安装并可在 PATH 中访问
     - poppler-utils (pdftoppm) 已安装
 """
 
 import argparse
-import fcntl
 import glob
 import json
 import os
@@ -32,10 +31,30 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
 # ── Module-level caches (avoids repeated subprocess calls to find binaries) ──
 _SOFFICE_CMD: Optional[str] = None
 _PDFTOPPM_AVAILABLE: Optional[bool] = None
-_LOCK_FILE_PATH = "/tmp/pptx_conv.lock"
+_PDFTOPPM_CMD: Optional[str] = None
+_LOCK_FILE_PATH = os.path.join(tempfile.gettempdir(), "pptx_conv.lock")
+
+
+def _run_process(command: List[str], **kwargs) -> subprocess.CompletedProcess:
+    """Run native commands and Windows batch shims with identical semantics."""
+    executable = Path(command[0])
+    if os.name == "nt" and executable.suffix.lower() in {".bat", ".cmd"}:
+        command_line = subprocess.list2cmdline(command)
+        return subprocess.run(command_line, shell=True, **kwargs)
+    return subprocess.run(command, **kwargs)
 
 
 def find_soffice() -> Optional[str]:
@@ -44,14 +63,20 @@ def find_soffice() -> Optional[str]:
     if _SOFFICE_CMD is not None:
         return _SOFFICE_CMD
     candidates = [
+        shutil.which("soffice"),
+        shutil.which("soffice.com"),
         "soffice",
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
         "/usr/bin/soffice",
         "/usr/local/bin/soffice",
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
     ]
     for candidate in candidates:
+        if not candidate:
+            continue
         try:
-            result = subprocess.run(
+            result = _run_process(
                 [candidate, "--version"],
                 capture_output=True,
                 timeout=5
@@ -66,23 +91,39 @@ def find_soffice() -> Optional[str]:
     return None
 
 
-def find_pdftoppm() -> bool:
-    """检查 pdftoppm 是否可用（模块级缓存，只查一次）"""
-    global _PDFTOPPM_AVAILABLE
+def find_pdftoppm() -> Optional[str]:
+    """查找 pdftoppm 命令（模块级缓存，只查一次）。"""
+    global _PDFTOPPM_AVAILABLE, _PDFTOPPM_CMD
     if _PDFTOPPM_AVAILABLE is not None:
-        return _PDFTOPPM_AVAILABLE
-    try:
-        result = subprocess.run(
-            ["pdftoppm", "-v"],
-            capture_output=True,
-            timeout=5
-        )
-        _PDFTOPPM_AVAILABLE = result.returncode == 0 or "pdftoppm" in result.stderr.decode('utf-8', errors='replace').lower()
-    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
-        _PDFTOPPM_AVAILABLE = False
+        return _PDFTOPPM_CMD if _PDFTOPPM_AVAILABLE else None
+
+    resolved = shutil.which("pdftoppm")
+    candidates = [os.environ.get("PDFTOPPM_CMD"), shutil.which("pdftoppm.exe"), resolved]
+    if resolved:
+        resolved_path = Path(resolved).resolve()
+        for parent in resolved_path.parents:
+            candidates.append(str(parent / "native" / "poppler" / "Library" / "bin" / "pdftoppm.exe"))
+    candidates.append("pdftoppm")
+
+    for command in candidates:
+        if not command:
+            continue
+        if os.path.isabs(command) and not os.path.exists(command):
+            continue
+        try:
+            result = _run_process([command, "-v"], capture_output=True, timeout=5)
+            stderr = result.stderr.decode("utf-8", errors="replace").lower()
+            if result.returncode == 0 or "pdftoppm" in stderr:
+                _PDFTOPPM_AVAILABLE = True
+                _PDFTOPPM_CMD = command
+                return command
+        except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+            continue
+
+    _PDFTOPPM_AVAILABLE = False
     if not _PDFTOPPM_AVAILABLE:
         print("警告: 未找到 pdftoppm，PDF 将无法转换为图片", file=sys.stderr)
-    return _PDFTOPPM_AVAILABLE
+    return None
 
 
 # ── Global file lock ──────────────────────────────────────────────────────
@@ -92,6 +133,30 @@ def find_pdftoppm() -> bool:
 # Waiting processes block on flock() and proceed one at a time.
 
 _lock_fd: Optional[int] = None
+
+
+def _try_lock(fd: int) -> bool:
+    try:
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif msvcrt is not None:
+            if os.fstat(fd).st_size == 0:
+                os.write(fd, b"0")
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            raise RuntimeError("platform does not provide a file locking API")
+        return True
+    except (BlockingIOError, OSError):
+        return False
+
+
+def _unlock(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    elif msvcrt is not None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
 def _acquire_lock(timeout: float = 120.0) -> bool:
@@ -105,23 +170,19 @@ def _acquire_lock(timeout: float = 120.0) -> bool:
         lock_dir = os.path.dirname(lock_path)
         os.makedirs(lock_dir, exist_ok=True)
         fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
-        # Try non-blocking first — if already held, we'll loop with a timeout
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Try non-blocking first — if already held, loop with a timeout.
+        if _try_lock(fd):
             _lock_fd = fd
             return True
-        except BlockingIOError:
-            # Another process holds the lock — wait for it with timeout
-            start = time.monotonic()
-            while time.monotonic() - start < timeout:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    _lock_fd = fd
-                    return True
-                except BlockingIOError:
-                    time.sleep(0.5)
-            os.close(fd)
-            return False
+        # Another process holds the lock — wait for it with timeout.
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            if _try_lock(fd):
+                _lock_fd = fd
+                return True
+            time.sleep(0.5)
+        os.close(fd)
+        return False
     except Exception:
         return False
 
@@ -131,7 +192,7 @@ def _release_lock():
     global _lock_fd
     if _lock_fd is not None:
         try:
-            fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+            _unlock(_lock_fd)
             os.close(_lock_fd)
         except Exception:
             pass
@@ -225,8 +286,11 @@ def _pdf_to_jpgs_by_stem(pdf_path: str, output_dir: str, stems: List[str], dpi: 
     pdf_stem = Path(pdf_path).stem
     pdf_dir = Path(pdf_path).parent
 
-    result = subprocess.run(
-        ["pdftoppm", "-jpeg", "-r", str(dpi), "-q", pdf_path,
+    command = find_pdftoppm()
+    if not command:
+        return [], ["pdftoppm is not available"]
+    result = _run_process(
+        [command, "-jpeg", "-r", str(dpi), "-q", pdf_path,
          str(pdf_dir / pdf_stem)],
         capture_output=True, timeout=300
     )
@@ -234,16 +298,21 @@ def _pdf_to_jpgs_by_stem(pdf_path: str, output_dir: str, stems: List[str], dpi: 
         errors.append(f"pdftoppm failed: {result.stderr.decode('utf-8', errors='replace')}")
         return [], errors
 
+    def page_number(path: Path) -> int:
+        suffix = path.stem.removeprefix(f"{pdf_stem}-")
+        return int(suffix) if suffix.isdigit() else sys.maxsize
+
+    generated = sorted(pdf_dir.glob(f"{pdf_stem}-*.jpg"), key=page_number)
     for idx, stem in enumerate(stems, start=1):
-        src = pdf_dir / f"{pdf_stem}-{idx}.jpg"
+        src = generated[idx - 1] if idx <= len(generated) else None
         dst = Path(output_dir) / f"{stem}.jpg"
-        if src.exists():
+        if src is not None and src.exists():
             if dst.exists():
                 dst.unlink()
             shutil.move(str(src), str(dst))
             slide_images.append(dst.name)
         else:
-            errors.append(f"pdftoppm did not generate page {idx} (expected {src})")
+            errors.append(f"pdftoppm did not generate page {idx}")
 
     return slide_images, errors
 
@@ -251,11 +320,11 @@ def _pdf_to_jpgs_by_stem(pdf_path: str, output_dir: str, stems: List[str], dpi: 
 def _convert_pptxs_to_jpgs(output_dir: str, pptx_files: List[str], dpi: int) -> Dict:
     """Merge PPTXs, convert to PDF, split into JPGs named by original stems."""
     soffice = find_soffice()
-    has_pdftoppm = find_pdftoppm()
+    pdftoppm = find_pdftoppm()
 
     if not soffice:
         return {"error": "LibreOffice 未安装", "slide_images": [], "text_content": ""}
-    if not has_pdftoppm:
+    if not pdftoppm:
         return {"error": "pdftoppm 未安装", "slide_images": [], "text_content": ""}
 
     ensure_soffice_ready(soffice)
