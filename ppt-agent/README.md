@@ -280,13 +280,15 @@ Skill 负责将专家知识注入 Agent prompt，引导决策而非替代执行�
 
 ## 编译运行
 
+项目命令行仅支持 Linux。Agent shell 固定通过 `/bin/sh -c` 执行，不发布或维护 Windows `.exe`、`.bat`、`.cmd` 或 PowerShell 启动入口。
+
 ### 后端
 
 ```bash
 cd backend
 go mod tidy
-go build -o ppt-agent.exe .
-./ppt-agent.exe
+go build -o ppt-agent .
+./ppt-agent
 ```
 
 ### 前端
@@ -314,6 +316,7 @@ npm run dev   # 端口 3000，/api 代理到 localhost:8080
 | `LOG_FILE` | 日志文件路径 | 可选 |
 | `LOG_ANALYSIS_IDLE_INTERVAL` | 空闲日志分析间隔 | `0` (禁用) |
 | `STREAM_TIMEOUT` | 单次 LLM 流式调用超时 | `3m` |
+| `PYTHON_BIN` | Python 可执行文件（Linux） | `/root/pptx_env/bin/python` |
 | `COZELOOP_API_TOKEN` | CozeLoop 可观测 | 可选 |
 | `COZELOOP_WORKSPACE_ID` | CozeLoop 工作区 | 可选 |
 | `MYSQL_DSN` | MySQL 数据源 | 可选 |

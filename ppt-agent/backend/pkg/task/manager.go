@@ -95,7 +95,9 @@ type TaskState struct {
 	pendingContinueQueued bool
 
 	// fullAnswer 累积全部 LLM answer SSE 输出，任务结束时一次性存入 DB
-	fullAnswer strings.Builder
+	fullAnswer      strings.Builder
+	answerTurn      strings.Builder
+	assistantTurnFn func(taskID, workDir, content string)
 }
 
 // Persist 将任务状态持久化到数据库。
@@ -108,6 +110,23 @@ func (ts *TaskState) FullAnswer() string {
 	ts.Mu.Lock()
 	defer ts.Mu.Unlock()
 	return ts.fullAnswer.String()
+}
+
+// LatestEventID lets clients begin a continuation stream after the previous
+// terminal event instead of replaying the completed generation turn.
+func (ts *TaskState) LatestEventID() uint64 {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.nextEventID
+}
+
+// SnapshotInfo returns a race-free public task snapshot.
+func (ts *TaskState) SnapshotInfo() TaskInfo {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	info := ts.Info
+	info.Files = append([]string(nil), ts.Info.Files...)
+	return info
 }
 
 // ReportedFiles 返回已上报文件的集合。
@@ -189,6 +208,12 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 	// 累积 LLM 回答内容到 fullAnswer，任务结束时一次性写入 DB
 	if event.Type == "answer" && event.Content != "" {
 		ts.fullAnswer.WriteString(event.Content)
+		ts.answerTurn.WriteString(event.Content)
+	}
+	var completedTurn string
+	if event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete" {
+		completedTurn = strings.TrimSpace(ts.answerTurn.String())
+		ts.answerTurn.Reset()
 	}
 	for _, ch := range ts.listeners {
 		select {
@@ -196,7 +221,13 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		default:
 		}
 	}
+	turnCallback := ts.assistantTurnFn
+	taskID := ts.Info.ID
+	workDir := ts.Info.WorkDir
 	ts.Mu.Unlock()
+	if completedTurn != "" && turnCallback != nil {
+		turnCallback(taskID, workDir, completedTurn)
+	}
 }
 
 // SubscribeFrom atomically snapshots buffered events newer than afterEventID
@@ -241,13 +272,14 @@ func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
 
 // TaskManager 管理所有 PPT 生成任务的生命周期。
 type TaskManager struct {
-	mu             sync.RWMutex
-	tasks          map[string]*TaskState
-	baseDir        string
-	onTaskComplete func(userID int, workDir string, query string)
-	onTaskFailed   func(taskID string)
-	onTaskContinue func(taskID string) // 任务完成且有待处理消息时触发
-	onFileReady    func(taskID string, workDir string, filename string)
+	mu              sync.RWMutex
+	tasks           map[string]*TaskState
+	baseDir         string
+	onTaskComplete  func(userID int, workDir string, query string)
+	onTaskFailed    func(taskID string)
+	onTaskContinue  func(taskID string) // 任务完成且有待处理消息时触发
+	onFileReady     func(taskID string, workDir string, filename string)
+	onAssistantTurn func(taskID string, workDir string, content string)
 }
 
 // NewTaskManager 创建一个新的 TaskManager。baseDir 是父目录，
@@ -277,6 +309,19 @@ func (tm *TaskManager) SetFileReadyCallback(callback func(taskID string, workDir
 	tm.mu.Unlock()
 }
 
+// SetAssistantTurnCallback registers the single persistence sink used when an
+// answer turn reaches an explicit lifecycle boundary.
+func (tm *TaskManager) SetAssistantTurnCallback(callback func(taskID string, workDir string, content string)) {
+	tm.mu.Lock()
+	tm.onAssistantTurn = callback
+	for _, ts := range tm.tasks {
+		ts.Mu.Lock()
+		ts.assistantTurnFn = callback
+		ts.Mu.Unlock()
+	}
+	tm.mu.Unlock()
+}
+
 func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) {
 	ts.Broadcast(SSERichEvent{
 		Type:     "file_ready",
@@ -295,7 +340,7 @@ func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) 
 // ── 数据库转换辅助函数 ────────────────────────────────────────────────
 
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
-	filesJSON, _ := json.Marshal(info.Files)
+	filesJSON, _ := json.Marshal(DeduplicateOutputFiles(info.Files))
 	return &db.TaskRecord{
 		ID:                  info.ID,
 		UserID:              uint(info.UserID),
@@ -318,6 +363,7 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 	var files []string
 	json.Unmarshal([]byte(r.Files), &files)
+	files = DeduplicateOutputFiles(files)
 	if files == nil {
 		files = []string{}
 	}
@@ -441,6 +487,22 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	}
 	cfg.WorkDir = workDir
 	runtimeMeta := utils.NewRuntimeMeta(cfg.TaskID, workDir)
+	intentAnchor := utils.IntentAnchor{
+		Summary: compactIntentSummary(query, 120), OriginalLength: len([]rune(query)),
+	}
+	if cfg.IntentResult != nil {
+		intentAnchor.Intent = cfg.IntentResult.Intent.String()
+		intentAnchor.Domain = cfg.IntentResult.Domain.String()
+		intentAnchor.SuggestedPages = cfg.IntentResult.SuggestedPageCount
+	}
+	if cfg.Outline != nil {
+		intentAnchor.Template = cfg.Outline.Template
+		intentAnchor.Theme = cfg.Outline.Theme
+		intentAnchor.UseBackground = cfg.Outline.UseBackground
+		intentAnchor.Background = cfg.Outline.RecommendedBackground
+		intentAnchor.Recommendation = cfg.Outline.RecommendationReason
+	}
+	runtimeMeta.RecordIntent(intentAnchor)
 	runtimeMeta.RecordEvent("task_created", "task", "ok", query, map[string]any{
 		"user_id": userID,
 	})
@@ -456,6 +518,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		if err := deep.WriteTasksManifest(workDir, manifest); err != nil {
 			return nil, fmt.Errorf("写入大纲失败: %w", err)
 		}
+		runtimeMeta.FreezePlan(runtimePlanSlides(manifest.Tasks))
 	}
 
 	agent, err := factory(ctx, cfg)
@@ -472,9 +535,10 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 			WorkDir:   workDir,
 			CreatedAt: time.Now(),
 		},
-		listeners:     make(map[string]chan SSERichEvent),
-		reportedFiles: make(map[string]bool),
-		runtimeMeta:   runtimeMeta,
+		listeners:       make(map[string]chan SSERichEvent),
+		reportedFiles:   make(map[string]bool),
+		runtimeMeta:     runtimeMeta,
+		assistantTurnFn: tm.onAssistantTurn,
 	}
 	type workDirSetter interface {
 		SetWorkDir(context.Context, string) context.Context
@@ -620,6 +684,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			Error:    event.Error,
 		})
 	})
+	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
 	ts.Mu.Lock()
 	ts.result = result
@@ -650,21 +715,12 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.DoneCount = result.DoneSlides
 		ts.Info.TotalCount = result.TotalSlides
 		ts.Info.Duration = result.Duration.Round(time.Millisecond).String()
-		ts.Info.Files = result.Files
+		ts.Info.Files = DeduplicateOutputFiles(result.Files)
 	}
 	if manifest, recErr := deep.ReconcileTasksManifestOutputFiles(cfg.WorkDir); recErr == nil && manifest != nil {
-		var files []string
-		for _, t := range manifest.Tasks {
-			if t.OutputFile == "" {
-				continue
-			}
-			if t.Status == deep.StatusDone || t.Status == deep.StatusQADone || t.Status == deep.StatusFixed {
-				files = append(files, filepath.Join(cfg.WorkDir, t.OutputFile))
-			}
-		}
 		ts.Info.DoneCount = manifest.CompletedCount()
 		ts.Info.TotalCount = len(manifest.Tasks)
-		ts.Info.Files = files
+		ts.Info.Files = ManifestOutputFiles(manifest)
 	} else if recErr != nil {
 		logger.Warn("task_manifest_reconcile_failed", "task_id", ts.Info.ID, "error", recErr.Error())
 	}
@@ -704,10 +760,10 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	ts.persist()
 
 	// 任务完成后，检查是否有等待中的继续消息，如有则触发自动继续处理
-	if pendingMsg := ts.GetPendingContinueMsg(); pendingMsg != "" {
+	if ts.HasPendingContinueMsg() {
 		ts.Broadcast(SSERichEvent{
 			Type:    "continue_queued",
-			Content: pendingMsg,
+			Content: "queued",
 		})
 		// 通过回调通知 Server 启动继续流程
 		if tm.onTaskContinue != nil {
@@ -726,7 +782,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		Message:          ts.Info.Error,
 		Done:             ts.Info.DoneCount,
 		Total:            ts.Info.TotalCount,
-		Files:            ts.Info.Files,
+		Files:            DeduplicateOutputFiles(ts.Info.Files),
 		Duration:         ts.Info.Duration,
 		PromptTokens:     ts.Info.PromptTokens,
 		CompletionTokens: ts.Info.CompletionTokens,
@@ -900,16 +956,35 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 		done := manifest.CompletedCount()
 		total := len(manifest.Tasks)
 		missing := 0
+		missingFiles := make([]string, 0)
+		var currentSlide *utils.PlanSlide
+		var nextPendingSlide *utils.PlanSlide
 		for _, item := range manifest.Tasks {
-			if item == nil || item.OutputFile == "" {
+			if item == nil {
 				continue
 			}
-			if _, statErr := os.Stat(filepath.Join(workDir, item.OutputFile)); statErr != nil {
-				missing++
+			if item.OutputFile != "" && isCompletedSlideStatus(item.Status) {
+				if _, statErr := os.Stat(filepath.Join(workDir, item.OutputFile)); statErr != nil {
+					missing++
+					missingFiles = append(missingFiles, item.OutputFile)
+				}
 			}
+			if currentSlide == nil && item.Status == deep.StatusGenerating {
+				slide := runtimePlanSlide(item)
+				currentSlide = &slide
+			}
+			if nextPendingSlide == nil && item.Status == deep.StatusPending {
+				slide := runtimePlanSlide(item)
+				nextPendingSlide = &slide
+			}
+		}
+		if currentSlide == nil {
+			currentSlide = nextPendingSlide
 		}
 		if ts.runtimeMeta != nil {
 			ts.runtimeMeta.RecordSlideProgress(done, total, missing)
+			ts.runtimeMeta.RecordCurrentSlide(currentSlide)
+			ts.runtimeMeta.ComparePlan(runtimePlanSlides(manifest.Tasks), missingFiles)
 		}
 
 		if done == lastDone && total > 0 {
@@ -999,9 +1074,10 @@ func (tm *TaskManager) GetWorkDir(id string) string {
 // 用于在服务器重启后从 MySQL 恢复任务。
 func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
 	ts := &TaskState{
-		Info:          info,
-		listeners:     make(map[string]chan SSERichEvent),
-		reportedFiles: make(map[string]bool),
+		Info:            info,
+		listeners:       make(map[string]chan SSERichEvent),
+		reportedFiles:   make(map[string]bool),
+		assistantTurnFn: tm.onAssistantTurn,
 	}
 	tm.mu.Lock()
 	tm.tasks[info.ID] = ts
@@ -1128,6 +1204,9 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 	tasks := make([]*deep.TaskItem, 0, len(outline.Slides))
 	for i, slide := range outline.Slides {
 		safeTitle := sanitizeFilename(slide.Title)
+		if strings.TrimSpace(safeTitle) == "" {
+			safeTitle = fmt.Sprintf("slide-%d", i+1)
+		}
 		item := &deep.TaskItem{
 			TaskID:      fmt.Sprintf("slide-%d", i+1),
 			PageIndex:   i + 1,
@@ -1155,6 +1234,43 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 		Template: outline.Template,
 		Tasks:    tasks,
 	}
+}
+
+func runtimePlanSlides(items []*deep.TaskItem) []utils.PlanSlide {
+	slides := make([]utils.PlanSlide, 0, len(items))
+	for _, item := range items {
+		if item != nil {
+			slides = append(slides, runtimePlanSlide(item))
+		}
+	}
+	return slides
+}
+
+func runtimePlanSlide(item *deep.TaskItem) utils.PlanSlide {
+	return utils.PlanSlide{
+		PageIndex: item.PageIndex, TaskID: item.TaskID, Title: item.Title,
+		ContentType: item.ContentType, OutputFile: CanonicalOutputFile(item.OutputFile), Status: item.Status,
+	}
+}
+
+func isCompletedSlideStatus(status string) bool {
+	return status == deep.StatusDone || status == deep.StatusQADone || status == deep.StatusFixed
+}
+
+func compactIntentSummary(query string, limit int) string {
+	query = strings.ReplaceAll(query, "\r", "\n")
+	parts := strings.FieldsFunc(query, func(r rune) bool { return r == '\n' || r == '。' || r == '！' || r == '？' })
+	summary := strings.TrimSpace(query)
+	if len(parts) > 0 {
+		summary = strings.TrimSpace(parts[0])
+	}
+	summary = strings.TrimLeft(summary, "#>-* `\t")
+	summary = strings.Join(strings.Fields(summary), " ")
+	runes := []rune(summary)
+	if limit > 0 && len(runes) > limit {
+		summary = string(runes[:limit]) + "..."
+	}
+	return summary
 }
 
 // persistConversationContent 从对话消息表（数据库）和内存中的 SSE 事件流中提取有意义的内容，

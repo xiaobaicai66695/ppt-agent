@@ -10,21 +10,26 @@ import {
   Download,
   LayoutPanelTop,
   ListFilter,
-  MessageSquareText,
   Presentation,
-  Send,
   Square,
   X,
 } from 'lucide-vue-next';
 import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta } from '../types';
 import { STATUS_LABELS } from '../types';
-import { fetchTasks, createTask, fetchTask, cancelTask, deleteTask, isLoggedIn, clearToken, continueTask, fetchConversation } from '../api';
+import {
+  fetchTasks, createTask, fetchTask, cancelTask, deleteTask,
+  isLoggedIn, continueTask, fetchConversation,
+} from '../api';
 import { authState } from '../stores/auth';
 import AppShell from '../components/AppShell.vue';
 import Sidebar from '../components/Sidebar.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import EventLog from '../components/EventLog.vue';
 import SlidePreviewCard from '../components/SlidePreviewCard.vue';
+import ConversationComposer from '../components/ConversationComposer.vue';
+import {
+  mergeSlideDeliveries, recoverConversationMessages, summarizeTaskTitle,
+} from '../utils/workbench';
 
 const router = useRouter();
 const auth = authState;
@@ -59,11 +64,6 @@ function handleSidebarSelect(id: string) {
   selectTask(id);
 }
 
-function handleSidebarCreate(query: string) {
-  closeSidebar();
-  void handleCreateTask(query);
-}
-
 function handleSidebarCompose() {
   closeSidebar();
   router.push('/compose');
@@ -75,135 +75,93 @@ function handleSidebarLogout() {
   router.push('/');
 }
 
-// ── Chat bar state ─────────────────────────────────────────────────────────────
-const showChatInput = ref(false);
-const chatInput = ref('');
-const chatLoading = ref(false);
-const chatHistory = ref<import('../types').ConversationMessage[]>([]);
-let chatEs: EventSource | null = null;
+// ── Unified conversation composer ─────────────────────────────────────────────
+const composerInput = ref('');
+const composerLoading = ref(false);
+const composerError = ref('');
+const composerNotice = ref('');
+const conversationLoading = ref(false);
+const conversationMessages = ref<import('../types').ConversationMessage[]>([]);
+const streamingAssistant = ref('');
+const continuationQueued = ref(false);
 
-function openChatBar() {
-  showChatInput.value = true;
-  chatHistory.value = [];
-  if (selectedId.value) {
-    fetchConversation(selectedId.value)
-      .then(s => { chatHistory.value = s.messages || []; })
-      .catch(() => { /* ignore */ });
-  }
-}
-
-function closeChatBar() {
-  showChatInput.value = false;
-  if (chatEs) { chatEs.close(); chatEs = null; }
-}
-
-async function submitChat() {
-  if (!selectedId.value || !chatInput.value.trim() || chatLoading.value) return;
-  chatLoading.value = true;
-  const msg = chatInput.value.trim();
-  chatInput.value = '';
-
-  chatHistory.value = [...chatHistory.value, {
-    role: 'user' as const, content: msg, timestamp: new Date().toISOString(),
-  }];
-
+const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
+  if (!selectedTask.value) return 'create';
+  return selectedTask.value.status === 'running' ? 'queue' : 'continue';
+});
+async function loadConversation(taskId: string) {
+  conversationLoading.value = true;
   try {
-    const res = await continueTask(selectedId.value, msg);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || '发送失败');
-    }
-    const data = await res.json();
-    if (data.status === 'queued') {
-      // 任务运行中，消息已排队
-      chatHistory.value = [...chatHistory.value, {
-        role: 'assistant' as const,
-        content: data.message || '您的反馈已排队，将在当前任务完成后自动处理',
-        timestamp: new Date().toISOString(),
-      }];
-      chatLoading.value = false;
-      return;
-    }
-    connectChatSSE(selectedId.value);
-  } catch (e: any) {
-    chatHistory.value = [...chatHistory.value, {
-      role: 'assistant' as const, content: '发送失败: ' + e.message, timestamp: new Date().toISOString(),
-    }];
-    chatLoading.value = false;
+    const session = await fetchConversation(taskId);
+    if (selectedId.value !== taskId) return;
+    conversationMessages.value = recoverConversationMessages(session);
+    if (logLines.value.length === 0) restoreFromConversation(session);
+    if (session.files?.length) finalFiles.value = session.files;
+    if (session.duration) duration.value = session.duration;
+    if (session.done_count !== undefined) doneCount.value = session.done_count;
+    if (session.total_count !== undefined) totalCount.value = session.total_count;
+  } catch {
+    if (selectedId.value === taskId) composerError.value = '对话历史暂时无法恢复，任务产物仍可正常查看';
+  } finally {
+    if (selectedId.value === taskId) conversationLoading.value = false;
   }
 }
 
-function connectChatSSE(taskId: string) {
-  if (chatEs) chatEs.close();
-  chatEs = new EventSource(`/api/tasks/${taskId}/stream`);
+function appendAssistantDelta(delta: string) {
+  if (delta) streamingAssistant.value += delta;
+}
 
-  chatEs.onerror = () => {
-	addLog('error', '对话连接暂时中断，正在自动重连...');
-  };
+function finalizeAssistantTurn() {
+  const content = streamingAssistant.value.trim();
+  if (content) {
+    conversationMessages.value = [...conversationMessages.value, {
+      role: 'assistant', content, timestamp: new Date().toISOString(),
+    }];
+  }
+  streamingAssistant.value = '';
+  composerLoading.value = false;
+}
 
-  const handler = (e: MessageEvent) => {
-    let evt: SSEEvent;
-    try { evt = JSON.parse(e.data); } catch { return; }
+async function submitComposer() {
+  const message = composerInput.value.trim();
+  if (!message || composerLoading.value) return;
+  composerError.value = '';
+  composerNotice.value = '';
 
-	if (evt.type === 'answer') {
-	  addLog('answer', evt.content || '');
-	} else if (evt.type === 'system_step') {
-	  addLog('worker', evt.content || '正在处理任务');
-    } else if (evt.type === 'tool_call') {
-      addLog('tool', `[${evt.tool_name || 'tool'}]`);
-    } else if (evt.type === 'file_ready' && evt.files) {
-      for (const f of evt.files) {
-        if (!finalFiles.value.includes(f)) {
-          finalFiles.value = [...finalFiles.value, f];
-          addLog('file', `${f} 已更新`);
-        }
-      }
-    } else if (evt.type === 'progress' && evt.tasks) {
-      taskItems.value = evt.tasks;
-      if (evt.done !== undefined) doneCount.value = evt.done;
-      if (evt.total !== undefined) totalCount.value = evt.total;
-	} else if (evt.type === 'runtime_meta' && evt.runtime_meta) {
-	  runtimeMeta.value = evt.runtime_meta;
-	} else if (evt.type === 'thumbnail_ready' && evt.files) {
-	  markThumbnailReady(evt.files);
-	} else if (evt.type === 'thumbnail_error' && evt.files) {
-	  markThumbnailFailed(evt.files, '缩略图转换失败，可重试或直接下载 PPTX');
-    } else if (evt.type === 'error') {
-      addLog('error', evt.error || '');
-    } else if (evt.type === 'continue_queued') {
-      // 任务完成，已自动触发排队消息的处理
-      chatHistory.value = [...chatHistory.value, {
-        role: 'assistant' as const,
-        content: '检测到您之前提交的反馈，正在自动处理...',
-        timestamp: new Date().toISOString(),
-      }];
-    } else if (evt.type === 'continue_complete' || evt.type === 'complete') {
-      stopPolling();
-      // Extract assistant reply from log
-      const lastAnswer = logLines.value.filter(l => l.kind === 'answer').pop();
-      chatHistory.value = [...chatHistory.value, {
-        role: 'assistant' as const,
-        content: lastAnswer?.text || '处理完成',
-        timestamp: new Date().toISOString(),
-      }];
-      chatLoading.value = false;
-      chatEs?.close();
-      chatEs = null;
-      refreshTask(taskId);
+  if (!selectedTask.value) {
+    composerLoading.value = true;
+    try {
+      const info = await createTask(message);
+      composerInput.value = '';
+      tasks.value = [info, ...tasks.value.filter(task => task.id !== info.id)];
+      selectTask(info.id);
+    } catch (error) {
+      composerError.value = error instanceof Error ? error.message : '创建任务失败，请重试';
+    } finally {
+      composerLoading.value = false;
     }
-  };
+    return;
+  }
 
-  chatEs.addEventListener('answer', handler);
-  chatEs.addEventListener('system_step', handler);
-  chatEs.addEventListener('tool_call', handler);
-  chatEs.addEventListener('progress', handler);
-  chatEs.addEventListener('file_ready', handler);
-  chatEs.addEventListener('runtime_meta', handler);
-  chatEs.addEventListener('thumbnail_ready', handler);
-  chatEs.addEventListener('thumbnail_error', handler);
-  chatEs.addEventListener('error', handler);
-  chatEs.addEventListener('continue_complete', handler);
-  chatEs.addEventListener('complete', handler);
+  const taskId = selectedTask.value.id;
+  composerLoading.value = true;
+  conversationMessages.value = [...conversationMessages.value, {
+    role: 'user', content: message, timestamp: new Date().toISOString(),
+  }];
+  composerInput.value = '';
+  streamingAssistant.value = '';
+  try {
+    const accepted = await continueTask(taskId, message);
+    composerNotice.value = accepted.message;
+    continuationQueued.value = accepted.status === 'queued';
+    sseCompleted = false;
+    connectSSE(taskId, accepted.after_event_id || 0);
+    startPolling(taskId);
+    if (accepted.status === 'queued') composerLoading.value = false;
+  } catch (error) {
+    composerError.value = error instanceof Error ? error.message : '发送失败，请重试';
+    composerLoading.value = false;
+  }
 }
 
 // ── Online Preview Modal ────────────────────────────────────────────────
@@ -240,7 +198,7 @@ let batchIdSeq = 0;
 let es: EventSource | null = null;
 
 const selectedTask = computed(() => tasks.value.find(t => t.id === selectedId.value));
-const hasRunningTask = computed(() => tasks.value.some(t => t.status === 'running'));
+const selectedTaskTitle = computed(() => summarizeTaskTitle(selectedTask.value?.query || '任务工作台'));
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
@@ -286,35 +244,7 @@ const sampleQueries = [
   '制作一个公司季度总结汇报',
 ];
 
-const orderedSlides = computed(() => {
-  const slides = new Map<string, { task: TaskItem; fileReady: boolean }>();
-  // 1. Add all entries from taskItems (progress events)
-  for (const t of taskItems.value) {
-    slides.set(t.output_file, { task: t, fileReady: finalFiles.value.includes(t.output_file) });
-  }
-  // 2. Add files that arrived via file_ready but don't yet have a taskItem entry
-  // This ensures slides appear immediately when the .pptx file is detected on disk,
-  // without waiting for the master agent to update tasks.json
-  for (const f of finalFiles.value) {
-    if (!taskItems.value.some(t => t.output_file === f)) {
-      const name = f.split(/[/\\]/).pop() || f;
-      const idxMatch = name.match(/^(\d+)_/);
-      const pageIdx = idxMatch ? parseInt(idxMatch[1]) : slides.size + 1;
-      slides.set(f, {
-        task: {
-          task_id: f,
-          page_index: pageIdx,
-          title: name,
-          content_type: '',
-          output_file: f,
-          status: 'done',
-        },
-        fileReady: true,
-      });
-    }
-  }
-  return [...slides.values()].sort((a, b) => a.task.page_index - b.task.page_index);
-});
+const orderedSlides = computed(() => mergeSlideDeliveries(taskItems.value, finalFiles.value));
 
 function findItem(id: string): TaskItem | undefined {
   return taskItems.value.find(t => t.task_id === id);
@@ -324,15 +254,15 @@ function findItem(id: string): TaskItem | undefined {
 const selectedSlides = ref<Set<string>>(new Set());
 const readySlides = computed(() => orderedSlides.value.filter(s => s.fileReady));
 
-function toggleSelect(taskId: string) {
+function toggleSelect(slideKey: string) {
   const next = new Set(selectedSlides.value);
-  if (next.has(taskId)) next.delete(taskId);
-  else next.add(taskId);
+  if (next.has(slideKey)) next.delete(slideKey);
+  else next.add(slideKey);
   selectedSlides.value = next;
 }
 
 function selectAll() {
-  selectedSlides.value = new Set(readySlides.value.map(s => s.task.task_id));
+  selectedSlides.value = new Set(readySlides.value.map(s => s.key));
 }
 
 function deselectAll() {
@@ -342,7 +272,7 @@ function deselectAll() {
 function downloadSelected() {
   const ids = selectedSlides.value;
   if (ids.size === 0) return;
-  const slides = readySlides.value.filter(s => ids.has(s.task.task_id));
+  const slides = readySlides.value.filter(s => ids.has(s.key));
   if (slides.length === 0) return;
 
   // Download all selected files synchronously within the same user gesture.
@@ -376,15 +306,17 @@ function addLog(kind: import('../types').LogKind, text: string) {
 let sseCompleted = false;
 let sseConnectionInterrupted = false;
 
-// 追踪上一条 answer 事件的完整内容，用于计算增量。
-let lastAnswerContent = '';
+let lastSeenEventID = 0;
 
-function connectSSE(taskId: string) {
+function connectSSE(taskId: string, afterEventID = 0) {
   if (!taskId) return;
   if (sseCompleted) return; // already received complete, don't reconnect
   if (es) es.close();
-  lastAnswerContent = '';
-  es = new EventSource(`/api/tasks/${taskId}/stream`);
+  lastSeenEventID = afterEventID;
+  const streamURL = afterEventID > 0
+    ? `/api/tasks/${taskId}/stream?after_id=${encodeURIComponent(afterEventID)}`
+    : `/api/tasks/${taskId}/stream`;
+  es = new EventSource(streamURL);
   activeWorkers.value = 0;
 
   es.onopen = () => {
@@ -403,25 +335,24 @@ function connectSSE(taskId: string) {
   const handler = (e: MessageEvent) => {
     let evt: SSEEvent;
     try { evt = JSON.parse(e.data); } catch { return; }
+    if (e.lastEventId) lastSeenEventID = Number.parseInt(e.lastEventId, 10) || lastSeenEventID;
 
     switch (evt.type) {
-	  case 'answer': {
-        const newContent = evt.content || '';
-        if (newContent) {
-          // evt.content 是从本轮开头的完整累加文本，只取增量部分追加。
-          const delta = newContent.startsWith(lastAnswerContent)
-            ? newContent.slice(lastAnswerContent.length)
-            : newContent;
-          if (delta) {
-            if (logLines.value.length === 0 || logLines.value[logLines.value.length - 1].kind !== 'answer') {
-              addLog('divider', '── AI 响应 ──');
-            }
-            addLog('answer', delta);
+      case 'answer': {
+        const chunk = evt.content || '';
+        if (chunk) {
+          if (logLines.value.length === 0 || logLines.value[logLines.value.length - 1].kind !== 'answer') {
+            addLog('divider', '── AI 响应 ──');
           }
-          lastAnswerContent = newContent;
+          addLog('answer', chunk);
+          appendAssistantDelta(chunk);
         }
 		break;
 	  }
+
+      case 'answer_end':
+        finalizeAssistantTurn();
+        break;
 
 	  case 'system_step':
 		if (evt.content) addLog('worker', evt.content);
@@ -517,9 +448,25 @@ function connectSSE(taskId: string) {
         addLog('error', evt.error || evt.content || '');
         break;
 
-      case 'complete':
+      case 'continue_queued':
+        composerNotice.value = '已进入反馈处理阶段';
+        break;
+
+      case 'continue_complete':
+        finalizeAssistantTurn();
+        continuationQueued.value = false;
         sseCompleted = true;
-        lastAnswerContent = '';
+        activeWorkers.value = 0;
+        es?.close();
+        es = null;
+        stopPolling();
+        void refreshTask(taskId);
+        window.setTimeout(() => void loadConversation(taskId), 200);
+        break;
+
+      case 'complete':
+        sseCompleted = !continuationQueued.value;
+        finalizeAssistantTurn();
         doneCount.value = evt.done || 0;
         totalCount.value = evt.total || 0;
         if (evt.files) {
@@ -540,13 +487,26 @@ function connectSSE(taskId: string) {
           }
         }
         activeWorkers.value = 0;
-        es!.close();
-        refreshTask(taskId);
+        es?.close();
+        es = null;
+        void refreshTask(taskId);
+        if (continuationQueued.value) {
+          window.setTimeout(() => {
+            if (selectedId.value !== taskId || !continuationQueued.value) return;
+            sseCompleted = false;
+            connectSSE(taskId, lastSeenEventID);
+            startPolling(taskId);
+          }, 300);
+        } else {
+          stopPolling();
+          window.setTimeout(() => void loadConversation(taskId), 200);
+        }
         break;
     }
   };
 
   es.addEventListener('answer', handler);
+  es.addEventListener('answer_end', handler);
   es.addEventListener('system_step', handler);
   es.addEventListener('tool_call', handler);
   es.addEventListener('progress', handler);
@@ -556,13 +516,18 @@ function connectSSE(taskId: string) {
   es.addEventListener('token_usage', handler);
   es.addEventListener('runtime_meta', handler);
   es.addEventListener('error', handler);
+  es.addEventListener('continue_queued', handler);
+  es.addEventListener('continue_complete', handler);
   es.addEventListener('complete', handler);
 }
 
 function disconnectSSE() {
   if (es) { es.close(); es = null; }
   stopPolling();
-  lastAnswerContent = '';
+  lastSeenEventID = 0;
+  streamingAssistant.value = '';
+  composerLoading.value = false;
+  continuationQueued.value = false;
   currentPhase.value = '';
   phaseDetail.value = '';
   runtimeMeta.value = null;
@@ -760,6 +725,10 @@ function selectTask(id: string) {
     disconnectSSE();
   }
   selectedId.value = id;
+  conversationMessages.value = [];
+  conversationLoading.value = true;
+  composerError.value = '';
+  composerNotice.value = '';
   const t = tasks.value.find(x => x.id === id);
   if (!t) return;
 
@@ -782,6 +751,7 @@ function selectTask(id: string) {
 	  connectSSE(id);
 	  startPolling(id);
     }
+    void loadConversation(id);
     return;
   }
 
@@ -804,21 +774,8 @@ function selectTask(id: string) {
       // 正在运行：通过 SSE 实时接收事件 + polling 兜底
       connectSSE(id);
       startPolling(id);
-    } else {
-      // 已完成 / 已取消：后端任务已不在内存，SSE 无事件可重放。
-      // 改用 /conversation 接口从数据库恢复日志区和文件。
-      fetchConversation(id).then(sess => {
-        if (sess.conversation_content) {
-          restoreFromConversation(sess);
-          if (sess.duration) duration.value = sess.duration;
-        }
-        if (sess.files?.length) {
-          finalFiles.value = sess.files;
-        }
-        if (sess.done_count !== undefined) doneCount.value = sess.done_count;
-        if (sess.total_count !== undefined) totalCount.value = sess.total_count;
-      }).catch(() => { /* ignore */ });
     }
+    void loadConversation(id);
   }
 }
 
@@ -857,9 +814,11 @@ function handleNewSession() {
   if (selectedId.value) {
     saveCache(selectedId.value);
     disconnectSSE();
-    if (chatEs) { chatEs.close(); chatEs = null; }
     selectedId.value = null;
   }
+  conversationMessages.value = [];
+  composerError.value = '';
+  composerNotice.value = '';
   // Scroll main to top
   document.querySelector('.main')?.scrollTo({ top: 0 });
 }
@@ -903,12 +862,12 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close(); chatEs = null; } });
+onUnmounted(() => { disconnectSSE(); stopPolling(); });
 </script>
 
 <template>
   <AppShell
-    :title="selectedTask?.query || '任务工作台'"
+    :title="selectedTaskTitle"
     eyebrow="生成与交付"
     content-class="dashboard-shell-content"
   >
@@ -927,16 +886,6 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
       >
         <ListFilter :size="18" />
         <span>任务</span>
-      </button>
-      <button
-        v-if="selectedTask"
-        class="topbar-tool"
-        type="button"
-        title="继续修改"
-        @click="openChatBar"
-      >
-        <MessageSquareText :size="18" />
-        <span>继续修改</span>
       </button>
       <button
         v-if="selectedTask?.status === 'running'"
@@ -963,12 +912,8 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
         :user="auth.user"
         :tasks="tasks"
         :selected-id="selectedId"
-        :has-running-task="hasRunningTask"
-        :creating="creating"
-        :error="loadError"
         @logout="handleSidebarLogout"
         @select-task="handleSidebarSelect"
-        @create-task="handleSidebarCreate"
         @delete-task="handleDeleteTask"
         @compose="handleSidebarCompose"
         @new-session="handleNewSession(); closeSidebar()"
@@ -1002,7 +947,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
         <div class="compose-entry">
           <span>
             <h3>需要先确定结构？</h3>
-            <p>进入编排工作区，选择模板并调整每一页的大纲。</p>
+            <p>进入编排工作区，自行调整每一页的布局和内容约束。</p>
           </span>
           <button class="compose-btn" @click="router.push({ name: 'compose' })">
             <LayoutPanelTop :size="17" />
@@ -1017,7 +962,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
         <!-- Header -->
         <div class="dash-header">
           <div class="dash-header-left">
-            <h2 class="dash-title">{{ selectedTask?.query }}</h2>
+            <h2 class="dash-title">{{ selectedTaskTitle }}</h2>
             <div class="dash-meta">
               <span class="dash-id">{{ selectedTask?.id?.slice(0, 8) }}</span>
               <span v-if="duration" class="dash-duration">
@@ -1030,6 +975,10 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
                 <span class="token-detail">({{ fmtTokens(selectedTask?.prompt_tokens ?? 0) }}p + {{ fmtTokens(selectedTask?.completion_tokens ?? 0) }}c)</span>
               </span>
             </div>
+            <details v-if="selectedTask?.query" class="task-query-details">
+              <summary>查看原始需求</summary>
+              <pre>{{ selectedTask.query }}</pre>
+            </details>
           </div>
           <div class="dash-status">
             <span v-if="activeWorkers > 0 && selectedTask?.status === 'running'" class="stat-badge workers">
@@ -1041,14 +990,6 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
             <span v-if="selectedTask?.status === 'completed'" class="stat-badge done"> 已完成</span>
             <span v-if="selectedTask?.status === 'cancelled'" class="stat-badge cancelled"> 已中断</span>
             <span v-if="selectedTask?.status === 'failed'" class="stat-badge failed"> 失败</span>
-            <button
-              class="chat-trigger-btn"
-              @click="openChatBar"
-              title="与 AI 聊天改进 PPT"
-            >
-              <MessageSquareText :size="16" />
-              AI 对话
-            </button>
             <button
               v-if="selectedTask?.status === 'running'"
               class="cancel-btn"
@@ -1074,17 +1015,47 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
           <summary class="dev-status-summary">
             <span class="dev-status-title">运行诊断</span>
             <span class="dev-status-phase">{{ runtimeMeta.phase || currentPhase || 'preparing' }}</span>
-            <span v-if="runtimeWarnings.length || runtimeMeta.last_error" class="diagnostic-alert">
-              {{ runtimeWarnings.length + (runtimeMeta.last_error ? 1 : 0) }} 条警告
+            <span v-if="runtimeWarnings.length || runtimeMeta.alignment_warnings?.length || runtimeMeta.last_error" class="diagnostic-alert">
+              {{ runtimeWarnings.length + (runtimeMeta.alignment_warnings?.length || 0) + (runtimeMeta.last_error ? 1 : 0) }} 条警告
             </span>
             <ChevronDown class="diagnostic-chevron" :size="16" aria-hidden="true" />
           </summary>
           <div class="dev-status-body">
             <div class="dev-status-grid">
+            <div class="dev-stat intent-stat">
+              <span class="dev-stat-label">用户意图</span>
+              <strong>{{ runtimeMeta.intent_anchor?.summary || selectedTaskTitle }}</strong>
+              <small>{{ runtimeMeta.intent_anchor?.domain || '领域待识别' }} · {{ runtimeMeta.intent_anchor?.suggested_pages || totalCount || '?' }} 页 · {{ runtimeMeta.intent_anchor?.template || '自动模板' }}</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">契约对齐</span>
+              <strong :class="['alignment-value', runtimeMeta.alignment_status || 'pending']">{{ runtimeMeta.alignment_status === 'aligned' ? '正常' : runtimeMeta.alignment_status === 'warning' ? '发现偏离' : '等待规划' }}</strong>
+              <small>冻结计划 {{ runtimeMeta.plan_slides?.length || 0 }} 页</small>
+            </div>
+            <div class="dev-stat">
+              <span class="dev-stat-label">当前执行</span>
+              <strong>{{ runtimeMeta.current_slide?.page_index ? `第 ${runtimeMeta.current_slide.page_index} 页` : runtimeMeta.phase || '准备中' }}</strong>
+              <small>{{ runtimeMeta.current_slide?.title || runtimeMeta.phase_detail || '等待执行点更新' }}</small>
+            </div>
             <div class="dev-stat">
               <span class="dev-stat-label">运行</span>
               <strong>{{ fmtElapsed(runtimeMeta.elapsed_ms) }}</strong>
               <small>{{ runtimeMeta.phase_detail || phaseDetail || '等待阶段更新' }}</small>
+            </div>
+            <div v-if="runtimeMeta.plan_slides?.length" class="plan-strip">
+              <span
+                v-for="slide in runtimeMeta.plan_slides"
+                :key="slide.task_id || slide.page_index"
+                :class="{ current: runtimeMeta.current_slide?.page_index === slide.page_index }"
+                :title="`${slide.title || '未命名'} · ${slide.content_type || 'unknown'}`"
+              >{{ slide.page_index }}</span>
+            </div>
+            <div v-if="runtimeMeta.alignment_warnings?.length" class="alignment-warnings">
+              <article v-for="warning in runtimeMeta.alignment_warnings" :key="`${warning.code}-${warning.page_index || 0}`" :class="warning.severity">
+                <strong>{{ warning.step }}{{ warning.page_index ? ` · 第 ${warning.page_index} 页` : '' }}</strong>
+                <span>{{ warning.message }}</span>
+                <small v-if="warning.expected || warning.observed">期望：{{ warning.expected || '-' }} · 实际：{{ warning.observed || '-' }}</small>
+              </article>
             </div>
             <div class="dev-stat">
               <span class="dev-stat-label">工具</span>
@@ -1181,7 +1152,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
               <div class="slides-toolbar">
                 <h3 class="section-title">
                   生成文件
-                  <span class="file-count">{{ finalFiles.length }} / {{ orderedSlides.length }}</span>
+                  <span class="file-count">{{ readySlides.length }} / {{ orderedSlides.length }}</span>
                 </h3>
                 <div class="toolbar-actions">
                   <button class="tool-btn" @click="selectAll">全选</button>
@@ -1199,15 +1170,15 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
               <TransitionGroup name="slide" tag="div" class="slides-list">
                 <SlidePreviewCard
                   v-for="s in orderedSlides"
-                  :key="s.task.task_id"
+                  :key="s.key"
                   :task="s.task"
                   :task-id="selectedTask?.id"
                   :file-ready="s.fileReady"
-                  :selected="selectedSlides.has(s.task.task_id)"
+                  :selected="selectedSlides.has(s.key)"
                   :thumbnail-status="thumbnailStatus(s.task.output_file)"
                   :thumbnail-version="thumbnailVersions[thumbnailKey(s.task.output_file)] || 0"
                   :thumbnail-error="thumbnailFailures[thumbnailKey(s.task.output_file)]"
-                  @toggle="toggleSelect(s.task.task_id)"
+                  @toggle="toggleSelect(s.key)"
                   @preview="openPreview"
                 />
               </TransitionGroup>
@@ -1226,6 +1197,20 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
           <p>{{ finalMessage }}</p>
         </div>
       </template>
+
+      <ConversationComposer
+        v-model="composerInput"
+        class="workspace-composer"
+        :mode="composerMode"
+        :task-title="selectedTask ? selectedTaskTitle : undefined"
+        :messages="conversationMessages"
+        :streaming-content="streamingAssistant"
+        :history-loading="conversationLoading"
+        :submitting="composerLoading || creating"
+        :error="composerError || (!selectedTask ? loadError : '')"
+        :notice="composerNotice"
+        @submit="submitComposer"
+      />
     </main>
 
     <!-- Online PPT Preview Modal -->
@@ -1261,56 +1246,6 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
       </Transition>
     </Teleport>
 
-    <!-- Persistent Chat Bar (bottom of main) -->
-    <div v-if="selectedTask" class="chat-bar" :class="{ expanded: showChatInput }">
-      <button v-if="!showChatInput" class="chat-bar-collapsed" type="button" @click="openChatBar">
-        <MessageSquareText :size="17" />
-        <span>继续修改这套演示</span>
-      </button>
-      <div v-else class="chat-bar-expanded">
-        <div class="chat-bar-header">
-          <span class="chat-bar-title">AI 对话</span>
-          <button class="chat-bar-close" @click="closeChatBar" aria-label="关闭">
-            <X :size="18" />
-          </button>
-        </div>
-        <div class="chat-messages" ref="chatMessagesEl">
-          <div v-if="chatHistory.length === 0 && !chatLoading" class="chat-empty">
-            对这个 PPT 有什么想改进的？直接告诉我吧
-          </div>
-          <div
-            v-for="(msg, idx) in chatHistory"
-            :key="idx"
-            :class="['chat-msg', msg.role]"
-          >
-            <div class="chat-msg-bubble">{{ msg.content }}</div>
-          </div>
-          <div v-if="chatLoading" class="chat-msg assistant">
-            <div class="chat-msg-bubble typing">
-              <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
-            </div>
-          </div>
-        </div>
-        <div class="chat-input-row">
-          <input
-            v-model="chatInput"
-            class="chat-input"
-            placeholder="描述想改进的内容，按 Enter 发送..."
-            :disabled="chatLoading"
-            @keydown.enter.prevent="submitChat"
-            aria-label="聊天输入"
-          />
-          <button
-            class="chat-send-btn"
-            :disabled="!chatInput.trim() || chatLoading"
-            @click="submitChat"
-            aria-label="发送"
-          >
-            <Send :size="17" />
-          </button>
-        </div>
-      </div>
-    </div>
     </div>
   </AppShell>
 </template>
@@ -1371,27 +1306,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 .preview-modal-img { width: 100%; height: auto; }
 .preview-modal-loading { min-height: 320px; display: grid; place-items: center; }.preview-spinner { width: 28px; height: 28px; border: 3px solid var(--border-strong); border-top-color: var(--info); border-radius: 50%; animation: spin 0.9s linear infinite; }
 
-.chat-bar-collapsed { width: 100%; border: 0; display: flex; align-items: center; gap: 8px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
-.chat-bar-expanded { display: flex; flex-direction: column; }
-.chat-bar-header { display: flex; align-items: center; justify-content: space-between; }
-.chat-bar-title { color: var(--text); font-size: 12px; font-weight: 730; }
-.chat-bar-close { border: 0; border-radius: 5px; color: var(--text-secondary); background: transparent; cursor: pointer; }
-.chat-bar-close:hover { color: var(--danger); background: var(--danger-soft); }
-.chat-messages { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
-.chat-empty { padding: 22px 10px; color: var(--text-muted); font-size: 11px; text-align: center; }
-.chat-msg { display: flex; }.chat-msg.user { justify-content: flex-end; }.chat-msg.assistant { justify-content: flex-start; }
-.chat-msg-bubble { max-width: 84%; padding: 8px 10px; border-radius: 6px; color: var(--text); background: var(--surface); border: 1px solid var(--border); font-size: 11px; white-space: pre-wrap; word-break: break-word; }
-.chat-msg.user .chat-msg-bubble { color: #fff; border-color: var(--action-ink); background: var(--action-ink); }
-.typing { display: inline-flex; align-items: center; gap: 4px; }.typing-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); animation: typing 1.1s ease-in-out infinite; }.typing-dot:nth-child(2) { animation-delay: 0.12s; }.typing-dot:nth-child(3) { animation-delay: 0.24s; }
-.chat-input-row { display: flex; align-items: center; gap: 7px; }
-.chat-input { min-width: 0; flex: 1; padding: 0 10px; border: 1px solid var(--border-strong); color: var(--text); }
-.chat-input:focus { border-color: var(--info); outline: 2px solid var(--info-soft); }
-.chat-send-btn { display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--action-ink); color: #fff; background: var(--action-ink); cursor: pointer; }
-
 .pulse-dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: currentColor; animation: pulse 1.4s ease-in-out infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 50% { opacity: 0.35; } }
-@keyframes typing { 50% { transform: translateY(-3px); opacity: 0.45; } }
 
 .topbar-tool {
   min-height: 38px;
@@ -1442,7 +1359,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   min-width: 0;
   width: 100%;
   height: 100%;
-  padding: 22px 24px 96px;
+  padding: 22px 24px 28px;
   display: flex;
   flex-direction: column;
   overflow: auto;
@@ -1453,7 +1370,15 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 .main > .split-layout { order: 3; }
 .main > .final-message { order: 4; }
 .main > .dev-status-panel { order: 5; }
+.main > .workspace-composer { order: 6; }
 .main > .welcome { order: 1; }
+.main > .dash-header,
+.main > :deep(.progress-panel),
+.main > .split-layout,
+.main > .final-message,
+.main > .dev-status-panel,
+.main > .workspace-composer,
+.main > .welcome { flex-shrink: 0; }
 
 .dash-header {
   margin: 0 0 14px;
@@ -1462,6 +1387,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   border: 0;
 }
 .dash-title { max-width: 900px; color: var(--text); font-size: 18px; font-weight: 730; line-height: 1.35; letter-spacing: 0; white-space: normal; }
+.task-query-details { margin-top: 8px; width: min(900px, 100%); }
+.task-query-details summary { width: max-content; min-height: 28px; display: flex; align-items: center; color: var(--info); font-size: 10px; cursor: pointer; }
+.task-query-details pre { max-height: 260px; margin: 6px 0 0; padding: 10px 12px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); background: var(--surface); font: 11px/1.65 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dash-meta { margin-top: 7px; gap: 12px; }
 .dash-id { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); background: var(--surface-muted); font-family: ui-monospace, monospace; }
 .dash-duration, .dash-tokens { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); }
@@ -1472,6 +1400,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 
 .split-layout {
   min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1536,12 +1465,22 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 .dev-status-body { padding: 0 14px 14px; }
 .dev-status-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
 .dev-stat { min-height: 76px; padding: 10px; border: 1px solid var(--divider); border-radius: 5px; background: var(--surface-muted); }
+.intent-stat { grid-column: span 2; }
+.intent-stat strong { font-size: 12px; line-height: 1.5; }
+.alignment-value.aligned { color: var(--success); }.alignment-value.warning { color: var(--warning); }.alignment-value.pending { color: var(--text-muted); }
+.plan-strip { grid-column: 1 / -1; min-height: 42px; padding: 7px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; border: 1px solid var(--divider); border-radius: 5px; background: var(--surface-muted); }
+.plan-strip span { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); background: var(--surface); font-size: 10px; font-weight: 750; }
+.plan-strip span.current { border-color: var(--info); color: #fff; background: var(--info); }
+.alignment-warnings { grid-column: 1 / -1; display: grid; gap: 6px; }
+.alignment-warnings article { padding: 8px 10px; display: grid; grid-template-columns: 120px minmax(160px, 1fr) minmax(180px, 1.4fr); gap: 8px; border-left: 3px solid var(--warning); color: var(--text-secondary); background: var(--warning-soft); font-size: 10px; }
+.alignment-warnings article.error { border-left-color: var(--danger); background: var(--danger-soft); }
+.alignment-warnings strong { color: var(--text); }.alignment-warnings small { color: var(--text-muted); overflow-wrap: anywhere; }
 .runtime-timeline { border: 1px solid var(--divider); border-radius: 5px; }
 
 .final-message { margin: 18px 0 0; border: 1px solid #b9dfcf; border-radius: 6px; background: var(--success-soft); box-shadow: none; }
 
 .welcome {
-  min-height: 100%;
+  min-height: auto;
   width: min(820px, 100%);
   margin: 0 auto;
   padding: 7vh 0 40px;
@@ -1551,6 +1490,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   align-items: stretch;
   text-align: left;
 }
+.workspace-composer { width: min(920px, 100%); margin: 22px auto 0; flex: 0 0 auto; }
 .welcome-hero { display: grid; grid-template-columns: 46px minmax(0, 1fr); column-gap: 14px; align-items: center; }
 .welcome-icon { grid-row: 1 / 4; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 7px; color: var(--action-ink); background: var(--action-soft); }
 .welcome-icon svg { width: 28px; height: 28px; }
@@ -1566,29 +1506,6 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
 .compose-entry h3 { margin: 0; color: var(--text); font-size: 13px; }
 .compose-entry p { margin-top: 3px; font-size: 11px; }
 .compose-entry .compose-btn { min-height: 40px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); cursor: pointer; }
-
-.chat-bar {
-  position: fixed;
-  z-index: calc(var(--z-nav) - 1);
-  right: 20px;
-  bottom: 18px;
-  left: auto;
-  width: min(420px, calc(100vw - var(--rail-width) - 40px));
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface);
-  box-shadow: var(--shadow-md);
-}
-.chat-bar-collapsed { min-height: 46px; padding: 0 14px; color: var(--text); background: var(--surface); }
-.chat-bar-collapsed:hover { background: var(--surface-muted); }
-.chat-bar-expanded { max-height: min(560px, 72dvh); }
-.chat-bar-header { min-height: 46px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--border); }
-.chat-bar-close { width: 38px; height: 38px; display: grid; place-items: center; }
-.chat-messages { min-height: 150px; padding: 12px; background: var(--surface-muted); }
-.chat-input-row { padding: 10px; border-top: 1px solid var(--border); }
-.chat-input { min-height: 42px; border-radius: 5px; background: var(--surface); }
-.chat-send-btn { width: 42px; height: 42px; border-radius: 5px; }
 
 .preview-modal-overlay { background: rgba(15, 17, 18, 0.62); }
 .preview-modal { width: min(1100px, 96vw); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-lg); }
@@ -1613,8 +1530,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   .sidebar-shell.open { transform: translateX(0); }
   .sidebar-scrim { position: fixed; inset: 0; z-index: var(--z-modal); display: block; border: 0; background: rgba(15, 17, 18, 0.55); }
   .sidebar-close-btn { position: fixed; top: 6px; left: min(calc(88vw - 50px), 270px); z-index: calc(var(--z-modal) + 2); width: 42px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--text-secondary); background: var(--surface); cursor: pointer; }
-  .main { height: 100%; padding: 20px 22px 92px; }
-  .chat-bar { width: min(420px, calc(100vw - 40px)); }
+  .main { height: 100%; padding: 20px 22px 26px; }
 }
 
 @media (max-width: 720px) {
@@ -1631,7 +1547,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); if (chatEs) { chatEs.close()
   .toolbar-actions { width: auto; display: flex; flex-wrap: wrap; }
   .tool-btn.primary { grid-column: auto; }
   .examples-grid { grid-template-columns: 1fr; }
-  .chat-bar { position: relative; right: auto; bottom: auto; left: auto; width: auto; margin: 0 8px 8px; flex: 0 0 auto; }
+  .intent-stat { grid-column: 1 / -1; }
+  .alignment-warnings article { grid-template-columns: 1fr; }
+  .workspace-composer { margin-top: 16px; }
   .preview-modal-overlay { padding: 0; }
   .preview-modal { width: 100vw; height: 100dvh; border-radius: 0; }
   .preview-modal-body { height: calc(100dvh - 58px); }

@@ -12,15 +12,40 @@ import (
 	"unicode"
 
 	"github.com/cloudwego/eino/schema"
+
+	agentcontentplan "github.com/cloudwego/ppt-agent/pkg/agent/contentplan"
 )
 
 type ContentElement struct {
-	Type        string `json:"type"`                  // bullet_list, numbered_list, example_box, key_point_card, image_placeholder, table, chart_placeholder, callout, quote
-	Items       []string `json:"items,omitempty"`     // 用于 bullet_list / numbered_list
-	Text        string   `json:"text,omitempty"`      // 用于 callout / quote
-	Title       string   `json:"title,omitempty"`     // 用于 example_box / key_point_card
+	Type        string   `json:"type"`                  // bullet_list, numbered_list, example_box, key_point_card, image_placeholder, table, chart_placeholder, callout, quote
+	Items       []string `json:"items,omitempty"`       // 用于 bullet_list / numbered_list
+	Text        string   `json:"text,omitempty"`        // 用于 callout / quote
+	Title       string   `json:"title,omitempty"`       // 用于 example_box / key_point_card
 	Description string   `json:"description,omitempty"` // 用于 example_box
 	LayoutHint  string   `json:"layout_hint,omitempty"` // 布局提示：left-image, right-image, top-title, center
+}
+
+func (e *ContentElement) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type        string          `json:"type"`
+		Items       json.RawMessage `json:"items"`
+		Text        string          `json:"text"`
+		Title       string          `json:"title"`
+		Description string          `json:"description"`
+		LayoutHint  string          `json:"layout_hint"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	items, err := agentcontentplan.DecodeItems(raw.Items)
+	if err != nil {
+		return fmt.Errorf("content_plan element items: %w", err)
+	}
+	*e = ContentElement{
+		Type: raw.Type, Items: items, Text: raw.Text, Title: raw.Title,
+		Description: raw.Description, LayoutHint: raw.LayoutHint,
+	}
+	return nil
 }
 
 // ContentPlan 描述页面内部的内容结构，是 description 的结构化升级
@@ -30,11 +55,11 @@ type ContentPlan struct {
 }
 
 type Step struct {
-	Index       int      `json:"index"`
-	Title       string   `json:"title"`
-	ContentType string   `json:"content_type"`
-	Description string   `json:"description"`
-	Desc        string   `json:"desc"`
+	Index       int    `json:"index"`
+	Title       string `json:"title"`
+	ContentType string `json:"content_type"`
+	Description string `json:"description"`
+	Desc        string `json:"desc"`
 
 	// SubSteps 分页组：若设置此字段，表示该幻灯片需要分多页生成。
 	// SubSteps 中的每个子项对应一页幻灯片，页码依次递增。
@@ -53,19 +78,19 @@ type Step struct {
 
 // SubStep 分页组的子页面，与 Step 结构相同但不再支持嵌套分页
 type SubStep struct {
-	Index       int           `json:"index"`
-	Title       string        `json:"title"`
-	ContentType string        `json:"content_type"`
-	Description string        `json:"description"`
-	ContentPlan *ContentPlan  `json:"content_plan,omitempty"`
-	LayoutHint  string        `json:"layout_hint,omitempty"`
+	Index       int          `json:"index"`
+	Title       string       `json:"title"`
+	ContentType string       `json:"content_type"`
+	Description string       `json:"description"`
+	ContentPlan *ContentPlan `json:"content_plan,omitempty"`
+	LayoutHint  string       `json:"layout_hint,omitempty"`
 }
 
 type Plan struct {
-	Title  string  `json:"title"`
-	Theme  string  `json:"theme"`
-	Slides []Step  `json:"slides"`
-	Steps  []Step  `json:"steps"`
+	Title  string `json:"title"`
+	Theme  string `json:"theme"`
+	Slides []Step `json:"slides"`
+	Steps  []Step `json:"steps"`
 }
 
 func (p *Plan) FirstStep() string {
@@ -176,34 +201,34 @@ func stripPlanFence(s string) string {
 // contentPlanElementSubParams 是 content_plan.elements 中单个元素的子参数字段定义
 var contentPlanElementSubParams = map[string]*schema.ParameterInfo{
 	"type": {
-		Type:    schema.String,
-		Desc:    "元素类型：bullet_list(要点列表), numbered_list(编号列表), example_box(案例框), key_point_card(核心论断卡片), image_placeholder(配图占位), table(表格), chart_placeholder(图表占位), callout(突出引用), quote(金句引用)",
+		Type:     schema.String,
+		Desc:     "元素类型：bullet_list(要点列表), numbered_list(编号列表), example_box(案例框), key_point_card(核心论断卡片), image_placeholder(配图占位), table(表格), chart_placeholder(图表占位), callout(突出引用), quote(金句引用)",
 		Required: false,
 	},
 	"items": {
-		Type:    schema.Array,
+		Type:     schema.Array,
 		ElemInfo: &schema.ParameterInfo{Type: schema.String},
-		Desc:    "列表项（用于 bullet_list / numbered_list）",
+		Desc:     "列表项（用于 bullet_list / numbered_list）",
 		Required: false,
 	},
 	"text": {
-		Type:    schema.String,
-		Desc:    "文本内容（用于 callout / quote）",
+		Type:     schema.String,
+		Desc:     "文本内容（用于 callout / quote）",
 		Required: false,
 	},
 	"title": {
-		Type:    schema.String,
-		Desc:    "标题（用于 example_box / key_point_card）",
+		Type:     schema.String,
+		Desc:     "标题（用于 example_box / key_point_card）",
 		Required: false,
 	},
 	"description": {
-		Type:    schema.String,
-		Desc:    "详细描述（用于 example_box / key_point_card）",
+		Type:     schema.String,
+		Desc:     "详细描述（用于 example_box / key_point_card）",
 		Required: false,
 	},
 	"layout_hint": {
-		Type:    schema.String,
-		Desc:    "布局提示：left-image, right-image, top-title, center",
+		Type:     schema.String,
+		Desc:     "布局提示：left-image, right-image, top-title, center",
 		Required: false,
 	},
 }
@@ -211,50 +236,50 @@ var contentPlanElementSubParams = map[string]*schema.ParameterInfo{
 // subStepSubParams 是 sub_steps 中单个子页面的参数字段定义
 var subStepSubParams = map[string]*schema.ParameterInfo{
 	"index": {
-		Type:    schema.Integer,
-		Desc:    "子页面序号，从1开始",
+		Type:     schema.Integer,
+		Desc:     "子页面序号，从1开始",
 		Required: true,
 	},
 	"title": {
-		Type:    schema.String,
-		Desc:    "子页面标题",
+		Type:     schema.String,
+		Desc:     "子页面标题",
 		Required: true,
 	},
 	"content_type": {
-		Type:    schema.String,
-		Desc:    "内容类型：content_slide, two_column, image_text 等",
+		Type:     schema.String,
+		Desc:     "内容类型：content_slide, two_column, image_text 等",
 		Required: false,
 	},
 	"description": {
-		Type:    schema.String,
-		Desc:    "子页面内容描述",
+		Type:     schema.String,
+		Desc:     "子页面内容描述",
 		Required: true,
 	},
 	"content_plan": {
-		Type:    schema.Object,
-		Desc:    "子页面的内容结构化描述（可选）",
+		Type:     schema.Object,
+		Desc:     "子页面的内容结构化描述（可选）",
 		Required: false,
 		SubParams: map[string]*schema.ParameterInfo{
 			"summary": {
-				Type:    schema.String,
-				Desc:    "页面核心内容的一句话概括",
+				Type:     schema.String,
+				Desc:     "页面核心内容的一句话概括",
 				Required: false,
 			},
 			"elements": {
-				Type:    schema.Array,
-				Desc:    "内容元素列表",
+				Type:     schema.Array,
+				Desc:     "内容元素列表",
 				Required: false,
 				ElemInfo: &schema.ParameterInfo{
-					Type:        schema.Object,
-					SubParams:   contentPlanElementSubParams,
-					Desc: "单个内容元素",
+					Type:      schema.Object,
+					SubParams: contentPlanElementSubParams,
+					Desc:      "单个内容元素",
 				},
 			},
 		},
 	},
 	"layout_hint": {
-		Type:    schema.String,
-		Desc:    "布局补充提示",
+		Type:     schema.String,
+		Desc:     "布局补充提示",
 		Required: false,
 	},
 }
@@ -272,8 +297,8 @@ var slideSubParams = map[string]*schema.ParameterInfo{
 		Required: true,
 	},
 	"content_type": {
-		Type:    schema.String,
-		Desc:    "内容类型：title_slide(标题页), content_slide(自由内容页), two_column(双栏对比), three_column(三栏多要点), image_text(图文混排), quote_slide(引用金句页), chart_slide(数据图表页), section_divider(分隔页), summary_slide(总结页)，也可留空或填 custom_layout 由 Executor 自行决定",
+		Type:     schema.String,
+		Desc:     "内容类型：title_slide(标题页), content_slide(自由内容页), two_column(双栏对比), three_column(三栏多要点), image_text(图文混排), quote_slide(引用金句页), chart_slide(数据图表页), section_divider(分隔页), summary_slide(总结页)，也可留空或填 custom_layout 由 Executor 自行决定",
 		Required: false,
 	},
 	"description": {
@@ -282,40 +307,40 @@ var slideSubParams = map[string]*schema.ParameterInfo{
 		Required: true,
 	},
 	"sub_steps": {
-		Type:    schema.Array,
-		Desc:    "分页组：若设置此字段，表示该幻灯片需要分多页生成。每个子项对应一页，页码依次递增。最多嵌套一层（不能再有 sub_steps）。",
+		Type:     schema.Array,
+		Desc:     "分页组：若设置此字段，表示该幻灯片需要分多页生成。每个子项对应一页，页码依次递增。最多嵌套一层（不能再有 sub_steps）。",
 		Required: false,
 		ElemInfo: &schema.ParameterInfo{
-			Type:        schema.Object,
-			SubParams:   subStepSubParams,
-			Desc: "分页组的子页面",
+			Type:      schema.Object,
+			SubParams: subStepSubParams,
+			Desc:      "分页组的子页面",
 		},
 	},
 	"content_plan": {
-		Type:    schema.Object,
-		Desc:    "内容结构化描述（可选），用于描述单页内的元素结构",
+		Type:     schema.Object,
+		Desc:     "内容结构化描述（可选），用于描述单页内的元素结构",
 		Required: false,
 		SubParams: map[string]*schema.ParameterInfo{
 			"summary": {
-				Type:    schema.String,
-				Desc:    "页面核心内容的一句话概括",
+				Type:     schema.String,
+				Desc:     "页面核心内容的一句话概括",
 				Required: false,
 			},
 			"elements": {
-				Type:    schema.Array,
-				Desc:    "内容元素列表",
+				Type:     schema.Array,
+				Desc:     "内容元素列表",
 				Required: false,
 				ElemInfo: &schema.ParameterInfo{
-					Type:        schema.Object,
-					SubParams:   contentPlanElementSubParams,
-					Desc: "单个内容元素",
+					Type:      schema.Object,
+					SubParams: contentPlanElementSubParams,
+					Desc:      "单个内容元素",
 				},
 			},
 		},
 	},
 	"layout_hint": {
-		Type:    schema.String,
-		Desc:    "布局补充提示：left-image, right-image, top-title, center 等",
+		Type:     schema.String,
+		Desc:     "布局补充提示：left-image, right-image, top-title, center 等",
 		Required: false,
 	},
 }
@@ -729,16 +754,16 @@ const CheckpointFileName = ".slides_checkpoint.json"
 // SlidesCheckpoint 存储已完成幻灯片的进度信息
 type SlidesCheckpoint struct {
 	CompletedSlides []string `json:"completed_slides"` // 已完成的页码标识列表（如 "4"、"4.1"）
-	TotalSlides    int      `json:"total_slides"`    // 总幻灯片数
-	LastUpdated    string   `json:"last_updated"`     // 最后更新时间
+	TotalSlides     int      `json:"total_slides"`     // 总幻灯片数
+	LastUpdated     string   `json:"last_updated"`     // 最后更新时间
 }
 
 // SaveCheckpoint 保存进度到 checkpoint 文件
 func SaveCheckpoint(workDir string, completedSlides []string, totalSlides int) error {
 	checkpoint := SlidesCheckpoint{
 		CompletedSlides: completedSlides,
-		TotalSlides:    totalSlides,
-		LastUpdated:    time.Now().Format("2006-01-02 15:04:05"),
+		TotalSlides:     totalSlides,
+		LastUpdated:     time.Now().Format("2006-01-02 15:04:05"),
 	}
 	data, err := json.Marshal(checkpoint)
 	if err != nil {

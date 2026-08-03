@@ -2,9 +2,11 @@ package db
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
-	"gorm.io/driver/mysql"
+	drivermysql "github.com/go-sql-driver/mysql"
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
 	"github.com/cloudwego/ppt-agent/pkg/logger"
@@ -33,23 +35,23 @@ type VerificationCode struct {
 
 // TaskRecord — 持久化的任务元数据，用于历史记录和恢复。
 type TaskRecord struct {
-	ID         string    `gorm:"size:64;primaryKey" json:"id"`
-	UserID     uint      `gorm:"index;not null" json:"user_id"`
-	Query      string    `gorm:"type:text" json:"query"`
-	Status     string    `gorm:"size:20;not null;default:'running'" json:"status"`
-	WorkDir    string    `gorm:"size:512" json:"work_dir"`
-	DoneCount  int       `gorm:"default:0" json:"done_count"`
-	TotalCount int       `gorm:"default:0" json:"total_count"`
-	Duration          string    `gorm:"size:50" json:"duration"`
-	Error             string    `gorm:"type:text" json:"error"`
-	PromptTokens      int64     `gorm:"default:0" json:"prompt_tokens"`
-	CompletionTokens  int64     `gorm:"default:0" json:"completion_tokens"`
-	TotalTokens       int64     `gorm:"default:0" json:"total_tokens"`
-	Files      string    `gorm:"type:text" json:"files"`
-	ConversationContent string  `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
-	FullAnswer         string  `gorm:"type:longtext" json:"full_answer"`           // 完整拼接的 LLM 回答（用于冷加载恢复）
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                  string    `gorm:"size:64;primaryKey" json:"id"`
+	UserID              uint      `gorm:"index;not null" json:"user_id"`
+	Query               string    `gorm:"type:text" json:"query"`
+	Status              string    `gorm:"size:20;not null;default:'running'" json:"status"`
+	WorkDir             string    `gorm:"size:512" json:"work_dir"`
+	DoneCount           int       `gorm:"default:0" json:"done_count"`
+	TotalCount          int       `gorm:"default:0" json:"total_count"`
+	Duration            string    `gorm:"size:50" json:"duration"`
+	Error               string    `gorm:"type:text" json:"error"`
+	PromptTokens        int64     `gorm:"default:0" json:"prompt_tokens"`
+	CompletionTokens    int64     `gorm:"default:0" json:"completion_tokens"`
+	TotalTokens         int64     `gorm:"default:0" json:"total_tokens"`
+	Files               string    `gorm:"type:text" json:"files"`
+	ConversationContent string    `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
+	FullAnswer          string    `gorm:"type:longtext" json:"full_answer"`          // 完整拼接的 LLM 回答（用于冷加载恢复）
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // ConversationMessage — 任务对话历史中的单条消息。
@@ -63,32 +65,32 @@ type ConversationMessage struct {
 
 // UserStyleProfile — 从过去任务中学习的持久化用户风格偏好。
 type UserStyleProfile struct {
-	UserID               uint      `gorm:"primaryKey" json:"user_id"`
-	PreferredThemes      string    `gorm:"type:text" json:"preferred_themes"`      // JSON array
-	PreferredColors      string    `gorm:"type:text" json:"preferred_colors"`      // JSON array
-	ContentPatterns      string    `gorm:"type:text" json:"content_patterns"`      // JSON array
-	LayoutPreferences   string    `gorm:"type:text" json:"-"`                     // deprecated
+	UserID              uint      `gorm:"primaryKey" json:"user_id"`
+	PreferredThemes     string    `gorm:"type:text" json:"preferred_themes"` // JSON array
+	PreferredColors     string    `gorm:"type:text" json:"preferred_colors"` // JSON array
+	ContentPatterns     string    `gorm:"type:text" json:"content_patterns"` // JSON array
+	LayoutPreferences   string    `gorm:"type:text" json:"-"`                // deprecated
 	LanguageTone        string    `gorm:"size:50" json:"language_tone"`
 	TypicalPageCount    int       `gorm:"default:0" json:"typical_page_count"`
-	ContentTypes         string    `gorm:"type:text" json:"content_types"`         // JSON map
-	SpecialNotes         string    `gorm:"type:text" json:"special_notes"`         // JSON array
-	ExtendedPreferences string    `gorm:"type:text" json:"extended_preferences"`   // JSON for enhanced profile
+	ContentTypes        string    `gorm:"type:text" json:"content_types"`        // JSON map
+	SpecialNotes        string    `gorm:"type:text" json:"special_notes"`        // JSON array
+	ExtendedPreferences string    `gorm:"type:text" json:"extended_preferences"` // JSON for enhanced profile
 	TaskCount           int       `gorm:"default:0" json:"task_count"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // TaskErrorAnalysis — 任务失败时的日志分析结果，用于迭代修复参考。
 type TaskErrorAnalysis struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	TaskID        string    `gorm:"size:64;index;not null" json:"task_id"`
-	TriggerType   string    `gorm:"size:20;not null" json:"trigger_type"`     // "idle" 或 "failed"
-	LogSnippet    string    `gorm:"type:longtext" json:"log_snippet"`         // 原始日志片段
-	Analysis      string    `gorm:"type:longtext" json:"analysis"`           // LLM 分析结论
-	RootCause     string    `gorm:"type:text" json:"root_cause"`             // 根本原因
-	Suggestion    string    `gorm:"type:text" json:"suggestion"`              // 修复建议
-	TokensUsed    int64     `gorm:"default:0" json:"tokens_used"`
-	ModelUsed     string    `gorm:"size:100" json:"model_used"`              // 分析使用的模型
-	CreatedAt     time.Time `json:"created_at"`
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	TaskID      string    `gorm:"size:64;index;not null" json:"task_id"`
+	TriggerType string    `gorm:"size:20;not null" json:"trigger_type"` // "idle" 或 "failed"
+	LogSnippet  string    `gorm:"type:longtext" json:"log_snippet"`     // 原始日志片段
+	Analysis    string    `gorm:"type:longtext" json:"analysis"`        // LLM 分析结论
+	RootCause   string    `gorm:"type:text" json:"root_cause"`          // 根本原因
+	Suggestion  string    `gorm:"type:text" json:"suggestion"`          // 修复建议
+	TokensUsed  int64     `gorm:"default:0" json:"tokens_used"`
+	ModelUsed   string    `gorm:"size:100" json:"model_used"` // 分析使用的模型
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ── TaskRecord 增删改查 ──────────────────────────────────────────────────
@@ -124,16 +126,25 @@ func DeleteTaskRecord(id string) error {
 // ── ConversationMessage 增删改查 ─────────────────────────────────────────────
 
 func CreateConversationMessage(m *ConversationMessage) error {
+	if DB == nil {
+		return nil
+	}
 	return DB.Create(m).Error
 }
 
 func ListConversationMessages(taskID string) ([]ConversationMessage, error) {
+	if DB == nil {
+		return nil, nil
+	}
 	var msgs []ConversationMessage
 	err := DB.Where("task_id = ?", taskID).Order("timestamp ASC").Find(&msgs).Error
 	return msgs, err
 }
 
 func DeleteConversationMessages(taskID string) error {
+	if DB == nil {
+		return nil
+	}
 	return DB.Where("task_id = ?", taskID).Delete(&ConversationMessage{}).Error
 }
 
@@ -191,8 +202,15 @@ func MarkZombieTasks() error {
 // - connMaxIdleTime：关闭空闲时间超过 MySQL 的 interactive_timeout 的连接
 // - tcpKeepalive：在 TCP 层检测死连接，而无需等待 MySQL 超时
 func Init(dsn string) error {
-	var err error
-	DB, err = gorm.Open(mysql.Open(dsn+"&interpolateParams=true"), &gorm.Config{})
+	dsn, err := dsnWithTimeouts(dsn)
+	if err != nil {
+		return fmt.Errorf("parse MySQL DSN: %w", err)
+	}
+
+	DB, err = gorm.Open(gormmysql.New(gormmysql.Config{
+		DSN:                       dsn,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
 	if err != nil {
 		return fmt.Errorf("gorm.Open: %w", err)
 	}
@@ -206,6 +224,13 @@ func Init(dsn string) error {
 	if err := sqlDB.Ping(); err != nil {
 		return fmt.Errorf("DB ping failed: %w", err)
 	}
+	var currentDatabase string
+	if err := sqlDB.QueryRow("SELECT DATABASE()").Scan(&currentDatabase); err != nil {
+		return fmt.Errorf("resolve current database: %w", err)
+	}
+	if !isBusinessDatabase(currentDatabase) {
+		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
+	}
 
 	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
@@ -213,6 +238,33 @@ func Init(dsn string) error {
 
 	logger.Info("mysql_connected")
 	return nil
+}
+
+func isBusinessDatabase(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "information_schema", "mysql", "performance_schema", "sys":
+		return false
+	default:
+		return true
+	}
+}
+
+func dsnWithTimeouts(dsn string) (string, error) {
+	cfg, err := drivermysql.ParseDSN(dsn)
+	if err != nil {
+		return "", err
+	}
+	cfg.InterpolateParams = true
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 5 * time.Second
+	}
+	if cfg.ReadTimeout == 0 {
+		cfg.ReadTimeout = 10 * time.Second
+	}
+	if cfg.WriteTimeout == 0 {
+		cfg.WriteTimeout = 10 * time.Second
+	}
+	return cfg.FormatDSN(), nil
 }
 
 // ListAllUsers 返回所有用户（供管理员查看）。
@@ -240,4 +292,3 @@ func ListAllStyleProfiles() ([]UserStyleProfile, error) {
 func DeleteErrorAnalysis(id uint) error {
 	return DB.Where("id = ?", id).Delete(&TaskErrorAnalysis{}).Error
 }
-

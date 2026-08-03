@@ -4,49 +4,92 @@ import { useRouter } from 'vue-router';
 import {
   ArrowRight,
   Clock3,
-  FilePlus2,
+  LayoutDashboard,
   LayoutTemplate,
-  MessageSquareText,
-  Presentation,
+  LoaderCircle,
+  Palette,
   Sparkles,
+  WandSparkles,
 } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
+import { createTask, fetchPresets, isLoggedIn, type PresetTemplate } from '../api';
 import { authState } from '../stores/auth';
-import { isLoggedIn } from '../api';
+import { resolveCreationSelection } from '../utils/creation';
+
+type Choice =
+  | { kind: 'recommended'; key: 'recommended' }
+  | { kind: 'preset'; key: string; template: PresetTemplate }
+  | { kind: 'custom'; key: 'custom' };
 
 const router = useRouter();
 const auth = authState;
 const brief = ref('');
-const selectedTemplate = ref('generic');
+const presets = ref<PresetTemplate[]>([]);
+const selectedKey = ref('recommended');
+const catalogLoading = ref(false);
+const catalogError = ref('');
+const creating = ref(false);
+const createError = ref('');
 
-const templates = [
-  { id: 'generic', name: '通用演示', meta: '清晰、克制、适合大多数主题', image: '/templates/thumbs/generic.jpg' },
-  { id: 'pitch-deck', name: '商业路演', meta: '问题、方案、市场与增长', image: '/templates/thumbs/pitch-deck.jpg' },
-  { id: 'tech-sharing', name: '技术分享', meta: '架构、流程、代码与结论', image: '/templates/thumbs/tech-sharing.jpg' },
-  { id: 'research-report', name: '研究报告', meta: '数据、发现、分析与建议', image: '/templates/thumbs/research-report.jpg' },
-  { id: 'weekly-report', name: '周报复盘', meta: '进展、指标、问题与计划', image: '/templates/thumbs/weekly-report.jpg' },
-  { id: 'course-module', name: '课程模块', meta: '目标、知识点、练习与总结', image: '/templates/thumbs/course-module.jpg' },
-];
+const choices = computed<Choice[]>(() => [
+  { kind: 'recommended', key: 'recommended' },
+  ...presets.value.map(template => ({ kind: 'preset' as const, key: `preset:${template.name}`, template })),
+  { kind: 'custom', key: 'custom' },
+]);
 
-const canStart = computed(() => brief.value.trim().length > 0);
+const selectedChoice = computed(() => choices.value.find(item => item.key === selectedKey.value) || choices.value[0]);
+const selectedLabel = computed(() => {
+  const choice = selectedChoice.value;
+  if (choice.kind === 'recommended') return '智能推荐';
+  if (choice.kind === 'custom') return '自定义编排';
+  return choice.template.display_name;
+});
+const canStart = computed(() => brief.value.trim().length > 0 && !creating.value);
+
+async function loadCatalog() {
+  catalogLoading.value = true;
+  catalogError.value = '';
+  try {
+    presets.value = await fetchPresets();
+  } catch (error) {
+    presets.value = [];
+    catalogError.value = error instanceof Error ? error.message : '模板目录暂时无法加载';
+  } finally {
+    catalogLoading.value = false;
+  }
+}
 
 onMounted(async () => {
   if (isLoggedIn() && !auth.user) await auth.init();
+  await loadCatalog();
 });
 
-function startCompose() {
-  router.push({
-    path: '/compose',
-    query: {
-      template: selectedTemplate.value,
-      ...(brief.value.trim() ? { brief: brief.value.trim() } : {}),
-    },
-  });
+function handleThumbnailError(event: Event) {
+  const image = event.target as HTMLImageElement;
+  image.hidden = true;
+  image.parentElement?.classList.add('missing');
 }
 
-function useTemplate(id: string) {
-  selectedTemplate.value = id;
-  router.push({ path: '/compose', query: { template: id } });
+async function startCreation() {
+  const query = brief.value.trim();
+  if (!query || creating.value) return;
+  createError.value = '';
+  const choice = resolveCreationSelection(selectedKey.value);
+
+  if (choice.kind === 'custom') {
+    await router.push({ path: '/compose', query: { brief: query, mode: 'custom' } });
+    return;
+  }
+
+  creating.value = true;
+  try {
+    const task = await createTask(query, choice.templateSelection);
+    await router.push({ path: '/dashboard', query: { select: task.id } });
+  } catch (error) {
+    createError.value = error instanceof Error ? error.message : '任务创建失败，请重试';
+  } finally {
+    creating.value = false;
+  }
 }
 </script>
 
@@ -61,9 +104,9 @@ function useTemplate(id: string) {
 
     <section class="creation-zone" aria-labelledby="creation-title">
       <div class="creation-copy">
-        <span class="section-kicker"><Sparkles :size="15" /> AI 演示文稿</span>
+        <span class="section-kicker"><Sparkles :size="15" /> 新建演示</span>
         <h2 id="creation-title">今天要讲清楚什么？</h2>
-        <p>描述受众、场景和希望传达的结论。你可以先生成结构，再逐页调整。</p>
+        <p>写下受众、场景、页数和最重要的结论。</p>
       </div>
 
       <div class="prompt-composer">
@@ -73,87 +116,106 @@ function useTemplate(id: string) {
           v-model="brief"
           rows="5"
           placeholder="例如：为产品委员会准备一份 10 页的季度复盘，突出增长、用户反馈和下一阶段取舍，语气务实。"
-          @keydown.ctrl.enter.prevent="startCompose"
-          @keydown.meta.enter.prevent="startCompose"
+          @keydown.ctrl.enter.prevent="startCreation"
+          @keydown.meta.enter.prevent="startCreation"
         />
         <div class="composer-footer">
-          <div class="selected-mode">
+          <div class="selected-mode" :title="selectedLabel">
             <LayoutTemplate :size="16" />
-            <span>{{ templates.find(item => item.id === selectedTemplate)?.name }}</span>
+            <span>{{ selectedLabel }}</span>
           </div>
-          <button class="start-button" type="button" :disabled="!canStart" @click="startCompose">
-            <span>规划演示</span>
-            <ArrowRight :size="18" />
+          <button class="start-button" type="button" :disabled="!canStart" @click="startCreation">
+            <LoaderCircle v-if="creating" :size="18" class="spin" />
+            <span>{{ selectedChoice.kind === 'custom' ? '打开编排' : creating ? '创建中' : '开始生成' }}</span>
+            <ArrowRight v-if="!creating" :size="18" />
           </button>
         </div>
-      </div>
-
-      <div class="workflow-strip" aria-label="生成流程">
-        <div>
-          <span class="workflow-index">01</span>
-          <MessageSquareText :size="18" />
-          <p><strong>描述目标</strong><small>受众、场景、页数与结论</small></p>
-        </div>
-        <div>
-          <span class="workflow-index">02</span>
-          <FilePlus2 :size="18" />
-          <p><strong>确认结构</strong><small>选择模板并调整页面大纲</small></p>
-        </div>
-        <div>
-          <span class="workflow-index">03</span>
-          <Presentation :size="18" />
-          <p><strong>渐进交付</strong><small>生成一页，立即预览一页</small></p>
-        </div>
+        <p v-if="createError" class="creation-error" role="alert">{{ createError }}</p>
       </div>
     </section>
 
     <section class="template-section" aria-labelledby="template-heading">
       <div class="section-heading">
         <div>
-          <span class="section-kicker">模板起点</span>
-          <h2 id="template-heading">从熟悉的叙事结构开始</h2>
+          <span class="section-kicker">本次视觉方案</span>
+          <h2 id="template-heading">选择一次，直接进入生成</h2>
         </div>
-        <button class="text-action" type="button" @click="router.push('/compose')">
-          查看全部
-          <ArrowRight :size="16" />
-        </button>
+        <span class="catalog-count">{{ presets.length }} 套预设</span>
       </div>
 
-      <div class="template-grid">
+      <p v-if="catalogError" class="catalog-error" role="alert">
+        <span>{{ catalogError }}，仍可使用智能推荐或自定义编排。</span>
+        <button type="button" :disabled="catalogLoading" @click="loadCatalog">重新加载</button>
+      </p>
+
+      <div class="template-grid" aria-label="模板目录">
         <button
-          v-for="item in templates"
-          :key="item.id"
-          class="template-card"
-          :class="{ selected: selectedTemplate === item.id }"
+          class="template-card special"
+          :class="{ selected: selectedKey === 'recommended' }"
           type="button"
-          :aria-pressed="selectedTemplate === item.id"
-          @click="selectedTemplate = item.id"
-          @dblclick="useTemplate(item.id)"
+          :aria-pressed="selectedKey === 'recommended'"
+          @click="selectedKey = 'recommended'"
         >
-          <span class="template-media">
-            <img :src="item.image" :alt="`${item.name}模板预览`" loading="lazy" width="640" height="360" />
-            <span class="template-use">选择模板</span>
+          <span class="special-media recommendation-media">
+            <span class="recommendation-mark"><WandSparkles :size="27" /></span>
+            <span class="recommendation-stack" aria-hidden="true">
+              <i></i><i></i><i></i>
+            </span>
           </span>
           <span class="template-copy">
-            <strong>{{ item.name }}</strong>
-            <small>{{ item.meta }}</small>
+            <span><strong>智能推荐</strong><em>推荐</em></span>
+            <small>按主题选择模板、配色和背景策略</small>
+          </span>
+        </button>
+
+        <template v-if="catalogLoading && presets.length === 0">
+          <div v-for="index in 3" :key="index" class="template-skeleton" aria-hidden="true"><span></span><i></i></div>
+        </template>
+
+        <button
+          v-for="template in presets"
+          :key="template.name"
+          class="template-card"
+          :class="{ selected: selectedKey === `preset:${template.name}` }"
+          type="button"
+          :aria-pressed="selectedKey === `preset:${template.name}`"
+          @click="selectedKey = `preset:${template.name}`"
+        >
+          <span class="template-media" :class="{ missing: !template.thumbnail }">
+            <img
+              v-if="template.thumbnail"
+              :src="template.thumbnail"
+              :alt="`${template.display_name}模板预览`"
+              loading="lazy"
+              width="640"
+              height="360"
+              @error="handleThumbnailError"
+            />
+            <span class="missing-preview"><LayoutDashboard :size="25" />预览暂缺</span>
+          </span>
+          <span class="template-copy">
+            <span><strong>{{ template.display_name }}</strong><em>{{ template.slide_count }} 页</em></span>
+            <small>{{ template.description || template.category }}</small>
+          </span>
+        </button>
+
+        <button
+          class="template-card special"
+          :class="{ selected: selectedKey === 'custom' }"
+          type="button"
+          :aria-pressed="selectedKey === 'custom'"
+          @click="selectedKey = 'custom'"
+        >
+          <span class="special-media custom-media">
+            <span class="custom-canvas" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="custom-mark"><Palette :size="24" /></span>
+          </span>
+          <span class="template-copy">
+            <span><strong>自定义编排</strong><em>自由</em></span>
+            <small>自行添加页面、布局、文字和背景</small>
           </span>
         </button>
       </div>
-    </section>
-
-    <section class="resume-band" aria-label="继续工作">
-      <div>
-        <span class="resume-icon"><Clock3 :size="19" /></span>
-        <p>
-          <strong>{{ auth.loggedIn ? '继续之前的生成任务' : '登录后保存任务与偏好' }}</strong>
-          <small>{{ auth.loggedIn ? '查看生成进度、下载页面或继续修改。' : '跨会话查看生成进度，并让模板选择更贴近你的习惯。' }}</small>
-        </p>
-      </div>
-      <button class="ui-button" type="button" @click="router.push(auth.loggedIn ? '/dashboard' : '/auth')">
-        {{ auth.loggedIn ? '打开任务工作台' : '登录工作区' }}
-        <ArrowRight :size="17" />
-      </button>
     </section>
   </AppShell>
 </template>
@@ -162,247 +224,98 @@ function useTemplate(id: string) {
 :global(.home-workspace) {
   width: min(100%, 1440px);
   margin: 0 auto;
-  padding: 42px clamp(20px, 4vw, 64px) 64px;
+  padding: 36px 48px 64px;
 }
 
 .creation-zone {
   display: grid;
-  grid-template-columns: minmax(240px, 0.7fr) minmax(420px, 1.3fr);
-  gap: 28px 56px;
+  grid-template-columns: minmax(230px, 0.68fr) minmax(420px, 1.32fr);
+  gap: 44px;
   align-items: start;
 }
+.creation-copy { padding-top: 16px; }
+.section-kicker { display: inline-flex; align-items: center; gap: 7px; color: var(--action-ink); font-size: 11px; font-weight: 750; }
+.creation-copy h2 { margin: 10px 0 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-spacing: 0; }
+.creation-copy p { margin: 13px 0 0; color: var(--text-secondary); font-size: 14px; line-height: 1.65; }
 
-.creation-copy { padding-top: 14px; }
-.section-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--action-ink);
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.creation-copy h2,
-.section-heading h2 {
-  margin: 10px 0 0;
-  color: var(--text);
-  font-size: clamp(26px, 3vw, 38px);
-  font-weight: 720;
-  line-height: 1.15;
-  letter-spacing: 0;
-}
-
-.creation-copy p {
-  max-width: 440px;
-  margin: 16px 0 0;
-  color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.7;
-}
-
-.prompt-composer {
-  padding: 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-
-.prompt-composer label {
-  display: block;
-  margin: 0 0 9px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.prompt-composer textarea {
-  width: 100%;
-  min-height: 132px;
-  padding: 4px 2px 12px;
-  resize: vertical;
-  border: 0;
-  outline: 0;
-  color: var(--text);
-  background: transparent;
-  font-size: 16px;
-  line-height: 1.65;
-}
-
-.prompt-composer textarea::placeholder { color: #939b9f; }
-
-.composer-footer {
-  padding-top: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-top: 1px solid var(--divider);
-}
-
-.selected-mode {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
+.prompt-composer { padding: 16px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.prompt-composer label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.prompt-composer textarea { width: 100%; min-height: 126px; padding: 4px 2px 12px; resize: vertical; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: 16px; line-height: 1.65; }
+.prompt-composer textarea::placeholder { color: var(--text-muted); }
+.composer-footer { padding-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--divider); }
+.selected-mode { min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 12px; }
 .selected-mode span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.start-button {
-  min-height: 42px;
-  padding: 0 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border: 1px solid var(--action-ink);
-  border-radius: 6px;
-  color: #ffffff;
-  background: var(--action-ink);
-  font-weight: 700;
-  cursor: pointer;
-  transition: background var(--motion-fast), transform var(--motion-fast);
-}
+.start-button { min-width: 124px; min-height: 44px; padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--action-ink); border-radius: 6px; color: #fff; background: var(--action-ink); font-weight: 700; cursor: pointer; }
 .start-button:hover:not(:disabled) { background: #064d48; }
-.start-button:active:not(:disabled) { transform: scale(0.98); }
+.start-button:disabled { border-color: var(--border-strong); color: var(--text-disabled); background: var(--surface-pressed); cursor: not-allowed; }
+.creation-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
 
-.workflow-strip {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
+.template-section { margin-top: 42px; }
+.section-heading { margin-bottom: 16px; display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.section-heading h2 { margin: 5px 0 0; color: var(--text); font-size: 20px; letter-spacing: 0; }
+.catalog-count { color: var(--text-muted); font-size: 11px; }
+.catalog-error { min-height: 42px; margin: 0 0 14px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--warning-border); border-radius: 6px; color: var(--text-secondary); background: var(--warning-soft); font-size: 12px; }
+.catalog-error button { min-height: 34px; padding: 0 9px; flex: 0 0 auto; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); cursor: pointer; }
 
-.workflow-strip > div {
-  min-width: 0;
-  padding: 18px 22px;
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-secondary);
-}
-.workflow-strip > div + div { border-left: 1px solid var(--border); }
-.workflow-index { color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-.workflow-strip svg { color: var(--action-ink); }
-.workflow-strip p { min-width: 0; margin: 0; display: flex; flex-direction: column; }
-.workflow-strip strong { color: var(--text); font-size: 12px; }
-.workflow-strip small { margin-top: 2px; color: var(--text-muted); font-size: 10px; }
-
-.template-section { margin-top: 48px; }
-.section-heading {
-  margin-bottom: 18px;
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 20px;
-}
-.section-heading h2 { margin-top: 6px; font-size: 21px; }
-
-.text-action {
-  min-height: 40px;
-  padding: 0 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  color: var(--action-ink);
-  background: transparent;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.template-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.template-card {
-  min-width: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  background: var(--surface);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
-}
+.template-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.template-card { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast); }
 .template-card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
-.template-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,0.12); }
+.template-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7, 94, 87, 0.12); }
+.template-media, .special-media { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-bottom: 1px solid var(--divider); background: var(--surface-muted); }
+.template-media img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.missing-preview { position: absolute; inset: 0; display: none; place-items: center; align-content: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
+.template-media.missing .missing-preview { display: grid; }
+.template-copy { min-width: 0; min-height: 68px; padding: 10px 11px 11px; display: flex; flex-direction: column; }
+.template-copy > span { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.template-copy strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.template-copy em { padding: 2px 5px; flex: 0 0 auto; border-radius: 3px; color: var(--action-ink); background: var(--action-soft); font-size: 9px; font-style: normal; font-weight: 750; }
+.template-copy small { margin-top: 5px; overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 
-.template-media {
-  position: relative;
-  display: block;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: var(--surface-muted);
-  border-bottom: 1px solid var(--divider);
-}
-.template-media img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--motion-medium); }
-.template-card:hover img { transform: scale(1.015); }
-.template-use {
-  position: absolute;
-  right: 9px;
-  bottom: 9px;
-  padding: 5px 8px;
-  border-radius: 4px;
-  color: #ffffff;
-  background: rgba(23,26,28,0.86);
-  font-size: 10px;
-  font-weight: 700;
-  opacity: 0;
-  transition: opacity var(--motion-fast);
-}
-.template-card:hover .template-use,
-.template-card:focus-visible .template-use,
-.template-card.selected .template-use { opacity: 1; }
+.recommendation-media { display: grid; grid-template-columns: 1fr 1.25fr; align-items: center; padding: 18px 22px; background: #e8f3f1; }
+.recommendation-mark { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 8px; color: #fff; background: var(--action-ink); }
+.recommendation-stack { display: grid; gap: 7px; transform: rotate(-3deg); }
+.recommendation-stack i { height: 14px; display: block; border: 1px solid #a9c9c4; border-radius: 3px; background: #fff; }
+.recommendation-stack i:nth-child(2) { width: 78%; background: #f6bf74; }
+.recommendation-stack i:nth-child(3) { width: 58%; background: #d9654a; }
+.custom-media { display: grid; place-items: center; background: #edf0f1; }
+.custom-canvas { width: 64%; height: 62%; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; border: 1px solid #bbc4c7; border-radius: 5px; background: #fff; box-shadow: var(--shadow-sm); }
+.custom-canvas i { display: block; border-radius: 2px; background: #dce3e4; }
+.custom-canvas i:first-child { grid-column: 1 / -1; background: #075e57; }
+.custom-canvas i:last-child { background: #d9654a; }
+.custom-mark { position: absolute; right: 18%; bottom: 14%; width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 6px; color: var(--action-ink); background: #fff; }
+.template-skeleton { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.template-skeleton span { display: block; aspect-ratio: 16 / 9; background: var(--surface-pressed); animation: pulse 1.3s ease-in-out infinite; }
+.template-skeleton i { width: 48%; height: 13px; margin: 14px 11px 20px; display: block; border-radius: 3px; background: var(--surface-pressed); }
+.spin { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: .55; } }
 
-.template-copy { padding: 12px 13px 13px; display: flex; flex-direction: column; }
-.template-copy strong { font-size: 13px; }
-.template-copy small { margin-top: 4px; color: var(--text-muted); font-size: 11px; }
-
-.resume-band {
-  margin-top: 42px;
-  padding: 20px 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.resume-band > div { display: flex; align-items: center; gap: 12px; }
-.resume-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 6px; color: var(--info); background: var(--info-soft); }
-.resume-band p { margin: 0; display: flex; flex-direction: column; }
-.resume-band strong { font-size: 13px; }
-.resume-band small { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
-
-@media (max-width: 900px) {
-  .creation-zone { grid-template-columns: 1fr; gap: 22px; }
+@media (max-width: 1024px) {
+  :global(.home-workspace) { padding: 28px 28px 52px; }
+  .creation-zone { grid-template-columns: 1fr; gap: 18px; }
   .creation-copy { padding-top: 0; }
-  .workflow-strip { grid-template-columns: 1fr; }
-  .workflow-strip > div + div { border-left: 0; border-top: 1px solid var(--border); }
+  .creation-copy h2 { font-size: 28px; }
   .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-
-@media (max-width: 600px) {
-  :global(.home-workspace) { padding: 24px 14px 40px; }
-  :global(.home-workspace + *) { max-width: 100%; }
-  .creation-copy h2 { font-size: 28px; }
-  .creation-copy p { font-size: 14px; }
+@media (max-width: 620px) {
+  :global(.home-workspace) { padding: 20px 14px 42px; }
+  .creation-copy h2 { font-size: 24px; }
   .prompt-composer { padding: 13px; }
   .composer-footer { align-items: stretch; flex-direction: column; }
   .start-button { width: 100%; }
-  .template-grid { grid-template-columns: 1fr; }
   .section-heading { align-items: flex-start; }
-  .resume-band { align-items: stretch; flex-direction: column; }
-  .resume-band .ui-button { width: 100%; }
+  .template-grid { grid-template-columns: 1fr; }
+  .template-card { display: grid; grid-template-columns: 132px minmax(0, 1fr); }
+  .template-media, .special-media { height: 100%; min-height: 86px; aspect-ratio: auto; border-right: 1px solid var(--divider); border-bottom: 0; }
+  .template-copy { min-height: 86px; justify-content: center; }
+  .recommendation-media { padding: 14px; }
+  .recommendation-mark { width: 42px; height: 42px; }
+  .template-skeleton { min-height: 86px; display: grid; grid-template-columns: 132px 1fr; }
+  .template-skeleton span { aspect-ratio: auto; }
+  .catalog-error { align-items: flex-start; flex-direction: column; }
+  .catalog-error button { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .template-card, .spin, .template-skeleton span { transition: none; animation: none; }
 }
 </style>

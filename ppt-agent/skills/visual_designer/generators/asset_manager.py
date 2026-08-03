@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Iterable
 
 from pptx.util import Inches
 
-from .base import add_rect, set_image_background
+from .base import add_rect, add_round_rect, add_text, set_image_background
 
 
 ASSET_ROOT = Path(__file__).resolve().parents[1] / "assets"
@@ -30,6 +31,39 @@ def asset_path(asset_id: str) -> str | None:
             path = ASSET_ROOT / asset.get("path", "")
             return str(path) if path.exists() else None
     return None
+
+
+def validate_manifest() -> list[str]:
+    """Return portable manifest errors without depending on the process cwd."""
+    errors: list[str] = []
+    seen: set[str] = set()
+    for asset in load_manifest():
+        asset_id = str(asset.get("id", "")).strip()
+        relative = str(asset.get("path", "")).strip()
+        if not asset_id or asset_id in seen:
+            errors.append(f"duplicate_or_empty_id:{asset_id or '<empty>'}")
+            continue
+        seen.add(asset_id)
+        if not relative:
+            errors.append(f"empty_path:{asset_id}")
+            continue
+        target = (ASSET_ROOT / relative).resolve()
+        try:
+            target.relative_to(ASSET_ROOT.resolve())
+        except ValueError:
+            errors.append(f"path_outside_bundle:{asset_id}:{relative}")
+            continue
+        if not target.is_file():
+            errors.append(f"missing:{asset_id}:{relative}")
+            continue
+        cursor = ASSET_ROOT
+        for part in Path(relative).parts:
+            names = {child.name for child in cursor.iterdir()}
+            if part not in names:
+                errors.append(f"case_mismatch:{asset_id}:{relative}")
+                break
+            cursor = cursor / part
+    return errors
 
 
 def find_asset(kind: str, tags: Iterable[str] = (), preferred_id: str = "") -> dict | None:
@@ -126,9 +160,32 @@ def add_local_icon(
     with_badge: bool = False,
     badge_color: str = "light_bg",
 ):
-    path = asset_path(icon_id) or asset_path("primitive")
+    path = asset_path(icon_id)
     if not path:
-        return None
+        abbreviation = _icon_abbreviation(icon_id)
+        add_round_rect(
+            slide,
+            left=left,
+            top=top,
+            width=size,
+            height=size,
+            fill_color="primary",
+            palette=palette,
+        )
+        return add_text(
+            slide,
+            text=abbreviation,
+            left=left,
+            top=top,
+            width=size,
+            height=size,
+            font_size=max(10, min(22, int(size * 18))),
+            bold=True,
+            color="background",
+            alignment="center",
+            vertical_alignment="middle",
+            palette=palette,
+        )
     if with_badge:
         add_rect(
             slide,
@@ -142,6 +199,17 @@ def add_local_icon(
             line_width=0.5,
         )
     return slide.shapes.add_picture(path, Inches(left), Inches(top), width=Inches(size), height=Inches(size))
+
+
+def _icon_abbreviation(icon_id: str) -> str:
+    value = str(icon_id or "icon").strip()
+    ascii_words = re.findall(r"[A-Za-z0-9]+", value)
+    if ascii_words:
+        if len(ascii_words) > 1:
+            return f"{ascii_words[0][0]}{ascii_words[-1][0]}".upper()
+        return ascii_words[0][:2].upper()
+    visible = [char for char in value if not char.isspace()]
+    return "".join(visible[:2]) or "IC"
 
 
 def add_pattern_overlay(slide, pattern_id: str, left: float, top: float, width: float, height: float, opacity_backdrop: bool = True, palette: str = "ocean_soft"):

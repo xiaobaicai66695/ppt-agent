@@ -139,7 +139,11 @@ def generate(
         # Icon background
         icon_center_x = cell_x + cell_width / 2
         icon_center_y = cell_y + cell_height * 0.35
-        icon_id = icon_text if icon_text and asset_path(icon_text) else icon_id_from_text(label, fallback="primitive")
+        icon_id = icon_text
+        if not asset_path(icon_id):
+            semantic_icon = icon_id_from_text(label, fallback="")
+            if semantic_icon and asset_path(semantic_icon):
+                icon_id = semantic_icon
         if not add_local_icon(
             slide,
             icon_id,

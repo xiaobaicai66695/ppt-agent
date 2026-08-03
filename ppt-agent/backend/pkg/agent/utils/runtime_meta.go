@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -67,6 +68,12 @@ type RuntimeMeta struct {
 	QAMediumIssues int
 	QALowIssues    int
 
+	IntentAnchor      IntentAnchor
+	PlanSlides        []PlanSlide
+	CurrentSlide      *PlanSlide
+	AlignmentStatus   string
+	AlignmentWarnings []AlignmentWarning
+
 	EventSeq     int64
 	EventCounts  map[string]int
 	RecentEvents []RuntimeEvent
@@ -78,6 +85,38 @@ type RuntimeBudgets struct {
 	MaxTotalToolCalls    int `json:"max_total_tool_calls,omitempty"`
 	TokenWarn            int `json:"token_warn,omitempty"`
 	PhaseDurationWarnSec int `json:"phase_duration_warn_sec,omitempty"`
+}
+
+type IntentAnchor struct {
+	Summary        string `json:"summary,omitempty"`
+	OriginalLength int    `json:"original_length,omitempty"`
+	Intent         string `json:"intent,omitempty"`
+	Domain         string `json:"domain,omitempty"`
+	SuggestedPages int    `json:"suggested_pages,omitempty"`
+	Template       string `json:"template,omitempty"`
+	Theme          string `json:"theme,omitempty"`
+	UseBackground  bool   `json:"use_background,omitempty"`
+	Background     string `json:"background,omitempty"`
+	Recommendation string `json:"recommendation,omitempty"`
+}
+
+type PlanSlide struct {
+	PageIndex   int    `json:"page_index,omitempty"`
+	TaskID      string `json:"task_id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	OutputFile  string `json:"output_file,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
+type AlignmentWarning struct {
+	Code      string `json:"code"`
+	Step      string `json:"step"`
+	Severity  string `json:"severity"`
+	Message   string `json:"message"`
+	PageIndex int    `json:"page_index,omitempty"`
+	Expected  string `json:"expected,omitempty"`
+	Observed  string `json:"observed,omitempty"`
 }
 
 // RuntimeMetaSnapshot is the serializable form exposed to prompts, SSE and UI.
@@ -113,6 +152,12 @@ type RuntimeMetaSnapshot struct {
 	QAMediumIssues int `json:"qa_medium_issues,omitempty"`
 	QALowIssues    int `json:"qa_low_issues,omitempty"`
 
+	IntentAnchor      IntentAnchor       `json:"intent_anchor,omitempty"`
+	PlanSlides        []PlanSlide        `json:"plan_slides,omitempty"`
+	CurrentSlide      *PlanSlide         `json:"current_slide,omitempty"`
+	AlignmentStatus   string             `json:"alignment_status,omitempty"`
+	AlignmentWarnings []AlignmentWarning `json:"alignment_warnings,omitempty"`
+
 	EventCounts  map[string]int `json:"event_counts,omitempty"`
 	RecentEvents []RuntimeEvent `json:"recent_events,omitempty"`
 }
@@ -143,13 +188,14 @@ type runtimeMetaKey struct{}
 
 func NewRuntimeMeta(taskID, workDir string) *RuntimeMeta {
 	return &RuntimeMeta{
-		TaskID:      taskID,
-		WorkDir:     workDir,
-		StartedAt:   time.Now(),
-		Phase:       "preparing",
-		ToolCalls:   map[string]int{},
-		ToolErrors:  map[string]int{},
-		EventCounts: map[string]int{},
+		TaskID:          taskID,
+		WorkDir:         workDir,
+		StartedAt:       time.Now(),
+		Phase:           "preparing",
+		ToolCalls:       map[string]int{},
+		ToolErrors:      map[string]int{},
+		EventCounts:     map[string]int{},
+		AlignmentStatus: "pending",
 		Budgets: RuntimeBudgets{
 			SameToolArgsWarn:     EnvInt("PPT_SAME_TOOL_ARGS_WARN", 3),
 			MaxToolCallsPerTool:  EnvInt("PPT_MAX_TOOL_CALLS_PER_TOOL", 20),
@@ -158,6 +204,83 @@ func NewRuntimeMeta(taskID, workDir string) *RuntimeMeta {
 			PhaseDurationWarnSec: EnvInt("PPT_PHASE_DURATION_WARN_SEC", 600),
 		},
 	}
+}
+
+func (m *RuntimeMeta) RecordIntent(anchor IntentAnchor) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	anchor.Summary = truncateString(strings.TrimSpace(anchor.Summary), 160)
+	m.IntentAnchor = anchor
+	m.recordEventLocked("intent_captured", "user_intent", "ok", anchor.Summary, map[string]any{
+		"intent": anchor.Intent, "domain": anchor.Domain, "suggested_pages": anchor.SuggestedPages,
+		"template": anchor.Template, "theme": anchor.Theme, "background": anchor.Background,
+		"use_background": anchor.UseBackground, "recommendation": anchor.Recommendation,
+	})
+}
+
+func (m *RuntimeMeta) FreezePlan(slides []PlanSlide) {
+	if m == nil || len(slides) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.PlanSlides) > 0 {
+		return
+	}
+	m.PlanSlides = clonePlanSlides(slides)
+	m.AlignmentStatus = "aligned"
+	m.recordEventLocked("plan_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(slides)), map[string]any{
+		"slides": m.PlanSlides,
+	})
+}
+
+func (m *RuntimeMeta) RecordCurrentSlide(slide *PlanSlide) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if slide == nil {
+		m.CurrentSlide = nil
+		return
+	}
+	copy := *slide
+	m.CurrentSlide = &copy
+}
+
+func (m *RuntimeMeta) ComparePlan(observed []PlanSlide, missingFiles []string) {
+	if m == nil || len(observed) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.PlanSlides) == 0 {
+		m.PlanSlides = clonePlanSlides(observed)
+		m.AlignmentStatus = "aligned"
+		m.recordEventLocked("plan_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{"slides": m.PlanSlides})
+		return
+	}
+
+	warnings := comparePlanSlides(m.PlanSlides, observed, missingFiles)
+	nextStatus := "aligned"
+	if len(warnings) > 0 {
+		nextStatus = "warning"
+	}
+	if m.AlignmentStatus == nextStatus && reflect.DeepEqual(m.AlignmentWarnings, warnings) {
+		return
+	}
+	m.AlignmentWarnings = warnings
+	m.AlignmentStatus = nextStatus
+	status := "ok"
+	if len(warnings) > 0 {
+		status = "warning"
+	}
+	m.recordEventLocked("intent_alignment", "plan_vs_execution", status, fmt.Sprintf("%d deviations", len(warnings)), map[string]any{
+		"warnings": warnings,
+	})
 }
 
 func WithRuntimeMeta(ctx context.Context, meta *RuntimeMeta) context.Context {
@@ -439,6 +562,11 @@ func (m *RuntimeMeta) Snapshot() RuntimeMetaSnapshot {
 		QAHighIssues:            m.QAHighIssues,
 		QAMediumIssues:          m.QAMediumIssues,
 		QALowIssues:             m.QALowIssues,
+		IntentAnchor:            m.IntentAnchor,
+		PlanSlides:              clonePlanSlides(m.PlanSlides),
+		CurrentSlide:            clonePlanSlide(m.CurrentSlide),
+		AlignmentStatus:         m.AlignmentStatus,
+		AlignmentWarnings:       append([]AlignmentWarning(nil), m.AlignmentWarnings...),
 		EventCounts:             cloneIntMap(m.EventCounts),
 		RecentEvents:            append([]RuntimeEvent(nil), m.RecentEvents...),
 	}
@@ -469,6 +597,8 @@ func (m *RuntimeMeta) StatusBar() string {
 		fmt.Sprintf("tool_calls: %s", formatIntMap(snap.ToolCalls)),
 		fmt.Sprintf("tool_errors: %s", formatIntMap(snap.ToolErrors)),
 		fmt.Sprintf("qa_issues: high=%d medium=%d low=%d", snap.QAHighIssues, snap.QAMediumIssues, snap.QALowIssues),
+		fmt.Sprintf("intent: %s", snap.IntentAnchor.Summary),
+		fmt.Sprintf("alignment: %s warnings=%d", snap.AlignmentStatus, len(snap.AlignmentWarnings)),
 		fmt.Sprintf("compression: before=%d after=%d saved=%s", snap.CompressionBeforeTokens, snap.CompressionAfterTokens, snap.CompressionSavedPct),
 	}
 	if len(snap.BudgetWarnings) > 0 {
@@ -601,6 +731,81 @@ func cloneIntMap(in map[string]int) map[string]int {
 		out[k] = v
 	}
 	return out
+}
+
+func clonePlanSlides(in []PlanSlide) []PlanSlide {
+	return append([]PlanSlide(nil), in...)
+}
+
+func clonePlanSlide(in *PlanSlide) *PlanSlide {
+	if in == nil {
+		return nil
+	}
+	copy := *in
+	return &copy
+}
+
+func comparePlanSlides(expected, observed []PlanSlide, missingFiles []string) []AlignmentWarning {
+	warnings := make([]AlignmentWarning, 0)
+	if len(expected) != len(observed) {
+		warnings = append(warnings, AlignmentWarning{
+			Code: "page_count_changed", Step: "planning", Severity: "warning",
+			Message: "执行页数与冻结计划不一致", Expected: fmt.Sprintf("%d", len(expected)), Observed: fmt.Sprintf("%d", len(observed)),
+		})
+	}
+	expectedByPage := make(map[int]PlanSlide, len(expected))
+	for _, slide := range expected {
+		expectedByPage[slide.PageIndex] = slide
+	}
+	observedPages := make(map[int]bool, len(observed))
+	for _, slide := range observed {
+		if observedPages[slide.PageIndex] {
+			warnings = append(warnings, AlignmentWarning{
+				Code: "duplicate_page_index", Step: "planning", Severity: "error", PageIndex: slide.PageIndex,
+				Message: "多个页面使用了同一页码", Observed: slide.TaskID,
+			})
+			continue
+		}
+		observedPages[slide.PageIndex] = true
+		plan, ok := expectedByPage[slide.PageIndex]
+		if !ok {
+			warnings = append(warnings, AlignmentWarning{
+				Code: "unexpected_page", Step: "planning", Severity: "warning", PageIndex: slide.PageIndex,
+				Message: "执行中出现计划外页面", Observed: slide.Title,
+			})
+			continue
+		}
+		if strings.TrimSpace(plan.Title) != strings.TrimSpace(slide.Title) {
+			warnings = append(warnings, AlignmentWarning{
+				Code: "title_changed", Step: "execution", Severity: "warning", PageIndex: slide.PageIndex,
+				Message: "页面标题偏离冻结计划", Expected: plan.Title, Observed: slide.Title,
+			})
+		}
+		if strings.TrimSpace(plan.ContentType) != strings.TrimSpace(slide.ContentType) {
+			warnings = append(warnings, AlignmentWarning{
+				Code: "content_type_changed", Step: "execution", Severity: "warning", PageIndex: slide.PageIndex,
+				Message: "页面布局类型偏离冻结计划", Expected: plan.ContentType, Observed: slide.ContentType,
+			})
+		}
+	}
+	for _, slide := range expected {
+		if !observedPages[slide.PageIndex] {
+			warnings = append(warnings, AlignmentWarning{
+				Code: "planned_page_missing", Step: "execution", Severity: "error", PageIndex: slide.PageIndex,
+				Message: "冻结计划中的页面未进入执行清单", Expected: slide.Title,
+			})
+		}
+	}
+	for _, file := range missingFiles {
+		warnings = append(warnings, AlignmentWarning{
+			Code: "output_file_missing", Step: "delivery", Severity: "error",
+			Message: "页面输出文件缺失", Expected: filepath.Base(file), Observed: "missing",
+		})
+	}
+	if len(warnings) > 24 {
+		warnings = warnings[:24]
+	}
+	return warnings
 }
 
 func formatIntMap(values map[string]int) string {

@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -38,7 +37,6 @@ type WorkDirFunc func(ctx context.Context) string
 type WorkDirBackend struct {
 	workDirFunc WorkDirFunc
 }
-
 
 // NewWorkDirBackend 创建支持工作目录的 backend
 func NewWorkDirBackend(_ context.Context, _ *struct{}) (*WorkDirBackend, error) {
@@ -115,13 +113,7 @@ func (l *LocalOperator) Exists(ctx context.Context, path string) (bool, error) {
 func (l *LocalOperator) RunCommand(ctx context.Context, command []string) (*commandline.CommandOutput, error) {
 	wd := l.GetWorkDir(ctx)
 
-	var shellCmd []string
-	switch runtime.GOOS {
-	case "windows":
-		shellCmd = append([]string{"cmd.exe", "/C"}, command...)
-	default:
-		shellCmd = []string{"/bin/sh", "-c", strings.Join(command, " ")}
-	}
+	shellCmd := linuxShellCommand(command)
 
 	cmd := exec.CommandContext(ctx, shellCmd[0], shellCmd[1:]...)
 	if wd != "" {
@@ -141,6 +133,10 @@ func (l *LocalOperator) RunCommand(ctx context.Context, command []string) (*comm
 		Stdout: outBuf.String(),
 		Stderr: errBuf.String(),
 	}, nil
+}
+
+func linuxShellCommand(command []string) []string {
+	return []string{"/bin/sh", "-c", strings.Join(command, " ")}
 }
 
 // GetWorkDir 获取工作目录。优先从 context 读取；若无则用 operator 自身存储的兜底值。

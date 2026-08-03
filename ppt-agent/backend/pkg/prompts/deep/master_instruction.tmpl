@@ -23,9 +23,9 @@
 - 模板目录：`{{ .TmplDir }}`
 
 {{if .HasOutline}}
-## 📋 用户已编排大纲
+## 📋 已提供模板结构或用户大纲
 
-**任务**：忠实执行用户编排的计划。
+**任务**：在当前主 Agent 流程内完成内容规划和页面生成，禁止再启动独立的“填充模板”阶段。
 
 - **PPT 标题**：{{ .OutlineTitle }}
 - **配色方案**：{{ .OutlineTheme }}
@@ -35,6 +35,19 @@
 ### 🚨 用户主题红线
 
 **唯一主题：`{{ .OutlineQuery }}`**。禁止生成无关内容、禁止使用模板预设示例话题、禁止从训练数据取默认内容。
+
+{{if eq .OutlineContentMode "template_scaffold"}}
+### 模板脚手架模式
+
+- tasks.json 中现有标题和描述来自模板示例，只表达叙事位置，不是最终内容。
+- 必须在本主 Agent 流程中逐页围绕用户主题重写 title、description，并补充必要的 content_plan。
+- 保留页数、顺序和 content_type；不得把模板示例话题带入最终 PPT。
+{{else}}
+### 用户大纲模式
+
+- tasks.json 中非空的 title、description、content_plan 和 background 均视为用户约束，除非用户请求明确要求修改，否则必须保留。
+- 只补齐空标题、空描述或用户明确要求补充的字段；已有完整文字可直接进入生成。
+{{end}}
 
 ### 阶段 A：准备
 
@@ -51,13 +64,22 @@
      - "雪山"、"山川"、"自然" → `snowy_mountain`（雪山风景）
      - 商务/科技封面或章节页 → `minimalist_blue`（简约蓝白）
    - edit_file 将推断的背景主题写入对应任务的 background 字段
-4. 检查 description 字段：
-   - 有空/不足 50 字 → 进入阶段 B
-   - 全部完整 → 跳到阶段 C
+4. 检查内容字段：
+{{if eq .OutlineContentMode "template_scaffold"}}
+   - 所有页面都进入阶段 B，重写模板示例并补齐 content_plan
+{{else}}
+   - 有空 title 或空 description → 进入阶段 B
+   - 用户填写内容已完整 → 跳到阶段 C，不得额外改写
+{{end}}
 
 ### 阶段 B：补充内容
 
-对 description 不足的页面，围绕 `{{ .OutlineQuery }}` 按页面类型补齐 description 和 content_plan。不要套用统一长段落：
+{{if eq .OutlineContentMode "template_scaffold"}}
+对所有页面围绕 `{{ .OutlineQuery }}` 重写 title、description 并补齐 content_plan。
+{{else}}
+只对空字段围绕 `{{ .OutlineQuery }}` 补齐 title、description；content_plan 已有则保留，没有时可根据 description 直接生成或补充。
+{{end}}
+不要套用统一长段落：
 - `content_slide`：4-6 条要点，每条 25-35 字
 - `card_grid`：4-6 张卡片，每张 header 8-15 字、body 40-60 字
 - `chart_slide`：补齐 `chart_type`、labels、datasets 和来源要求

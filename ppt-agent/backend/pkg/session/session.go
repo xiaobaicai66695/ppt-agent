@@ -17,6 +17,7 @@
 package session
 
 import (
+	"sync"
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
@@ -31,6 +32,7 @@ type Message struct {
 
 // ConversationSession 保存任务对话历史记录。
 type ConversationSession struct {
+	mu        sync.RWMutex
 	TaskID    string    `json:"task_id"`
 	WorkDir   string    `json:"work_dir"`
 	Messages  []Message `json:"messages"`
@@ -40,6 +42,8 @@ type ConversationSession struct {
 
 // AddUserMessage 向对话追加用户消息并持久化。
 func (s *ConversationSession) AddUserMessage(content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	msg := db.ConversationMessage{
 		TaskID:    s.TaskID,
 		Role:      "user",
@@ -60,6 +64,8 @@ func (s *ConversationSession) AddUserMessage(content string) error {
 
 // AddAssistantMessage 向对话追加助手消息并持久化。
 func (s *ConversationSession) AddAssistantMessage(content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	msg := db.ConversationMessage{
 		TaskID:    s.TaskID,
 		Role:      "assistant",
@@ -80,13 +86,26 @@ func (s *ConversationSession) AddAssistantMessage(content string) error {
 
 // GetRecentMessages 返回最后 n 条消息用于上下文注入。
 func (s *ConversationSession) GetRecentMessages(n int) []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if n <= 0 || len(s.Messages) == 0 {
-		return s.Messages
+		return append([]Message(nil), s.Messages...)
 	}
 	if n >= len(s.Messages) {
-		return s.Messages
+		return append([]Message(nil), s.Messages...)
 	}
-	return s.Messages[len(s.Messages)-n:]
+	return append([]Message(nil), s.Messages[len(s.Messages)-n:]...)
+}
+
+// Snapshot returns a race-free copy for API responses.
+func (s *ConversationSession) Snapshot() ConversationSession {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return ConversationSession{
+		TaskID: s.TaskID, WorkDir: s.WorkDir,
+		Messages:  append([]Message(nil), s.Messages...),
+		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+	}
 }
 
 // LoadSessionFromDB 从数据库加载对话历史记录。
@@ -138,6 +157,7 @@ func NewSession(taskID, workDir string) *ConversationSession {
 // SessionManager 管理所有对话会话。
 // 提供数据库持久化支持的就内存缓存。
 type SessionManager struct {
+	mu       sync.RWMutex
 	sessions map[string]*ConversationSession // key: taskID
 }
 
@@ -150,23 +170,36 @@ func NewSessionManager() *SessionManager {
 
 // GetOrCreate 返回现有会话或创建新会话。
 func (sm *SessionManager) GetOrCreate(taskID, workDir string) *ConversationSession {
+	sm.mu.RLock()
 	if s, ok := sm.sessions[taskID]; ok {
+		sm.mu.RUnlock()
 		return s
 	}
+	sm.mu.RUnlock()
 
 	// Load from database first
 	s := LoadSessionFromDB(taskID, workDir)
+	sm.mu.Lock()
+	if existing, ok := sm.sessions[taskID]; ok {
+		sm.mu.Unlock()
+		return existing
+	}
 	sm.sessions[taskID] = s
+	sm.mu.Unlock()
 	return s
 }
 
 // Get 根据 taskID 返回会话，如果未找到则返回 nil。
 func (sm *SessionManager) Get(taskID string) *ConversationSession {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	return sm.sessions[taskID]
 }
 
 // Delete 从内存中删除会话。
 func (sm *SessionManager) Delete(taskID string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	delete(sm.sessions, taskID)
 }
 

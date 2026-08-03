@@ -1,10 +1,27 @@
 package deep
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
+	var outline TaskOutline
+	err := json.Unmarshal([]byte(`{
+		"template":"custom","theme":"ocean_soft","title":"测试",
+		"slides":[{"title":"数据","content_type":"content_slide","description":"",
+		"content_plan":{"elements":[{"type":"bullet_list","items":[{"title":"增长","description":"20%"},"稳定"]}]}}]
+	}`), &outline)
+	if err != nil {
+		t.Fatalf("unmarshal outline: %v", err)
+	}
+	items := outline.Slides[0].ContentPlan.Elements[0].Items
+	if len(items) != 2 || items[0] != "增长: 20%" || items[1] != "稳定" {
+		t.Fatalf("items = %#v", items)
+	}
+}
 
 func TestWriteTasksManifestKeepsExplicitRuntimeStatus(t *testing.T) {
 	workDir := t.TempDir()

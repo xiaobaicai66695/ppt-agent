@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
@@ -132,8 +130,9 @@ func (s *Server) handleMe(c *gin.Context) {
 
 func (s *Server) handleCreateTask(c *gin.Context) {
 	var req struct {
-		Query   string            `json:"query"`
-		Outline *deep.TaskOutline `json:"outline,omitempty"`
+		Query             string             `json:"query"`
+		Outline           *deep.TaskOutline  `json:"outline,omitempty"`
+		TemplateSelection *TemplateSelection `json:"template_selection,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Query) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
@@ -148,7 +147,14 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
 		outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "outline 处理失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "outline 处理失败: " + err.Error()})
+			return
+		}
+		cfg.Outline = outline
+	} else if req.TemplateSelection != nil {
+		outline, _, err := s.resolveTemplateSelection(req.Query, req.TemplateSelection)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "模板选择失败: " + err.Error()})
 			return
 		}
 		cfg.Outline = outline
@@ -399,7 +405,7 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"description": content})
 }
 
-func (s *Server) prepareOutline(ctx context.Context, query string, outline *deep.TaskOutline) (*deep.TaskOutline, error) {
+func (s *Server) prepareOutline(_ context.Context, query string, outline *deep.TaskOutline) (*deep.TaskOutline, error) {
 	if outline == nil || len(outline.Slides) == 0 {
 		return outline, nil
 	}
@@ -412,6 +418,9 @@ func (s *Server) prepareOutline(ctx context.Context, query string, outline *deep
 	if strings.TrimSpace(outline.Title) == "" {
 		outline.Title = strings.TrimSpace(query)
 	}
+	if outline.ContentMode != deep.OutlineContentModeTemplateScaffold {
+		outline.ContentMode = deep.OutlineContentModeUserOutline
+	}
 
 	for i := range outline.Slides {
 		slide := &outline.Slides[i]
@@ -419,9 +428,6 @@ func (s *Server) prepareOutline(ctx context.Context, query string, outline *deep
 		slide.ContentType = strings.TrimSpace(slide.ContentType)
 		slide.Description = strings.TrimSpace(slide.Description)
 		slide.Background = strings.TrimSpace(slide.Background)
-		if slide.Title == "" {
-			slide.Title = fmt.Sprintf("第%d页", i+1)
-		}
 		if s.templateLoader.GetLayout(slide.ContentType) == nil {
 			return nil, fmt.Errorf("第%d页 content_type=%q 不存在", i+1, slide.ContentType)
 		}
@@ -430,14 +436,24 @@ func (s *Server) prepareOutline(ctx context.Context, query string, outline *deep
 		}
 	}
 
-	if !outlineNeedsEnrichment(outline) {
-		return outline, nil
-	}
-	enriched, err := s.generateOutlineSlides(ctx, query, outline)
+	return outline, nil
+}
+
+// enrichOutline keeps the legacy explicit AI-fill endpoint compatible. Task
+// creation deliberately avoids it; the main Agent completes template content.
+func (s *Server) enrichOutline(ctx context.Context, query string, outline *deep.TaskOutline) (*deep.TaskOutline, error) {
+	prepared, err := s.prepareOutline(ctx, query, outline)
 	if err != nil {
 		return nil, err
 	}
-	return s.mergeOutlineSlides(outline, enriched), nil
+	if !outlineNeedsEnrichment(prepared) {
+		return prepared, nil
+	}
+	enriched, err := s.generateOutlineSlides(ctx, query, prepared)
+	if err != nil {
+		return nil, err
+	}
+	return s.mergeOutlineSlides(prepared, enriched), nil
 }
 
 func outlineNeedsEnrichment(outline *deep.TaskOutline) bool {
@@ -631,7 +647,7 @@ func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 		return
 	}
 
-	outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
+	outline, err := s.enrichOutline(c.Request.Context(), req.Query, req.Outline)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -675,8 +691,12 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 
 	ts := s.tasks.GetTaskState(taskID)
 	if ts == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
-		return
+		info := s.tasks.GetTask(taskID)
+		if info == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+		ts = s.tasks.NewColdTaskState(*info)
 	}
 
 	uid := userIDGin(c)
@@ -691,6 +711,7 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 
 	// 任务运行中：加入等待队列，任务完成后自动处理
 	if ts.Info.Status == task.TaskStatusRunning {
+		afterEventID := ts.LatestEventID()
 		firstQueued := ts.SetPendingContinueMsg(req.Message)
 
 		statusMsg := "您的反馈已排队，将在当前任务完成后自动处理"
@@ -700,16 +721,21 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 
 		// 返回 202 Accepted，前端显示"已排队"
 		c.JSON(http.StatusAccepted, gin.H{
-			"status":  "queued",
-			"message": statusMsg,
-			"task_id": taskID,
+			"status":         "queued",
+			"message":        statusMsg,
+			"task_id":        taskID,
+			"after_event_id": afterEventID,
 		})
 		return
 	}
 
 	// 允许继续已完成的或已取消的任务
+	afterEventID := ts.LatestEventID()
 	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
-	sess.AddUserMessage(req.Message)
+	if err := sess.AddUserMessage(req.Message); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存会话消息失败"})
+		return
+	}
 
 	// 重新初始化任务为运行状态
 	ts.Mu.Lock()
@@ -717,48 +743,33 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 	ts.Mu.Unlock()
 	ts.Persist()
 
-	// 立即启动 SSE 流，以便前端可以连接
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
+	if s.continueStarter != nil {
+		s.continueStarter(taskID, ts, req.Message, uid, sess)
+	} else {
+		s.startContinue(taskID, ts, req.Message, uid, sess)
+	}
+	c.JSON(http.StatusAccepted, gin.H{
+		"status":         "accepted",
+		"message":        "已收到修改请求，正在处理",
+		"task_id":        taskID,
+		"after_event_id": afterEventID,
+	})
+}
 
-	flusher, _ := c.Writer.(interface{ Flush() })
-	writer := c.Writer
-
-	// 在 goroutine 中启动继续处理并流式推送结果
-	listenerID := uuid.New().String()
+func (s *Server) startContinue(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession) {
 	ch := make(chan task.SSERichEvent, 64)
-	ts.AddListener(listenerID, ch)
-	defer func() {
-		ts.RemoveListener(listenerID)
-		// 再次标记任务为已完成
+	go func() {
+		for evt := range ch {
+			ts.Broadcast(evt)
+		}
+		fullAnswer := ts.FullAnswer()
 		ts.Mu.Lock()
 		ts.Info.Status = task.TaskStatusCompleted
+		ts.Info.FullAnswer = fullAnswer
 		ts.Mu.Unlock()
 		ts.Persist()
 	}()
-
-	// 立即刷新响应头
-	writeSSEFlush(writer, flusher)
-
-	go s.runContinue(taskID, ts, req.Message, uid, sess, ch)
-
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case <-c.Request.Context().Done():
-			return false
-		case evt, ok := <-ch:
-			if !ok {
-				return false
-			}
-			writeSSEToWriter(writer, flusher, evt)
-			if evt.Type == "continue_complete" {
-				return false
-			}
-			return true
-		}
-	})
+	go s.runContinue(taskID, ts, message, uid, sess, ch)
 }
 
 func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession, ch chan task.SSERichEvent) {
@@ -784,12 +795,11 @@ func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, 
 			question = "您的反馈比较模糊，请问您是指哪一页？希望怎么改善？（比如：第2页字体太小、第3张换个颜色、第1页重新生成等）"
 		}
 		ch <- task.SSERichEvent{Type: "clarification", Content: question}
-		ts.Broadcast(task.SSERichEvent{Type: "continue_complete"})
+		ch <- task.SSERichEvent{Type: "continue_complete", Message: question}
 		return
 	}
 
-	// Add assistant message
-	ts.Broadcast(task.SSERichEvent{Type: "continue_complete"})
+	ch <- task.SSERichEvent{Type: "continue_complete", Message: "修改处理完成"}
 }
 
 // RouteResult 保存意图分类的结果。
@@ -1157,22 +1167,20 @@ func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *Rout
 
 	// 更新最终文件列表
 	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
+	var progressTasks []*deep.TaskItem
 	if manifest != nil {
-		var files []string
-		for _, t := range manifest.Tasks {
-			if t.Status == deep.StatusDone || t.Status == deep.StatusQADone || t.Status == deep.StatusFixed {
-				files = append(files, filepath.Join(ts.Info.WorkDir, t.OutputFile))
-			}
-		}
+		progressTasks = manifest.Tasks
 		ts.Mu.Lock()
-		ts.Info.Files = files
+		ts.Info.Files = task.ManifestOutputFiles(manifest)
 		ts.Info.DoneCount = manifest.CompletedCount()
+		ts.Info.TotalCount = len(manifest.Tasks)
 		ts.Mu.Unlock()
 	}
 
 	ch <- task.SSERichEvent{
-		Type:   "complete",
+		Type:   "progress",
 		Status: ts.Info.Status,
+		Tasks:  progressTasks,
 		Done:   ts.Info.DoneCount,
 		Total:  ts.Info.TotalCount,
 		Files:  ts.Info.Files,
@@ -1323,22 +1331,20 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 
 	// 更新任务状态：将成功生成的页面标记为完成
 	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
+	var progressTasks []*deep.TaskItem
 	if manifest != nil {
-		var files []string
-		for _, t := range manifest.Tasks {
-			if t.Status == deep.StatusDone || t.Status == deep.StatusQADone || t.Status == deep.StatusFixed {
-				files = append(files, filepath.Join(ts.Info.WorkDir, t.OutputFile))
-			}
-		}
+		progressTasks = manifest.Tasks
 		ts.Mu.Lock()
-		ts.Info.Files = files
+		ts.Info.Files = task.ManifestOutputFiles(manifest)
 		ts.Info.DoneCount = manifest.CompletedCount()
+		ts.Info.TotalCount = len(manifest.Tasks)
 		ts.Mu.Unlock()
 	}
 
 	ch <- task.SSERichEvent{
-		Type:   "complete",
+		Type:   "progress",
 		Status: ts.Info.Status,
+		Tasks:  progressTasks,
 		Done:   ts.Info.DoneCount,
 		Total:  ts.Info.TotalCount,
 		Files:  ts.Info.Files,
@@ -1375,7 +1381,7 @@ func (s *Server) refreshFileList(ts *task.TaskState, ch chan task.SSERichEvent) 
 		if entry.IsDir() {
 			continue
 		}
-		if filepath.Ext(entry.Name()) == ".pptx" {
+		if strings.EqualFold(filepath.Ext(entry.Name()), ".pptx") {
 			ts.Mu.Lock()
 			if !ts.ReportedFiles()[entry.Name()] {
 				ts.SetReportedFile(entry.Name())
@@ -1383,22 +1389,13 @@ func (s *Server) refreshFileList(ts *task.TaskState, ch chan task.SSERichEvent) 
 				evt := task.SSERichEvent{
 					Type:     "file_ready",
 					ToolName: entry.Name(),
-					Files:    []string{entry.Name()},
+					Files:    []string{task.CanonicalOutputFile(entry.Name())},
 				}
 				ch <- evt
-				ts.Broadcast(evt)
 			} else {
 				ts.Mu.Unlock()
 			}
 		}
-	}
-}
-
-// writeSSEFlush 发送一个最小的 SSE 注释以刷新响应。
-func writeSSEFlush(writer interface{ Write([]byte) (int, error) }, flusher interface{ Flush() }) {
-	writer.Write([]byte(": flush\n\n"))
-	if flusher != nil {
-		flusher.Flush()
 	}
 }
 
@@ -1413,12 +1410,24 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	if ts != nil {
 		fullAnswer := ts.FullAnswer()
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
+		snapshot := sess.Snapshot()
+		info := ts.SnapshotInfo()
+		messages := conversationMessagesWithFallback(snapshot.Messages, fullAnswer, info.ConversationContent, snapshot.UpdatedAt)
 		c.JSON(http.StatusOK, gin.H{
-			"task_id":     taskID,
-			"messages":    sess.Messages,
-			"full_answer": fullAnswer,
-			"created_at":  sess.CreatedAt,
-			"updated_at":  sess.UpdatedAt,
+			"task_id":              taskID,
+			"messages":             messages,
+			"full_answer":          fullAnswer,
+			"conversation_content": info.ConversationContent,
+			"status":               info.Status,
+			"done_count":           info.DoneCount,
+			"total_count":          info.TotalCount,
+			"files":                task.DeduplicateOutputFiles(info.Files),
+			"duration":             info.Duration,
+			"prompt_tokens":        info.PromptTokens,
+			"completion_tokens":    info.CompletionTokens,
+			"total_tokens":         info.TotalTokens,
+			"created_at":           snapshot.CreatedAt,
+			"updated_at":           snapshot.UpdatedAt,
 		})
 		return
 	}
@@ -1446,6 +1455,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 			Timestamp: m.Timestamp,
 		})
 	}
+	messages = conversationMessagesWithFallback(messages, info.FullAnswer, info.ConversationContent, info.CreatedAt)
 
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":              taskID,
@@ -1455,12 +1465,13 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		"status":               info.Status,
 		"done_count":           info.DoneCount,
 		"total_count":          info.TotalCount,
-		"files":                info.Files,
+		"files":                task.DeduplicateOutputFiles(info.Files),
 		"duration":             info.Duration,
 		"prompt_tokens":        info.PromptTokens,
 		"completion_tokens":    info.CompletionTokens,
 		"total_tokens":         info.TotalTokens,
 		"created_at":           info.CreatedAt,
+		"updated_at":           info.CreatedAt,
 	})
 }
 
@@ -1730,20 +1741,7 @@ func (s *Server) onTaskContinue(taskID string) {
 	ts.Mu.Unlock()
 	ts.Persist()
 
-	// 启动 SSE 流处理继续请求
-	listenerID := uuid.New().String()
-	ch := make(chan task.SSERichEvent, 64)
-	ts.AddListener(listenerID, ch)
-	go func() {
-		defer func() {
-			ts.RemoveListener(listenerID)
-			ts.Mu.Lock()
-			ts.Info.Status = task.TaskStatusCompleted
-			ts.Mu.Unlock()
-			ts.Persist()
-		}()
-		s.runContinue(taskID, ts, pendingMsg, uid, sess, ch)
-	}()
+	s.startContinue(taskID, ts, pendingMsg, uid, sess)
 }
 
 // ── 管理员 API ───────────────────────────────────────────────────────────

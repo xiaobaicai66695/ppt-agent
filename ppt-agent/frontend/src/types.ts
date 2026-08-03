@@ -105,6 +105,38 @@ export interface RuntimeBudgets {
   phase_duration_warn_sec?: number;
 }
 
+export interface IntentAnchor {
+  summary?: string;
+  original_length?: number;
+  intent?: string;
+  domain?: string;
+  suggested_pages?: number;
+  template?: string;
+  theme?: string;
+  use_background?: boolean;
+  background?: string;
+  recommendation?: string;
+}
+
+export interface PlanSlide {
+  page_index?: number;
+  task_id?: string;
+  title?: string;
+  content_type?: string;
+  output_file?: string;
+  status?: string;
+}
+
+export interface AlignmentWarning {
+  code: string;
+  step: string;
+  severity: string;
+  message: string;
+  page_index?: number;
+  expected?: string;
+  observed?: string;
+}
+
 export interface RuntimeEvent {
   id: number;
   task_id?: string;
@@ -143,6 +175,11 @@ export interface RuntimeMeta {
   qa_high_issues?: number;
   qa_medium_issues?: number;
   qa_low_issues?: number;
+  intent_anchor?: IntentAnchor;
+  plan_slides?: PlanSlide[];
+  current_slide?: PlanSlide;
+  alignment_status?: string;
+  alignment_warnings?: AlignmentWarning[];
   event_counts?: Record<string, number>;
   recent_events?: RuntimeEvent[];
 }

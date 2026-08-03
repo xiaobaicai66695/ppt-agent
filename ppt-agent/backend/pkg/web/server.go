@@ -30,20 +30,21 @@ import (
 
 // Server 提供 REST API + SSE 流式推送 + 静态前端服务（基于 Gin 框架）。
 type Server struct {
-	tasks          *task.TaskManager
-	sessionManager *session.SessionManager
-	styleStore     *style.ProfileStore
-	styleExtractor *style.Extractor
-	agentFactory   task.AgentFactory
-	makeTaskConfig func(taskID string) *deep.PPTTaskConfig
-	taskIDGen      func() string
-	engine         *gin.Engine
-	addr           string
-	templateLoader *templates.Loader
-	skillDir       string
-	operator       commandline.Operator
-	logAnalysis    *loganalysis.Service
-	aiModelFactory func(ctx context.Context) (interface {
+	tasks           *task.TaskManager
+	sessionManager  *session.SessionManager
+	styleStore      *style.ProfileStore
+	styleExtractor  *style.Extractor
+	agentFactory    task.AgentFactory
+	makeTaskConfig  func(taskID string) *deep.PPTTaskConfig
+	taskIDGen       func() string
+	engine          *gin.Engine
+	addr            string
+	templateLoader  *templates.Loader
+	skillDir        string
+	operator        commandline.Operator
+	logAnalysis     *loganalysis.Service
+	continueStarter func(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession)
+	aiModelFactory  func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
 	// textModelFactory 创建轻量级模型，用于意图分类等辅助任务。
@@ -170,6 +171,11 @@ func NewServer(cfg *ServerConfig) *Server {
 	)
 	s.tasks.SetFileReadyCallback(func(taskID, workDir, filename string) {
 		s.prepareThumbnail(taskID, workDir, filename)
+	})
+	s.tasks.SetAssistantTurnCallback(func(taskID, workDir, content string) {
+		if err := s.sessionManager.GetOrCreate(taskID, workDir).AddAssistantMessage(content); err != nil {
+			logger.Error("assistant_turn_persist_failed", "task_id", taskID, "error", err.Error())
+		}
 	})
 
 	// 初始化日志分析后台服务

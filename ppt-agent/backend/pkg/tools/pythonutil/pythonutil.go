@@ -19,18 +19,14 @@ package pythonutil
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
 // GetPythonBinary 返回配置的 Python 二进制文件路径。
-// 如果设置了 PYTHON_BIN 环境变量则使用该值，否则回退到平台特定的默认值。
+// 如果设置了 PYTHON_BIN 环境变量则使用该值，否则回退到 Linux venv 默认值。
 func GetPythonBinary() string {
 	if bin := os.Getenv("PYTHON_BIN"); bin != "" {
 		return bin
-	}
-	if runtime.GOOS == "windows" {
-		return "python"
 	}
 	return "/root/pptx_env/bin/python"
 }

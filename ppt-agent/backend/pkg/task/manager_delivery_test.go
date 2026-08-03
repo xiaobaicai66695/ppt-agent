@@ -1,6 +1,7 @@
 package task
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -23,6 +24,32 @@ func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
 		if event.ID != want {
 			t.Fatalf("Events[%d].ID = %d, want %d", i, event.ID, want)
 		}
+	}
+}
+
+func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
+	var turns []string
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-1", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+		assistantTurnFn: func(_, _ string, content string) {
+			turns = append(turns, content)
+		},
+	}
+
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "## 结果\n\n"})
+	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "python"})
+	ts.Broadcast(SSERichEvent{Type: "progress", Done: 1, Total: 2})
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "- 第一页完成\n- 第二页完成"})
+	if len(turns) != 0 {
+		t.Fatalf("turn persisted before answer_end: %#v", turns)
+	}
+	ts.Broadcast(SSERichEvent{Type: "answer_end"})
+	ts.Broadcast(SSERichEvent{Type: "complete"})
+
+	want := []string{"## 结果\n\n- 第一页完成\n- 第二页完成"}
+	if !reflect.DeepEqual(turns, want) {
+		t.Fatalf("turns = %#v, want %#v", turns, want)
 	}
 }
 

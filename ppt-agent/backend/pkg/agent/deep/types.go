@@ -29,6 +29,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 
+	agentcontentplan "github.com/cloudwego/ppt-agent/pkg/agent/contentplan"
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
@@ -297,15 +298,24 @@ func ReadTasksManifest(workDir string) (*TasksManifest, error) {
 
 // TaskOutline 用户编排的大纲结构（用于模板编排模式）
 type TaskOutline struct {
-	Template          string         `json:"template"`
-	Theme             string         `json:"theme"`
-	Title             string         `json:"title"`
-	Slides            []SlideOutline `json:"slides"`
-	BackgroundOptions *struct {
+	Template              string         `json:"template"`
+	Theme                 string         `json:"theme"`
+	Title                 string         `json:"title"`
+	ContentMode           string         `json:"content_mode,omitempty"`
+	UseBackground         bool           `json:"use_background,omitempty"`
+	RecommendedBackground string         `json:"recommended_background,omitempty"`
+	RecommendationReason  string         `json:"recommendation_reason,omitempty"`
+	Slides                []SlideOutline `json:"slides"`
+	BackgroundOptions     *struct {
 		Themes []string `json:"themes"`
 		Labels []string `json:"labels"`
 	} `json:"background_options,omitempty"` // 全局背景选项
 }
+
+const (
+	OutlineContentModeTemplateScaffold = "template_scaffold"
+	OutlineContentModeUserOutline      = "user_outline"
+)
 
 // ContentElement 描述幻灯片内容计划中的单个内容元素
 type ContentElement struct {
@@ -315,6 +325,29 @@ type ContentElement struct {
 	Title       string   `json:"title,omitempty"`       // for example_box / key_point_card
 	Description string   `json:"description,omitempty"` // for example_box / key_point_card
 	LayoutHint  string   `json:"layout_hint,omitempty"` // layout hint: left-image, right-image, top-title, center
+}
+
+func (e *ContentElement) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type        string          `json:"type"`
+		Items       json.RawMessage `json:"items"`
+		Text        string          `json:"text"`
+		Title       string          `json:"title"`
+		Description string          `json:"description"`
+		LayoutHint  string          `json:"layout_hint"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	items, err := agentcontentplan.DecodeItems(raw.Items)
+	if err != nil {
+		return fmt.Errorf("content_plan element items: %w", err)
+	}
+	*e = ContentElement{
+		Type: raw.Type, Items: items, Text: raw.Text, Title: raw.Title,
+		Description: raw.Description, LayoutHint: raw.LayoutHint,
+	}
+	return nil
 }
 
 // ContentPlan 描述单页幻灯片的内容结构化布局

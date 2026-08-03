@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,16 +31,16 @@ import (
 
 // HealthStatus 表示单个健康检查的结果。
 type HealthStatus struct {
-	Status  string `json:"status"`  // "ok" or "error"
+	Status  string `json:"status"` // "ok" or "error"
 	Message string `json:"message,omitempty"`
 }
 
 // HealthReport 是完整的健康检查响应。
 type HealthReport struct {
-	Status      string                  `json:"status"` // "ok", "degraded", or "error"
-	Version     string                  `json:"version"`
+	Status     string                  `json:"status"` // "ok", "degraded", or "error"
+	Version    string                  `json:"version"`
 	Uptime     string                  `json:"uptime"`
-	Components  map[string]HealthStatus `json:"components"`
+	Components map[string]HealthStatus `json:"components"`
 }
 
 // StartTime 由 main.go 设置，以便健康检查可以报告服务运行时间。
@@ -128,23 +127,12 @@ func (s *Server) checkPython(ctx context.Context) HealthStatus {
 }
 
 func (s *Server) checkLibreOffice(ctx context.Context) HealthStatus {
-	// 尝试常见的 LibreOffice 路径
+	// 项目 CLI 仅支持 Linux，检查 PATH 和常见 Linux 安装路径。
 	paths := []string{
 		"libreoffice",
 		"soffice",
 		"/usr/bin/libreoffice",
 		"/usr/bin/soffice",
-		"/Applications/LibreOffice.app/Contents/MacOS/soffice",
-		"C:\\Program Files\\LibreOffice\\program\\soffice.exe",
-		"C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
-	}
-
-	if runtime.GOOS == "windows" {
-		paths = []string{
-			"soffice",
-			"C:\\Program Files\\LibreOffice\\program\\soffice.exe",
-			"C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
-		}
 	}
 
 	var lastErr error

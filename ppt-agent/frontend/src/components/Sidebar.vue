@@ -1,31 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { Check, Clock3, History, LoaderCircle, Plus, Save, Settings2, Trash2, X } from 'lucide-vue-next';
 import type { TaskInfo } from '../types';
-import { isLoggedIn, summarizeProfile, updateUserProfile, type PreferenceSummary } from '../api';
+import { summarizeProfile, updateUserProfile, type PreferenceSummary } from '../api';
+import { summarizeTaskTitle } from '../utils/workbench';
 
 const props = defineProps<{
   user: { id: number; email: string; is_admin?: boolean } | null;
   tasks: TaskInfo[];
   selectedId: string | null;
-  hasRunningTask: boolean;
-  creating: boolean;
-  error?: string;
 }>();
 
 const emit = defineEmits<{
   logout: [];
   selectTask: [id: string];
-  createTask: [query: string];
   deleteTask: [id: string];
   compose: [];
   newSession: [];
 }>();
 
-const router = useRouter();
-const query = ref('');
-const hasActiveTask = computed(() => props.tasks.some(task => task.status === 'running'));
 const taskCount = computed(() => props.tasks.length);
 
 function fmtTime(iso: string): string {
@@ -45,24 +38,6 @@ function fmtTokens(value: number): string {
 
 function statusLabel(status: string): string {
   return ({ running: '运行中', completed: '已完成', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status] || status;
-}
-
-function handleCreate() {
-  const value = query.value.trim();
-  if (!value || props.creating || props.hasRunningTask) return;
-  if (!isLoggedIn()) {
-    router.push('/auth');
-    return;
-  }
-  emit('createTask', value);
-  query.value = '';
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    handleCreate();
-  }
 }
 
 const showPrefs = ref(false);
@@ -154,29 +129,11 @@ function closePrefs() {
       </span>
     </header>
 
-    <form class="task-create" @submit.prevent="handleCreate">
-      <label for="dashboard-create-input">新建生成任务</label>
-      <textarea
-        id="dashboard-create-input"
-        v-model="query"
-        rows="3"
-        placeholder="输入演示主题、场景和受众"
-        :disabled="creating || hasActiveTask"
-        @keydown="handleKeydown"
-      />
-      <button type="submit" :disabled="creating || hasActiveTask || !query.trim()">
-        <LoaderCircle v-if="creating" :size="16" class="spin" />
-        <Plus v-else :size="16" />
-        {{ creating ? '创建中' : hasActiveTask ? '已有任务运行中' : '开始生成' }}
-      </button>
-      <p v-if="error" class="create-error" role="alert">{{ error }}</p>
-    </form>
-
     <div class="task-list" role="list">
       <div v-if="tasks.length === 0" class="task-empty">
         <History :size="22" />
         <strong>还没有生成记录</strong>
-        <span>从上方输入一个演示需求</span>
+        <span>使用工作台底部输入框创建演示</span>
       </div>
 
       <article
@@ -192,7 +149,7 @@ function closePrefs() {
           :aria-current="task.id === selectedId ? 'true' : undefined"
           @click="emit('selectTask', task.id)"
         >
-          <strong :title="task.query || ''">{{ task.query || '未命名任务' }}</strong>
+          <strong :title="task.query || ''">{{ summarizeTaskTitle(task.query) }}</strong>
           <span class="task-meta">
             <span class="task-state" :class="task.status">
               <i aria-hidden="true"></i>{{ statusLabel(task.status) }}
@@ -272,13 +229,6 @@ function closePrefs() {
 .head-actions { display: flex; gap: 2px; }
 .head-actions button { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--text-secondary); background: transparent; cursor: pointer; }
 .head-actions button:hover { color: var(--text); background: var(--surface-hover); }
-
-.task-create { padding: 14px; display: grid; gap: 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
-.task-create label { color: var(--text-secondary); font-size: 11px; font-weight: 700; }
-.task-create textarea { width: 100%; min-height: 72px; padding: 9px 10px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); line-height: 1.5; }
-.task-create textarea:focus { border-color: var(--info); outline: 2px solid var(--info-soft); }
-.task-create button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--action-ink); border-radius: 5px; color: #fff; background: var(--action-ink); font-weight: 700; cursor: pointer; }
-.create-error { margin: 0; color: var(--danger); font-size: 11px; }
 
 .task-list { min-height: 0; padding: 8px; display: grid; align-content: start; gap: 4px; overflow-y: auto; }
 .task-empty { min-height: 150px; padding: 22px; display: grid; place-content: center; justify-items: center; gap: 5px; color: var(--text-muted); text-align: center; }

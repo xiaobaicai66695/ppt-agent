@@ -1,26 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowDown, ArrowUp, Check, Copy, GripVertical, Image, LayoutTemplate, ListPlus, PanelsTopLeft, Play, Plus, Sparkles, TestTube2, Trash2, WandSparkles, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, Copy, GripVertical, Image, LayoutTemplate, ListPlus, PanelsTopLeft, Play, Plus, Sparkles, Trash2, X } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
-import { fetchPresets, fetchLayouts, fetchThemes, fetchBackgrounds, createTaskWithOutline, expandWithAI, generateOutlineWithAI } from '../api';
-import type { PresetTemplate, AtomicLayout, ThemeInfo, BackgroundTheme, TaskOutline, SlideOutline } from '../api';
-import { authState } from '../stores/auth';
+import { createTaskWithOutline, fetchLayouts, fetchThemes, fetchBackgrounds } from '../api';
+import type { AtomicLayout, ThemeInfo, BackgroundTheme, TaskOutline, SlideOutline } from '../api';
 
 const route = useRoute();
 const router = useRouter();
-const auth = authState;
-
 // State
-const activeTab = ref<'presets' | 'layouts' | 'backgrounds'>('presets');
-const presets = ref<PresetTemplate[]>([]);
+const activeTab = ref<'layouts' | 'backgrounds'>('layouts');
 const layouts = ref<AtomicLayout[]>([]);
 const themes = ref<ThemeInfo[]>([]);
 const backgrounds = ref<BackgroundTheme[]>([]);
 const loading = ref(false);
 const loadError = ref('');
 const generating = ref(false);
-const testingOutline = ref(false);
+const generationError = ref('');
 
 // Background category filter
 const bgCategories = ['全部', '商务', '科技', '教育', '党政', '生活', '自然'];
@@ -43,7 +39,6 @@ const topicTrimmed = computed(() => topicInput.value.trim());
 const slides = ref<SlideOutline[]>([]);
 const selectedSlideIndex = ref(-1);
 const editingSlide = ref<SlideOutline | null>(null);
-const expanding = ref(false);
 
 // Drag-and-drop state
 const draggingIndex = ref(-1);
@@ -82,33 +77,6 @@ function onDrop(e: DragEvent, index: number) {
   dragOverIndex.value = -1;
 }
 
-function onPresetThumbError(e: Event) {
-  const img = e.target as HTMLImageElement;
-  img.style.display = 'none';
-  img.parentElement?.classList.add('thumb-missing');
-}
-
-// Category filter
-const categories = ['全部', 'tech', 'biz', 'edu', 'gov', 'work', 'other'];
-const categoryMap: Record<string, string> = {
-  '全部': '',
-  'tech': '技术',
-  'biz': '商务',
-  'edu': '教育',
-  'gov': '党政',
-  'work': '工作',
-  'other': '其他',
-};
-const selectedCategory = ref('全部');
-
-const filteredPresets = computed(() => {
-  if (selectedCategory.value === '全部') return presets.value;
-  return presets.value.filter(p => p.category === selectedCategory.value);
-});
-
-const validLayoutNames = computed(() => new Set(layouts.value.map(l => l.name)));
-const validBackgroundNames = computed(() => new Set(backgrounds.value.map(b => b.name)));
-
 // Filter backgrounds by category/scenario
 const filteredBackgrounds = computed(() => {
   const cats = bgCategoryMap[selectedBgCategory.value] || [];
@@ -118,8 +86,6 @@ const filteredBackgrounds = computed(() => {
     return cats.some(c => scenarios.some(s => s.toLowerCase().includes(c.toLowerCase())));
   });
 });
-
-const selectedPreset = ref<PresetTemplate | null>(null);
 
 // Layout category groups
 const layoutCategories = [
@@ -217,25 +183,16 @@ function applyBackgroundToSlide(bgName: string) {
   }
 }
 
-// Count of slides with empty descriptions
-const emptyDescCount = computed(() => {
-  return slides.value.filter(s => !s.description || !s.description.trim()).length;
-});
-
-const hasEmptyDescriptions = computed(() => emptyDescCount.value > 0);
-
 // Load data
 async function loadWorkspaceData() {
   loading.value = true;
   loadError.value = '';
   try {
-    const [p, l, t, b] = await Promise.all([
-      fetchPresets(),
+    const [l, t, b] = await Promise.all([
       fetchLayouts(),
       fetchThemes(),
       fetchBackgrounds(),
     ]);
-    presets.value = p;
     layouts.value = l;
     themes.value = t;
     backgrounds.value = b;
@@ -245,9 +202,13 @@ async function loadWorkspaceData() {
       topicInput.value = initialBrief;
       pptTitle.value = initialBrief.length > 36 ? initialBrief.slice(0, 36) : initialBrief;
     }
-    const initialTemplate = typeof route.query.template === 'string' ? route.query.template : '';
-    const preset = presets.value.find(item => item.name === initialTemplate);
-    if (preset) selectPreset(preset);
+    if (slides.value.length === 0) {
+      slides.value = [
+        { title: '', content_type: 'title_slide', description: '' },
+        { title: '', content_type: 'content_slide', description: '' },
+        { title: '', content_type: 'summary_slide', description: '' },
+      ];
+    }
   } catch (e) {
     console.error('Failed to load templates:', e);
     loadError.value = (e as Error).message || '模板资源加载失败';
@@ -258,24 +219,12 @@ async function loadWorkspaceData() {
 
 onMounted(loadWorkspaceData);
 
-function selectPreset(preset: PresetTemplate) {
-  selectedPreset.value = preset;
-  // Don't overwrite pptTitle with preset display name — the user's topic
-  // (from topicTrimmed input) should be the title. Only use as fallback.
-  if (!pptTitle.value) pptTitle.value = topicTrimmed.value || '';
-  selectedTheme.value = preset.default_palette || 'ocean_soft';
-  slides.value = preset.default_slides.map(s => ({
-    title: s.title,
-    content_type: s.content_type,
-    description: s.description || '',
-  }));
-}
-
 function buildOutline(): TaskOutline {
   return {
-    template: selectedPreset.value?.name || 'custom',
+    template: 'custom',
     theme: selectedTheme.value || 'ocean_soft',
     title: pptTitle.value || topicTrimmed.value || '未命名PPT',
+    content_mode: 'user_outline',
     slides: slides.value.map(s => ({
       title: s.title,
       content_type: s.content_type,
@@ -284,43 +233,6 @@ function buildOutline(): TaskOutline {
       background: s.background,
     })),
   };
-}
-
-function mergeEnrichedSlides(enriched: SlideOutline[]) {
-  for (let i = 0; i < slides.value.length && i < enriched.length; i++) {
-    const e = enriched[i];
-    const nextType = e.content_type && validLayoutNames.value.has(e.content_type)
-      ? e.content_type
-      : slides.value[i].content_type;
-    const nextBackground = e.background && validBackgroundNames.value.has(e.background)
-      ? e.background
-      : slides.value[i].background;
-    slides.value[i] = {
-      title: e.title || slides.value[i].title,
-      content_type: nextType,
-      background: nextBackground,
-      description: e.description || slides.value[i].description,
-      content_plan: e.content_plan || slides.value[i].content_plan,
-    };
-  }
-}
-
-async function ensureOutlineFilled(): Promise<TaskOutline> {
-  if (!hasEmptyDescriptions.value && slides.value.every(s => s.content_plan)) {
-    return buildOutline();
-  }
-  batchFilling.value = true;
-  batchFillProgress.value = '正在补齐内容规划...';
-  try {
-    const enriched = await generateOutlineWithAI(topicTrimmed.value, buildOutline());
-    if (enriched && enriched.length > 0) {
-      mergeEnrichedSlides(enriched);
-      batchFillProgress.value = `已完成 ${enriched.length} 页内容规划`;
-    }
-    return buildOutline();
-  } finally {
-    batchFilling.value = false;
-  }
 }
 
 function addSlideFromLayout(layout: AtomicLayout) {
@@ -350,53 +262,6 @@ function saveSlideEdit() {
     slides.value[selectedSlideIndex.value] = { ...editingSlide.value };
     editingSlide.value = null;
     selectedSlideIndex.value = -1;
-  }
-}
-
-async function handleAIAutoFill() {
-  if (!editingSlide.value || expanding.value) return;
-  expanding.value = true;
-  try {
-    const result = await expandWithAI(
-      editingSlide.value.title,
-      editingSlide.value.content_type,
-      editingSlide.value.description,
-      selectedTheme.value
-    );
-    if (result) {
-      editingSlide.value.description = result;
-    }
-  } catch (e) {
-    console.error('AI expand failed:', e);
-  } finally {
-    expanding.value = false;
-  }
-}
-
-// AI batch fill: generate descriptions + content_plans for all slides with empty descriptions
-const batchFilling = ref(false);
-const batchFillProgress = ref('');
-
-async function handleAIBatchFill() {
-  if (slides.value.length === 0 || batchFilling.value) return;
-  if (!topicTrimmed.value) {
-    alert('请先在上方填写 PPT 内容主题，AI 将据此生成各页面的具体内容');
-    return;
-  }
-  batchFilling.value = true;
-  batchFillProgress.value = '正在生成内容规划...';
-  try {
-    const enriched = await generateOutlineWithAI(topicTrimmed.value, buildOutline());
-    if (enriched && enriched.length > 0) {
-      mergeEnrichedSlides(enriched);
-      batchFillProgress.value = `已完成 ${enriched.length} 页内容生成`;
-    }
-  } catch (e) {
-    console.error('AI batch fill failed:', e);
-    alert('批量生成失败: ' + (e as Error).message);
-    batchFillProgress.value = '';
-  } finally {
-    batchFilling.value = false;
   }
 }
 
@@ -439,32 +304,6 @@ function addBlankSlide() {
   slides.value.push(slide);
 }
 
-async function testGenerateOutline() {
-  if (slides.value.length === 0) {
-    alert('请先添加或选择至少一页幻灯片');
-    return;
-  }
-  if (!topicTrimmed.value) {
-    alert('请先填写 PPT 内容主题');
-    return;
-  }
-
-  testingOutline.value = true;
-  try {
-    const enriched = await generateOutlineWithAI(topicTrimmed.value, buildOutline());
-    if (enriched && enriched.length > 0) {
-      mergeEnrichedSlides(enriched);
-      alert(`测试成功：已生成 ${enriched.length} 页内容规划`);
-    } else {
-      alert('测试失败：未返回有效大纲');
-    }
-  } catch (e) {
-    alert('测试失败: ' + (e as Error).message);
-  } finally {
-    testingOutline.value = false;
-  }
-}
-
 async function startGeneration() {
   if (slides.value.length === 0) {
     alert('请先添加或选择至少一页幻灯片');
@@ -477,13 +316,13 @@ async function startGeneration() {
   if (generating.value) return;
 
   generating.value = true;
+  generationError.value = '';
   try {
-    const outline = await ensureOutlineFilled();
     const query = topicTrimmed.value;
-    const task = await createTaskWithOutline(query, outline);
-    router.push({ name: 'dashboard', query: { select: task.id } });
-  } catch (e) {
-    alert('创建任务失败: ' + (e as Error).message);
+    const task = await createTaskWithOutline(query, buildOutline());
+    await router.push({ name: 'dashboard', query: { select: task.id } });
+  } catch (error) {
+    generationError.value = error instanceof Error ? error.message : '任务创建失败，请重试';
   } finally {
     generating.value = false;
   }
@@ -494,15 +333,6 @@ async function startGeneration() {
   <AppShell :title="pptTitle || '编排演示'" eyebrow="Outline editor" content-class="compose-workspace">
     <template #actions>
       <span class="page-count">{{ slides.length }} 页</span>
-      <span v-if="hasEmptyDescriptions" class="outline-warning">{{ emptyDescCount }} 页待补充</span>
-      <button class="toolbar-action optional" type="button" :disabled="batchFilling || slides.length === 0 || !topicTrimmed" @click="handleAIBatchFill">
-        <WandSparkles :size="17" />
-        <span>{{ batchFilling ? batchFillProgress : '批量续写' }}</span>
-      </button>
-      <button class="toolbar-action optional" type="button" :disabled="testingOutline || slides.length === 0 || !topicTrimmed" @click="testGenerateOutline">
-        <TestTube2 :size="17" />
-        <span>{{ testingOutline ? '测试中' : '测试大纲' }}</span>
-      </button>
       <button class="toolbar-action primary" type="button" :disabled="slides.length === 0 || generating || !topicTrimmed" @click="startGeneration">
         <Play :size="17" fill="currentColor" />
         <span>{{ generating ? '创建中' : '开始生成' }}</span>
@@ -530,13 +360,14 @@ async function startGeneration() {
       <span>{{ loadError }}</span>
       <button type="button" @click="loadWorkspaceData">重新加载</button>
     </p>
+    <p v-if="generationError" class="workspace-error" role="alert">
+      <span>{{ generationError }}</span>
+      <button type="button" @click="startGeneration">重试</button>
+    </p>
 
     <div class="editor-workspace">
-      <aside class="resource-panel" aria-label="模板与布局资源">
+      <aside class="resource-panel" aria-label="布局与背景资源">
         <div class="resource-tabs" role="tablist" aria-label="资源类型">
-          <button type="button" role="tab" :aria-selected="activeTab === 'presets'" :class="{ active: activeTab === 'presets' }" @click="activeTab = 'presets'">
-            <LayoutTemplate :size="17" /><span>模板</span>
-          </button>
           <button type="button" role="tab" :aria-selected="activeTab === 'layouts'" :class="{ active: activeTab === 'layouts' }" @click="activeTab = 'layouts'">
             <PanelsTopLeft :size="17" /><span>布局</span>
           </button>
@@ -546,26 +377,7 @@ async function startGeneration() {
         </div>
 
         <div class="resource-scroll">
-          <section v-if="activeTab === 'presets'">
-            <div class="filter-row" aria-label="模板分类">
-              <button v-for="cat in categories" :key="cat" type="button" :class="{ active: selectedCategory === cat }" @click="selectedCategory = cat">
-                {{ categoryMap[cat] || cat }}
-              </button>
-            </div>
-            <div v-if="loading" class="resource-loading" aria-live="polite"><span v-for="item in 3" :key="item" /></div>
-            <div v-else class="preset-list">
-              <button v-for="preset in filteredPresets" :key="preset.name" class="preset-card" :class="{ selected: selectedPreset?.name === preset.name }" type="button" :aria-pressed="selectedPreset?.name === preset.name" @click="selectPreset(preset)">
-                <span class="preset-thumb" :class="{ 'thumb-missing': !preset.thumbnail }">
-                  <img v-if="preset.thumbnail" :src="preset.thumbnail" :alt="`${preset.display_name}模板预览`" loading="lazy" width="640" height="360" @error="onPresetThumbError" />
-                  <span class="preset-missing-label">预览缺失</span>
-                  <span v-if="selectedPreset?.name === preset.name" class="preset-selected"><Check :size="14" /></span>
-                </span>
-                <span class="preset-info"><strong>{{ preset.display_name }}</strong><small>{{ preset.slide_count }} 页 · {{ categoryMap[preset.category] || preset.category }}</small></span>
-              </button>
-            </div>
-          </section>
-
-          <section v-else-if="activeTab === 'layouts'">
+          <section v-if="activeTab === 'layouts'">
             <div v-for="group in groupedLayouts" :key="group.label" class="layout-group">
               <h3>{{ group.label }}</h3>
               <div class="layout-list">
@@ -625,9 +437,9 @@ async function startGeneration() {
 
           <div v-if="slides.length === 0 && !loading" class="empty-outline">
             <span><Sparkles :size="22" /></span>
-            <h3>先选择一个叙事结构</h3>
-            <p>从左侧模板开始，或添加一张空白页面逐步搭建。</p>
-            <button type="button" @click="activeTab = 'presets'">浏览模板</button>
+            <h3>添加第一张页面</h3>
+            <p>从左侧选择布局，或添加一张空白页面。</p>
+            <button type="button" @click="addBlankSlide">添加页面</button>
           </div>
         </div>
       </section>
@@ -677,8 +489,7 @@ async function startGeneration() {
 
           <footer class="property-footer">
             <button type="button" @click="cancelEdit">取消</button>
-            <button type="button" @click="saveSlideEdit">保存</button>
-            <button class="ai-fill-button" type="button" :disabled="expanding" @click="handleAIAutoFill"><WandSparkles :size="16" /><span>{{ expanding ? '生成中' : 'AI 续写' }}</span></button>
+            <button class="save-property" type="button" @click="saveSlideEdit">保存</button>
           </footer>
         </template>
 
@@ -735,7 +546,7 @@ async function startGeneration() {
 .resource-panel { border-right: 1px solid var(--border); background: var(--surface-muted); }
 .property-panel { border-left: 1px solid var(--border); background: var(--surface); }
 
-.resource-tabs { padding: 8px; display: grid; grid-template-columns: repeat(3,1fr); gap: 3px; border-bottom: 1px solid var(--border); }
+.resource-tabs { padding: 8px; display: grid; grid-template-columns: repeat(2,1fr); gap: 3px; border-bottom: 1px solid var(--border); }
 .resource-tabs button {
   min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; font-size: 11px; font-weight: 700; cursor: pointer;
@@ -749,23 +560,7 @@ async function startGeneration() {
 .filter-row button { min-height: 32px; padding: 0 9px; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); background: var(--surface); font-size: 10px; cursor: pointer; }
 .filter-row button.active { border-color: var(--action-ink); color: var(--action-ink); background: var(--action-soft); }
 
-.resource-loading, .preset-list, .layout-list { display: grid; gap: 9px; }
-.resource-loading span { display: block; aspect-ratio: 16/9; border-radius: 6px; background: #e5e9e9; animation: pulse 1.4s ease-in-out infinite; }
-.preset-card {
-  min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px;
-  color: var(--text); background: var(--surface); text-align: left; cursor: pointer;
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
-}
-.preset-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
-.preset-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,.1); }
-.preset-thumb { position: relative; display: block; aspect-ratio: 16/9; overflow: hidden; background: #e6eaea; border-bottom: 1px solid var(--divider); }
-.preset-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.preset-missing-label { position: absolute; inset: 0; display: none; place-items: center; color: var(--text-muted); font-size: 10px; }
-.preset-thumb.thumb-missing .preset-missing-label { display: grid; }
-.preset-selected { position: absolute; top: 7px; right: 7px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--action-ink); }
-.preset-info { padding: 9px 10px 10px; display: flex; flex-direction: column; }
-.preset-info strong { font-size: 11px; }
-.preset-info small { margin-top: 3px; color: var(--text-muted); font-size: 9px; }
+.layout-list { display: grid; gap: 9px; }
 
 .layout-group + .layout-group { margin-top: 16px; }
 .layout-group h3 { margin: 0 0 7px; color: var(--text-muted); font-size: 10px; font-weight: 750; }
@@ -865,14 +660,12 @@ async function startGeneration() {
 .selected-background strong { font-size: 10px; }
 .selected-background small { display: -webkit-box; margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 8px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
-.property-footer { padding: 10px 12px; display: grid; grid-template-columns: .7fr .7fr 1fr; gap: 7px; border-top: 1px solid var(--border); }
+.property-footer { padding: 10px 12px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 7px; border-top: 1px solid var(--border); }
 .property-footer button { min-height: 40px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--surface); font-size: 11px; font-weight: 700; cursor: pointer; }
 .property-footer button:hover { background: var(--surface-muted); }
-.property-footer .ai-fill-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-color: var(--action-ink); color: #fff; background: var(--action-ink); }
+.property-footer .save-property { border-color: var(--action-ink); color: #fff; background: var(--action-ink); }
 
 .editor-scrim { display: none; }
-@keyframes pulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }
-
 @media (max-width:1240px) {
   .editor-workspace { grid-template-columns: 250px minmax(400px,1fr) 310px; }
   .toolbar-action.optional span { display:none; }

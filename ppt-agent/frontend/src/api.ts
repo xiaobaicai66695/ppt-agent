@@ -137,11 +137,19 @@ async function checkResponse(res: Response): Promise<Response> {
   return res;
 }
 
-export async function createTask(query: string): Promise<TaskInfo> {
+export interface TemplateSelection {
+  mode: 'recommended' | 'preset';
+  template?: string;
+}
+
+export async function createTask(query: string, templateSelection?: TemplateSelection): Promise<TaskInfo> {
   const res = await checkResponse(await apiFetch('/api/tasks', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({
+      query,
+      ...(templateSelection ? { template_selection: templateSelection } : {}),
+    }),
   }));
   return res.json();
 }
@@ -195,6 +203,7 @@ export interface TaskOutline {
   template: string;
   theme: string;
   title: string;
+  content_mode?: 'template_scaffold' | 'user_outline';
   slides: SlideOutline[];
 }
 
@@ -335,12 +344,20 @@ export async function generateOutlineWithAI(query: string, outline: TaskOutline)
 
 // ── Continue / Session API ──────────────────────────────────────────────────────
 
-export async function continueTask(taskId: string, message: string): Promise<Response> {
-	return checkResponse(await apiFetch(`/api/tasks/${taskId}/continue`, {
+export interface ContinueTaskResult {
+  status: 'accepted' | 'queued';
+  message: string;
+  task_id: string;
+  after_event_id?: number;
+}
+
+export async function continueTask(taskId: string, message: string): Promise<ContinueTaskResult> {
+	const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/continue`, {
 		method: 'POST',
 		headers: authHeaders(),
 		body: JSON.stringify({ message }),
 	}));
+	return res.json();
 }
 
 export async function fetchConversation(taskId: string): Promise<import('./types').ConversationSession> {

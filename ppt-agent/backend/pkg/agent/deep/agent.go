@@ -187,27 +187,30 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 	outlineTemplate := ""
 	outlineTheme := ""
 	outlineTitle := ""
+	outlineContentMode := ""
 	outlineQuery := query // user's original topic description
 	hasOutline := outline != nil && len(outline.Slides) > 0
 	if hasOutline {
 		outlineTemplate = outline.Template
 		outlineTheme = outline.Theme
 		outlineTitle = outline.Title
+		outlineContentMode = outline.ContentMode
 	}
 
 	data := &prompts.TemplateData{
-		TmplDir:         tmplDir,
-		TasksJSON:       tasksJSON,
-		TemplateCatalog: templateCatalog,
-		StyleContext:    styleContext,
-		HasOutline:      hasOutline,
-		OutlineQuery:    outlineQuery,
-		OutlineTemplate: outlineTemplate,
-		OutlineTheme:    outlineTheme,
-		OutlineTitle:    outlineTitle,
-		SkillsDir:       skillsDir,
-		EnableQA:        enableQA,
-		Concurrency:     concurrency,
+		TmplDir:            tmplDir,
+		TasksJSON:          tasksJSON,
+		TemplateCatalog:    templateCatalog,
+		StyleContext:       styleContext,
+		HasOutline:         hasOutline,
+		OutlineQuery:       outlineQuery,
+		OutlineTemplate:    outlineTemplate,
+		OutlineTheme:       outlineTheme,
+		OutlineTitle:       outlineTitle,
+		OutlineContentMode: outlineContentMode,
+		SkillsDir:          skillsDir,
+		EnableQA:           enableQA,
+		Concurrency:        concurrency,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)
