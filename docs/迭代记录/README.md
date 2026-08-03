@@ -17,4 +17,5 @@
 | `2026-08-03-ppt-agent-frontend-rebuild.md` | 统一设计系统、应用壳和 Home/Auth/Compose/Dashboard/Admin 全面重构 |
 | `2026-08-03-ppt-agent-conversation-delivery-hardening.md` | 九项会话、预览、可观测性、素材部署和 Linux CLI 问题加固 |
 | `2026-08-03-ppt-template-entry-recommendation-hardening.md` | content plan 宽容解析、主 Agent 模板双模式、首页单次模板选择与智能推荐 |
+| `2026-08-03-auth-jwt-db-decoupling.md` | 有效 JWT 与数据库瞬时故障解耦、管理员权限 503 语义及远端链路诊断 |
 | `99-迭代过程（历史归档）.md` | 早期架构演进、PPT 生成、上下文管理和技术债务归档 |

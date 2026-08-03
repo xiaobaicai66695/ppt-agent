@@ -67,11 +67,23 @@ func (s *Server) adminMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
-		if !user.IsAdmin {
+		freshUser, err := auth.ValidateUser(int(user.ID))
+		if err != nil {
+			c.Header("Retry-After", "5")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"code": "auth_backend_unavailable", "error": "权限服务暂时不可用，请稍后重试",
+			})
+			return
+		}
+		if freshUser == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "用户不存在，请重新登录"})
+			return
+		}
+		if !freshUser.IsAdmin {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
 			return
 		}
-		ctx := auth.WithUser(c.Request.Context(), user)
+		ctx := auth.WithUser(c.Request.Context(), freshUser)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
@@ -94,13 +106,6 @@ func userIDGin(c *gin.Context) int {
 }
 
 func isAdminGin(c *gin.Context) bool {
-	id, ok := auth.UserIDFromContext(c.Request.Context())
-	if !ok {
-		return false
-	}
-	user, err := auth.ValidateUser(id)
-	if err != nil || user == nil {
-		return false
-	}
-	return user.IsAdmin
+	isAdmin, _ := auth.IsAdminFromContext(c.Request.Context())
+	return isAdmin
 }

@@ -118,11 +118,10 @@ func (s *Server) handleLogout(c *gin.Context) {
 func (s *Server) handleMe(c *gin.Context) {
 	uid := userIDGin(c)
 	email, _ := auth.UsernameFromContext(c.Request.Context())
-	user, _ := auth.ValidateUser(uid)
 	c.JSON(http.StatusOK, gin.H{
 		"id":       uid,
 		"email":    email,
-		"is_admin": user != nil && user.IsAdmin,
+		"is_admin": isAdminGin(c),
 	})
 }
 

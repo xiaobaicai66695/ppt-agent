@@ -17,17 +17,17 @@ import (
 )
 
 const (
-	jwtDuration    = 7 * 24 * time.Hour
-	codeDuration   = 5 * time.Minute
+	jwtDuration     = 7 * 24 * time.Hour
+	codeDuration    = 5 * time.Minute
 	codeMaxAttempts = 5
 )
 
 var jwtSecret = []byte("pptagent")
 
 type jwtClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
-	IsAdmin bool  `json:"is_admin"`
+	UserID  uint   `json:"user_id"`
+	Email   string `json:"email"`
+	IsAdmin bool   `json:"is_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -116,8 +116,8 @@ func createToken(user *db.User) (string, error) {
 	return token.SignedString(jwtSecret)
 }
 
-// ValidateSession 验证 JWT 令牌并返回嵌入的用户信息。
-// 为确保权限状态最新，IsAdmin 字段从数据库重新查询（而非信任 JWT 中的旧值）。
+// ValidateSession validates the signed JWT without requiring the database.
+// Database-backed permission freshness is enforced separately by adminMiddleware.
 func ValidateSession(tokenString string) (*db.User, error) {
 	if tokenString == "" {
 		return nil, errors.New("未提供会话令牌")
@@ -132,15 +132,10 @@ func ValidateSession(tokenString string) (*db.User, error) {
 	if err != nil || !token.Valid {
 		return nil, errors.New("会话无效或已过期，请重新登录")
 	}
-	// 从数据库获取最新 IsAdmin，避免 JWT 过期或旧 token 权限不同步的问题
-	u, err := ValidateUser(int(claims.UserID))
-	if err != nil {
-		return nil, fmt.Errorf("查询用户失败: %w", err)
+	if claims.UserID == 0 || claims.Email == "" {
+		return nil, errors.New("会话缺少用户信息，请重新登录")
 	}
-	if u == nil {
-		return nil, errors.New("用户不存在")
-	}
-	return u, nil
+	return &db.User{ID: claims.UserID, Email: claims.Email, IsAdmin: claims.IsAdmin}, nil
 }
 
 // LoginWithPassword 使用邮箱和密码登录
@@ -224,10 +219,12 @@ type ctxKey string
 
 const userIDKey ctxKey = "user_id"
 const usernameKey ctxKey = "email"
+const isAdminKey ctxKey = "is_admin"
 
 func WithUser(ctx context.Context, u *db.User) context.Context {
 	ctx = context.WithValue(ctx, userIDKey, int(u.ID))
 	ctx = context.WithValue(ctx, usernameKey, u.Email)
+	ctx = context.WithValue(ctx, isAdminKey, u.IsAdmin)
 	return ctx
 }
 
@@ -241,8 +238,16 @@ func UsernameFromContext(ctx context.Context) (string, bool) {
 	return name, ok
 }
 
+func IsAdminFromContext(ctx context.Context) (bool, bool) {
+	isAdmin, ok := ctx.Value(isAdminKey).(bool)
+	return isAdmin, ok
+}
+
 // ValidateUser 根据用户 ID 查询用户记录
 func ValidateUser(userID int) (*db.User, error) {
+	if db.DB == nil {
+		return nil, errors.New("认证数据库不可用")
+	}
 	var u db.User
 	if err := db.DB.Where("id = ?", userID).First(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
