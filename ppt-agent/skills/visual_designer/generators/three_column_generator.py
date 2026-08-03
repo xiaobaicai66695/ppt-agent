@@ -10,6 +10,7 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .layout_intelligence import balanced_band_top, title_font_size
 
 
 def generate(
@@ -82,7 +83,7 @@ def generate(
         slide,
         text=title,
         left=0.5, top=y_title, width=12.0, height=0.7,
-        font_size=36, bold=True,
+        font_size=title_font_size(title, base=36, sparse_boost=5, max_size=44), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -91,8 +92,8 @@ def generate(
     col_w = 3.8
     gap = 0.3
     start_x = 0.6
-    start_y = 1.4 if not kicker else 1.35
     col_h = 5.0
+    start_y = balanced_band_top(1.25 if kicker else 1.35, 5.15, col_h, min_top=1.35)
 
     header_colors = ["primary", "secondary", "accent"]
 
@@ -140,6 +141,7 @@ def generate(
                 left=x + 0.45, top=start_y + 1.0 + j * 0.9, width=col_w - 0.6, height=0.6,
                 font_size=14, bold=False,
                 color="text", alignment="left",
+                vertical_alignment="middle",
                 palette=palette,
                 colors=colors,
             )

@@ -16,6 +16,7 @@ from .layout_intelligence import (
     body_font_size,
     density_level,
     focal_font_size,
+    balanced_band_top,
     short_items,
     title_font_size,
 )
@@ -187,6 +188,9 @@ def generate(
     # Bullet list
     bullet_spacing = 0.68 if level != "dense" else 0.58
     item_font = body_font_size(bullets, base=16)
+    if bullets and not highlight_stats:
+        bullets_h = len(bullets[:6]) * 0.5 + max(len(bullets[:6]) - 1, 0) * (bullet_spacing - 0.5)
+        y_offset = balanced_band_top(y_offset, 5.85 - y_offset, bullets_h, min_top=y_offset)
     for i, item in enumerate(bullets[:6]):
         y = y_offset + i * bullet_spacing
 
@@ -204,6 +208,7 @@ def generate(
             left=1.05, top=y, width=11.0, height=0.5,
             font_size=item_font, bold=False,
             color="text", alignment="left",
+            vertical_alignment="middle",
             palette=palette,
             colors=colors,
         )

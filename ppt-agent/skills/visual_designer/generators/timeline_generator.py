@@ -2,7 +2,9 @@
 from typing import Optional, List
 from pptx import Presentation
 
-from .base import add_source_line, new_presentation, PALETTES, add_text, add_rect, set_slide_background, resolve_background, set_image_background
+from .base import add_source_line, new_presentation, PALETTES, add_text, add_rect, add_ellipse, set_slide_background, resolve_background, set_image_background
+from .asset_manager import add_local_icon, asset_path, icon_id_from_text
+from .layout_intelligence import title_font_size
 
 
 def generate(
@@ -70,7 +72,7 @@ def generate(
         slide,
         text=title,
         left=0.7, top=y_offset, width=11.5, height=0.7,
-        font_size=36, bold=True,
+        font_size=title_font_size(title, base=36, sparse_boost=5, max_size=44), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -90,8 +92,10 @@ def generate(
         )
         y_offset += 0.5
 
-    # Timeline axis
-    axis_y = y_offset + 1.5
+    # Timeline axis, centered in the remaining content band.
+    content_top = y_offset + 0.55
+    content_bottom = 6.45
+    axis_y = content_top + (content_bottom - content_top) * 0.46
     add_rect(
         slide,
         left=0.7, top=axis_y, width=11.5, height=0.05,
@@ -99,19 +103,20 @@ def generate(
     )
 
     # Timeline nodes
-    node_count = len(nodes)
+    node_count = max(1, len(nodes))
     spacing = 11.5 / (node_count + 1)
 
     for i, node in enumerate(nodes):
-        node_x = 0.7 + spacing * (i + 1) - 0.15
+        node_center_x = 0.7 + spacing * (i + 1)
+        node_x = node_center_x - 0.15
         year = node.get("year", "")
         event = node.get("event", "")
         icon = node.get("icon", str(i + 1))
 
-        # Node circle
-        add_rect(
+        # Node marker
+        add_ellipse(
             slide,
-            left=node_x, top=axis_y - 0.1, width=0.25, height=0.25,
+            left=node_center_x - 0.11, top=axis_y - 0.11, width=0.22, height=0.22,
             fill_color="accent", palette=palette,
         )
 
@@ -119,39 +124,52 @@ def generate(
         add_text(
             slide,
             text=year,
-            left=node_x - 0.3, top=axis_y - 0.55, width=0.85, height=0.35,
-            font_size=14, bold=True,
+            left=node_center_x - 0.55, top=axis_y - 0.76, width=1.1, height=0.36,
+            font_size=15, bold=True,
             color="primary", alignment="center",
             palette=palette,
             colors=colors,
         )
 
-        # Event description below
+        # Event description below, with room for natural wrapping.
         add_text(
             slide,
             text=event,
-            left=node_x - 0.5, top=axis_y + 0.35, width=1.25, height=0.8,
-            font_size=12, bold=False,
+            left=node_center_x - 0.72, top=axis_y + 0.42, width=1.44, height=1.08,
+            font_size=12.5, bold=False,
             color="text", alignment="center",
+            line_spacing=0.92,
             palette=palette,
             colors=colors,
         )
 
-        # Icon number
+        # Stable icon/number badge; avoid tiny text squeezed into a square.
         add_rect(
             slide,
-            left=node_x - 0.05, top=axis_y - 0.08, width=0.2, height=0.2,
+            left=node_center_x - 0.24, top=axis_y - 0.28, width=0.48, height=0.48,
             fill_color="light_bg", palette=palette,
+            line_color="divider",
+            line_width=0.6,
         )
-        add_text(
-            slide,
-            text=icon,
-            left=node_x - 0.05, top=axis_y - 0.08, width=0.2, height=0.2,
-            font_size=10, bold=True,
-            color="text", alignment="center",
-            palette=palette,
-            colors=colors,
-        )
+        if icon and asset_path(icon):
+            add_local_icon(slide, icon, left=node_center_x - 0.17, top=axis_y - 0.21, size=0.34, palette=palette)
+        else:
+            icon_text = str(icon or i + 1)
+            if not icon_text.isdigit() and len(icon_text) > 2:
+                semantic = icon_id_from_text(icon_text + event, fallback="")
+                if semantic and asset_path(semantic):
+                    add_local_icon(slide, semantic, left=node_center_x - 0.17, top=axis_y - 0.21, size=0.34, palette=palette)
+                    continue
+            add_text(
+                slide,
+                text=f"{i + 1:02d}" if icon_text.isdigit() else icon_text[:2],
+                left=node_center_x - 0.22, top=axis_y - 0.25, width=0.44, height=0.38,
+                font_size=10.5, bold=True,
+                color="primary", alignment="center",
+                vertical_alignment="middle",
+                palette=palette,
+                colors=colors,
+            )
 
     add_source_line(slide, source, palette)
     return prs

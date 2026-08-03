@@ -6,10 +6,12 @@ from pptx import Presentation
 from .base import (
     add_source_line,
     new_presentation,
-    PALETTES, add_text, add_rect, add_ellipse,
+    PALETTES, add_text, add_rect, add_ellipse, add_round_rect,
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .asset_manager import add_local_icon, add_pattern_overlay, icon_id_from_text
+from .layout_intelligence import balanced_band_top, focal_font_size, weighted_text_len
 
 
 def generate(
@@ -93,16 +95,16 @@ def generate(
         text_x = 0.5
         text_w = 6.2
 
-    img_y = 1.3
-    img_h = 5.0
+    img_y = 1.35
+    img_h = 4.95
 
-    # Image placeholder box
+    # Visual summary panel: local assets make the default state feel finished.
     add_rect(
         slide,
         left=img_x, top=img_y, width=img_w, height=img_h,
         fill_color="light_bg", palette=palette,
     )
-    # Image border accent
+    add_pattern_overlay(slide, "pattern_grid", left=img_x + 0.1, top=img_y + 0.1, width=img_w - 0.2, height=img_h - 0.2, opacity_backdrop=False, palette=palette)
     add_rect(
         slide,
         left=img_x, top=img_y, width=img_w, height=0.06,
@@ -114,22 +116,77 @@ def generate(
         fill_color="accent", palette=palette,
     )
 
-    # Image placeholder label
+    visual_text = " ".join([title, header, sub_header, paragraph] + bullets)
+    icon_id = icon_id_from_text(visual_text, fallback="layout")
+    add_local_icon(
+        slide,
+        icon_id,
+        left=img_x + img_w * 0.5 - 0.62,
+        top=img_y + 0.78,
+        size=1.24,
+        palette=palette,
+        with_badge=True,
+    )
+    add_round_rect(
+        slide,
+        left=img_x + img_w * 0.2,
+        top=img_y + 2.35,
+        width=img_w * 0.6,
+        height=0.78,
+        fill_color="background",
+        palette=palette,
+        line_color="divider",
+        line_width=0.6,
+    )
     add_text(
         slide,
-        text="[图片占位]",
-        left=img_x, top=img_y + img_h / 2 - 0.3, width=img_w, height=0.6,
-        font_size=14, bold=False,
-        color="text_muted", alignment="center",
+        text=header,
+        left=img_x + img_w * 0.23,
+        top=img_y + 2.48,
+        width=img_w * 0.54,
+        height=0.38,
+        font_size=focal_font_size(header, base=22, max_size=30, min_size=16),
+        bold=True,
+        color="primary",
+        alignment="center",
         palette=palette,
         colors=colors,
     )
+    visual_notes = [
+        sub_header or "结构化内容",
+        "动态字号" if weighted_text_len(paragraph) < 500 else "容量控制",
+        "本地素材",
+    ]
+    note_w = (img_w - 1.0) / 3
+    for i, note in enumerate(visual_notes):
+        x = img_x + 0.5 + i * note_w
+        add_rect(slide, left=x, top=img_y + 3.62, width=note_w - 0.18, height=0.5, fill_color="background", palette=palette)
+        add_text(
+            slide,
+            text=note,
+            left=x + 0.08,
+            top=img_y + 3.71,
+            width=note_w - 0.34,
+            height=0.24,
+            font_size=11,
+            bold=True,
+            color="secondary",
+            alignment="center",
+            palette=palette,
+            colors=colors,
+        )
+
+    text_region_top = 1.42
+    text_region_h = 4.9
+    paragraph_h = 3.55 if paragraph else min(4.2, max(1.2, len(bullets[:6]) * 0.68))
+    content_h = 0.55 + (0.42 if sub_header else 0.15) + paragraph_h
+    text_top = balanced_band_top(text_region_top, text_region_h, content_h, min_top=1.35)
 
     # Section header
     add_text(
         slide,
         text=header,
-        left=text_x, top=1.5, width=text_w, height=0.6,
+        left=text_x, top=text_top, width=text_w, height=0.58,
         font_size=20, bold=True,
         color="primary", alignment="left",
         palette=palette,
@@ -137,29 +194,29 @@ def generate(
     )
 
     # Sub header (between feature header and bullets)
-    y_content_start = 2.5
+    y_content_start = text_top + 1.0
     if sub_header:
         add_text(
             slide,
             text=sub_header,
-            left=text_x, top=2.15, width=text_w, height=0.4,
+            left=text_x, top=text_top + 0.65, width=text_w, height=0.36,
             font_size=13, bold=False,
             color="secondary", alignment="left",
             palette=palette,
             colors=colors,
         )
-        y_content_start = 2.6
+        y_content_start = text_top + 1.14
         # Accent line under sub_header
         add_rect(
             slide,
-            left=text_x, top=2.55, width=1.0, height=0.04,
+            left=text_x, top=text_top + 1.05, width=1.0, height=0.04,
             fill_color="divider", palette=palette,
         )
     else:
         # Accent line under header
         add_rect(
             slide,
-            left=text_x, top=2.15, width=1.0, height=0.05,
+            left=text_x, top=text_top + 0.68, width=1.0, height=0.05,
             fill_color="primary", palette=palette,
         )
 
@@ -170,8 +227,10 @@ def generate(
             slide,
             text=paragraph,
             left=text_x, top=y_content_start, width=text_w, height=4.0,
-            font_size=14, bold=False,
+            font_size=15 if weighted_text_len(paragraph) < 360 else 14, bold=False,
             color="text", alignment="left",
+            vertical_alignment="middle" if weighted_text_len(paragraph) < 260 else "top",
+            line_spacing=0.95,
             palette=palette,
             colors=colors,
         )

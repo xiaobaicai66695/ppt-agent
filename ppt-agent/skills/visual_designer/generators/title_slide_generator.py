@@ -13,7 +13,7 @@ from .base import (
     set_image_background,
 )
 from .asset_manager import apply_asset_background
-from .layout_intelligence import title_font_size
+from .layout_intelligence import balanced_band_top, title_font_size
 
 
 def generate(
@@ -82,17 +82,22 @@ def generate(
         fill_color="accent", palette=palette,
     )
 
+    content_h = (0.42 if kicker else 0.0) + 1.35 + (0.72 if subtitle else 0.0)
+    group_top = balanced_band_top(1.45, 3.75, content_h, min_top=1.55)
+    cur_y = group_top
+
     # Kicker (above title)
     if kicker:
         add_text(
             slide,
             text=kicker,
-            left=1.0, top=1.9, width=11.333, height=0.4,
+            left=1.0, top=cur_y, width=11.333, height=0.4,
             font_size=14, bold=False,
             color="secondary", alignment="center",
             palette=palette,
             colors=colors,
         )
+        cur_y += 0.42
 
     # Low-key editorial accents; avoid the old generic corner blobs.
     add_ellipse(slide, left=11.25, top=0.35, width=0.95, height=0.95, fill_color="secondary", palette=palette)
@@ -102,23 +107,27 @@ def generate(
     add_text(
         slide,
         text=title,
-        left=1.0, top=2.24, width=11.333, height=1.35,
+        left=1.0, top=cur_y, width=11.333, height=1.35,
         font_size=title_size, bold=True,
         color="text", alignment="center",
+        vertical_alignment="middle",
         palette=palette,
         colors=colors,
     )
+    cur_y += 1.45
 
     # Subtitle
-    add_text(
-        slide,
-        text=subtitle,
-        left=1.7, top=3.7, width=9.933, height=0.65,
-        font_size=22 if len(subtitle) <= 26 else 18, bold=False,
-        color="secondary", alignment="center",
-        palette=palette,
-        colors=colors,
-    )
+    if subtitle:
+        add_text(
+            slide,
+            text=subtitle,
+            left=1.7, top=cur_y, width=9.933, height=0.65,
+            font_size=22 if len(subtitle) <= 26 else 18, bold=False,
+            color="secondary", alignment="center",
+            vertical_alignment="middle",
+            palette=palette,
+            colors=colors,
+        )
 
     # Author (bottom left)
     add_text(

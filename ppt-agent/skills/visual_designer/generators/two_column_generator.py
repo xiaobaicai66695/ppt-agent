@@ -161,11 +161,11 @@ def generate(
     # Left content
     if left_sections:
         _render_sections(
-            slide, left_sections, start_x + 0.2, start_y, col_w, palette, is_left=True
+            slide, left_sections, start_x + 0.2, start_y, col_w, palette, colors, is_left=True
         )
     elif left_items:
         _render_rich_items(
-            slide, left_items, start_x + 0.2, start_y, col_w, palette, is_left=True
+            slide, left_items, start_x + 0.2, start_y, col_w, palette, colors, is_left=True
         )
     elif left_intro:
         add_text(
@@ -213,11 +213,11 @@ def generate(
     # Right content
     if right_sections:
         _render_sections(
-            slide, right_sections, start_x + col_w + gap + 0.2, start_y, col_w, palette, is_left=False
+            slide, right_sections, start_x + col_w + gap + 0.2, start_y, col_w, palette, colors, is_left=False
         )
     elif right_items:
         _render_rich_items(
-            slide, right_items, start_x + col_w + gap + 0.2, start_y, col_w, palette, is_left=False
+            slide, right_items, start_x + col_w + gap + 0.2, start_y, col_w, palette, colors, is_left=False
         )
     elif right_intro:
         add_text(
@@ -262,6 +262,7 @@ def _render_sections(
     start_y: float,
     col_w: float,
     palette: str,
+    colors: dict,
     is_left: bool,
 ) -> None:
     """
@@ -314,6 +315,7 @@ def _render_rich_items(
     start_y: float,
     col_w: float,
     palette: str,
+    colors: dict,
     is_left: bool,
 ) -> None:
     """

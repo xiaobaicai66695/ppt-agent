@@ -16,6 +16,7 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .layout_intelligence import balanced_band_top, title_font_size
 
 
 def generate(
@@ -77,7 +78,7 @@ def generate(
     add_text(
         slide, text=title,
         left=0.5, top=0.55, width=12.0, height=0.55,
-        font_size=28, bold=True,
+        font_size=title_font_size(title, base=30, sparse_boost=4, max_size=38), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -104,7 +105,9 @@ def generate(
     margin_x = 0.5
     card_area_w = 13.333 - margin_x * 2
     card_w = (card_area_w - gap_x) / cols
-    card_h = 2.0
+    card_h = 1.82 if show_progress else 2.0
+    cards_total_h = rows * card_h + (rows - 1) * gap_y
+    card_start_y = balanced_band_top(card_start_y, 4.2, cards_total_h, min_top=card_start_y)
 
     # Build the 2x2 position list (row-major: top-left, top-right, bottom-left, bottom-right)
     positions = []
@@ -135,9 +138,10 @@ def generate(
         # Value — large and prominent
         add_text(
             slide, text=kpi.get("value", ""),
-            left=x + 0.2, top=y + 0.15, width=card_w - 0.4, height=0.7,
-            font_size=44, bold=True,
+            left=x + 0.2, top=y + 0.12, width=card_w - 0.4, height=0.62,
+            font_size=40 if show_progress else 44, bold=True,
             color="primary", alignment="left",
+            vertical_alignment="middle",
             palette=palette,
             colors=colors,
         )
@@ -145,7 +149,7 @@ def generate(
         # Label
         add_text(
             slide, text=kpi.get("label", ""),
-            left=x + 0.2, top=y + 0.88, width=card_w - 0.4, height=0.4,
+            left=x + 0.2, top=y + 0.78, width=card_w - 0.4, height=0.36,
             font_size=13, bold=True,
             color="text", alignment="left",
             palette=palette,
@@ -161,7 +165,7 @@ def generate(
         if delta:
             add_text(
                 slide, text=delta,
-                left=x + 0.2, top=y + 1.32, width=card_w - 0.4, height=0.3,
+                left=x + 0.2, top=y + 1.18, width=card_w - 0.4, height=0.28,
                 font_size=14, bold=True,
                 color=delta_color, alignment="left",
                 palette=palette,
@@ -173,7 +177,7 @@ def generate(
         if baseline:
             add_text(
                 slide, text=baseline,
-                left=x + 0.2, top=y + 1.65, width=card_w - 0.4, height=0.35,
+                left=x + 0.2, top=y + 1.48, width=card_w - 0.4, height=0.28,
                 font_size=10, bold=False,
                 color="text_muted", alignment="left",
                 palette=palette,
@@ -182,7 +186,7 @@ def generate(
 
     # Bottom progress bar
     if show_progress:
-        progress_y = 6.0
+        progress_y = 6.12
         add_rect(
             slide,
             left=0.5, top=progress_y, width=12.333, height=0.1,

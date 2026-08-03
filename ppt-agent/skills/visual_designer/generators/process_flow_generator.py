@@ -11,6 +11,7 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .layout_intelligence import balanced_band_top, title_font_size
 
 
 def generate(
@@ -81,7 +82,7 @@ def generate(
         slide,
         text=title,
         left=0.5, top=y_title, width=12.0, height=0.7,
-        font_size=36, bold=True,
+        font_size=title_font_size(title, base=36, sparse_boost=5, max_size=44), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -112,7 +113,7 @@ def generate(
         gap = 0.3
         total_w = n * box_w + (n - 1) * gap
         start_x = (13.333 - total_w) / 2
-        axis_y = y_flow + 1.7
+        axis_y = balanced_band_top(y_flow, 4.45, box_h, min_top=y_flow) + box_h / 2
 
         for i, step in enumerate(visible_steps):
             x = start_x + i * (box_w + gap)
@@ -189,8 +190,9 @@ def generate(
         gap_x = 0.5
         gap_y = 0.6
         start_x = 1.0
-        start_y1 = y_flow
-        start_y2 = y_flow + 2.4
+        total_h = box_h * 2 + gap_y
+        start_y1 = balanced_band_top(y_flow, 4.2, total_h, min_top=y_flow)
+        start_y2 = start_y1 + box_h + gap_y
 
         row1 = visible_steps[:3]
         row2 = visible_steps[3:6]
@@ -302,7 +304,8 @@ def generate(
         box_h = 0.9
         gap = 0.25
         start_x = 2.0
-        start_y = y_flow
+        total_h = n * box_h + max(n - 1, 0) * gap
+        start_y = balanced_band_top(y_flow, 4.55, total_h, min_top=y_flow)
 
         for i, step in enumerate(visible_steps):
             y = start_y + i * (box_h + gap)

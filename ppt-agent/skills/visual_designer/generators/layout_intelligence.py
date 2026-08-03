@@ -84,3 +84,23 @@ def alignment_for_density(level: str, role: str = "content") -> str:
 
 def short_items(items: Iterable[str], max_items: int) -> list[str]:
     return [str(item).strip() for item in list(items or [])[:max_items] if str(item).strip()]
+
+
+def balanced_band_top(region_top: float, region_height: float, content_height: float, min_top: float | None = None) -> float:
+    top = region_top + max(0.0, (region_height - content_height) / 2)
+    if min_top is not None:
+        return max(min_top, top)
+    return top
+
+
+def gap_for_count(count: int, region_height: float, item_height: float, min_gap: float = 0.18, max_gap: float = 0.52) -> float:
+    if count <= 1:
+        return 0.0
+    remaining = max(0.0, region_height - count * item_height)
+    return max(min_gap, min(max_gap, remaining / (count - 1)))
+
+
+def fitted_grid_rows(count: int, cols: int) -> int:
+    if cols <= 0:
+        return 1
+    return max(1, (max(count, 1) + cols - 1) // cols)

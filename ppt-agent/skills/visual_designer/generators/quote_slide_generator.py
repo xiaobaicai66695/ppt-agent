@@ -11,7 +11,7 @@ from .base import (
     resolve_background, set_image_background,
 )
 from .asset_manager import apply_asset_background, add_local_icon
-from .layout_intelligence import focal_font_size
+from .layout_intelligence import balanced_band_top, focal_font_size
 
 
 def generate(
@@ -69,11 +69,15 @@ def generate(
 
     add_local_icon(slide, "align", left=11.0, top=0.7, size=0.75, palette=palette)
 
+    quote_box_h = 3.35
+    quote_group_h = quote_box_h + 0.68
+    quote_top = balanced_band_top(y_start + 0.55, 5.25 - y_start, quote_group_h, min_top=y_start + 0.9)
+
     # Large decorative opening quote mark (top left)
     add_text(
         slide,
         text="\u201C",
-        left=0.5, top=y_start + 0.3, width=2.0, height=2.0,
+        left=0.5, top=quote_top - 1.12, width=2.0, height=2.0,
         font_size=120, bold=False,
         color="accent", alignment="left",
         palette=palette,
@@ -83,7 +87,7 @@ def generate(
     # Quote background box
     add_rect(
         slide,
-        left=1.35, top=y_start + 1.45, width=10.633, height=3.35,
+        left=1.35, top=quote_top, width=10.633, height=quote_box_h,
         fill_color="light_bg", palette=palette,
     )
 
@@ -91,9 +95,11 @@ def generate(
     add_text(
         slide,
         text=quote,
-        left=1.85, top=y_start + 1.76, width=9.633, height=2.9,
+        left=1.85, top=quote_top + 0.22, width=9.633, height=2.9,
         font_size=focal_font_size(quote, base=30, max_size=42, min_size=22), bold=False,
         color="text", alignment="center",
+        vertical_alignment="middle",
+        line_spacing=0.95,
         palette=palette,
         colors=colors,
     )
@@ -102,7 +108,7 @@ def generate(
     add_text(
         slide,
         text=f"—— {attribution}",
-        left=5.0, top=y_start + 4.9, width=7.5, height=0.5,
+        left=5.0, top=quote_top + quote_box_h + 0.18, width=7.5, height=0.5,
         font_size=14, bold=False,
         color="secondary", alignment="right",
         palette=palette,

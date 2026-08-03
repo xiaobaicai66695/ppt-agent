@@ -16,6 +16,7 @@ from .base import (
     set_slide_background,
     resolve_background, set_image_background,
 )
+from .layout_intelligence import balanced_band_top, title_font_size
 
 
 def generate(
@@ -65,7 +66,7 @@ def generate(
     add_text(
         slide, text=title,
         left=0.5, top=0.65, width=12.0, height=0.65,
-        font_size=36, bold=True,
+        font_size=title_font_size(title, base=36, sparse_boost=5, max_size=44), bold=True,
         color="text", alignment="left",
         palette=palette,
         colors=colors,
@@ -80,8 +81,9 @@ def generate(
     gap = 1.0
     left_x = 0.7
     right_x = left_x + col_w + gap
-    start_y = 1.7
     row_h = 0.75
+    max_rows = max(len(left_items), len(right_items))
+    start_y = balanced_band_top(1.55, 4.85, max_rows * row_h, min_top=1.65)
 
     for i, item in enumerate(left_items):
         y = start_y + i * row_h

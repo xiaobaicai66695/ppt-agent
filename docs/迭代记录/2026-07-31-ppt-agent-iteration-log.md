@@ -27,6 +27,15 @@
 - 修复 `image_hero` 传入背景时 `colors` 未初始化的问题。
 - 生成 review deck 并通过 LibreOffice PDF 转换、Poppler PNG 渲染和总览图检查。
 
+## 本轮追加落地：全局版面平衡
+
+- 建立 `openspec/changes/visual-designer-layout-balance/`，对应 `PPT-SKILL-003`。
+- 升级 `generators/base.py` 的文本适配：行数估算、稀疏内容适度放大、溢出缩小、自动垂直 anchor，并新增 `add_text_boxed`。
+- 扩展 `layout_intelligence.py`：补内容带居中、动态 gap 和网格行数 helper。
+- 接入标题页、章节页、目录页、内容页、卡片页、图文页、流程页、时间线、KPI、金句页、总结页、三栏页和双栏页等核心模板。
+- 将 `image_text` 的 `[图片占位]` 改为本地素材摘要面板，将 `timeline` 节点小方块改成稳定编号/图标 badge。
+- 生成并渲染 24 个 single-page 模板，输出 `ppt-agent/output/template_smoke_20260803/`；检查结果：`errors=0`、渲染 warning 为 0、画布越界为 0、占位符标记为 0。
+
 ## 新决策
 
 - 为节省时间和模型成本，默认放弃在线 QA/Reviewer 流程。

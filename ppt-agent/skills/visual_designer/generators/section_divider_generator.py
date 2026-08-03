@@ -11,7 +11,7 @@ from .base import (
     resolve_background, set_image_background,
 )
 from .asset_manager import apply_asset_background, add_local_icon
-from .layout_intelligence import title_font_size
+from .layout_intelligence import balanced_band_top, title_font_size
 
 
 def generate(
@@ -79,20 +79,25 @@ def generate(
     add_text(
         slide,
         text=number,
-        left=0.4, top=1.2, width=4.5, height=3.0,
+        left=0.4, top=balanced_band_top(1.1, 4.3, 3.0), width=4.5, height=3.0,
         font_size=160, bold=True,
         color="background", alignment="left",
+        vertical_alignment="middle",
         palette=palette,
         colors=colors,
     )
+
+    right_h = 1.2 + (0.72 if subtitle else 0.0)
+    right_top = balanced_band_top(2.2, 3.2, right_h, min_top=2.55)
 
     # Section title (on the right, white area)
     add_text(
         slide,
         text=title,
-        left=5.8, top=3.1, width=6.8, height=1.2,
+        left=5.8, top=right_top, width=6.8, height=1.2,
         font_size=title_font_size(title, base=44, sparse_boost=6, max_size=52), bold=True,
         color="text", alignment="left",
+        vertical_alignment="middle",
         palette=palette,
         colors=colors,
     )
@@ -102,9 +107,10 @@ def generate(
         add_text(
             slide,
             text=subtitle,
-            left=5.8, top=4.4, width=6.8, height=0.6,
+            left=5.8, top=right_top + 1.28, width=6.8, height=0.6,
             font_size=16, bold=False,
             color="secondary", alignment="left",
+            vertical_alignment="middle",
             palette=palette,
             colors=colors,
         )
@@ -112,7 +118,7 @@ def generate(
     # Accent line under title
     add_rect(
         slide,
-        left=5.8, top=4.3, width=1.2, height=0.06,
+        left=5.8, top=right_top + 1.18, width=1.2, height=0.06,
         fill_color="accent", palette=palette,
     )
 

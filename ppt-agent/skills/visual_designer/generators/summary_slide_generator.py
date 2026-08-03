@@ -11,7 +11,7 @@ from .base import (
     resolve_background, set_image_background,
 )
 from .asset_manager import apply_asset_background, add_local_icon, icon_id_from_text
-from .layout_intelligence import body_font_size, title_font_size
+from .layout_intelligence import balanced_band_top, body_font_size, title_font_size
 
 
 def generate(
@@ -99,8 +99,12 @@ def generate(
 
     # Key points with left accent bar
     point_font = body_font_size(key_points[:4], base=16)
-    for i, point in enumerate(key_points[:4]):
-        y = 1.5 + i * 1.0
+    points = key_points[:4]
+    point_gap = 0.9 if len(points) >= 4 else 0.98
+    points_h = len(points) * 0.7 + max(len(points) - 1, 0) * (point_gap - 0.7)
+    points_top = balanced_band_top(1.55, 3.95, points_h, min_top=1.5)
+    for i, point in enumerate(points):
+        y = points_top + i * point_gap
 
         add_local_icon(
             slide,
@@ -115,6 +119,7 @@ def generate(
             left=1.18, top=y, width=7.35, height=0.7,
             font_size=point_font, bold=False,
             color="text", alignment="left",
+            vertical_alignment="middle",
             palette=palette,
             colors=colors,
         )
@@ -133,6 +138,7 @@ def generate(
         left=9.3, top=2.8, width=3.5, height=0.8,
         font_size=28 if len(thank_you) <= 10 else 22, bold=True,
         color="background", alignment="center",
+        vertical_alignment="middle",
         palette=palette,
         colors=colors,
     )
@@ -144,6 +150,7 @@ def generate(
         left=9.3, top=3.7, width=3.5, height=0.6,
         font_size=12, bold=False,
         color="accent", alignment="center",
+        vertical_alignment="middle",
         palette=palette,
         colors=colors,
     )

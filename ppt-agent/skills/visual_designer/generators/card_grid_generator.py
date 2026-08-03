@@ -11,7 +11,7 @@ from .base import (
     resolve_background, set_image_background,
 )
 from .asset_manager import add_local_icon, icon_id_from_text
-from .layout_intelligence import body_font_size, card_layout_for_count, density_level, title_font_size
+from .layout_intelligence import balanced_band_top, body_font_size, card_layout_for_count, density_level, title_font_size
 
 
 def generate(
@@ -118,6 +118,8 @@ def generate(
     card_area_h = 5.15
     card_w = (card_area_w - gap * (cols - 1)) / cols
     card_h = (card_area_h - gap * (card_rows - 1)) / card_rows
+    used_grid_h = card_rows * card_h + max(card_rows - 1, 0) * gap
+    margin_top = balanced_band_top(y_cards, card_area_h, used_grid_h, min_top=y_cards)
 
     # Clamp card count based on grid
     visible_cards = cards[:rows * cols]
@@ -176,6 +178,8 @@ def generate(
             width=card_w - 0.4, height=card_h - (body_top - y) - 0.5,
             font_size=body_font_size([body], base=14), bold=False,
             color="text", alignment="left",
+            vertical_alignment="middle" if level == "sparse" else "top",
+            line_spacing=0.94,
             palette=palette,
             colors=colors,
         )

@@ -2,6 +2,7 @@
 from .base import (
     PALETTES, new_presentation, set_slide_background, set_image_background,
     save_presentation, save_slide, resolve_background, get_background_path,
+    add_text_boxed,
 )
 from .background_manager import (
     get_palette_for_background, BACKGROUND_PALETTE_MAP,
@@ -41,6 +42,7 @@ __all__ = [
     "save_slide",
     "resolve_background",
     "get_background_path",
+    "add_text_boxed",
     "get_palette_for_background",
     "BACKGROUND_PALETTE_MAP",
     "generate_title_slide",

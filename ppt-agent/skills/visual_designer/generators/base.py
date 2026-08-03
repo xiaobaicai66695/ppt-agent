@@ -494,6 +494,9 @@ def add_source_line(
 # Text helpers
 # ---------------------------------------------------------------------------
 
+EMU_PER_INCH = 914400
+
+
 def _text_units(text: str) -> float:
     """Estimate rendered text width; CJK glyphs are wider than ASCII."""
     units = 0.0
@@ -508,26 +511,73 @@ def _text_units(text: str) -> float:
 
 
 def _estimate_lines(text: str, width_in: float, font_size: float) -> int:
-    chars_per_line = max(1.0, width_in * 72 / max(font_size * 0.55, 1))
+    usable_width = max(width_in - 0.08, 0.15)
+    units_per_line = max(1.0, usable_width * 72 / max(font_size * 0.92, 1))
     lines = 0
     for raw_line in str(text or "").splitlines() or [""]:
         units = _text_units(raw_line)
-        lines += max(1, int((units + chars_per_line - 1) // chars_per_line))
+        lines += max(1, int((units + units_per_line - 1) // units_per_line))
     return lines
 
 
-def fit_font_size(text: str, width_in: float, height_in: float, font_size: float, min_font_size: float = None) -> float:
-    """Shrink font size only when estimated wrapped text exceeds the box."""
+def estimate_text_height_pt(text: str, width_in: float, font_size: float, line_height: float = 1.16) -> float:
+    return _estimate_lines(text, width_in, font_size) * font_size * line_height
+
+
+def fit_font_size(
+    text: str,
+    width_in: float,
+    height_in: float,
+    font_size: float,
+    min_font_size: float = None,
+    max_font_size: float = None,
+    line_height: float = 1.16,
+    allow_growth: bool = True,
+) -> float:
+    """Fit text to a box and gently enlarge sparse content when space allows."""
     if min_font_size is None:
-        min_font_size = 24 if font_size >= 28 else (14 if font_size >= 14 else font_size)
+        min_font_size = 24 if font_size >= 34 else (12 if font_size >= 14 else font_size)
+    if max_font_size is None:
+        if font_size >= 30:
+            max_font_size = font_size * 1.18
+        elif font_size >= 16 and height_in >= 0.45:
+            max_font_size = font_size * 1.12
+        else:
+            max_font_size = font_size
+
     size = float(font_size)
     while size > min_font_size:
-        lines = _estimate_lines(text, width_in, size)
-        estimated_height_pt = lines * size * 1.22
+        estimated_height_pt = estimate_text_height_pt(text, width_in, size, line_height)
         if estimated_height_pt <= height_in * 72:
             break
         size -= 1
+
+    if allow_growth and text and max_font_size > size:
+        while size + 1 <= max_font_size:
+            candidate = size + 1
+            estimated_height_pt = estimate_text_height_pt(text, width_in, candidate, line_height)
+            if estimated_height_pt > height_in * 72 * 0.82:
+                break
+            size = candidate
+
     return max(size, min_font_size)
+
+
+def balanced_top(region_top: float, region_height: float, content_height: float, min_top: float = None) -> float:
+    """Return a top coordinate that centers content within a vertical region."""
+    top = region_top + max(0.0, (region_height - content_height) / 2)
+    if min_top is not None:
+        top = max(min_top, top)
+    return top
+
+
+def _auto_vertical_anchor(text: str, width: float, height: float, font_size: float, alignment: str) -> MSO_ANCHOR:
+    lines = _estimate_lines(text, width, font_size)
+    text_height = estimate_text_height_pt(text, width, font_size)
+    box_height = height * 72
+    if box_height >= text_height * 1.28 and (alignment == "center" or lines <= 2 or font_size >= 18):
+        return MSO_ANCHOR.MIDDLE
+    return MSO_ANCHOR.TOP
 
 
 def add_text(
@@ -546,18 +596,36 @@ def add_text(
     italic: bool = False,
     colors: dict = None,
     min_font_size: float = None,
+    max_font_size: float = None,
+    vertical_alignment: Literal["top", "middle", "bottom", "center", "auto"] = "auto",
+    line_spacing: float = 1.0,
+    margin: float = 0.03,
 ) -> "pptx.shapes.shapetree.Shape":
     """Add a text box to the slide with consistent styling."""
     txbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = txbox.text_frame
     tf.word_wrap = True
     tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    tf.margin_left = Inches(margin)
+    tf.margin_right = Inches(margin)
+    tf.margin_top = Inches(max(margin * 0.6, 0.01))
+    tf.margin_bottom = Inches(max(margin * 0.6, 0.01))
 
     p = tf.paragraphs[0]
     p.text = text
-    p.font.size = Pt(fit_font_size(text, width, height, font_size, min_font_size))
+    fitted_size = fit_font_size(
+        text,
+        width,
+        height,
+        font_size,
+        min_font_size=min_font_size,
+        max_font_size=max_font_size,
+        allow_growth=max_font_size is not False,
+    )
+    p.font.size = Pt(fitted_size)
     p.font.bold = bold
     p.font.italic = italic
+    p.line_spacing = line_spacing
 
     if colors is not None:
         p.font.color.rgb = rgb(colors.get(color, color))
@@ -573,7 +641,57 @@ def add_text(
     if font_name:
         p.font.name = font_name
 
+    anchor = vertical_alignment
+    if anchor == "auto":
+        tf.anchor = _auto_vertical_anchor(text, width, height, fitted_size, alignment)
+    else:
+        tf.anchor = {
+            "top": MSO_ANCHOR.TOP,
+            "middle": MSO_ANCHOR.MIDDLE,
+            "center": MSO_ANCHOR.MIDDLE,
+            "bottom": MSO_ANCHOR.BOTTOM,
+        }.get(anchor, MSO_ANCHOR.TOP)
+
     return txbox
+
+
+def add_text_boxed(
+    slide,
+    text: str,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    font_size: float = 14,
+    bold: bool = False,
+    color: str = "text",
+    alignment: Literal["left", "center", "right"] = "left",
+    vertical_alignment: Literal["top", "middle", "bottom", "center", "auto"] = "auto",
+    palette: str = "ocean_soft",
+    colors: dict = None,
+    min_font_size: float = None,
+    max_font_size: float = None,
+    line_spacing: float = 1.0,
+):
+    """Add a self-balancing text box. Kept separate for explicit generator usage."""
+    return add_text(
+        slide,
+        text=text,
+        left=left,
+        top=top,
+        width=width,
+        height=height,
+        font_size=font_size,
+        bold=bold,
+        color=color,
+        alignment=alignment,
+        vertical_alignment=vertical_alignment,
+        palette=palette,
+        colors=colors,
+        min_font_size=min_font_size,
+        max_font_size=max_font_size,
+        line_spacing=line_spacing,
+    )
 
 
 def add_paragraph(
@@ -590,14 +708,15 @@ def add_paragraph(
     font_name: str = None,
     colors: dict = None,
     min_font_size: float = None,
+    line_spacing: float = 1.0,
 ):
     """Add a paragraph to an existing text frame."""
     p = tf.add_paragraph()
     p.text = text
     try:
         shape = tf._parent
-        width = shape.width / 914400
-        height = shape.height / 914400
+        width = shape.width / EMU_PER_INCH
+        height = shape.height / EMU_PER_INCH
         fitted_size = fit_font_size(text, width, height, font_size, min_font_size)
     except Exception:
         fitted_size = font_size
@@ -606,6 +725,7 @@ def add_paragraph(
     p.font.italic = italic
     p.space_before = Pt(space_before)
     p.space_after = Pt(space_after)
+    p.line_spacing = line_spacing
     if colors is not None:
         p.font.color.rgb = rgb(colors.get(color, color))
     else:
@@ -804,8 +924,8 @@ def add_text_in_shape(
 
     p = tf.paragraphs[0]
     p.text = text
-    width = shape.width / 914400
-    height = shape.height / 914400
+    width = shape.width / EMU_PER_INCH
+    height = shape.height / EMU_PER_INCH
     p.font.size = Pt(fit_font_size(text, width, height, font_size, min_font_size))
     p.font.bold = bold
     p.font.italic = italic

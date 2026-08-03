@@ -86,13 +86,21 @@ from generators import (
 生成器辅助模块：
 
 - `generators/asset_manager.py`：通过 manifest 解析素材，按 id/tag 查找图标和背景。
-- `generators/layout_intelligence.py`：计算内容密度，提供动态字号、对齐和网格选择。
+- `generators/layout_intelligence.py`：计算内容密度，提供动态字号、对齐、网格选择和内容带居中。
+- `generators/base.py`：`add_text` 默认进行文本框自适配，包含行数估算、稀疏内容适度放大、溢出时缩小和自动垂直 anchor；需要显式表达时可用 `add_text_boxed`。
 
 内容密度约定：
 
 - `sparse`：1-3 条短内容，应使用居中焦点布局、较大字号和语义图标。
 - `normal`：常规扫描布局，保持左对齐和稳定层级。
 - `dense`：压缩间距和字号但不牺牲可读性；超出模板容量时拆页。
+
+布局平衡约定：
+
+- 标题/章节/引用等低密度页应按标题组实际高度居中，避免固定 y 坐标造成偏上或偏下。
+- 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
+- 没有真实图片输入时，图文页应渲染本地素材摘要面板，不得暴露 `[图片占位]` 一类占位文案。
+- 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
 
