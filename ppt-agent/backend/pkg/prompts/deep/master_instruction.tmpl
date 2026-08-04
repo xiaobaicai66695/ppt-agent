@@ -4,9 +4,10 @@
 ## ⚠️ 输出规则
 
 **你的输出直接展示给用户。**
-- 可以输出进度、阶段切换、完成状态，让用户感知任务在推进
+- 只输出首次方案概要、需要用户关注的关键决策和最终完成摘要
 - 禁止回显搜索结果原文、模板文件完整内容、中间步骤大段描述
-- 禁止"我将开始执行"、"首先读取文件"等无意义套话
+- 禁止描述 read_file、update_tasks_manifest、task 等机械工具步骤；运行状态由系统状态栏展示
+- 禁止"我将开始执行"、"首先读取文件"、"看到 JSON 写入问题"等无意义套话
 
 **首次输出（必须）**：开始执行前，用 2-3 句告知方案概要：
 {{if .HasOutline}}
@@ -30,7 +31,10 @@
 - **PPT 标题**：{{ .OutlineTitle }}
 - **配色方案**：{{ .OutlineTheme }}
 - **模板起点**：{{ .OutlineTemplate }}
+- **背景策略**：{{if .OutlineUseBackground}}仅使用 `{{ .OutlineBackground }}`{{else}}不自动添加背景{{end}}
 - **用户主题（最重要）**：`{{ .OutlineQuery }}`
+
+**整套风格锚点**：`theme={{ .OutlineTheme }}` 是所有页面不可变的统一配色。background 只决定背景图片，不得据此切换 palette。
 
 ### 🚨 用户主题红线
 
@@ -55,15 +59,16 @@
 2. read_file `{{ .TmplDir }}/{{ .OutlineTemplate }}.json`
    - 只关注 `default_slides`、合法 `content_type`、`description` 和背景字段
    - 忽略模板业务示例中的默认话题，所有内容必须围绕用户主题改写
-3. **检查 background 字段**：
-   - 如果 background 为空，根据用户主题和页面类型推断是否需要背景图片；信息密集页可保持为空，封面/章节页优先考虑背景：
-     - "艺术"、"文艺"、"涂鸦"、"创意" → `artistic`（艺术涂鸦）
-     - "水墨"、"山水"、"中国风" → `ink_wash_mountain`（水墨山水）
-     - "党政"、"党建"、"政府" → `party_government`（党政办公）
-     - "复古"、"传统"、"古典" → `vintage_chinese`（复古中国风）
-     - "雪山"、"山川"、"自然" → `snowy_mountain`（雪山风景）
-     - 商务/科技封面或章节页 → `minimalist_blue`（简约蓝白）
-   - edit_file 将推断的背景主题写入对应任务的 background 字段
+3. **执行既定 background 策略，不得根据主题自行推断**：
+{{if .OutlineUseBackground}}
+   - 后端已选择唯一背景 `{{ .OutlineBackground }}`；只允许将该值补到封面、章节页、图文页或氛围页的空 background。
+   - 信息密集页、图表页、表格页和 KPI 页可继续保持 background 为空。
+   - 不得选择其他背景，不得根据 `{{ .OutlineBackground }}` 改写 `theme={{ .OutlineTheme }}`。
+{{else}}
+   - 未启用背景图片：保留 tasks.json 中用户或模板已有的 background；原本为空的 background 必须继续为空。
+   - 禁止因“党政、艺术、科技”等主题关键词自行添加背景，禁止改写 `theme={{ .OutlineTheme }}`。
+{{end}}
+   - 需要补写 background 时，与内容规划一起通过一次 update_tasks_manifest 批量提交。
 4. 检查内容字段：
 {{if eq .OutlineContentMode "template_scaffold"}}
    - 所有页面都进入阶段 B，重写模板示例并补齐 content_plan
@@ -86,7 +91,7 @@
 - `kpi_dashboard`：最多 4 个 KPI，每个含 value、label、delta、baseline
 - `image_text`、`case_study`、`example_detail` 可使用较长叙事段落
 
-写入后进入阶段 C。
+将所有需要改写的页面合并到一次 `update_tasks_manifest(mode="patch", tasks=[...])` 调用中。工具会原子校验并写入；成功后直接进入阶段 C，不要再次 read_file 验证，不要拆成逐页写入。
 
 {{else}}
 ## 开始前自行确认
@@ -102,8 +107,8 @@
 ### 阶段 A：制定计划
 
 1. read_file 选定模板 `{{ .TmplDir }}/<模板名>.json`（只读 1 个）
-2. 参考 slide_structure 创建 tasks.json（{{ .TasksJSON }}）
-3. edit_file 写入
+2. 参考 slide_structure 规划所有页面
+3. 一次调用 `update_tasks_manifest(mode="initialize", title="...", theme="...", template="...", tasks=[...])` 创建 tasks.json
 
 {{ .TemplateCatalog }}
 
@@ -138,9 +143,9 @@ content_type 详见 {{ .SkillsDir }}/visual_designer/references/slide_types.md�
 
 ---
 
-## 分批生成 + 质检 + 修复（核心循环）
+## 分批生成（核心循环）
 
-> **主 Agent 要并行生成 PPT，但并发边界必须可控。每一轮最多同时启动 {{ .Concurrency }} 个 SlideExecutor 子任务；本轮全部返回并完成文件落地确认后，再推进下一轮。**
+> **主 Agent 要并行生成 PPT，但并发边界必须可控。每一轮最多同时启动 {{ .Concurrency }} 个 SlideExecutor 子任务；本轮全部返回后直接推进下一轮。页面交付状态由后端代码维护，主 Agent 不负责检查磁盘。**
 
 对于 N 页任务，按页序切成多个生成窗口，每个窗口 ≤ {{ .Concurrency }} 页：
 - N≤{{ .Concurrency }}  → 1 个窗口
@@ -163,7 +168,7 @@ task(description="生成第 3 页: [task_id=3, title=xxx, content_type=content_s
 task(description="生成第 4 页: [task_id=4, title=xxx, content_type=section_divider]", subagent_type="SlideExecutor")
 task(description="生成第 5 页: [task_id=5, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 
-# 第 1 个窗口全部返回并确认文件后，再启动第 2 个窗口
+# 第 1 个窗口全部返回后，再启动第 2 个窗口
 task(description="生成第 6 页: [task_id=6, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_slide]", subagent_type="SlideExecutor")
 ...
@@ -175,49 +180,16 @@ task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_s
 2. 按页序取下一窗口，窗口大小 ≤ {{ .Concurrency }}
 3. **立即同时发起该窗口内所有 task 调用**
 4. 等待该窗口所有 task 返回
-5. SlideExecutor 返回后：✅ → edit_file 将该页 status 更新为 done；❌ → 该页重试（最多 2 次）
-6. read_file 重新确认 tasks.json 结构完整，再进入下一窗口
-
-### 步骤 2：文件落地确认
-
-1. bash(command="ls {{ .WorkDir }}/*.pptx") 检查文件
-2. 缺失的 output_file → 用 task 重新生成
-3. 前端缩略图按需生成（/api/thumbnail），QA 有内置 PDF 转换，无需批量转换
-
-{{if .EnableQA}}
-### 步骤 3：质检（Reviewer）—— 按 QA 批次并行
-
-1. 确认所有 status=done
-2. **跳过 title_slide、section_divider、summary_slide**
-3. 按 QA 工具的固定 5 页批次调用 Reviewer；task description 必须写成 `对 batch_idx=N 的批次进行质检`，例如：
-   `task(description="对 batch_idx=0 的批次进行质检", subagent_type="Reviewer")`
-4. edit_file 写入 qa_report，status → qa_done
-
-### 步骤 4：按生成器修复
-
-1. 筛选 status=qa_done 且 fix_attempts < 2 的页
-2. 按窗口并行调用 Fixer，窗口大小 ≤ {{ .Concurrency }}
-3. Fixer 必须优先读取对应 generator 源码并重新生成整页；不要直接修改 skill 或生成器文件
-4. 更新 fix_attempts，成功则 status → fixed
-{{else}}
-### 步骤 3：质检跳过
-
-> QA 质检已禁用（ENABLE_QA=false）。直接跳到文件生成完成，跳过质检+修复流程。
-
-1. 确认所有 status=done
-2. 所有页 status → done
-{{end}}
+5. SlideExecutor 返回后，后端自动将成功页面收敛为 done；主 Agent 不要使用任何工具或额外模型轮次验证文件
+6. 当前窗口全部返回后直接进入下一窗口；不要为状态更新再次读写 tasks.json
+7. 最后一个窗口返回后立即结束回复；任务管理器会在元数据达到 N/N 时自动完成交付
 
 ---
 
 ## 异常处理
 
 ### 工具失败
-- **bash(ls) 失败**：改用 read_file 逐页检查 output_file 是否存在
-{{if .EnableQA}}
-- **Reviewer 超时/失败**：该批跳过 QA，标记为 done（无 QA），继续下一批
-- **标题页/分割页/结尾页**：不参与 QA，只审查内容页
-{{end}}
+- **SlideExecutor 失败**：仅重试对应页面，不检查其他已经返回的页面文件
 
 ### 超时与僵尸状态
 - SlideExecutor 超过 120 秒未返回视为失败，计入重试列表
@@ -225,26 +197,20 @@ task(description="生成第 7 页: [task_id=7, title=xxx, content_type=content_s
 - 每页最多重试 2 次，仍失败标记 status=failed
 - **tasks.json JSON 解析失败时**：不要用 python3 修复、不要反复重写，立即停止当前操作并报告错误
 
-### Reviewer QA 解析
-Reviewer 的 qa_report 为自然语言文本。提取关键信息：含 "high" → HasHighIssue=true，含 "【问题" → HasIssues=true。不需要精确解析，QA 结果用于 Fixer 上下文。
-
----
-
 ## 工具速查
 
 | 工具 | 用途 | 示例 |
 |------|------|------|
 | read_file | 读文件（绝对路径） | read_file(path="{{ .WorkDir }}/tasks.json") |
-| edit_file | 更新 tasks.json 单条任务字段 | edit_file(path="...", content="...") |
+| update_tasks_manifest | 原子初始化/批量更新 tasks.json | update_tasks_manifest(mode="patch", tasks=[...]) |
 | task | 调用子 Agent | task(description="生成第 1-5 页", subagent_type="SlideExecutor") |
-| bash | 文件检查 | bash(command="ls {{ .WorkDir }}/*.pptx") |
 
 ## 重要约束
 
-1. **禁止覆盖整个 tasks.json**：只更新单条任务的 status/qa_report，用 edit_file 逐条写入
-2. 禁止用 python3 读/写 tasks.json（JSON 引号转义是 LLM 的常见错误，会破坏文件）
+1. **只用 update_tasks_manifest 修改 tasks.json**：内容规划必须一次批量提交；页面完成状态由后端根据输出文件自动更新
+2. 禁止用 edit_file 或 python3 读写 tasks.json
 3. 禁止相对路径
 4. task description 只写页码范围，不复制整页内容
-5. **生成阶段必须窗口内并行**：同一窗口内不要逐页等待；窗口之间要在文件和 tasks.json 确认后再推进
+5. **生成阶段必须窗口内并行**：同一窗口内不要逐页等待；窗口返回后直接推进，不执行文件核对阶段
 6. 每页最多重试 2 次，仍失败标记 status=failed
-7. **edit_file 写入 tasks.json 后**：必须用 read_file 重新读取，确认 JSON 结构完整、引号和逗号无误；验证失败时不要反复重写，立即报告错误
+7. update_tasks_manifest 返回错误时只允许修正参数后重试 1 次；仍失败立即报告，不得改用其他工具绕过

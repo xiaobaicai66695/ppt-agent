@@ -148,6 +148,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		cfg.QAModelFn = qaModelFn
 		cfg.Skills = skillsContent
 		cfg.SkillsDir = skillsDir
+		cfg.EnableQA = false
 		return deep.NewPPTTaskDeepAgent(ctx, cfg)
 	}
 
@@ -186,10 +187,15 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		TextModelFactory: func(ctx context.Context) (interface {
 			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 		}, error) {
+			routingModel := strings.TrimSpace(os.Getenv("ARK_ROUTER_MODEL"))
+			if routingModel == "" {
+				routingModel = strings.TrimSpace(os.Getenv("ARK_MODEL"))
+			}
 			m, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-				agentutils.WithModel(os.Getenv("ARK_TEXT_MODEL")),
-				agentutils.WithMaxTokens(2048),
+				agentutils.WithModel(routingModel),
+				agentutils.WithMaxTokens(1024),
 				agentutils.WithTemperature(0),
+				agentutils.WithDisableThinking(true),
 			)
 			if err != nil {
 				return nil, err

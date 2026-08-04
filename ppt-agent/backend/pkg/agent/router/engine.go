@@ -17,7 +17,6 @@
 package router
 
 import (
-	"context"
 	"strings"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/intent"
@@ -26,37 +25,31 @@ import (
 
 // Engine 路由引擎
 type Engine struct {
-	classifier *intent.Classifier
 	profileMatcher *ProfileMatcher
 }
 
 // NewEngine 创建路由引擎
 func NewEngine(classifier *intent.Classifier) *Engine {
+	_ = classifier
 	return &Engine{
-		classifier:     classifier,
 		profileMatcher: NewProfileMatcher(),
 	}
 }
 
-// Route 根据意图分类结果和用户上下文进行路由决策
-func (e *Engine) Route(ctx context.Context, query string, userID int, profile interface{}) (*intent.RoutingDecision, error) {
-	// Step 1: 获取意图分类结果
-	classification, err := e.classifier.Classify(ctx, query, userID)
-	if err != nil {
-		logger.Warn("intent_classification_failed", "error", err.Error())
-		// 使用默认决策
+// Route validates the single model classification and turns it into an
+// executable initial-generation decision. It never classifies the query again.
+func (e *Engine) Route(classification *intent.ClassificationResult, profile interface{}) (*intent.RoutingDecision, error) {
+	if classification == nil {
 		classification = &intent.ClassificationResult{
-			Intent:    intent.IntentCreate,
-			Confidence: 0.5,
+			Intent: intent.IntentCreate, AgentType: "deep", Pipeline: []string{"plan", "generate"},
+			Concurrency: 5, RoutingSource: "fallback",
 		}
 	}
 
-	// Step 2: 匹配用户画像（如果有）
 	if profile != nil {
 		e.profileMatcher.EnhanceWithProfile(classification, profile)
 	}
 
-	// Step 3: 根据意图和复杂度生成路由决策
 	decision := e.makeRoutingDecision(classification)
 
 	logger.Info("routing_decision_made",
@@ -73,65 +66,27 @@ func (e *Engine) Route(ctx context.Context, query string, userID int, profile in
 // makeRoutingDecision 根据分类结果生成路由决策
 func (e *Engine) makeRoutingDecision(classification *intent.ClassificationResult) *intent.RoutingDecision {
 	decision := intent.NewDefaultRoutingDecision()
+	decision.Source = classification.RoutingSource
+	if decision.Source == "" {
+		decision.Source = "fallback"
+	}
+	decision.Reason = classification.IntentReasoning
 
-	// === Agent 类型选择 ===
-	switch {
-	case classification.Intent == intent.IntentQuery:
-		// 简单查询，使用简单模式
-		decision.AgentType = "simple"
-		decision.Pipeline = []string{"answer"}
-		decision.SkipQA = true
-		decision.SkipFix = true
-		decision.Concurrency = 1
-
-	case classification.Intent == intent.IntentCustomize:
-		// 定制化调整
-		decision.AgentType = "customize"
-		decision.Pipeline = []string{"load_style", "apply_theme", "preview"}
-
-	case classification.Intent == intent.IntentRegenerate:
-		// 重新生成
-		decision.AgentType = "regenerate"
-		decision.Pipeline = []string{"load_page", "regenerate", "qa", "fix"}
-		decision.Concurrency = 1
-
-	case classification.Intent == intent.IntentContinue:
-		// 继续任务
-		decision.AgentType = "continue"
-		decision.Pipeline = []string{"load_state", "resume"}
-
-	case classification.Intent == intent.IntentEdit:
-		// 编辑现有
-		decision.AgentType = "edit"
-		decision.Pipeline = []string{"load_existing", "identify_changes", "apply_changes", "qa"}
-
-	case classification.Intent == intent.IntentExtend:
-		// 扩展PPT
-		decision.AgentType = "extend"
-		decision.Pipeline = []string{"load_existing", "plan_new_pages", "generate", "qa"}
-
-	case classification.Intent == intent.IntentCreate:
-		// 新建PPT - 根据复杂度选择
-		if classification.IsSimpleTask() {
-			decision.AgentType = "quick"
-			decision.Pipeline = []string{"quick_generate"}
-			decision.SkipQA = classification.Complexity.Level <= 2
-			decision.SkipFix = true
-			decision.Concurrency = 5
-		} else if classification.NeedsFullPipeline() {
-			decision.AgentType = "deep"
-			decision.Pipeline = []string{"plan", "generate", "qa", "fix"}
-			decision.Concurrency = min(5, max(3, classification.Complexity.PageCountEstimate/3))
-		} else {
-			decision.AgentType = "standard"
-			decision.Pipeline = []string{"plan", "generate", "qa"}
-			decision.Concurrency = 4
-		}
-
-	default:
-		// 未知意图，默认流程
+	// DeepAgent is currently the only executable initial PPT generator. The
+	// model still owns the decision; code rejects labels that cannot run.
+	if strings.EqualFold(strings.TrimSpace(classification.AgentType), "deep") {
 		decision.AgentType = "deep"
-		decision.Pipeline = []string{"plan", "generate", "qa", "fix"}
+	} else {
+		logger.Warn("routing_agent_normalized", "requested", classification.AgentType, "selected", "deep")
+	}
+	decision.Pipeline = []string{"plan", "generate"}
+	decision.SkipQA = true
+	decision.SkipFix = true
+	if classification.Concurrency > 0 {
+		decision.Concurrency = classification.Concurrency
+		if decision.Concurrency > 10 {
+			decision.Concurrency = 10
+		}
 	}
 
 	// === 优先级设置 ===

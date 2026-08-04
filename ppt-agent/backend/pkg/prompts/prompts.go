@@ -60,34 +60,36 @@ func parseWithFuncs(pattern string) (*template.Template, error) {
 
 // TemplateData 跨提示模板使用的数据字段。
 type TemplateData struct {
-	SystemPrompt       string           // 注入的系统级指令（skills、rules）
-	Input              string           // 用户原始请求
-	ExecutorContext    string           // 当前执行状态摘要
-	Step               string           // 当前步骤/任务
-	Skills             string           // 加载的 skill 内容
-	WorkDir            string           // 工作目录绝对路径
-	SkillsDir          string           // Skills 目录绝对路径
-	TmplDir            string           // 模板目录绝对路径
-	TasksJSON          string           // tasks.json 绝对路径
-	TemplateCatalog    string           // 内联模板目录表（用于 deep agent）
-	UserQuery          string           // 用户查询（用于 planner/replanner）
-	CurrentTime        string           // 当前时间
-	ExecutedCount      string           // 已执行的幻灯片数量
-	TotalCount         string           // 总幻灯片数量
-	RemainingPlan      string           // 剩余幻灯片计划
-	QASummary          string           // QA 结果摘要
-	HasOutline         bool             // 用户是否提供了结构化大纲（跳过规划）
-	OutlineQuery       string           // 用户原始主题查询（HasOutline=true 时用于内容生成）
-	OutlineTemplate    string           // 用户大纲中的模板名称（HasOutline=true 时使用）
-	OutlineTheme       string           // 用户大纲中的主题名称（HasOutline=true 时使用）
-	OutlineTitle       string           // 用户大纲中的 PPT 标题（HasOutline=true 时使用）
-	OutlineContentMode string           // template_scaffold 或 user_outline
-	StyleContext       string           // 用户风格偏好上下文，用于个性化生成
-	EnableQA           bool             // 是否启用 QA 质量检查
-	Concurrency        int              // 每批最大并发页数（来自路由决策，默认 5）
-	UserMessage        string           // 用户修复请求消息（用于 Fixer agent）
-	TargetPages        []int            // 要处理的特定页面索引（用于继续模式）
-	UserPreferences    *UserPreferences // 用户学习到的偏好，用于个性化生成
+	SystemPrompt         string           // 注入的系统级指令（skills、rules）
+	Input                string           // 用户原始请求
+	ExecutorContext      string           // 当前执行状态摘要
+	Step                 string           // 当前步骤/任务
+	Skills               string           // 加载的 skill 内容
+	WorkDir              string           // 工作目录绝对路径
+	SkillsDir            string           // Skills 目录绝对路径
+	TmplDir              string           // 模板目录绝对路径
+	TasksJSON            string           // tasks.json 绝对路径
+	TemplateCatalog      string           // 内联模板目录表（用于 deep agent）
+	UserQuery            string           // 用户查询（用于 planner/replanner）
+	CurrentTime          string           // 当前时间
+	ExecutedCount        string           // 已执行的幻灯片数量
+	TotalCount           string           // 总幻灯片数量
+	RemainingPlan        string           // 剩余幻灯片计划
+	QASummary            string           // QA 结果摘要
+	HasOutline           bool             // 用户是否提供了结构化大纲（跳过规划）
+	OutlineQuery         string           // 用户原始主题查询（HasOutline=true 时用于内容生成）
+	OutlineTemplate      string           // 用户大纲中的模板名称（HasOutline=true 时使用）
+	OutlineTheme         string           // 用户大纲中的主题名称（HasOutline=true 时使用）
+	OutlineTitle         string           // 用户大纲中的 PPT 标题（HasOutline=true 时使用）
+	OutlineContentMode   string           // template_scaffold 或 user_outline
+	OutlineUseBackground bool             // 是否由任务入口显式启用背景图片
+	OutlineBackground    string           // 任务入口已选择的背景主题
+	StyleContext         string           // 用户风格偏好上下文，用于个性化生成
+	EnableQA             bool             // 是否启用 QA 质量检查
+	Concurrency          int              // 每批最大并发页数（来自路由决策，默认 5）
+	UserMessage          string           // 用户修复请求消息（用于 Fixer agent）
+	TargetPages          []int            // 要处理的特定页面索引（用于继续模式）
+	UserPreferences      *UserPreferences // 用户学习到的偏好，用于个性化生成
 }
 
 // UserPreferences 用户学习到的偏好，用于个性化 PPT 生成

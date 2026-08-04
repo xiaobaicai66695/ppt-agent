@@ -19,7 +19,6 @@ package deep
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -77,50 +76,20 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		return nil, fmt.Errorf("创建 SlideExecutor 子代理失败: %w", err)
 	}
 
-	// QA 质检：根据 RoutingDecision、环境变量、配置三者共同决定
-	enableQA := cfg.EnableQA
-	// 路由决策可以覆盖（显式设置 SkipQA）
-	if cfg.RoutingDecision != nil && cfg.RoutingDecision.SkipQA {
-		enableQA = false
-	}
-	if enableQA && !cfg.EnableQA {
-		// 配置未显式禁用时，检查环境变量
-		enableQA = isQAEnabled()
-	}
-
-	var reviewer adk.Agent
-	if enableQA {
-		reviewer, err = newReviewerAgent(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("创建 Reviewer 子代理失败: %w", err)
-		}
-	}
-
-	fixer, err := newFixerAgent(ctx, cfg, "")
-	if err != nil {
-		return nil, fmt.Errorf("创建 Fixer 子代理失败: %w", err)
-	}
-
-	editFileTool := tools.NewEditFileTool(cfg.Operator)
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
+	manifestTool := newManifestTool(cfg.WorkDir)
 	searchTool := tools.NewSearchTool()
-	bashTool := tools.NewBashTool(cfg.Operator)
-	batchConvertTool := tools.NewBatchConvertTool(cfg.Operator)
-
-	subAgents := []adk.Agent{slideExecutor, fixer}
-	if reviewer != nil {
-		subAgents = append(subAgents, reviewer)
-	}
+	subAgents := []adk.Agent{slideExecutor}
 
 	deepAgent, err := deep.New(ctx, &deep.Config{
 		Name:        "PPTTaskDeepAgent",
-		Description: "PPT 任务调度代理，负责规划、并行生成、质检和修复 PPT 幻灯片",
+		Description: "PPT 任务调度代理，负责规划并并行生成 PPT 幻灯片",
 		ChatModel:   chatModel,
-		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, enableQA, getConcurrency(cfg.RoutingDecision)),
+		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision)),
 		SubAgents:   subAgents,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: []tool.BaseTool{editFileTool, readFileTool, searchTool, bashTool, batchConvertTool},
+				Tools: []tool.BaseTool{manifestTool, readFileTool, searchTool},
 			},
 		},
 		WithoutWriteTodos:      true,
@@ -132,13 +101,6 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	}
 
 	return deepAgent, nil
-}
-
-// isQAEnabled 返回 QA 质量检查是否启用。
-// 默认关闭在线 QA/Reviewer 以节省生成时间和模型成本；仅显式设置
-// ENABLE_QA=true 时启用。
-func isQAEnabled() bool {
-	return os.Getenv("ENABLE_QA") == "true"
 }
 
 // getConcurrency 从路由决策获取并发数，默认 5
@@ -188,6 +150,8 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 	outlineTheme := ""
 	outlineTitle := ""
 	outlineContentMode := ""
+	outlineUseBackground := false
+	outlineBackground := ""
 	outlineQuery := query // user's original topic description
 	hasOutline := outline != nil && len(outline.Slides) > 0
 	if hasOutline {
@@ -195,22 +159,28 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		outlineTheme = outline.Theme
 		outlineTitle = outline.Title
 		outlineContentMode = outline.ContentMode
+		outlineUseBackground = outline.UseBackground
+		if outline.UseBackground {
+			outlineBackground = outline.RecommendedBackground
+		}
 	}
 
 	data := &prompts.TemplateData{
-		TmplDir:            tmplDir,
-		TasksJSON:          tasksJSON,
-		TemplateCatalog:    templateCatalog,
-		StyleContext:       styleContext,
-		HasOutline:         hasOutline,
-		OutlineQuery:       outlineQuery,
-		OutlineTemplate:    outlineTemplate,
-		OutlineTheme:       outlineTheme,
-		OutlineTitle:       outlineTitle,
-		OutlineContentMode: outlineContentMode,
-		SkillsDir:          skillsDir,
-		EnableQA:           enableQA,
-		Concurrency:        concurrency,
+		TmplDir:              tmplDir,
+		TasksJSON:            tasksJSON,
+		TemplateCatalog:      templateCatalog,
+		StyleContext:         styleContext,
+		HasOutline:           hasOutline,
+		OutlineQuery:         outlineQuery,
+		OutlineTemplate:      outlineTemplate,
+		OutlineTheme:         outlineTheme,
+		OutlineTitle:         outlineTitle,
+		OutlineContentMode:   outlineContentMode,
+		OutlineUseBackground: outlineUseBackground,
+		OutlineBackground:    outlineBackground,
+		SkillsDir:            skillsDir,
+		EnableQA:             enableQA,
+		Concurrency:          concurrency,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)
@@ -224,13 +194,13 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 
 var globalLearningEngine *agentlearning.Engine
 var learningEngineOnce sync.Once
-var learningEngineFactory func() interface{}
-var textLearningEngineFactory func() interface{}
+var learningEngineFactory interface{}
+var textLearningEngineFactory interface{}
 
 // InitLearningEngine 初始化全局学习引擎（由 main.go 在 modelFactory 可用后调用）
 // factory 是 ServerConfig.AIModelFactory 的工厂函数
 // textFactory 是 ServerConfig.TextModelFactory 的工厂函数（轻量级模型，节省意图分类成本）
-func InitLearningEngine(factory, textFactory func() interface{}) {
+func InitLearningEngine(factory, textFactory interface{}) {
 	learningEngineFactory = factory
 	textLearningEngineFactory = textFactory
 }
@@ -239,7 +209,7 @@ func InitLearningEngine(factory, textFactory func() interface{}) {
 func GetLearningEngine() *agentlearning.Engine {
 	learningEngineOnce.Do(func() {
 		cfg := &agentlearning.EngineConfig{
-			EnableLLMClassification: os.Getenv("ENABLE_LLM_INTENT_CLASSIFY") == "true",
+			EnableLLMClassification: true,
 			EnableLearning:          true,
 			EnableProfileMatch:      true,
 		}

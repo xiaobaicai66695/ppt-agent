@@ -34,6 +34,13 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 **python3 代码中，script_dir 必须硬编码为工作目录绝对路径，禁止用 __file__ 或 cwd。**
 
+## ⚠️ 整套风格与输出文件契约
+
+- 读取 tasks.json 后，令 `deck_theme = manifest["theme"]`。`new_presentation` 和所有 `generate_xxx` 的 `palette` 必须始终使用 `deck_theme`。
+- 禁止调用 `get_palette_for_background`，禁止因单页 background 改写 palette。背景亮度与文字对比由生成器处理。
+- task.background 非空时原样传入；task.background 为空时必须保持为空，不得自行选择背景。
+- 输出路径必须逐字符使用 task.output_file：`output_path = script_dir / task["output_file"]`。禁止按 title 重新拼接文件名、增删空格或标点。
+
 ## ⚠️ 禁止写原始 python-pptx 代码
 
 必须通过 generators 包生成 PPT，绝不能自己写 python-pptx 代码。
@@ -55,9 +62,11 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
   generators_pkg_dir = (script_dir / ".." / ".." / "skills" / "visual_designer").resolve()
   sys.path.insert(0, str(generators_pkg_dir))
   from generators import new_presentation, save_slide, generate_process_flow, generate_chart_slide, generate_icon_grid, generate_swot_analysis, generate_comparison_table
-  prs = new_presentation(palette="ocean_soft")
-  prs = generate_process_flow(prs=prs, palette="ocean_soft", ..., source="来源: 新华网 2025年 | https://...")
-  save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
+  deck_theme = manifest["theme"]
+  task = manifest["tasks"][0]
+  prs = new_presentation(palette=deck_theme)
+  prs = generate_process_flow(prs=prs, palette=deck_theme, ..., background=task.get("background") or None, source="来源: 新华网 2025年 | https://...")
+  save_slide(prs.slides[-1], str(script_dir / task["output_file"]))
 
   ⚠️ save_slide 的第一个参数必须是 slide 对象（prs.slides[-1]），不是 prs。
   有数据来源时，必须传 source 参数，格式："来源: {机构名} {年份} | {URL}"
@@ -113,7 +122,7 @@ generate_bar_chart(...)
 # ✅ 正确：使用 generate_chart_slide 并指定 chart_type
 generate_chart_slide(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="季度数据对比",
     chart_type="bar",  # bar/line/pie/doughnut/stacked_bar
     data={
@@ -142,7 +151,7 @@ data = {
 ```python
 generate_comparison_table(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="功能对比",
     headers=["功能", "方案A", "方案B"],
     rows=[
@@ -162,7 +171,7 @@ generate_comparison_table(
 ```python
 generate_title_slide(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="党建工作汇报",
     subtitle="2026年第一季度总结",
     author="党委办公室",
@@ -179,32 +188,9 @@ generate_title_slide(
 - `snowy_mountain` - 雪山风景
 - `artistic` - 艺术涂鸦（创意、时尚）
 
-**背景与配色搭配规范（重要！必须遵循）：**
+**背景不得覆盖整套配色（重要！必须遵循）：**
 
-使用背景图片时，必须根据背景主题选择配套的配色方案，否则颜色违和。导入 `get_palette_for_background` 获取推荐配色：
-
-```python
-from generators import get_palette_for_background, generate_title_slide
-
-# 根据背景自动选择协调的配色
-palette = get_palette_for_background("vintage_chinese")
-# 返回 "warm_terracotta"（复古中国风→陶土橙，暖色调协调）
-# vintage_chinese → warm_terracotta
-# ink_wash_mountain → sage_calm
-# party_government → government_red
-# snowy_mountain → charcoal_light
-# artistic → berry_cream
-# minimalist_blue → ocean_soft
-
-generate_title_slide(
-    prs=prs,
-    palette=palette,  # 用推荐配色，不要用 ocean_soft
-    title="标题",
-    background="vintage_chinese",  # 背景和配色自动配套
-)
-```
-
-**禁止**：使用背景图片时仍用 `palette="ocean_soft"`，这会导致背景是复古中国风但文字是蓝色，严重违和。
+后台在任务创建时已综合模板、主题和背景确定 manifest.theme。即使 task.background 非空，生成器的 palette 也必须继续使用 manifest.theme；绝不能根据背景二次选色。
 
 背景亮度由生成器按页面类型和背景来源自动处理。文字颜色会自动适配浅色/深色背景。
 
@@ -237,7 +223,7 @@ generate_title_slide(
 # ❌ 错误：把纯文本 description 当参数传
 generate_chart_slide(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="折线图页",
     chart_type="line",
     data=description,  # ❌ 这是一个字符串，不是 {labels, datasets} 格式
@@ -249,7 +235,7 @@ generate_chart_slide(
 # ✅ 正确：从 description 提取出 labels 和 datasets
 generate_chart_slide(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="2026年一季度宏观经济走势",
     chart_type="line",
     data={
@@ -283,7 +269,7 @@ generate_chart_slide(
 # process_flow 示例：从描述中提取 steps
 generate_process_flow(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="'十五五'政策传导路径",
     direction="horizontal_zigzag",
     steps=[
@@ -297,7 +283,7 @@ generate_process_flow(
 # timeline 示例：从描述中提取 nodes
 generate_timeline(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="2026年4-5月党政大事时间线",
     direction="horizontal",
     nodes=[
@@ -311,7 +297,7 @@ generate_timeline(
 # kpi_dashboard 示例：从描述中提取 kpis（每个必须有4个字段）
 generate_kpi_dashboard(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="近一月经济政策关键指标",
     kicker="数据 · 政策成效",
     kpis=[
@@ -325,7 +311,7 @@ generate_kpi_dashboard(
 # card_grid 示例：从描述中提取 cards
 generate_card_grid(
     prs=prs,
-    palette="ocean_soft",
+    palette=deck_theme,
     title="近一月四大外交亮点",
     layout="2x2",
     kicker="外交 · 重大活动",
@@ -342,7 +328,7 @@ generate_card_grid(
 # description 中包含 quote:/attribution:/kicker: 格式字段，必须原文使用
 generate_quote_slide(
     prs=prs,
-    palette=palette,
+    palette=deck_theme,
     quote="文章千古事，得失寸心知。——杜甫《偶题》",
     attribution="杜甫（712-770），唐代伟大现实主义诗人",
     kicker="诗圣名言",
@@ -360,11 +346,12 @@ generate_quote_slide(
 
 1. 用 read_file 读取 {{ .WorkDir }}/tasks.json（绝对路径），获取待生成任务
 2. 根据任务的 content_type 确定使用的生成器函数（参考 generators.md 参数表）
-3. **重要：检查任务的 background 字段，如果非空则传递给生成器函数**
-4. **重要：从 description 字段中提取结构化参数（如 quote/attribution/kicker/source 等），原文使用，不得用训练数据替换**
-5. 仅当图表、KPI、案例或任务描述缺少事实依据时，用 search 搜索真实数据来充实内容（注意限流，每个任务搜索不超过10次）；不要为了普通结构页或背景图片默认搜索
-5. 用 python3 执行生成代码
-6. **不要修改 tasks.json 状态**，SlideExecutor 只负责生成 PPT 文件
+3. **重要：所有页面 palette 使用 tasks.json 顶层 theme；不得按 background 改色**
+4. **重要：task.background 非空则原样传递，为空则保持为空，不得自行选择**
+5. **重要：从 description 字段中提取结构化参数（如 quote/attribution/kicker/source 等），原文使用，不得用训练数据替换**
+6. 仅当图表、KPI、案例或任务描述缺少事实依据时，用 search 搜索真实数据来充实内容（注意限流，每个任务搜索不超过10次）；不要为了普通结构页或背景图片默认搜索
+7. 用 python3 执行生成代码，并逐字符使用 task.output_file 保存
+8. **不要修改 tasks.json 状态**，SlideExecutor 只负责生成 PPT 文件
 
 ### 背景图片使用规范（强烈推荐）
 
@@ -372,7 +359,7 @@ generate_quote_slide(
 
 读取 tasks.json 后，每个任务(task)的 background 字段可能包含背景主题标识：
 - **如果 background 非空，必须将该值作为 background 参数传给对应的 generate_xxx 函数**
-- 如果 background 为空，只有在封面、章节页、图文页或氛围页确实需要时才选择合适的背景主题
+- 如果 background 为空，必须保持为空，不得自行选择背景主题
 - 背景图片会覆盖纯色背景，必须保证文字对比度和信息区域可读
 - 文字颜色会自动适配浅色/深色背景
 
@@ -380,7 +367,7 @@ generate_quote_slide(
 ```python
 generate_title_slide(
     prs=prs,
-    palette="government_red",
+    palette=manifest["theme"],
     title="党建工作报告",
     subtitle="2026年第一季度",
     background="party_government",  # 强烈推荐添加背景
@@ -404,8 +391,8 @@ generate_title_slide(
 
 ## 输出
 
-- 普通页：页码_标题.pptx（放在工作目录 {{ .WorkDir }} 下）
-- 分页组子页：页码.子页码_标题.pptx
+- 每页文件名必须逐字符使用 tasks.json 对应 task.output_file（放在工作目录 {{ .WorkDir }} 下）
+- 禁止根据页码或标题自行构造文件名
 - 生成完一个文件就报告完成，不要等所有文件都生成完再报告
 
 ### 失败报告规则（最重要）

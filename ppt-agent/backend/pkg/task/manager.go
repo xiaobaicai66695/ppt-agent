@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,11 +83,13 @@ type TaskState struct {
 	Info          TaskInfo
 	Events        []SSERichEvent
 	nextEventID   uint64
+	turnEventID   uint64
 	listeners     map[string]chan SSERichEvent
 	cancel        context.CancelFunc
 	result        *deep.PPTTaskResult
 	reportedFiles map[string]bool
 	runtimeMeta   *utils.RuntimeMeta
+	delivery      DeliverySnapshot
 	Mu            sync.Mutex
 
 	// pendingContinueMsg 任务运行中时，用户提交的待处理消息（消费后清空）
@@ -118,6 +121,22 @@ func (ts *TaskState) LatestEventID() uint64 {
 	ts.Mu.Lock()
 	defer ts.Mu.Unlock()
 	return ts.nextEventID
+}
+
+// ReplayAfterEventID returns the last event that closed a persisted assistant
+// turn. Clients restore structured messages, then replay only the unfinished
+// turn following this boundary.
+func (ts *TaskState) ReplayAfterEventID() uint64 {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.turnEventID
+}
+
+// EventBoundaries returns a consistent pair for conversation snapshot clients.
+func (ts *TaskState) EventBoundaries() (latest, replayAfter uint64) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.nextEventID, ts.turnEventID
 }
 
 // SnapshotInfo returns a race-free public task snapshot.
@@ -211,7 +230,8 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		ts.answerTurn.WriteString(event.Content)
 	}
 	var completedTurn string
-	if event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete" {
+	isTurnBoundary := event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete"
+	if isTurnBoundary {
 		completedTurn = strings.TrimSpace(ts.answerTurn.String())
 		ts.answerTurn.Reset()
 	}
@@ -227,6 +247,13 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 	ts.Mu.Unlock()
 	if completedTurn != "" && turnCallback != nil {
 		turnCallback(taskID, workDir, completedTurn)
+	}
+	if isTurnBoundary {
+		ts.Mu.Lock()
+		if event.ID > ts.turnEventID {
+			ts.turnEventID = event.ID
+		}
+		ts.Mu.Unlock()
 	}
 }
 
@@ -456,7 +483,10 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	// ── 意图识别与路由 ──
 	// 如果配置中没有意图结果，进行意图识别
 	if cfg.IntentResult == nil {
-		intentCfg, err := deep.ProcessUserIntent(ctx, query, userID)
+		routingCtx, cancelRouting := context.WithTimeout(ctx,
+			time.Duration(utils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 12))*time.Second)
+		intentCfg, err := deep.ProcessUserIntent(routingCtx, query, userID)
+		cancelRouting()
 		if err != nil {
 			logger.Warn("intent_process_failed", "error", err.Error())
 		} else if intentCfg != nil {
@@ -567,20 +597,24 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,
 	cfg *deep.PPTTaskConfig, query string) {
+	startedAt := time.Now()
 	if ts.runtimeMeta != nil {
 		ts.runtimeMeta.RecordPhase("preparing", "初始化任务运行环境")
 	}
 
 	// ── 步骤1：意图分析结果 ──────────────────────────────
 	var step1 strings.Builder
-	step1.WriteString("【步骤1/5】意图分析\n")
+	step1.WriteString("【步骤1/3】模型意图分析\n")
 	if cfg.IntentResult != nil {
 		step1.WriteString(fmt.Sprintf("  • 意图: %s\n", cfg.IntentResult.Intent))
 		step1.WriteString(fmt.Sprintf("  • 领域: %s\n", cfg.IntentResult.Domain))
 		step1.WriteString(fmt.Sprintf("  • 复杂度: %d\n", cfg.IntentResult.Complexity.Level))
 		step1.WriteString(fmt.Sprintf("  • 预估页数: %d 页\n", cfg.IntentResult.SuggestedPageCount))
-		if cfg.IntentResult.Confidence < 0.85 {
-			step1.WriteString(fmt.Sprintf("  • 置信度: %.0f%%（LLM增强）\n", cfg.IntentResult.Confidence*100))
+		step1.WriteString(fmt.Sprintf("  • 置信度: %.0f%%\n", cfg.IntentResult.Confidence*100))
+		if cfg.IntentResult.RoutingSource == "llm" {
+			step1.WriteString("  • 决策来源: LLM 结构化路由\n")
+		} else {
+			step1.WriteString("  • 决策来源: 固定兜底（模型路由不可用）\n")
 		}
 	} else {
 		step1.WriteString("  • 意图分类未启用\n")
@@ -588,7 +622,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 
 	// ── 步骤2：用户画像加载 ────────────────────────────
 	var step2 strings.Builder
-	step2.WriteString("【步骤2/5】用户画像加载\n")
+	step2.WriteString("【步骤2/3】用户画像加载\n")
 	if cfg.EnhancedProfile != nil {
 		if cfg.EnhancedProfile.LanguageTone != "" {
 			step2.WriteString(fmt.Sprintf("  • 语言风格: %s\n", cfg.EnhancedProfile.LanguageTone))
@@ -613,16 +647,12 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 
 	// ── 步骤3：路由决策 ───────────────────────────────
 	var step3 strings.Builder
-	step3.WriteString("【步骤3/5】路由决策\n")
+	step3.WriteString("【步骤3/3】Agent 路由决策\n")
 	if cfg.RoutingDecision != nil {
 		step3.WriteString(fmt.Sprintf("  • Agent类型: %s\n", cfg.RoutingDecision.AgentType))
 		step3.WriteString(fmt.Sprintf("  • 流水线: %s\n", strings.Join(cfg.RoutingDecision.Pipeline, " → ")))
 		step3.WriteString(fmt.Sprintf("  • 并发数: %d\n", cfg.RoutingDecision.Concurrency))
-		if cfg.RoutingDecision.SkipQA {
-			step3.WriteString("  • QA质检: 跳过\n")
-		} else {
-			step3.WriteString("  • QA质检: 开启\n")
-		}
+		step3.WriteString("  • QA质检: 已停用\n")
 	} else {
 		step3.WriteString("  • 使用默认配置\n")
 	}
@@ -658,11 +688,14 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		}
 	}()
 
-	progressCtx, progressCancel := context.WithCancel(ctx)
-	defer progressCancel()
-	go tm.pollProgress(progressCtx, ts, cfg.WorkDir)
+	runCtx, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
+	go tm.pollProgress(runCtx, ts, cfg.WorkDir, func(snapshot DeliverySnapshot) {
+		logger.Info("delivery_metadata_complete", "task_id", ts.Info.ID, "done", snapshot.Done, "total", snapshot.Total)
+		cancelRun(errDeliveryMetadataComplete)
+	})
 
-	result, err := deep.RunPPTTaskDeepAgentWithCallback(ctx, agent, cfg, query, func(event deep.AgentEvent) {
+	result, err := deep.RunPPTTaskDeepAgentWithCallback(runCtx, agent, cfg, query, func(event deep.AgentEvent) {
 		if event.Type == deep.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
 				Type:        "progress",
@@ -690,53 +723,66 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	ts.result = result
 	ts.Mu.Unlock()
 
+	metadataStoppedAgent := errors.Is(context.Cause(runCtx), errDeliveryMetadataComplete)
+	if metadataStoppedAgent {
+		err = nil
+	}
 	ts.Info.Status = TaskStatusCompleted
 	var taskFailed bool
 	if err != nil {
 		if ctx.Err() == context.Canceled {
 			ts.Info.Status = TaskStatusCancelled
 			ts.Info.Error = "任务已被用户中断"
-			if ts.runtimeMeta != nil {
-				ts.runtimeMeta.RecordPhase("cancelled", ts.Info.Error)
-			}
 		} else {
 			ts.Info.Status = TaskStatusFailed
 			ts.Info.Error = err.Error()
 			taskFailed = true
-			if ts.runtimeMeta != nil {
-				ts.runtimeMeta.RecordPhase("failed", ts.Info.Error)
-			}
 		}
-	} else if ts.runtimeMeta != nil {
-		ts.runtimeMeta.RecordPhase("complete", "任务执行完成")
 	}
 
 	if result != nil {
-		ts.Info.DoneCount = result.DoneSlides
-		ts.Info.TotalCount = result.TotalSlides
 		ts.Info.Duration = result.Duration.Round(time.Millisecond).String()
-		ts.Info.Files = DeduplicateOutputFiles(result.Files)
+	} else {
+		ts.Info.Duration = time.Since(startedAt).Round(time.Millisecond).String()
 	}
-	if manifest, recErr := deep.ReconcileTasksManifestOutputFiles(cfg.WorkDir); recErr == nil && manifest != nil {
-		ts.Info.DoneCount = manifest.CompletedCount()
-		ts.Info.TotalCount = len(manifest.Tasks)
-		ts.Info.Files = ManifestOutputFiles(manifest)
-	} else if recErr != nil {
-		logger.Warn("task_manifest_reconcile_failed", "task_id", ts.Info.ID, "error", recErr.Error())
+
+	delivery := ts.deliverySnapshot()
+	if !delivery.Complete() && ts.Info.Status != TaskStatusCancelled {
+		if synced, syncErr := tm.syncDeliveryMetadata(ts, cfg.WorkDir); syncErr == nil {
+			delivery = synced
+		} else {
+			logger.Warn("delivery_metadata_sync_failed", "task_id", ts.Info.ID, "error", syncErr.Error())
+		}
 	}
-	if validation, valErr := deep.ValidateTasksManifestOutcome(cfg.WorkDir); valErr == nil && validation != nil {
-		if ts.runtimeMeta != nil {
-			ts.runtimeMeta.RecordSlideProgress(validation.Done, validation.Total, len(validation.MissingFiles))
-			ts.runtimeMeta.RecordManifestValidation(validation.Done, validation.Total, validation.MissingFiles, validation.PendingTasks)
+	if delivery.Complete() && ts.Info.Status != TaskStatusCancelled {
+		ts.Info.Status = TaskStatusCompleted
+		ts.Info.Error = ""
+		taskFailed = false
+	}
+	if applyDeliverySnapshotOutcome(ts, delivery) {
+		taskFailed = true
+	}
+	if delivery.Total > 0 {
+		if result == nil {
+			result = &deep.PPTTaskResult{Duration: time.Since(startedAt)}
 		}
-		if validation.Invalid {
-			logger.Warn("task_outcome_validation_warning",
-				"task_id", ts.Info.ID,
-				"pending_tasks", strings.Join(validation.PendingTasks, ","),
-				"missing_files", strings.Join(validation.MissingFiles, ","))
+		result.TotalSlides = delivery.Total
+		result.DoneSlides = delivery.Done
+		result.Files = append([]string(nil), delivery.Files...)
+		ts.Mu.Lock()
+		ts.result = result
+		ts.Mu.Unlock()
+	}
+
+	if ts.runtimeMeta != nil {
+		switch ts.Info.Status {
+		case TaskStatusCompleted:
+			ts.runtimeMeta.RecordPhase("complete", "任务执行完成")
+		case TaskStatusCancelled:
+			ts.runtimeMeta.RecordPhase("cancelled", ts.Info.Error)
+		case TaskStatusFailed:
+			ts.runtimeMeta.RecordPhase("failed", ts.Info.Error)
 		}
-	} else if valErr != nil {
-		logger.Warn("task_outcome_validation_failed", "task_id", ts.Info.ID, "error", valErr.Error())
 	}
 
 	// 记录任务完成的 Prometheus 指标。
@@ -788,8 +834,8 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		CompletionTokens: ts.Info.CompletionTokens,
 		TotalTokens:      ts.Info.TotalTokens,
 	}
-	if result != nil {
-		finalEvent.Message = result.Message
+	if ts.Info.Status == TaskStatusCompleted {
+		finalEvent.Message = fmt.Sprintf("PPT 已完成交付，共 %d 页，交付元数据 %d/%d。", ts.Info.TotalCount, ts.Info.DoneCount, ts.Info.TotalCount)
 	}
 	if ts.runtimeMeta != nil {
 		ts.runtimeMeta.RecordTaskTerminal(string(ts.Info.Status), finalEvent.Message)
@@ -822,6 +868,30 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		QualityScore: qualityScore,
 		PageCount:    ts.Info.TotalCount,
 	})
+}
+
+func applyDeliverySnapshotOutcome(ts *TaskState, delivery DeliverySnapshot) bool {
+	if ts == nil || ts.Info.Status != TaskStatusCompleted {
+		return false
+	}
+
+	message := ""
+	switch {
+	case delivery.Total == 0:
+		message = "交付元数据中没有有效页面，任务未完成，请重试"
+	case !delivery.Complete():
+		message = fmt.Sprintf("生成未完成：交付元数据显示已交付 %d/%d 页", delivery.Done, delivery.Total)
+		if len(delivery.PendingTasks) > 0 {
+			message += fmt.Sprintf("，仍有 %d 页待完成", len(delivery.PendingTasks))
+		}
+	}
+	if message == "" {
+		return false
+	}
+
+	ts.Info.Status = TaskStatusFailed
+	ts.Info.Error = message
+	return true
 }
 
 func durationFromResult(result *deep.PPTTaskResult) time.Duration {
@@ -860,9 +930,24 @@ func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
 	case strings.Contains(detail, "Fixer") || strings.Contains(detail, "fix"):
 		phase = "fixing"
 		phaseDetail = "修复中"
+	case event.ToolName == "update_tasks_manifest":
+		phase = "planning"
+		phaseDetail = "正在整理页面内容"
+	case event.ToolName == "search":
+		phase = "planning"
+		phaseDetail = "正在检索并核实资料"
+	case event.ToolName == "batch_convert":
+		phase = "generating"
+		phaseDetail = "正在整理演示文件"
+	case event.ToolName == "bash":
+		phase = "generating"
+		phaseDetail = "正在执行生成工具"
 	case strings.Contains(detail, "tasks.json") || strings.Contains(detail, "TasksJSON"):
 		phase = "planning"
 		phaseDetail = "读取任务清单"
+	case event.ToolName == "read_file":
+		phase = "preparing"
+		phaseDetail = "正在读取模板与设计规范"
 	case strings.Contains(detail, ".py") && strings.Contains(detail, "read_file"):
 		phase = "preparing"
 		phaseDetail = "读取模板"
@@ -884,11 +969,11 @@ func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
 	})
 }
 
-func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir string) {
+func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir string, onDeliveryComplete func(DeliverySnapshot)) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	var lastDone int
+	lastDone, lastTotal := -1, -1
 	var lastTokens int64
 	for {
 		select {
@@ -948,26 +1033,22 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 			}
 		}
 
-		manifest, err := deep.ReadTasksManifest(workDir)
+		manifest, err := deep.ReconcileTasksManifestOutputFiles(workDir)
 		if err != nil || manifest == nil {
 			continue
 		}
 
-		done := manifest.CompletedCount()
-		total := len(manifest.Tasks)
-		missing := 0
-		missingFiles := make([]string, 0)
+		snapshot := deliverySnapshotFromManifest(manifest)
+		ts.updateDelivery(snapshot)
+		pendingFiles := make([]string, 0, len(snapshot.PendingTasks))
 		var currentSlide *utils.PlanSlide
 		var nextPendingSlide *utils.PlanSlide
 		for _, item := range manifest.Tasks {
 			if item == nil {
 				continue
 			}
-			if item.OutputFile != "" && isCompletedSlideStatus(item.Status) {
-				if _, statErr := os.Stat(filepath.Join(workDir, item.OutputFile)); statErr != nil {
-					missing++
-					missingFiles = append(missingFiles, item.OutputFile)
-				}
+			if !isCompletedSlideStatus(item.Status) && item.OutputFile != "" {
+				pendingFiles = append(pendingFiles, item.OutputFile)
 			}
 			if currentSlide == nil && item.Status == deep.StatusGenerating {
 				slide := runtimePlanSlide(item)
@@ -982,22 +1063,27 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 			currentSlide = nextPendingSlide
 		}
 		if ts.runtimeMeta != nil {
-			ts.runtimeMeta.RecordSlideProgress(done, total, missing)
+			ts.runtimeMeta.RecordSlideProgress(snapshot.Done, snapshot.Total, len(snapshot.PendingTasks))
+			ts.runtimeMeta.RecordManifestValidation(snapshot.Done, snapshot.Total, nil, snapshot.PendingTasks)
 			ts.runtimeMeta.RecordCurrentSlide(currentSlide)
-			ts.runtimeMeta.ComparePlan(runtimePlanSlides(manifest.Tasks), missingFiles)
+			ts.runtimeMeta.ComparePlan(runtimePlanSlides(manifest.Tasks), pendingFiles)
 		}
 
-		if done == lastDone && total > 0 {
-			continue
+		if snapshot.Done != lastDone || snapshot.Total != lastTotal {
+			lastDone, lastTotal = snapshot.Done, snapshot.Total
+			ts.Broadcast(SSERichEvent{
+				Type:  "progress",
+				Tasks: manifest.Tasks,
+				Done:  snapshot.Done,
+				Total: snapshot.Total,
+			})
 		}
-		lastDone = done
-
-		ts.Broadcast(SSERichEvent{
-			Type:  "progress",
-			Tasks: manifest.Tasks,
-			Done:  done,
-			Total: total,
-		})
+		if snapshot.Complete() {
+			if onDeliveryComplete != nil {
+				onDeliveryComplete(snapshot)
+			}
+			return
+		}
 	}
 }
 

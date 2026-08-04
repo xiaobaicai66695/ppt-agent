@@ -135,6 +135,23 @@ def find_pdftoppm() -> Optional[str]:
 _lock_fd: Optional[int] = None
 
 
+def _open_lock_file(lock_path: str) -> int:
+    """Open an existing lock without O_CREAT to avoid Linux protected_regular."""
+    try:
+        return os.open(lock_path, os.O_RDWR)
+    except FileNotFoundError:
+        try:
+            return os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o666)
+        except FileExistsError:
+            return os.open(lock_path, os.O_RDWR)
+    except PermissionError:
+        # flock supports an exclusive lock on a read-only fd on POSIX. This
+        # keeps the lock reusable when a service restart changes OS users.
+        if fcntl is not None:
+            return os.open(lock_path, os.O_RDONLY)
+        raise
+
+
 def _try_lock(fd: int) -> bool:
     try:
         if fcntl is not None:
@@ -169,7 +186,7 @@ def _acquire_lock(timeout: float = 120.0) -> bool:
         lock_path = os.environ.get("PPTX_CONV_LOCK", _LOCK_FILE_PATH)
         lock_dir = os.path.dirname(lock_path)
         os.makedirs(lock_dir, exist_ok=True)
-        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+        fd = _open_lock_file(lock_path)
         # Try non-blocking first — if already held, loop with a timeout.
         if _try_lock(fd):
             _lock_fd = fd
@@ -549,7 +566,7 @@ def main():
         for img in result.get("slide_images", []):
             print(f"  - {img}")
 
-    return 0
+    return 1 if result.get("error") else 0
 
 
 if __name__ == "__main__":

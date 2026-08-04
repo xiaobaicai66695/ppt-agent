@@ -50,7 +50,7 @@ func NewClassifier(
 	return &Classifier{
 		modelFactory:     modelFactory,
 		textModelFactory: textModelFactory,
-		useLLM:          modelFactory != nil || textModelFactory != nil,
+		useLLM:           modelFactory != nil || textModelFactory != nil,
 	}
 }
 
@@ -66,54 +66,76 @@ func (c *Classifier) SetTextModelFactory(
 	}
 }
 
-// Classify 对用户输入进行意图分类
-// 优先使用规则匹配，fallback 到 LLM 分类
+// Classify asks the model for one structured classification and routing result.
+// Keyword rules are intentionally not part of the production path: a model or
+// schema failure uses a deterministic operational fallback instead.
 func (c *Classifier) Classify(ctx context.Context, query string, userID int) (*ClassificationResult, error) {
-	// Step 1: 规则匹配（快速路径）
-	result := c.ruleBasedClassification(query)
-
-	// Step 2: 如果规则匹配置信度足够高，直接返回
-	if result.Confidence >= 0.85 {
-		logger.Debug("intent_classified_by_rules",
-			"intent", result.Intent.String(),
-			"confidence", result.Confidence,
-			"query_len", len(query))
-		return result, nil
-	}
-
-	// Step 3: LLM 增强分类（可选）
-	if c.useLLM {
-		// 优先使用轻量级 textModel，节省成本
-		if c.textModelFactory != nil {
-			llmResult, err := c.llmClassificationByTextModel(ctx, query)
-			if err != nil {
-				logger.Warn("intent_llm_text_classification_failed", "error", err.Error())
-			} else {
-				if llmResult.Confidence > result.Confidence {
-					logger.Debug("intent_classified_by_text_model",
-						"intent", llmResult.Intent.String(),
-						"confidence", llmResult.Confidence)
-					return llmResult, nil
-				}
-			}
+	_ = userID
+	var failures []string
+	if c.textModelFactory != nil {
+		result, err := c.llmClassificationByTextModel(ctx, query)
+		if err == nil && validLLMClassification(result) {
+			return normalizeLLMClassification(result), nil
 		}
-		// 回退到 ToolCallingChatModel
-		if c.modelFactory != nil {
-			llmResult, err := c.llmClassification(ctx, query)
-			if err != nil {
-				logger.Warn("intent_llm_classification_failed", "error", err.Error())
-			} else {
-				if llmResult.Confidence > result.Confidence {
-					logger.Debug("intent_classified_by_llm",
-						"intent", llmResult.Intent.String(),
-						"confidence", llmResult.Confidence)
-					return llmResult, nil
-				}
-			}
+		if err != nil {
+			failures = append(failures, err.Error())
+		} else {
+			failures = append(failures, "text model returned an incomplete route")
+		}
+	}
+	if c.modelFactory != nil {
+		result, err := c.llmClassification(ctx, query)
+		if err == nil && validLLMClassification(result) {
+			return normalizeLLMClassification(result), nil
+		}
+		if err != nil {
+			failures = append(failures, err.Error())
+		} else {
+			failures = append(failures, "tool model returned an incomplete route")
 		}
 	}
 
-	return result, nil
+	reason := "routing model unavailable"
+	if len(failures) > 0 {
+		reason = strings.Join(failures, "; ")
+	}
+	logger.Warn("intent_llm_fallback", "reason", truncate(reason, 240), "query_len", len(query))
+	return fallbackClassification(reason), nil
+}
+
+func validLLMClassification(result *ClassificationResult) bool {
+	return result != nil && result.Intent != IntentUnknown &&
+		result.Complexity.Level >= 1 && result.Complexity.Level <= 10 &&
+		result.Complexity.PageCountEstimate > 0 && result.Confidence > 0 &&
+		strings.TrimSpace(result.AgentType) != ""
+}
+
+func normalizeLLMClassification(result *ClassificationResult) *ClassificationResult {
+	result.RoutingSource = "llm"
+	if result.SuggestedPageCount <= 0 {
+		result.SuggestedPageCount = result.Complexity.PageCountEstimate
+	}
+	if result.Concurrency <= 0 {
+		result.Concurrency = 5
+	} else if result.Concurrency > 10 {
+		result.Concurrency = 10
+	}
+	return result
+}
+
+func fallbackClassification(reason string) *ClassificationResult {
+	return &ClassificationResult{
+		Intent:             IntentCreate,
+		IntentReasoning:    "模型路由不可用，使用固定的深度生成流程：" + truncate(reason, 160),
+		Domain:             DomainUnknown,
+		Complexity:         Complexity{Level: 5, TopicComplexity: 5, PageCountEstimate: 12},
+		Confidence:         0,
+		SuggestedPageCount: 12,
+		AgentType:          "deep",
+		Pipeline:           []string{"plan", "generate"},
+		Concurrency:        5,
+		RoutingSource:      "fallback",
+	}
 }
 
 // ruleBasedClassification 基于规则的意图分类。
@@ -124,11 +146,11 @@ func (c *Classifier) ruleBasedClassification(query string) *ClassificationResult
 	queryLower := strings.ToLower(query)
 
 	result := &ClassificationResult{
-		Intent:       IntentUnknown,
-		Confidence:   0.0,
-		Domain:       DomainUnknown,
-		Urgency:      UrgencyNormal,
-		Complexity:   Complexity{Level: 5, TopicComplexity: 5, AudienceLevel: "intermediate"},
+		Intent:     IntentUnknown,
+		Confidence: 0.0,
+		Domain:     DomainUnknown,
+		Urgency:    UrgencyNormal,
+		Complexity: Complexity{Level: 5, TopicComplexity: 5, AudienceLevel: "intermediate"},
 	}
 
 	// === 仅 4 类核心意图 + continue，其余交给 LLM ===
@@ -295,10 +317,10 @@ func (c *Classifier) classifyDomain(query string) Domain {
 // assessComplexity 评估复杂度
 func (c *Classifier) assessComplexity(query string) Complexity {
 	cpl := Complexity{
-		Level:            5,
-		TopicComplexity:  5,
+		Level:             5,
+		TopicComplexity:   5,
 		PageCountEstimate: 10,
-		AudienceLevel:    "intermediate",
+		AudienceLevel:     "intermediate",
 	}
 
 	// 页数估计
@@ -532,6 +554,77 @@ func (c *Classifier) suggestActions(intent Intent, complexity Complexity) []stri
 	}
 }
 
+const routingSystemPrompt = `你是 PPT Agent 的任务路由器。直接理解用户请求，不使用关键词规则，返回一次完整的意图与执行路由决策。
+
+当前新建 PPT 任务只有 deep Agent 是可执行的首次生成 Agent；因此 agent_type 必须为 deep，pipeline 必须为 ["plan", "generate"]。QA 和自动修复已停用。
+
+意图类型：create、edit、extend、regenerate、customize、query、continue。
+领域类型：business、technical、academic、government、personal、creative、unknown。
+复杂度为 1-10；预估页数必须大于 0；并发数为 1-10，普通任务建议 5。
+
+只返回 JSON，不要返回 Markdown：
+{
+  "intent": "create",
+  "intent_reasoning": "简洁说明判断与路由理由",
+  "domain": "creative",
+  "complexity_level": 5,
+  "page_count_estimate": 12,
+  "confidence": 0.9,
+  "suggested_theme": "",
+  "suggested_templates": [],
+  "agent_type": "deep",
+  "pipeline": ["plan", "generate"],
+  "concurrency": 5
+}`
+
+type llmRoutingResult struct {
+	Intent             string   `json:"intent"`
+	IntentReasoning    string   `json:"intent_reasoning"`
+	Domain             string   `json:"domain"`
+	ComplexityLevel    int      `json:"complexity_level"`
+	PageCountEstimate  int      `json:"page_count_estimate"`
+	Confidence         float64  `json:"confidence"`
+	SuggestedTheme     string   `json:"suggested_theme"`
+	SuggestedTemplates []string `json:"suggested_templates"`
+	AgentType          string   `json:"agent_type"`
+	Pipeline           []string `json:"pipeline"`
+	Concurrency        int      `json:"concurrency"`
+}
+
+func classificationFromLLM(raw llmRoutingResult) *ClassificationResult {
+	return &ClassificationResult{
+		Intent:          ParseIntent(raw.Intent),
+		IntentReasoning: raw.IntentReasoning,
+		Domain:          ParseDomain(raw.Domain),
+		Complexity: Complexity{
+			Level:             raw.ComplexityLevel,
+			PageCountEstimate: raw.PageCountEstimate,
+		},
+		Confidence:         raw.Confidence,
+		SuggestedTheme:     raw.SuggestedTheme,
+		SuggestedTemplates: raw.SuggestedTemplates,
+		AgentType:          raw.AgentType,
+		Pipeline:           raw.Pipeline,
+		Concurrency:        raw.Concurrency,
+	}
+}
+
+func decodeLLMRouting(content string) (llmRoutingResult, error) {
+	var result llmRoutingResult
+	content = strings.TrimSpace(content)
+	if idx := strings.Index(content, "```"); idx >= 0 {
+		start := idx + 3
+		if strings.HasPrefix(content[start:], "json") {
+			start += 4
+		}
+		if end := strings.Index(content[start:], "```"); end >= 0 {
+			content = content[start : start+end]
+		}
+	}
+	err := json.Unmarshal([]byte(strings.TrimSpace(content)), &result)
+	return result, err
+}
+
 // llmClassification 使用 LLM 进行意图分类
 func (c *Classifier) llmClassification(ctx context.Context, query string) (*ClassificationResult, error) {
 	if c.modelFactory == nil {
@@ -543,97 +636,20 @@ func (c *Classifier) llmClassification(ctx context.Context, query string) (*Clas
 		return nil, err
 	}
 
-	systemPrompt := `你是一个PPT任务意图分类器。根据用户输入，分类其意图并评估任务复杂度。
-
-意图类型：
-- create: 新建PPT
-- edit: 编辑现有PPT
-- extend: 扩展PPT（增加页数）
-- regenerate: 重新生成某页
-- customize: 定制化调整
-- query: 询问问题
-- continue: 继续未完成任务
-
-领域类型（根据输入中的关键词判断，无明确领域关键词时填 unknown）：
-- business: 商业/商务/融资/路演/创业/市场/营销/客户/投标/产品发布
-- technical: 技术/架构/代码/开发/系统/工程师/微服务/API/AI
-- academic: 学术/论文/答辩/课程/教学/研究/培训/考试
-- government: 政务/党建/政府/思政/团课/红色/政策/汇报/党风廉政
-- personal: 个人/简历/述职/总结/自我介绍/求职/年终
-- creative: 创意/设计/艺术/活动/策划/品牌/文化/旅游
-- unknown: 无法确定领域（领域关键词不明确时使用）
-
-复杂度评估规则（1-10分）：
-- 1-3: 简单介绍/概览/基础说明/少于5页
-- 4-6: 中等深度/包含数据和图表/5-15页
-- 7-10: 深度分析/包含架构图和多章节/15页以上/要求详细和全面
-- 输入包含"简单""简洁""快速""brief""simple"时降低1-2分
-- 输入包含"详细""深入""全面""comprehensive""detailed"时提高1-2分
-- 输入包含"数据""图表""architecture""代码"时提高1分
-
-请返回JSON格式：
-{
-  "intent": "意图类型",
-  "intent_reasoning": "判断理由",
-  "domain": "领域类型",
-  "complexity_level": 1-10,
-  "page_count_estimate": 预估页数,
-  "confidence": 置信度0-1,
-  "suggested_theme": "推荐配色主题",
-  "suggested_templates": ["推荐模板列表"]
-}`
-
 	resp, err := m.Generate(ctx, []*schema.Message{
-		{Role: schema.System, Content: systemPrompt},
+		{Role: schema.System, Content: routingSystemPrompt},
 		{Role: schema.User, Content: "用户输入: " + query},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析 JSON 响应
-	var llmResult struct {
-		Intent            string   `json:"intent"`
-		IntentReasoning   string   `json:"intent_reasoning"`
-		Domain            string   `json:"domain"`
-		ComplexityLevel   int      `json:"complexity_level"`
-		PageCountEstimate int      `json:"page_count_estimate"`
-		Confidence        float64  `json:"confidence"`
-		SuggestedTheme    string   `json:"suggested_theme"`
-		SuggestedTemplates []string `json:"suggested_templates"`
+	llmResult, err := decodeLLMRouting(resp.Content)
+	if err != nil {
+		logger.Warn("intent_llm_parse_failed", "content", truncate(resp.Content, 200))
+		return nil, err
 	}
-
-	if err := json.Unmarshal([]byte(resp.Content), &llmResult); err != nil {
-		// 尝试从 markdown 代码块中提取
-		content := strings.TrimSpace(resp.Content)
-		if idx := strings.Index(content, "```"); idx >= 0 {
-			start := idx + 3
-			if strings.HasPrefix(content[start:], "json") {
-				start += 4
-			}
-			end := strings.Index(content[start:], "```")
-			if end >= 0 {
-				content = content[start : start+end]
-			}
-		}
-		if err := json.Unmarshal([]byte(content), &llmResult); err != nil {
-			logger.Warn("intent_llm_parse_failed", "content", truncate(resp.Content, 200))
-			return nil, err
-		}
-	}
-
-	return &ClassificationResult{
-		Intent:             ParseIntent(llmResult.Intent),
-		IntentReasoning:    llmResult.IntentReasoning,
-		Domain:             ParseDomain(llmResult.Domain),
-		Complexity: Complexity{
-			Level:            llmResult.ComplexityLevel,
-			PageCountEstimate: llmResult.PageCountEstimate,
-		},
-		Confidence:          llmResult.Confidence,
-		SuggestedTheme:     llmResult.SuggestedTheme,
-		SuggestedTemplates: llmResult.SuggestedTemplates,
-	}, nil
+	return classificationFromLLM(llmResult), nil
 }
 
 // llmClassificationByTextModel 使用轻量级模型（纯 Generate 接口）进行意图分类
@@ -647,94 +663,20 @@ func (c *Classifier) llmClassificationByTextModel(ctx context.Context, query str
 		return nil, err
 	}
 
-	systemPrompt := `你是一个PPT任务意图分类器。根据用户输入，分类其意图并评估任务复杂度。
-
-意图类型：
-- create: 新建PPT
-- edit: 编辑现有PPT
-- extend: 扩展PPT（增加页数）
-- regenerate: 重新生成某页
-- customize: 定制化调整
-- query: 询问问题
-- continue: 继续未完成任务
-
-领域类型（根据输入中的关键词判断，无明确领域关键词时填 unknown）：
-- business: 商业/商务/融资/路演/创业/市场/营销/客户/投标/产品发布
-- technical: 技术/架构/代码/开发/系统/工程师/微服务/API/AI
-- academic: 学术/论文/答辩/课程/教学/研究/培训/考试
-- government: 政务/党建/政府/思政/团课/红色/政策/汇报/党风廉政
-- personal: 个人/简历/述职/总结/自我介绍/求职/年终
-- creative: 创意/设计/艺术/活动/策划/品牌/文化/旅游
-- unknown: 无法确定领域（领域关键词不明确时使用）
-
-复杂度评估规则（1-10分）：
-- 1-3: 简单介绍/概览/基础说明/少于5页
-- 4-6: 中等深度/包含数据和图表/5-15页
-- 7-10: 深度分析/包含架构图和多章节/15页以上/要求详细和全面
-- 输入包含"简单""简洁""快速""brief""simple"时降低1-2分
-- 输入包含"详细""深入""全面""comprehensive""detailed"时提高1-2分
-- 输入包含"数据""图表""architecture""代码"时提高1分
-
-请返回JSON格式：
-{
-  "intent": "意图类型",
-  "intent_reasoning": "判断理由",
-  "domain": "领域类型",
-  "complexity_level": 1-10,
-  "page_count_estimate": 预估页数,
-  "confidence": 置信度0-1,
-  "suggested_theme": "推荐配色主题",
-  "suggested_templates": ["推荐模板列表"]
-}`
-
 	resp, err := m.Generate(ctx, []*schema.Message{
-		{Role: schema.System, Content: systemPrompt},
+		{Role: schema.System, Content: routingSystemPrompt},
 		{Role: schema.User, Content: "用户输入: " + query},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析 JSON 响应
-	var llmResult struct {
-		Intent             string   `json:"intent"`
-		IntentReasoning    string   `json:"intent_reasoning"`
-		Domain             string   `json:"domain"`
-		ComplexityLevel    int      `json:"complexity_level"`
-		PageCountEstimate  int      `json:"page_count_estimate"`
-		Confidence         float64  `json:"confidence"`
-		SuggestedTheme     string   `json:"suggested_theme"`
-		SuggestedTemplates []string `json:"suggested_templates"`
-	}
-
-	content := strings.TrimSpace(resp.Content)
-	if idx := strings.Index(content, "```"); idx >= 0 {
-		start := idx + 3
-		if strings.HasPrefix(content[start:], "json") {
-			start += 4
-		}
-		end := strings.Index(content[start:], "```")
-		if end >= 0 {
-			content = content[start : start+end]
-		}
-	}
-	if err := json.Unmarshal([]byte(content), &llmResult); err != nil {
+	llmResult, err := decodeLLMRouting(resp.Content)
+	if err != nil {
 		logger.Warn("intent_llm_text_parse_failed", "content", truncate(resp.Content, 200))
 		return nil, err
 	}
-
-	return &ClassificationResult{
-		Intent:             ParseIntent(llmResult.Intent),
-		IntentReasoning:     llmResult.IntentReasoning,
-		Domain:             ParseDomain(llmResult.Domain),
-		Complexity: Complexity{
-			Level:            llmResult.ComplexityLevel,
-			PageCountEstimate: llmResult.PageCountEstimate,
-		},
-		Confidence:          llmResult.Confidence,
-		SuggestedTheme:     llmResult.SuggestedTheme,
-		SuggestedTemplates: llmResult.SuggestedTemplates,
-	}, nil
+	return classificationFromLLM(llmResult), nil
 }
 
 func truncate(s string, maxLen int) string {

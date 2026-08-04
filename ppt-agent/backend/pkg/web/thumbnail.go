@@ -27,18 +27,18 @@ func thumbLock(workDir string) func() {
 
 var thumbCache sync.Map
 
-type thumbnailConverter func(workDir, qaDir string, files []string)
+type thumbnailConverter func(workDir, qaDir string, files []string) error
 
 // GenerateThumbnail 从 qa_images/ 读取预生成的 JPEG。
 // 首次请求时，增量转换缺失的文件（单次增量转换）。
 // 调用者负责传递完整的 .pptx 文件路径。
 func GenerateThumbnail(pptxPath string) ([]byte, error) {
-	return generateThumbnail(pptxPath, func(workDir, qaDir string, files []string) {
+	return generateThumbnail(pptxPath, func(workDir, qaDir string, files []string) error {
 		converter := findConverterPy(workDir)
 		if converter == "" {
-			return
+			return fmt.Errorf("thumbnail converter not found from work directory %s", workDir)
 		}
-		runConverter(converter, workDir, qaDir, files)
+		return runConverter(converter, workDir, qaDir, files)
 	})
 }
 
@@ -76,7 +76,9 @@ func generateThumbnail(pptxPath string, convert thumbnailConverter) ([]byte, err
 	if err := os.MkdirAll(qaDir, 0755); err != nil {
 		return nil, fmt.Errorf("create thumbnail directory: %w", err)
 	}
-	convert(workDir, qaDir, []string{base})
+	if err := convert(workDir, qaDir, []string{base}); err != nil {
+		return nil, fmt.Errorf("thumbnail conversion failed: %w", err)
+	}
 
 	jpeg, err = os.ReadFile(jpegPath)
 	if err != nil {
@@ -120,19 +122,22 @@ func GenerateQAImages(workDir string) {
 
 	converter := findConverterPy(workDir)
 	if converter == "" {
+		logger.Warn("thumbnail_converter_not_found", "workDir", workDir)
 		return
 	}
 
 	missing := findMissingJPGs(workDir, qaDir)
 	if len(missing) > 0 {
-		runConverter(converter, workDir, qaDir, missing)
+		if err := runConverter(converter, workDir, qaDir, missing); err != nil {
+			return
+		}
 	}
 
 	// 如果现在全部已转换，则完成。否则回退到完整批量。
 	if allJPGsExist(workDir, qaDir) {
 		return
 	}
-	runConverter(converter, workDir, qaDir, nil)
+	_ = runConverter(converter, workDir, qaDir, nil)
 }
 
 // findMissingJPGs 返回在 qaDir 中没有对应 JPG 的 PPTX 文件名列表（不含路径）。
@@ -159,17 +164,18 @@ func convertMissingFiles(workDir string, pptxFilenames []string) {
 
 	converter := findConverterPy(workDir)
 	if converter == "" {
+		logger.Warn("thumbnail_converter_not_found", "workDir", workDir)
 		return
 	}
 	qaDir := filepath.Join(workDir, "qa_images")
-	runConverter(converter, workDir, qaDir, pptxFilenames)
+	_ = runConverter(converter, workDir, qaDir, pptxFilenames)
 }
 
 // runConverter 调用 Python 转换器脚本。
 // 如果 files 为 nil，转换 workDir 中的所有 PPTX（完整批量）。
 // 如果 files 非 nil，仅转换指定文件（增量，先合并）。
 // 应用 120 秒超时以防止挂起。
-func runConverter(converter, workDir, qaDir string, files []string) {
+func runConverter(converter, workDir, qaDir string, files []string) error {
 	cmdArgs := []string{converter, "--pptx-dir", workDir, "--output-dir", qaDir, "--dpi", "150"}
 	if len(files) > 0 {
 		cmdArgs = append(cmdArgs, "--files")
@@ -187,12 +193,15 @@ func runConverter(converter, workDir, qaDir string, files []string) {
 			logger.Warn("qa_image_generation_timeout",
 				"workDir", workDir,
 				"files", len(files))
+			return fmt.Errorf("converter timeout after 120s")
 		} else {
 			logger.Warn("qa_image_generation_failed",
 				"err", err.Error(),
 				"output", string(out))
+			return fmt.Errorf("converter exited with %v: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
+	return nil
 }
 
 func allJPGsExist(workDir, qaDir string) bool {

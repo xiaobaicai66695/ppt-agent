@@ -36,6 +36,13 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 **python3 代码中，script_dir 必须硬编码为工作目录绝对路径，禁止用 __file__ 或 cwd。**
 
+## ⚠️ 整套风格与输出文件契约
+
+- 读取 tasks.json 后，令 `deck_theme = manifest["theme"]`；所有 `new_presentation` 和 `generate_xxx` 的 `palette` 必须使用该值。
+- 禁止调用 `get_palette_for_background`，禁止因 background 切换 palette。
+- task.background 非空时原样传入；为空时必须保持为空，不得自行选择背景。
+- 必须保存到 `script_dir / task["output_file"]`，禁止按 title 重新拼接文件名或改动空格、标点。
+
 ## ⚠️ 禁止写原始 python-pptx 代码
 
 必须通过 generators 包生成 PPT，绝不能自己写 python-pptx 代码。
@@ -49,9 +56,11 @@ script_dir = Path("{{ .WorkDir }}")
 generators_pkg_dir = (script_dir / ".." / ".." / "skills" / "visual_designer").resolve()
 sys.path.insert(0, str(generators_pkg_dir))
 from generators import new_presentation, save_slide, generate_process_flow, generate_chart_slide
-prs = new_presentation(palette="ocean_soft")
-prs = generate_process_flow(prs=prs, palette="ocean_soft", ..., source="来源: 新华网 2025年 | https://...")
-save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
+deck_theme = manifest["theme"]
+task = manifest["tasks"][0]
+prs = new_presentation(palette=deck_theme)
+prs = generate_process_flow(prs=prs, palette=deck_theme, ..., background=task.get("background") or None, source="来源: 新华网 2025年 | https://...")
+save_slide(prs.slides[-1], str(script_dir / task["output_file"]))
 ```
 
 ⚠️ save_slide 的第一个参数必须是 slide 对象（prs.slides[-1]），不是 prs。
@@ -87,9 +96,9 @@ save_slide(prs.slides[-1], "{{ .WorkDir }}/6_xxx.pptx")
 1. 用 read_file 读取 {{ .WorkDir }}/tasks.json（绝对路径）
 2. 找到需要处理的页面（指定页码或所有 pending 页面）
 3. 根据每个任务的 content_type 确定使用的生成器函数
-4. 检查任务的 background 字段；非空时必须作为 background 参数传给对应生成器，空值时只在封面、章节页、图文页或氛围页确有需要时自行选择
+4. 所有页面 palette 使用 tasks.json 顶层 theme；background 非空时原样传递，为空时保持为空，不得自行选择或改色
 5. 仅在图表、KPI、案例或任务描述缺少事实依据时，用 search 搜索真实数据来充实内容
-6. 用 python3 执行生成代码
+6. 用 python3 执行生成代码，并逐字符使用 task.output_file 保存
 7. **不要修改 tasks.json 状态**，只负责生成 PPT 文件
 
 ## 内容质量要求

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -229,9 +230,8 @@ func WriteTasksManifest(workDir string, manifest *TasksManifest) error {
 	return nil
 }
 
-// ReconcileTasksManifestOutputFiles marks tasks as done when their declared
-// output_file is already present on disk. This keeps interrupted or partially
-// reported runs from leaving a manifest that says every page is still pending.
+// ReconcileTasksManifestOutputFiles normalizes uniquely identifiable page
+// artifacts to their declared output_file and marks present outputs as done.
 func ReconcileTasksManifestOutputFiles(workDir string) (*TasksManifest, error) {
 	manifest, err := ReadTasksManifest(workDir)
 	if err != nil || manifest == nil {
@@ -242,10 +242,11 @@ func ReconcileTasksManifestOutputFiles(workDir string) (*TasksManifest, error) {
 		if t == nil || t.OutputFile == "" {
 			continue
 		}
-		if t.Status == StatusDone || t.Status == StatusQADone || t.Status == StatusFixed {
-			continue
+		ready, err := reconcileTaskOutputFile(workDir, t)
+		if err != nil {
+			return nil, err
 		}
-		if _, err := os.Stat(filepath.Join(workDir, t.OutputFile)); err == nil {
+		if ready && t.Status != StatusDone && t.Status != StatusQADone && t.Status != StatusFixed {
 			t.Status = StatusDone
 			changed = true
 		}
@@ -256,6 +257,83 @@ func ReconcileTasksManifestOutputFiles(workDir string) (*TasksManifest, error) {
 		}
 	}
 	return manifest, nil
+}
+
+func reconcileTaskOutputFile(workDir string, task *TaskItem) (bool, error) {
+	targetPath := filepath.Join(workDir, task.OutputFile)
+	if _, err := os.Stat(targetPath); err == nil {
+		return true, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+
+	candidates, err := pageOutputCandidates(workDir, task.PageIndex)
+	if err != nil {
+		return false, err
+	}
+	if len(candidates) != 1 {
+		return false, nil
+	}
+
+	sourceName := candidates[0]
+	sourcePath := filepath.Join(workDir, sourceName)
+	if err := os.Rename(sourcePath, targetPath); err != nil {
+		return false, fmt.Errorf("normalize output file %q to %q: %w", sourceName, task.OutputFile, err)
+	}
+	if err := renameRenderedThumbnail(workDir, sourceName, task.OutputFile); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func pageOutputCandidates(workDir string, pageIndex int) ([]string, error) {
+	if pageIndex <= 0 {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+	underscorePrefix := fmt.Sprintf("%d_", pageIndex)
+	dashPrefix := fmt.Sprintf("%d-", pageIndex)
+	var candidates []string
+	for _, entry := range entries {
+		name := entry.Name()
+		lowerName := strings.ToLower(name)
+		if entry.IsDir() || filepath.Ext(lowerName) != ".pptx" {
+			continue
+		}
+		if strings.HasPrefix(name, underscorePrefix) || strings.HasPrefix(name, dashPrefix) {
+			candidates = append(candidates, name)
+		}
+	}
+	return candidates, nil
+}
+
+func renameRenderedThumbnail(workDir, sourceFile, targetFile string) error {
+	sourceStem := strings.TrimSuffix(filepath.Base(sourceFile), filepath.Ext(sourceFile))
+	targetStem := strings.TrimSuffix(filepath.Base(targetFile), filepath.Ext(targetFile))
+	if sourceStem == targetStem {
+		return nil
+	}
+	qaDir := filepath.Join(workDir, "qa_images")
+	sourcePath := filepath.Join(qaDir, sourceStem+".jpg")
+	targetPath := filepath.Join(qaDir, targetStem+".jpg")
+	if _, err := os.Stat(sourcePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := os.Stat(targetPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(sourcePath, targetPath); err != nil {
+		return fmt.Errorf("normalize thumbnail %q to %q: %w", filepath.Base(sourcePath), filepath.Base(targetPath), err)
+	}
+	return nil
 }
 
 func ValidateTasksManifestOutcome(workDir string) (*ManifestValidationReport, error) {
@@ -280,7 +358,7 @@ func ValidateTasksManifestOutcome(workDir string) (*ManifestValidationReport, er
 			}
 		}
 	}
-	report.Invalid = len(report.PendingTasks) > 0 || len(report.MissingFiles) > 0
+	report.Invalid = report.Total == 0 || len(report.PendingTasks) > 0 || len(report.MissingFiles) > 0
 	return report, nil
 }
 

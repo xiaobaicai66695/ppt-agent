@@ -45,9 +45,9 @@ type Engine struct {
 
 // EngineConfig 引擎配置
 type EngineConfig struct {
-	EnableLLMClassification bool   // 是否启用LLM意图分类
-	EnableLearning          bool   // 是否启用持续学习
-	EnableProfileMatch      bool   // 是否启用画像匹配
+	EnableLLMClassification bool // 是否启用LLM意图分类
+	EnableLearning          bool // 是否启用持续学习
+	EnableProfileMatch      bool // 是否启用画像匹配
 }
 
 // NewEngine 创建智能学习引擎
@@ -60,8 +60,8 @@ func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory int
 	if cfg == nil {
 		cfg = &EngineConfig{
 			EnableLLMClassification: true,
-			EnableLearning:         true,
-			EnableProfileMatch:     true,
+			EnableLearning:          true,
+			EnableProfileMatch:      true,
 		}
 	}
 
@@ -216,8 +216,9 @@ func (e *Engine) ProcessTask(ctx context.Context, query string, userID int) (*Pr
 	profile := e.profileStore.GetEnhanced(userID)
 	result.Profile = profile
 
-	// Step 3: 路由决策
-	routingResult, err := e.router.Route(ctx, query, userID, profile)
+	// Step 3: reuse the same LLM classification for routing. Routing must not
+	// invoke a second model call or semantic rule pass.
+	routingResult, err := e.router.Route(intentResult, profile)
 	if err != nil {
 		logger.Warn("routing_failed", "error", err.Error())
 		result.Error = err.Error()
@@ -259,8 +260,8 @@ func (e *Engine) UpdateProfileFromTask(userID int, task *TaskContext) {
 
 	// 提取风格
 	extracted := &style.ExtractedStyle{
-		Themes:   task.Themes,
-		Colors:   task.Colors,
+		Themes:    task.Themes,
+		Colors:    task.Colors,
 		PageCount: task.PageCount,
 	}
 
@@ -323,9 +324,9 @@ type ProcessingResult struct {
 	Timestamp time.Time
 	Error     string
 
-	Intent   *intent.ClassificationResult
-	Routing  *intent.RoutingDecision
-	Profile  *style.EnhancedProfile
+	Intent  *intent.ClassificationResult
+	Routing *intent.RoutingDecision
+	Profile *style.EnhancedProfile
 }
 
 // Feedback 用户反馈
@@ -343,17 +344,17 @@ type Feedback struct {
 
 // TaskContext 任务上下文
 type TaskContext struct {
-	TaskID     string
-	UserID    int
-	Domain    string
-	Template  string
-	Theme     string
-	PageCount int
-	Duration  time.Duration
-	Success   bool
+	TaskID       string
+	UserID       int
+	Domain       string
+	Template     string
+	Theme        string
+	PageCount    int
+	Duration     time.Duration
+	Success      bool
 	QualityScore float64
-	Themes    []string
-	Colors    []string
+	Themes       []string
+	Colors       []string
 }
 
 func now() time.Time {

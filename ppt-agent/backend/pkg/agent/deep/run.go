@@ -281,7 +281,9 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 		lastMsg = answerBuf.String()
 	}
 
-	manifest, manifestErr := ReconcileTasksManifestOutputFiles(cfg.WorkDir)
+	// Delivery readiness is owned by TaskManager metadata. The runner only
+	// reports the manifest state and never performs a final filesystem scan.
+	manifest, manifestErr := ReadTasksManifest(cfg.WorkDir)
 	result = &PPTTaskResult{
 		Message:  lastMsg,
 		Duration: time.Since(start.StartTime),

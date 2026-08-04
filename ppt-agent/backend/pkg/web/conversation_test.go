@@ -52,6 +52,34 @@ func TestHandleGetConversationDeduplicatesCompletionFiles(t *testing.T) {
 	}
 }
 
+func TestHandleGetConversationIncludesLatestEventID(t *testing.T) {
+	manager := task.NewTaskManager(t.TempDir(), nil, nil, nil)
+	ts := manager.NewColdTaskState(task.TaskInfo{ID: "task-cursor", Status: task.TaskStatusRunning})
+	ts.Broadcast(task.SSERichEvent{Type: "answer", Content: "正在生成"})
+	ts.Broadcast(task.SSERichEvent{Type: "progress", Phase: "generating"})
+	ts.Broadcast(task.SSERichEvent{Type: "answer_end"})
+	server := &Server{tasks: manager, sessionManager: session.NewSessionManager()}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/tasks/task-cursor/conversation", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "task-cursor"}}
+
+	server.handleGetConversation(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		LatestEventID      uint64 `json:"latest_event_id"`
+		ReplayAfterEventID uint64 `json:"replay_after_event_id"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.LatestEventID != 3 || payload.ReplayAfterEventID != 3 {
+		t.Fatalf("event boundaries = (%d, %d), want (3, 3)", payload.LatestEventID, payload.ReplayAfterEventID)
+	}
+}
+
 func TestConversationMessagesWithFallbackKeepsStructuredAssistant(t *testing.T) {
 	messages := []session.Message{
 		{Role: "user", Content: "修改第二页"},

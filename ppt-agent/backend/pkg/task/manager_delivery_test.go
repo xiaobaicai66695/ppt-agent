@@ -1,9 +1,15 @@
 package task
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 )
 
 func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
@@ -121,5 +127,86 @@ func TestReportFileReadyBroadcastsBeforeStartingCallback(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("file-ready callback was not scheduled")
+	}
+}
+
+func TestApplyDeliverySnapshotOutcomeRejectsIncompleteMetadata(t *testing.T) {
+	ts := &TaskState{Info: TaskInfo{Status: TaskStatusCompleted}}
+	delivery := DeliverySnapshot{
+		Total: 23, Done: 21, PendingTasks: []string{"22", "23"},
+	}
+
+	if !applyDeliverySnapshotOutcome(ts, delivery) {
+		t.Fatal("incomplete delivery was not rejected")
+	}
+	if ts.Info.Status != TaskStatusFailed {
+		t.Fatalf("status = %q, want failed", ts.Info.Status)
+	}
+	if !strings.Contains(ts.Info.Error, "已交付 21/23 页") || !strings.Contains(ts.Info.Error, "仍有 2 页待完成") {
+		t.Fatalf("unexpected error: %q", ts.Info.Error)
+	}
+}
+
+func TestApplyDeliverySnapshotOutcomeRejectsEmptyMetadata(t *testing.T) {
+	ts := &TaskState{Info: TaskInfo{Status: TaskStatusCompleted}}
+	if !applyDeliverySnapshotOutcome(ts, DeliverySnapshot{}) {
+		t.Fatal("empty delivery metadata was not rejected")
+	}
+	if ts.Info.Status != TaskStatusFailed || !strings.Contains(ts.Info.Error, "没有有效页面") {
+		t.Fatalf("status=%q error=%q", ts.Info.Status, ts.Info.Error)
+	}
+}
+
+func TestApplyDeliverySnapshotOutcomeAllowsCompleteMetadata(t *testing.T) {
+	ts := &TaskState{Info: TaskInfo{Status: TaskStatusCompleted}}
+	delivery := DeliverySnapshot{Total: 23, Done: 23, Files: []string{"1.pptx"}}
+	if applyDeliverySnapshotOutcome(ts, delivery) {
+		t.Fatal("verified delivery was rejected")
+	}
+	if ts.Info.Status != TaskStatusCompleted || ts.Info.Error != "" {
+		t.Fatalf("status=%q error=%q", ts.Info.Status, ts.Info.Error)
+	}
+}
+
+func TestApplyDeliverySnapshotOutcomePreservesUserCancellation(t *testing.T) {
+	ts := &TaskState{Info: TaskInfo{Status: TaskStatusCancelled, Error: "任务已被用户中断"}}
+	if applyDeliverySnapshotOutcome(ts, DeliverySnapshot{}) {
+		t.Fatal("cancelled task was revalidated")
+	}
+	if ts.Info.Status != TaskStatusCancelled {
+		t.Fatalf("status=%q, want cancelled", ts.Info.Status)
+	}
+}
+
+func TestPollProgressSignalsMetadataCompletion(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &deep.TasksManifest{Tasks: []*deep.TaskItem{{
+		TaskID: "1", PageIndex: 1, Title: "封面", ContentType: "title_slide",
+		OutputFile: "1_封面.pptx", Status: deep.StatusPending,
+	}}}
+	if err := deep.WriteTasksManifest(workDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "1_封面.pptx"), []byte("pptx"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-1", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent), reportedFiles: make(map[string]bool),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	completed := make(chan DeliverySnapshot, 1)
+	go (&TaskManager{}).pollProgress(ctx, ts, workDir, func(snapshot DeliverySnapshot) {
+		completed <- snapshot
+	})
+
+	select {
+	case snapshot := <-completed:
+		if !snapshot.Complete() || snapshot.Done != 1 || snapshot.Total != 1 {
+			t.Fatalf("snapshot=%#v", snapshot)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("metadata completion was not signaled")
 	}
 }

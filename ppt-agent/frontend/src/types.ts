@@ -30,6 +30,8 @@ export interface ConversationMessage {
 
 export interface ConversationSession {
   task_id: string;
+  latest_event_id?: number;
+  replay_after_event_id?: number;
   messages: ConversationMessage[];
   // 冷启动时从 task_records 重建的完整拼接内容。
   conversation_content?: string;
@@ -45,6 +47,12 @@ export interface ConversationSession {
   total_tokens?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface LiveActivity {
+  label: string;
+  detail?: string;
+  state: 'idle' | 'running' | 'success' | 'error';
 }
 
 // ── User profile types ──────────────────────────────────────────────────────
@@ -201,7 +209,7 @@ export interface SSEEvent {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
-  phase?: string;       // 当前阶段: preparing/planning/generating/qa/fixing/complete
+  phase?: string;       // 当前阶段: preparing/planning/generating/complete
   phase_detail?: string; // 阶段详情
   runtime_meta?: RuntimeMeta;
 }

@@ -139,21 +139,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	}
 
 	// 初始化智能学习引擎（意图分类 + 偏好学习）
-	var aiFactory, textFactory interface{}
-	if cfg.AIModelFactory != nil {
-		if f, err := cfg.AIModelFactory(context.Background()); err == nil {
-			aiFactory = f
-		}
-	}
-	if cfg.TextModelFactory != nil {
-		if f, err := cfg.TextModelFactory(context.Background()); err == nil {
-			textFactory = f
-		}
-	}
-	deep.InitLearningEngine(
-		func() interface{} { return aiFactory },
-		func() interface{} { return textFactory },
-	)
+	deep.InitLearningEngine(cfg.AIModelFactory, cfg.TextModelFactory)
 
 	// 创建任务管理器，并注册风格更新回调
 	s.tasks = task.NewTaskManager(cfg.BaseDir,

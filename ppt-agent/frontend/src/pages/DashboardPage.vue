@@ -28,7 +28,8 @@ import EventLog from '../components/EventLog.vue';
 import SlidePreviewCard from '../components/SlidePreviewCard.vue';
 import ConversationComposer from '../components/ConversationComposer.vue';
 import {
-  mergeSlideDeliveries, recoverConversationMessages, summarizeTaskTitle,
+  deriveLiveActivity, mergeConversationMessages, mergeSlideDeliveries, nextReplayCursor,
+  recoverConversationMessages, summarizeTaskTitle,
 } from '../utils/workbench';
 
 const router = useRouter();
@@ -40,7 +41,7 @@ const selectedId = ref<string | null>(null);
 const taskItems = ref<TaskItem[]>([]);
 const doneCount = ref(0);
 const totalCount = ref(0);
-const currentPhase = ref('');    // preparing/planning/generating/qa/fixing/complete
+const currentPhase = ref('');    // preparing/planning/generating/complete
 const phaseDetail = ref('');     // "生成第3/21页" / "读取模板" 等
 const logLines = ref<{ ts: number; text: string; kind: import('../types').LogKind }[]>([]);
 const finalFiles = ref<string[]>([]);
@@ -54,6 +55,7 @@ const cancelling = ref(false);
 const creating = ref(false);
 const loadError = ref('');
 const sidebarOpen = ref(false);
+const sseConnectionInterrupted = ref(false);
 
 function closeSidebar() {
   sidebarOpen.value = false;
@@ -89,17 +91,21 @@ const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
   if (!selectedTask.value) return 'create';
   return selectedTask.value.status === 'running' ? 'queue' : 'continue';
 });
-async function loadConversation(taskId: string) {
+async function loadConversation(taskId: string, replace = false) {
   conversationLoading.value = true;
   try {
     const session = await fetchConversation(taskId);
     if (selectedId.value !== taskId) return;
-    conversationMessages.value = recoverConversationMessages(session);
+    const recovered = recoverConversationMessages(session);
+    conversationMessages.value = replace
+      ? recovered
+      : mergeConversationMessages(conversationMessages.value, recovered);
     if (logLines.value.length === 0) restoreFromConversation(session);
     if (session.files?.length) finalFiles.value = session.files;
     if (session.duration) duration.value = session.duration;
     if (session.done_count !== undefined) doneCount.value = session.done_count;
     if (session.total_count !== undefined) totalCount.value = session.total_count;
+    return session;
   } catch {
     if (selectedId.value === taskId) composerError.value = '对话历史暂时无法恢复，任务产物仍可正常查看';
   } finally {
@@ -231,6 +237,16 @@ const runtimeQATotal = computed(() =>
 );
 const runtimeWarnings = computed(() => runtimeMeta.value?.budget_warnings || []);
 const runtimeTimeline = computed(() => (runtimeMeta.value?.recent_events || []).slice(-24).reverse());
+const liveActivity = computed(() => deriveLiveActivity({
+  status: selectedTask.value?.status,
+  phase: currentPhase.value,
+  phaseDetail: phaseDetail.value,
+  lastTool: runtimeMeta.value?.last_tool,
+  connectionInterrupted: sseConnectionInterrupted.value,
+  done: doneCount.value,
+  total: totalCount.value,
+  error: selectedTask.value?.error,
+}));
 
 function eventStatusLabel(status?: string): string {
   if (!status) return 'ok';
@@ -304,7 +320,6 @@ function addLog(kind: import('../types').LogKind, text: string) {
 
 // ── SSE ────────────────────────────────────────────────────────────────
 let sseCompleted = false;
-let sseConnectionInterrupted = false;
 
 let lastSeenEventID = 0;
 
@@ -320,31 +335,29 @@ function connectSSE(taskId: string, afterEventID = 0) {
   activeWorkers.value = 0;
 
   es.onopen = () => {
-	if (sseConnectionInterrupted) {
+	if (sseConnectionInterrupted.value) {
 	  addLog('worker', '实时连接已恢复');
 	}
-	sseConnectionInterrupted = false;
+	sseConnectionInterrupted.value = false;
   };
 
   es.onerror = () => {
-	if (sseCompleted || sseConnectionInterrupted) return;
-	sseConnectionInterrupted = true;
+	if (sseCompleted || sseConnectionInterrupted.value) return;
+	sseConnectionInterrupted.value = true;
 	addLog('error', '实时连接暂时中断，浏览器正在自动重连；任务状态仍会通过轮询同步');
   };
 
   const handler = (e: MessageEvent) => {
     let evt: SSEEvent;
     try { evt = JSON.parse(e.data); } catch { return; }
-    if (e.lastEventId) lastSeenEventID = Number.parseInt(e.lastEventId, 10) || lastSeenEventID;
+    const eventID = e.lastEventId ? Number.parseInt(e.lastEventId, 10) : (evt.id || 0);
+    if (eventID > 0 && eventID <= lastSeenEventID) return;
+    if (eventID > 0) lastSeenEventID = eventID;
 
     switch (evt.type) {
       case 'answer': {
         const chunk = evt.content || '';
         if (chunk) {
-          if (logLines.value.length === 0 || logLines.value[logLines.value.length - 1].kind !== 'answer') {
-            addLog('divider', '── AI 响应 ──');
-          }
-          addLog('answer', chunk);
           appendAssistantDelta(chunk);
         }
 		break;
@@ -461,7 +474,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
         es = null;
         stopPolling();
         void refreshTask(taskId);
-        window.setTimeout(() => void loadConversation(taskId), 200);
+        window.setTimeout(() => void loadConversation(taskId, true), 200);
         break;
 
       case 'complete':
@@ -499,7 +512,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
           }, 300);
         } else {
           stopPolling();
-          window.setTimeout(() => void loadConversation(taskId), 200);
+          window.setTimeout(() => void loadConversation(taskId, true), 200);
         }
         break;
     }
@@ -524,14 +537,13 @@ function connectSSE(taskId: string, afterEventID = 0) {
 function disconnectSSE() {
   if (es) { es.close(); es = null; }
   stopPolling();
-  lastSeenEventID = 0;
   streamingAssistant.value = '';
   composerLoading.value = false;
   continuationQueued.value = false;
   currentPhase.value = '';
   phaseDetail.value = '';
   runtimeMeta.value = null;
-  sseConnectionInterrupted = false;
+  sseConnectionInterrupted.value = false;
 }
 
 function markThumbnailReady(files: string[]) {
@@ -601,15 +613,9 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
-// Restore log lines and files from conversation_content (cold start).
-// 优先使用 full_answer（完整累积的 LLM 输出），回退到 conversation_content markdown 解析。
+// Restore operational log lines from conversation_content on cold start.
+// Assistant/user prose belongs exclusively to ConversationComposer.
 function restoreFromConversation(sess: import('../types').ConversationSession) {
-  // 优先使用完整累积的 LLM 回答
-  if (sess.full_answer) {
-    logLines.value = [{ ts: Date.now(), text: sess.full_answer, kind: 'answer' }];
-    return;
-  }
-
   if (!sess.conversation_content) return;
 
   const lines: { ts: number; text: string; kind: import('../types').LogKind }[] = [];
@@ -618,14 +624,8 @@ function restoreFromConversation(sess: import('../types').ConversationSession) {
   for (const raw of linesArr) {
     const line = raw.trim();
     if (!line) continue;
-    if (line.startsWith('**助手**')) {
-      lines.push({ ts: Date.now(), text: line.replace('**助手**:', '').trim(), kind: 'answer' });
-    } else if (line.startsWith('**用户**')) {
-      lines.push({ ts: Date.now(), text: line.replace('**用户**:', '').trim(), kind: 'answer' });
-    } else if (line.startsWith('**错误**')) {
+    if (line.startsWith('**错误**')) {
       lines.push({ ts: Date.now(), text: line.replace('**错误**:', '').trim(), kind: 'error' });
-    } else if (line.startsWith('**完成摘要**')) {
-      lines.push({ ts: Date.now(), text: line.replace('**完成摘要**:', '').trim(), kind: 'answer' });
     } else if (line.startsWith('**生成文件**')) {
       lines.push({ ts: Date.now(), text: line, kind: 'file' });
     } else if (line.startsWith('##') || line.startsWith('|')) {
@@ -679,6 +679,9 @@ interface TaskCache {
   activeWorkers: number;
   batches: Batch[];
   runtimeMeta: RuntimeMeta | null;
+  conversationMessages: import('../types').ConversationMessage[];
+  streamingAssistant: string;
+  lastSeenEventID: number;
 }
 const taskCache = new Map<string, TaskCache>();
 
@@ -696,6 +699,9 @@ function saveCache(id: string) {
     activeWorkers: activeWorkers.value,
     batches: [...batches.value],
     runtimeMeta: runtimeMeta.value ? { ...runtimeMeta.value } : null,
+    conversationMessages: conversationMessages.value.map(message => ({ ...message })),
+    streamingAssistant: streamingAssistant.value,
+    lastSeenEventID,
   });
 }
 
@@ -714,12 +720,19 @@ function restoreCache(id: string): boolean {
   activeWorkers.value = c.activeWorkers;
   batches.value = c.batches;
   runtimeMeta.value = c.runtimeMeta;
+  conversationMessages.value = c.conversationMessages.map(message => ({ ...message }));
+  streamingAssistant.value = c.streamingAssistant;
+  lastSeenEventID = c.lastSeenEventID;
   return true;
 }
 
 // ── Actions ────────────────────────────────────────────────────────────
-function selectTask(id: string) {
+let selectionEpoch = 0;
+
+async function selectTask(id: string) {
   if (!id) return;
+  if (selectedId.value === id) return;
+  const epoch = ++selectionEpoch;
   if (selectedId.value && selectedId.value !== id) {
     saveCache(selectedId.value);
     disconnectSSE();
@@ -734,24 +747,14 @@ function selectTask(id: string) {
 
   // Restore cached state if switching back to a previously viewed task
   if (restoreCache(id)) {
-    // Check if cached data is incomplete (replay was interrupted, or new data arrived)
-    const cachedDone = doneCount.value;
-    const cachedFiles = finalFiles.value.length;
-    const needReplay = t.status !== 'failed' && (
-      t.status === 'running' || // running: always reconnect for live updates
-      t.done_count > cachedDone || // more done than cached → replay was incomplete
-      (t.files?.length || 0) > cachedFiles // more files than cached
-    );
-    if (needReplay) {
-      // Clear volatile state before replay to avoid duplicates
-      logLines.value = [];
-      taskItems.value = [];
-      batches.value = [];
+    conversationLoading.value = false;
+    if (t.status === 'running') {
 	  sseCompleted = false;
-	  connectSSE(id);
+	  connectSSE(id, lastSeenEventID);
 	  startPolling(id);
+    } else {
+      await loadConversation(id, true);
     }
-    void loadConversation(id);
     return;
   }
 
@@ -765,17 +768,23 @@ function selectTask(id: string) {
   duration.value = t.duration || '';
   activeWorkers.value = 0;
   batches.value = [];
-  runtimeMeta.value = null;
-  selectedSlides.value = new Set();
+	runtimeMeta.value = null;
+	selectedSlides.value = new Set();
 	sseCompleted = false;
+	lastSeenEventID = 0;
+	streamingAssistant.value = '';
 
   if (t.status !== 'failed') {
     if (t.status === 'running') {
-      // 正在运行：通过 SSE 实时接收事件 + polling 兜底
-      connectSSE(id);
-      startPolling(id);
+	  // Restore finalized turns first, then replay only the unfinished turn.
+	  const session = await loadConversation(id, true);
+	  if (epoch !== selectionEpoch || selectedId.value !== id) return;
+	  lastSeenEventID = nextReplayCursor(0, session?.replay_after_event_id || 0);
+	  connectSSE(id, lastSeenEventID);
+	  startPolling(id);
+	} else {
+	  await loadConversation(id, true);
     }
-    void loadConversation(id);
   }
 }
 
@@ -1209,6 +1218,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
         :submitting="composerLoading || creating"
         :error="composerError || (!selectedTask ? loadError : '')"
         :notice="composerNotice"
+        :activity="selectedTask ? liveActivity : undefined"
         @submit="submitComposer"
       />
     </main>

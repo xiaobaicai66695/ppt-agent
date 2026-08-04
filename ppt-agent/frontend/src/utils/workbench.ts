@@ -1,4 +1,4 @@
-import type { ConversationMessage, ConversationSession, TaskItem } from '../types';
+import type { ConversationMessage, ConversationSession, LiveActivity, TaskItem, TaskStatus } from '../types';
 
 export interface SlideDeliveryEntry {
   key: string;
@@ -23,14 +23,29 @@ function pageIndexFromFile(file: string, fallback: number): number {
 }
 
 export function mergeSlideDeliveries(taskItems: TaskItem[], files: string[]): SlideDeliveryEntry[] {
-  const readyFiles = new Set(files.map(canonicalOutputFile).filter(Boolean).map(file => file.toLocaleLowerCase()));
+  const readyFileMap = new Map<string, string>();
+  for (const file of files.map(canonicalOutputFile).filter(Boolean)) {
+    readyFileMap.set(file.toLocaleLowerCase(), file);
+  }
+  const readyFiles = [...readyFileMap.values()];
+  const readyFilesByPage = new Map<number, string[]>();
+  for (const file of readyFiles) {
+    const pageIndex = pageIndexFromFile(file, 0);
+    if (pageIndex <= 0) continue;
+    readyFilesByPage.set(pageIndex, [...(readyFilesByPage.get(pageIndex) || []), file]);
+  }
   const entries = new Map<string, SlideDeliveryEntry>();
+  const consumedFiles = new Set<string>();
 
   for (const item of taskItems) {
     const canonicalFile = canonicalOutputFile(item.output_file);
-    const normalized: TaskItem = { ...item, output_file: canonicalFile };
+    const exactFile = readyFileMap.get(canonicalFile.toLocaleLowerCase());
+    const pageCandidates = readyFilesByPage.get(item.page_index) || [];
+    const actualFile = exactFile || (pageCandidates.length === 1 ? pageCandidates[0] : '');
+    const normalized: TaskItem = { ...item, output_file: actualFile || canonicalFile };
     const key = slideIdentity(normalized);
-    const fileReady = canonicalFile !== '' && readyFiles.has(canonicalFile.toLocaleLowerCase());
+    const fileReady = actualFile !== '';
+    if (actualFile) consumedFiles.add(actualFile.toLocaleLowerCase());
     const existing = entries.get(key);
     if (!existing || (!existing.task.output_file && canonicalFile)) {
       entries.set(key, { key, task: normalized, fileReady });
@@ -40,6 +55,7 @@ export function mergeSlideDeliveries(taskItems: TaskItem[], files: string[]): Sl
   }
 
   for (const file of readyFiles) {
+    if (consumedFiles.has(file.toLocaleLowerCase())) continue;
     const pageIndex = pageIndexFromFile(file, entries.size + 1);
     const fallback: TaskItem = {
       task_id: `file:${file}`,
@@ -52,8 +68,7 @@ export function mergeSlideDeliveries(taskItems: TaskItem[], files: string[]): Sl
     const key = slideIdentity(fallback);
     const existing = entries.get(key);
     if (existing) {
-      existing.fileReady = true;
-      if (!existing.task.output_file) existing.task.output_file = fallback.output_file;
+      continue;
     } else {
       entries.set(key, { key, task: fallback, fileReady: true });
     }
@@ -116,6 +131,75 @@ export function recoverConversationMessages(session: ConversationSession): Conve
       : [{ role: 'assistant', content: session.conversation_content.trim(), timestamp }];
   }
   return [];
+}
+
+export function mergeConversationMessages(
+  current: ConversationMessage[], incoming: ConversationMessage[],
+): ConversationMessage[] {
+  const merged = current.map(message => ({ ...message }));
+  const seen = new Set(merged.map(message => `${message.role}\u0000${message.content.trim()}`));
+  for (const message of incoming) {
+    const content = message.content?.trim();
+    if (!content) continue;
+    const key = `${message.role}\u0000${content}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ...message, content });
+  }
+  return merged;
+}
+
+export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {
+  return Math.max(0, cachedEventID, sessionBoundary);
+}
+
+export interface LiveActivityInput {
+  status?: TaskStatus;
+  phase?: string;
+  phaseDetail?: string;
+  lastTool?: string;
+  connectionInterrupted?: boolean;
+  done?: number;
+  total?: number;
+  error?: string;
+}
+
+export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
+  if (input.connectionInterrupted) {
+    return { label: '正在恢复实时连接', detail: '任务仍在服务器继续执行', state: 'running' };
+  }
+  if (input.status === 'failed') {
+    return { label: '生成遇到错误', detail: input.error || '请查看执行轨迹', state: 'error' };
+  }
+  if (input.status === 'cancelled') {
+    return { label: '任务已中断', state: 'idle' };
+  }
+  if (input.status === 'completed' || input.phase === 'complete') {
+    return { label: '演示生成完成', detail: input.total ? `已完成 ${input.done || input.total}/${input.total} 页` : undefined, state: 'success' };
+  }
+
+  const toolLabels: Record<string, string> = {
+    search: '正在检索并核实资料',
+    read_file: '正在读取模板与设计规范',
+    update_tasks_manifest: '正在整理页面内容',
+    task: '正在并行生成幻灯片',
+    python3: '正在渲染幻灯片',
+    bash: '正在执行生成工具',
+    batch_convert: '正在整理演示文件',
+  };
+  const phaseLabels: Record<string, string> = {
+    preparing: '正在准备任务',
+    planning: '正在规划演示内容',
+    generating: '正在生成幻灯片',
+    qa: '正在检查演示质量',
+    fixing: '正在修正页面',
+  };
+  const label = input.phaseDetail
+    || (input.lastTool ? toolLabels[input.lastTool] : '')
+    || (input.phase ? phaseLabels[input.phase] : '')
+    || '正在思考并推进任务';
+  const detail = input.total && input.total > 0 ? `已完成 ${input.done || 0}/${input.total} 页` : '任务正在持续运行';
+  return { label, detail, state: input.status === 'running' ? 'running' : 'idle' };
 }
 
 function escapeHtml(value: string): string {

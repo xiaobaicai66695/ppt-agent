@@ -22,14 +22,14 @@ import "strings"
 type Intent int
 
 const (
-	IntentUnknown Intent = iota
-	IntentCreate      // 新建PPT
-	IntentEdit        // 编辑现有PPT
-	IntentExtend      // 扩展PPT（增加页数）
-	IntentRegenerate  // 重新生成某页
-	IntentQuery       // 询问问题
-	IntentCustomize   // 定制化调整
-	IntentContinue    // 继续未完成的任务
+	IntentUnknown    Intent = iota
+	IntentCreate            // 新建PPT
+	IntentEdit              // 编辑现有PPT
+	IntentExtend            // 扩展PPT（增加页数）
+	IntentRegenerate        // 重新生成某页
+	IntentQuery             // 询问问题
+	IntentCustomize         // 定制化调整
+	IntentContinue          // 继续未完成的任务
 )
 
 func (i Intent) String() string {
@@ -84,7 +84,7 @@ const (
 	DomainPersonal   Domain = "personal"   // 个人/生活
 	DomainCreative   Domain = "creative"   // 创意/艺术
 	DomainGovernment Domain = "government" // 政务/党建
-	DomainTechnical  Domain = "technical" // 技术/工程
+	DomainTechnical  Domain = "technical"  // 技术/工程
 	DomainUnknown    Domain = "unknown"
 )
 
@@ -114,13 +114,13 @@ func ParseDomain(s string) Domain {
 
 // Complexity 任务复杂度评估
 type Complexity struct {
-	Level            int    // 1-10 综合复杂度
-	TopicComplexity  int    // 1-10 主题复杂度
-	PageCountEstimate int   // 预估页数
-	NeedsResearch    bool   // 是否需要搜索研究
-	NeedsDataViz     bool   // 是否需要数据可视化
-	NeedsMultiMedia  bool   // 是否需要多媒体元素
-	AudienceLevel    string // 受众专业程度: beginner/intermediate/expert
+	Level             int    // 1-10 综合复杂度
+	TopicComplexity   int    // 1-10 主题复杂度
+	PageCountEstimate int    // 预估页数
+	NeedsResearch     bool   // 是否需要搜索研究
+	NeedsDataViz      bool   // 是否需要数据可视化
+	NeedsMultiMedia   bool   // 是否需要多媒体元素
+	AudienceLevel     string // 受众专业程度: beginner/intermediate/expert
 }
 
 // Urgency 紧迫度
@@ -157,6 +157,10 @@ type ClassificationResult struct {
 	SuggestedTemplates []string   // 建议的模板
 	SuggestedTheme     string     // 建议的配色主题
 	SuggestedPageCount int        // 建议的页数
+	AgentType          string     // LLM 选择的可执行 Agent 类型
+	Pipeline           []string   // LLM 建议的执行阶段
+	Concurrency        int        // LLM 建议的页面生成并发数
+	RoutingSource      string     // llm 或 fallback
 }
 
 // HasHighConfidence 判断是否有高置信度
@@ -176,36 +180,39 @@ func (r *ClassificationResult) NeedsFullPipeline() bool {
 
 // RoutingDecision 路由决策
 type RoutingDecision struct {
-	AgentType      string   // Agent类型: deep/quick/simple
-	Pipeline       []string // 执行的pipeline阶段
-	Concurrency    int      // 并发数
-	SkipQA         bool     // 是否跳过QA
-	SkipFix        bool     // 是否跳过修复
-	UseCustomFlow  bool     // 是否使用自定义流程
-	CacheProfile   bool     // 是否使用缓存的偏好
-	Priority       int      // 优先级 1-10
-	EstimatedCost  int      // 预估消耗 tokens
-	EstimatedTime  int      // 预估时间（秒）
+	AgentType     string   // Agent类型: deep/quick/simple
+	Pipeline      []string // 执行的pipeline阶段
+	Concurrency   int      // 并发数
+	Source        string   // llm 或 fallback
+	Reason        string   // 路由理由
+	SkipQA        bool     // 是否跳过QA
+	SkipFix       bool     // 是否跳过修复
+	UseCustomFlow bool     // 是否使用自定义流程
+	CacheProfile  bool     // 是否使用缓存的偏好
+	Priority      int      // 优先级 1-10
+	EstimatedCost int      // 预估消耗 tokens
+	EstimatedTime int      // 预估时间（秒）
 }
 
 // NewDefaultRoutingDecision 返回默认路由决策
 func NewDefaultRoutingDecision() *RoutingDecision {
 	return &RoutingDecision{
-		AgentType:   "deep",
-		Pipeline:    []string{"plan", "generate", "qa", "fix"},
-		Concurrency: 5,
-		SkipQA:      false,
-		SkipFix:     false,
+		AgentType:    "deep",
+		Pipeline:     []string{"plan", "generate"},
+		Concurrency:  5,
+		Source:       "fallback",
+		SkipQA:       true,
+		SkipFix:      true,
 		CacheProfile: true,
-		Priority:    5,
+		Priority:     5,
 	}
 }
 
 // ActionRecommendation 动作推荐
 type ActionRecommendation struct {
-	Action       string  // 动作类型
-	Priority     int     // 优先级
-	Reason      string  // 推荐理由
-	Confidence   float64 // 置信度
-	Parameters   map[string]interface{} // 动作参数
+	Action     string                 // 动作类型
+	Priority   int                    // 优先级
+	Reason     string                 // 推荐理由
+	Confidence float64                // 置信度
+	Parameters map[string]interface{} // 动作参数
 }

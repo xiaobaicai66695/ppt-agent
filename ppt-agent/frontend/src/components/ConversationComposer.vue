@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { LoaderCircle, MessageSquareText, Send } from 'lucide-vue-next';
-import type { ConversationMessage } from '../types';
+import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
+import type { ConversationMessage, LiveActivity } from '../types';
 import { renderSafeMarkdown } from '../utils/workbench';
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const props = defineProps<{
   submitting?: boolean;
   error?: string;
   notice?: string;
+  activity?: LiveActivity;
 }>();
 
 const emit = defineEmits<{
@@ -72,6 +73,22 @@ function handleKeydown(event: KeyboardEvent) {
         {{ showHistory ? '收起对话' : `查看对话 (${messages.length})` }}
       </button>
     </header>
+
+    <div
+      v-if="activity"
+      class="activity-line"
+      :class="activity.state"
+      role="status"
+      :aria-live="activity.state === 'error' ? 'assertive' : 'polite'"
+    >
+      <LoaderCircle v-if="activity.state === 'running'" :size="15" class="spin" />
+      <CircleCheck v-else-if="activity.state === 'success'" :size="15" />
+      <TriangleAlert v-else-if="activity.state === 'error'" :size="15" />
+      <span class="activity-copy">
+        <strong>{{ activity.label }}</strong>
+        <small v-if="activity.detail">{{ activity.detail }}</small>
+      </span>
+    </div>
 
     <div v-show="showHistory" ref="thread" class="conversation-thread" aria-live="polite">
       <div v-if="historyLoading && messages.length === 0" class="history-state">
@@ -133,6 +150,10 @@ function handleKeydown(event: KeyboardEvent) {
 .composer-identity small { margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .history-toggle { min-height: 34px; padding: 0 9px; flex: 0 0 auto; border: 0; border-radius: 5px; color: var(--text-secondary); background: transparent; font-size: 11px; cursor: pointer; }
 .history-toggle:hover { background: var(--surface-muted); }
+.activity-line { min-height: 38px; padding: 7px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--divider); color: var(--text-secondary); background: var(--surface-muted); }
+.activity-line.running { color: var(--info); }.activity-line.success { color: var(--success); }.activity-line.error { color: var(--danger); }
+.activity-copy { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.activity-copy strong { color: currentColor; font-size: 11px; }.activity-copy small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .conversation-thread { max-height: 340px; padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: auto; border-bottom: 1px solid var(--divider); background: var(--surface-muted); }
 .message { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 8px; }

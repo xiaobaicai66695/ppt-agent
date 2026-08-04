@@ -80,6 +80,10 @@ type EvalResult struct {
 func TestIntentEval(t *testing.T) {
 	// 加载 .env，确保 LLM 模式下 ARK_MODEL / ARK_API_KEY 等环境变量可用
 	_ = godotenv.Load(filepath.Join("..", "..", ".env"))
+	useLLM := strings.ToLower(os.Getenv("EVAL_USE_LLM")) == "true"
+	if !useLLM {
+		t.Skip("规则分类已停用；设置 EVAL_USE_LLM=true 运行真实 LLM 路由评估")
+	}
 
 	datafile := os.Getenv("EVAL_DATAFILE")
 	if datafile == "" {
@@ -94,7 +98,6 @@ func TestIntentEval(t *testing.T) {
 		t.Fatal("测试数据集为空，请检查 JSONL 文件")
 	}
 
-	useLLM := strings.ToLower(os.Getenv("EVAL_USE_LLM")) == "true"
 	llmLimit := envInt("EVAL_LLM_LIMIT", 20) // 默认最多 20 条走 LLM
 	llmConcur := envInt("EVAL_LLM_CONCUR", 5)
 	if llmConcur < 1 {
@@ -133,102 +136,38 @@ func TestIntentEval(t *testing.T) {
 	}
 }
 
-// evaluateCases 对全部用例求值。
-// 当 useLLM 为 true 时，先做一次规则匹配筛选出低置信度用例，再对这些用例并发调 LLM。
+// evaluateCases evaluates model routing directly. Keyword-rule pre-screening
+// is intentionally absent because production routing is LLM-first.
 func evaluateCases(t *testing.T, ctx context.Context, classifier *intent.Classifier,
 	cases []EvalCase, useLLM bool, llmLimit, llmConcur int) []EvalResult {
 	t.Helper()
+	_ = useLLM
+	selected := cases
+	if llmLimit > 0 && len(selected) > llmLimit {
+		selected = selected[:llmLimit]
+	}
+	t.Logf("  直接执行 LLM 路由评估: %d 条 (limit=%d)", len(selected), llmLimit)
 
-	if !useLLM {
-		// 纯规则模式：直接串行跑，速度很快
-		results := make([]EvalResult, 0, len(cases))
-		for _, c := range cases {
-			cr, err := classifier.Classify(ctx, c.Query, 0)
-			if err != nil {
-				t.Errorf("用例 %d Classify 失败: %v", c.ID, err)
-				continue
-			}
-			results = append(results, makeResult(c, cr, "rule"))
-		}
-		return results
-	}
-
-	// ── LLM 增强模式 ──
-	// Step 1: 先创建纯规则分类器，快速筛选出需要 LLM 的用例
-	ruleClassifier := intent.NewClassifier(nil, nil)
-	type workItem struct {
-		ec      EvalCase
-		needsLLM bool
-	}
-	var items []workItem
-	for _, c := range cases {
-		cr, _ := ruleClassifier.Classify(ctx, c.Query, 0)
-		needsLLM := cr.Confidence < 0.85
-		items = append(items, workItem{ec: c, needsLLM: needsLLM})
-	}
-
-	// Step 2: 统计需要走 LLM 的用例数，限制在 llmLimit 内
-	llmIndices := make(map[int]bool)
-	llmCount := 0
-	for i, item := range items {
-		if item.needsLLM && (llmLimit == 0 || llmCount < llmLimit) {
-			llmIndices[i] = true
-			llmCount++
-		}
-	}
-	needsLLMTotal := 0
-	for _, item := range items {
-		if item.needsLLM {
-			needsLLMTotal++
-		}
-	}
-	t.Logf("  规则筛选: %d 条低置信度, 实际走LLM: %d 条 (limit=%d)", needsLLMTotal, llmCount, llmLimit)
-
-	// Step 3: 并发执行全部用例
-	results := make([]EvalResult, len(items))
+	results := make([]EvalResult, len(selected))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, llmConcur) // 并发控制信号量
+	sem := make(chan struct{}, llmConcur)
 
-	for i, item := range items {
+	for i, item := range selected {
 		wg.Add(1)
-		go func(idx int, wi workItem) {
+		go func(idx int, ec EvalCase) {
 			defer wg.Done()
-
-			useLLMForThis := llmIndices[idx]
-			source := "rule"
-			var cr *intent.ClassificationResult
-			var err error
-
-			if useLLMForThis {
-				sem <- struct{}{}        // 获取并发槽位
-				cr, err = classifier.Classify(ctx, wi.ec.Query, 0)
-				<-sem                    // 释放槽位
-				source = "llm"
-			} else {
-				cr, err = ruleClassifier.Classify(ctx, wi.ec.Query, 0)
-			}
-
+			sem <- struct{}{}
+			cr, err := classifier.Classify(ctx, ec.Query, 0)
+			<-sem
 			if err != nil {
-				t.Errorf("用例 %d Classify 失败: %v", wi.ec.ID, err)
+				t.Errorf("用例 %d Classify 失败: %v", ec.ID, err)
 				cr = &intent.ClassificationResult{Intent: intent.IntentUnknown}
 			}
-
-			results[idx] = makeResult(wi.ec, cr, source)
+			results[idx] = makeResult(ec, cr, "llm")
 		}(i, item)
 	}
 	wg.Wait()
-
-	// 过滤掉失败的（Intent == unknown）
-	var final []EvalResult
-	for _, r := range results {
-		if r.PredIntent != "unknown" || r.Case.Query != "" {
-			final = append(final, r)
-		}
-	}
-	if len(final) == 0 {
-		return results
-	}
-	return final
+	return results
 }
 
 func makeResult(c EvalCase, cr *intent.ClassificationResult, source string) EvalResult {
@@ -523,16 +462,16 @@ func truncateForReport(s string, maxLen int) string {
 
 // EvalReport 是写入 JSON 文件的最终评估报告结构。
 type EvalReport struct {
-	GeneratedAt  string            `json:"generated_at"`
-	Mode         string            `json:"mode"`
-	TotalCases   int               `json:"total_cases"`
-	LLMCount     int               `json:"llm_count"`
-	RuleCount    int               `json:"rule_count"`
-	IntentAcc    float64           `json:"intent_accuracy"`
-	DomainAcc    float64           `json:"domain_accuracy"`
-	ComplexityAcc float64          `json:"complexity_accuracy"`
-	ByIntent     map[string]IntentStat `json:"by_intent"`
-	Errors       []ErrorEntry      `json:"errors"`
+	GeneratedAt   string                `json:"generated_at"`
+	Mode          string                `json:"mode"`
+	TotalCases    int                   `json:"total_cases"`
+	LLMCount      int                   `json:"llm_count"`
+	RuleCount     int                   `json:"rule_count"`
+	IntentAcc     float64               `json:"intent_accuracy"`
+	DomainAcc     float64               `json:"domain_accuracy"`
+	ComplexityAcc float64               `json:"complexity_accuracy"`
+	ByIntent      map[string]IntentStat `json:"by_intent"`
+	Errors        []ErrorEntry          `json:"errors"`
 }
 
 // IntentStat 单个意图的准确率统计。
@@ -589,23 +528,23 @@ func saveResults(t *testing.T, results []EvalResult, useLLM bool) {
 		errors = append(errors, ErrorEntry{
 			ID: r.Case.ID, Query: r.Case.Query, Source: r.Source,
 			PredIntent: r.PredIntent, ExpIntent: r.Case.ExpectedIntent,
-			PredCmplx: r.PredComplexity,
-			ExpCmplx: fmt.Sprintf("[%d,%d]", r.Case.ExpectedComplexityMin, r.Case.ExpectedComplexityMax),
+			PredCmplx:  r.PredComplexity,
+			ExpCmplx:   fmt.Sprintf("[%d,%d]", r.Case.ExpectedComplexityMin, r.Case.ExpectedComplexityMax),
 			Confidence: r.Confidence,
 		})
 	}
 
 	report := EvalReport{
-		GeneratedAt:  time.Now().Format("2006-01-02T15:04:05"),
-		Mode:         mode,
-		TotalCases:   len(results),
-		LLMCount:     llmCount,
-		RuleCount:    len(results) - llmCount,
-		IntentAcc:    accuracy(results, func(r EvalResult) bool { return r.IntentCorrect }),
-		DomainAcc:    accuracy(results, func(r EvalResult) bool { return r.DomainCorrect }),
+		GeneratedAt:   time.Now().Format("2006-01-02T15:04:05"),
+		Mode:          mode,
+		TotalCases:    len(results),
+		LLMCount:      llmCount,
+		RuleCount:     len(results) - llmCount,
+		IntentAcc:     accuracy(results, func(r EvalResult) bool { return r.IntentCorrect }),
+		DomainAcc:     accuracy(results, func(r EvalResult) bool { return r.DomainCorrect }),
 		ComplexityAcc: accuracy(results, func(r EvalResult) bool { return r.ComplexityOK }),
-		ByIntent:     byIntent,
-		Errors:       errors,
+		ByIntent:      byIntent,
+		Errors:        errors,
 	}
 
 	// 输出路径：backend/test/intent/ 向上三级 → test/intent/results/

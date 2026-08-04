@@ -99,3 +99,86 @@ func TestReconcileTasksManifestOutputFiles(t *testing.T) {
 		t.Fatalf("status = %q, want %q", item.Status, StatusDone)
 	}
 }
+
+func TestReconcileTasksManifestOutputFilesNormalizesUniquePageArtifact(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &TasksManifest{Tasks: []*TaskItem{{
+		TaskID: "slide-6", PageIndex: 6, Title: "2025年经济社会发展成就",
+		ContentType: "content_slide", OutputFile: "6_2025年经济社会发展成就.pptx", Status: StatusDone,
+	}}}
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	sourceFile := "6_2025 年经济社会发展成就.pptx"
+	if err := os.WriteFile(filepath.Join(workDir, sourceFile), []byte("pptx"), 0644); err != nil {
+		t.Fatalf("write drifted output: %v", err)
+	}
+	qaDir := filepath.Join(workDir, "qa_images")
+	if err := os.MkdirAll(qaDir, 0755); err != nil {
+		t.Fatalf("mkdir qa_images: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(qaDir, "6_2025 年经济社会发展成就.jpg"), []byte("jpg"), 0644); err != nil {
+		t.Fatalf("write drifted thumbnail: %v", err)
+	}
+
+	got, err := ReconcileTasksManifestOutputFiles(workDir)
+	if err != nil {
+		t.Fatalf("reconcile manifest: %v", err)
+	}
+	if got.GetTask("slide-6").Status != StatusDone {
+		t.Fatalf("status = %q, want %q", got.GetTask("slide-6").Status, StatusDone)
+	}
+	for _, expected := range []string{
+		"6_2025年经济社会发展成就.pptx",
+		filepath.Join("qa_images", "6_2025年经济社会发展成就.jpg"),
+	} {
+		if _, err := os.Stat(filepath.Join(workDir, expected)); err != nil {
+			t.Fatalf("normalized artifact %q missing: %v", expected, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workDir, sourceFile)); !os.IsNotExist(err) {
+		t.Fatalf("drifted source still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestReconcileTasksManifestOutputFilesRejectsAmbiguousPageArtifacts(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &TasksManifest{Tasks: []*TaskItem{{
+		TaskID: "slide-9", PageIndex: 9, Title: "目标",
+		ContentType: "content_slide", OutputFile: "9_2026年主要预期目标.pptx", Status: StatusPending,
+	}}}
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	for _, name := range []string{"9_候选一.pptx", "9_候选二.pptx"} {
+		if err := os.WriteFile(filepath.Join(workDir, name), []byte("pptx"), 0644); err != nil {
+			t.Fatalf("write candidate %q: %v", name, err)
+		}
+	}
+
+	got, err := ReconcileTasksManifestOutputFiles(workDir)
+	if err != nil {
+		t.Fatalf("reconcile manifest: %v", err)
+	}
+	if got.GetTask("slide-9").Status != StatusPending {
+		t.Fatalf("status = %q, want %q", got.GetTask("slide-9").Status, StatusPending)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "9_2026年主要预期目标.pptx")); !os.IsNotExist(err) {
+		t.Fatalf("ambiguous target should not be created: %v", err)
+	}
+}
+
+func TestValidateTasksManifestOutcomeRejectsEmptyManifest(t *testing.T) {
+	workDir := t.TempDir()
+	if err := WriteTasksManifest(workDir, &TasksManifest{Tasks: []*TaskItem{}}); err != nil {
+		t.Fatalf("write empty manifest: %v", err)
+	}
+
+	report, err := ValidateTasksManifestOutcome(workDir)
+	if err != nil {
+		t.Fatalf("validate empty manifest: %v", err)
+	}
+	if !report.Invalid || report.Total != 0 {
+		t.Fatalf("report = %#v, want invalid empty delivery", report)
+	}
+}

@@ -1412,21 +1412,28 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		snapshot := sess.Snapshot()
 		info := ts.SnapshotInfo()
 		messages := conversationMessagesWithFallback(snapshot.Messages, fullAnswer, info.ConversationContent, snapshot.UpdatedAt)
+		if info.Status == task.TaskStatusRunning {
+			// The unfinished turn is replayed from replay_after_event_id via SSE.
+			messages = conversationMessagesWithFallback(snapshot.Messages, "", "", snapshot.UpdatedAt)
+		}
+		latestEventID, replayAfterEventID := ts.EventBoundaries()
 		c.JSON(http.StatusOK, gin.H{
-			"task_id":              taskID,
-			"messages":             messages,
-			"full_answer":          fullAnswer,
-			"conversation_content": info.ConversationContent,
-			"status":               info.Status,
-			"done_count":           info.DoneCount,
-			"total_count":          info.TotalCount,
-			"files":                task.DeduplicateOutputFiles(info.Files),
-			"duration":             info.Duration,
-			"prompt_tokens":        info.PromptTokens,
-			"completion_tokens":    info.CompletionTokens,
-			"total_tokens":         info.TotalTokens,
-			"created_at":           snapshot.CreatedAt,
-			"updated_at":           snapshot.UpdatedAt,
+			"task_id":               taskID,
+			"latest_event_id":       latestEventID,
+			"replay_after_event_id": replayAfterEventID,
+			"messages":              messages,
+			"full_answer":           fullAnswer,
+			"conversation_content":  info.ConversationContent,
+			"status":                info.Status,
+			"done_count":            info.DoneCount,
+			"total_count":           info.TotalCount,
+			"files":                 task.DeduplicateOutputFiles(info.Files),
+			"duration":              info.Duration,
+			"prompt_tokens":         info.PromptTokens,
+			"completion_tokens":     info.CompletionTokens,
+			"total_tokens":          info.TotalTokens,
+			"created_at":            snapshot.CreatedAt,
+			"updated_at":            snapshot.UpdatedAt,
 		})
 		return
 	}
@@ -1457,20 +1464,22 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	messages = conversationMessagesWithFallback(messages, info.FullAnswer, info.ConversationContent, info.CreatedAt)
 
 	c.JSON(http.StatusOK, gin.H{
-		"task_id":              taskID,
-		"messages":             messages,
-		"conversation_content": info.ConversationContent,
-		"full_answer":          info.FullAnswer,
-		"status":               info.Status,
-		"done_count":           info.DoneCount,
-		"total_count":          info.TotalCount,
-		"files":                task.DeduplicateOutputFiles(info.Files),
-		"duration":             info.Duration,
-		"prompt_tokens":        info.PromptTokens,
-		"completion_tokens":    info.CompletionTokens,
-		"total_tokens":         info.TotalTokens,
-		"created_at":           info.CreatedAt,
-		"updated_at":           info.CreatedAt,
+		"task_id":               taskID,
+		"latest_event_id":       uint64(0),
+		"replay_after_event_id": uint64(0),
+		"messages":              messages,
+		"conversation_content":  info.ConversationContent,
+		"full_answer":           info.FullAnswer,
+		"status":                info.Status,
+		"done_count":            info.DoneCount,
+		"total_count":           info.TotalCount,
+		"files":                 task.DeduplicateOutputFiles(info.Files),
+		"duration":              info.Duration,
+		"prompt_tokens":         info.PromptTokens,
+		"completion_tokens":     info.CompletionTokens,
+		"total_tokens":          info.TotalTokens,
+		"created_at":            info.CreatedAt,
+		"updated_at":            info.CreatedAt,
 	})
 }
 
