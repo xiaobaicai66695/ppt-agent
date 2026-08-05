@@ -18,6 +18,32 @@
     "background_policy": "image_recommended",
     "visual_primitives": ["background_image", "title_lockup", "subtle_overlay"]
   },
+  "variants": [
+    {
+      "id": "photo_full_bleed_center",
+      "display_name": "全幅照片居中标题",
+      "description": "使用主题背景图铺满画布，标题组居中，适合地域、自然、活动、品牌开场。",
+      "best_for": ["强主题封面", "自然地理", "活动开场", "品牌发布"],
+      "avoid_for": ["标题超过 28 字", "需要展示大量副信息"],
+      "visual_intent": {"role": "hero_photo", "image_position": "background"}
+    },
+    {
+      "id": "photo_full_bleed_left",
+      "display_name": "全幅照片左侧标题",
+      "description": "背景图铺满画布，标题组靠左并留出主体图片区，适合图片主体在右侧或中远景的封面。",
+      "best_for": ["人物或场景封面", "产品/地点首屏", "有明显画面主体"],
+      "avoid_for": ["背景主体在左侧", "标题和副标题都很长"],
+      "visual_intent": {"role": "hero_photo", "image_position": "background"}
+    },
+    {
+      "id": "editorial_split",
+      "display_name": "编辑式图文分屏",
+      "description": "标题区与视觉区分屏，保持清爽留白，适合没有强照片但需要高级感的报告开场。",
+      "best_for": ["商务报告", "学术分享", "课程封面"],
+      "avoid_for": ["需要沉浸式实景氛围"],
+      "visual_intent": {"role": "supporting_photo", "image_position": "right"}
+    }
+  ],
   "fields": [
     {"name": "title", "label": "主标题", "type": "text", "required": true},
     {"name": "subtitle", "label": "副标题", "type": "text", "required": false},

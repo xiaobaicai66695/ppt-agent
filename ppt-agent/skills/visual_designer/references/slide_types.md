@@ -2,6 +2,8 @@
 
 本文档列出 `tasks.json` 中允许使用的唯一合法 `content_type`。规划、前端大纲、full-deck 模板和 SlideExecutor 都必须使用这些英文 id；图表形态、表格含义、视觉风格等细节应写入 `description` 或 `content_plan`，不要发明新的 `content_type`。
 
+`layout_variant` 用于表达同一 `content_type` 下的具体排法，例如 `title_slide` 的 `photo_full_bleed_center` 或 `image_text` 的 `left_photo`。它不是新的页面类型，不能写入 `content_type` 字段。
+
 ## 合法 content_type 清单
 
 ### 结构引导类

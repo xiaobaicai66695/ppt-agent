@@ -67,7 +67,7 @@ def generate(
         )
         y_start += 0.35
 
-    add_local_icon(slide, "align", left=11.0, top=0.7, size=0.75, palette=palette)
+    add_local_icon(slide, "quote", left=11.0, top=0.7, size=0.75, palette=palette)
 
     quote_box_h = 3.35
     quote_group_h = quote_box_h + 0.68

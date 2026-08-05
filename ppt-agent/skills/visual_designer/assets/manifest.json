@@ -1,22 +1,1166 @@
 {
-  "version": 1,
+  "version": 2,
+  "updated_at": "2026-08-05",
+  "discovery_urls": [
+    "https://cn.bing.com/images/search?q=%e8%83%8c%e6%99%af+%e5%9b%be%e7%89%87+%e5%a4%a7%e5%85%a8&qpvt=%e8%83%8c%e6%99%af%e5%9b%be%e7%89%87%e5%a4%a7%e5%85%a8&form=IGRE&first=1",
+    "https://icons8.com/icons"
+  ],
+  "sources": [
+    {
+      "id": "icons8",
+      "homepage": "https://icons8.com/icons",
+      "license": "Icons8 License",
+      "terms_url": "https://icons8.com/license",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "unsplash",
+      "homepage": "https://unsplash.com",
+      "license": "Unsplash License",
+      "terms_url": "https://unsplash.com/license",
+      "attribution": "Photo author and source URL are recorded per asset"
+    },
+    {
+      "id": "transparent-textures",
+      "homepage": "https://www.transparenttextures.com",
+      "license": "CC BY 3.0",
+      "terms_url": "https://www.transparenttextures.com",
+      "attribution": "Transparent Textures"
+    }
+  ],
   "assets": [
+    {
+      "id": "overview",
+      "type": "icon",
+      "path": "icons/core/overview.png",
+      "tags": [
+        "overview",
+        "structure"
+      ],
+      "keywords": [
+        "overview",
+        "概览",
+        "总览",
+        "介绍",
+        "目录",
+        "首页"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/overview-pages-1/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/overview-pages-1.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "section",
+      "type": "icon",
+      "path": "icons/core/section.png",
+      "tags": [
+        "section",
+        "structure"
+      ],
+      "keywords": [
+        "section",
+        "chapter",
+        "章节",
+        "篇章",
+        "部分",
+        "阶段"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 120,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/bookmark/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/bookmark.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "thanks",
+      "type": "icon",
+      "path": "icons/core/thanks.png",
+      "tags": [
+        "thanks",
+        "closing"
+      ],
+      "keywords": [
+        "thanks",
+        "thank you",
+        "感谢",
+        "致谢",
+        "谢谢",
+        "聆听"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 130,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/applause/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/applause.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "contact",
+      "type": "icon",
+      "path": "icons/core/contact.png",
+      "tags": [
+        "contact",
+        "closing"
+      ],
+      "keywords": [
+        "contact",
+        "email",
+        "phone",
+        "联系",
+        "联系方式",
+        "邮箱",
+        "电话"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 125,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/contact-card/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/contact-card.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "question",
+      "type": "icon",
+      "path": "icons/core/question.png",
+      "tags": [
+        "question",
+        "closing"
+      ],
+      "keywords": [
+        "question",
+        "q&a",
+        "faq",
+        "问题",
+        "提问",
+        "问答",
+        "答疑"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/help/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/help.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "map",
+      "type": "icon",
+      "path": "icons/core/map.png",
+      "tags": [
+        "map",
+        "geography"
+      ],
+      "keywords": [
+        "map",
+        "region",
+        "geography",
+        "地图",
+        "区域",
+        "地域",
+        "地理",
+        "版图"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 125,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/map/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/map.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "location",
+      "type": "icon",
+      "path": "icons/core/location.png",
+      "tags": [
+        "location",
+        "geography"
+      ],
+      "keywords": [
+        "location",
+        "address",
+        "place",
+        "位置",
+        "地点",
+        "地址",
+        "坐标"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/marker/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/marker.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "forest",
+      "type": "icon",
+      "path": "icons/core/forest.png",
+      "tags": [
+        "forest",
+        "nature"
+      ],
+      "keywords": [
+        "forest",
+        "woodland",
+        "森林",
+        "林业",
+        "树林"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/forest/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/forest.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "ecology",
+      "type": "icon",
+      "path": "icons/core/ecology.png",
+      "tags": [
+        "ecology",
+        "nature"
+      ],
+      "keywords": [
+        "ecology",
+        "green",
+        "sustainable",
+        "生态",
+        "绿色",
+        "可持续",
+        "环保"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 120,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/leaf/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/leaf.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "protection",
+      "type": "icon",
+      "path": "icons/core/protection.png",
+      "tags": [
+        "protection",
+        "nature",
+        "security"
+      ],
+      "keywords": [
+        "protection",
+        "protect",
+        "guard",
+        "保护",
+        "保障",
+        "守护",
+        "防护"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/shield/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/shield.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "challenge",
+      "type": "icon",
+      "path": "icons/core/challenge.png",
+      "tags": [
+        "challenge",
+        "risk"
+      ],
+      "keywords": [
+        "challenge",
+        "difficulty",
+        "issue",
+        "挑战",
+        "难点",
+        "困境",
+        "痛点"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/high-priority/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/high-priority.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "policy",
+      "type": "icon",
+      "path": "icons/core/policy.png",
+      "tags": [
+        "policy",
+        "civic"
+      ],
+      "keywords": [
+        "policy",
+        "regulation",
+        "guideline",
+        "政策",
+        "规则",
+        "制度",
+        "规划"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 125,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/rules/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/rules.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "government",
+      "type": "icon",
+      "path": "icons/core/government.png",
+      "tags": [
+        "government",
+        "civic"
+      ],
+      "keywords": [
+        "government",
+        "civic",
+        "政务",
+        "政府",
+        "机关",
+        "行政"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/parliament/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/parliament.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "meeting",
+      "type": "icon",
+      "path": "icons/core/meeting.png",
+      "tags": [
+        "meeting",
+        "civic",
+        "business"
+      ],
+      "keywords": [
+        "meeting",
+        "conference",
+        "forum",
+        "会议",
+        "大会",
+        "论坛",
+        "两会"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 125,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/conference-call/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/conference-call.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "people",
+      "type": "icon",
+      "path": "icons/core/people.png",
+      "tags": [
+        "people"
+      ],
+      "keywords": [
+        "people",
+        "population",
+        "team",
+        "audience",
+        "人群",
+        "人口",
+        "团队",
+        "受众"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/user-group-man-man/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/user-group-man-man.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "project",
+      "type": "icon",
+      "path": "icons/core/project.png",
+      "tags": [
+        "project",
+        "business"
+      ],
+      "keywords": [
+        "project",
+        "initiative",
+        "项目",
+        "专项",
+        "工程"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/project/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/project.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "task",
+      "type": "icon",
+      "path": "icons/core/task.png",
+      "tags": [
+        "task",
+        "business"
+      ],
+      "keywords": [
+        "task",
+        "todo",
+        "action",
+        "任务",
+        "行动",
+        "待办"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/task/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/task.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "goal",
+      "type": "icon",
+      "path": "icons/core/goal.png",
+      "tags": [
+        "goal",
+        "business"
+      ],
+      "keywords": [
+        "goal",
+        "target",
+        "objective",
+        "目标",
+        "愿景",
+        "方向"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/goal/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/goal.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "budget",
+      "type": "icon",
+      "path": "icons/core/budget.png",
+      "tags": [
+        "budget",
+        "finance"
+      ],
+      "keywords": [
+        "budget",
+        "cost",
+        "expense",
+        "预算",
+        "成本",
+        "费用"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/budget/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/budget.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "product",
+      "type": "icon",
+      "path": "icons/core/product.png",
+      "tags": [
+        "product",
+        "business"
+      ],
+      "keywords": [
+        "product",
+        "service",
+        "solution",
+        "产品",
+        "服务",
+        "方案"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/product/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/product.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "market",
+      "type": "icon",
+      "path": "icons/core/market.png",
+      "tags": [
+        "market",
+        "business"
+      ],
+      "keywords": [
+        "market",
+        "business",
+        "commerce",
+        "市场",
+        "商业",
+        "行业"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/commercial/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/commercial.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "customer",
+      "type": "icon",
+      "path": "icons/core/customer.png",
+      "tags": [
+        "customer",
+        "business"
+      ],
+      "keywords": [
+        "customer",
+        "client",
+        "user",
+        "客户",
+        "顾客",
+        "用户"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/customer-support/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/customer-support.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "research",
+      "type": "icon",
+      "path": "icons/core/research.png",
+      "tags": [
+        "research",
+        "science"
+      ],
+      "keywords": [
+        "research",
+        "study",
+        "experiment",
+        "研究",
+        "调研",
+        "实验",
+        "探索"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/microscope/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/microscope.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "architecture",
+      "type": "icon",
+      "path": "icons/core/architecture.png",
+      "tags": [
+        "architecture",
+        "technology"
+      ],
+      "keywords": [
+        "architecture",
+        "framework",
+        "system",
+        "架构",
+        "框架",
+        "系统"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/mind-map/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/mind-map.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "database",
+      "type": "icon",
+      "path": "icons/core/database.png",
+      "tags": [
+        "database",
+        "technology"
+      ],
+      "keywords": [
+        "database",
+        "data store",
+        "storage",
+        "数据库",
+        "数据存储",
+        "存储"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/database/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/database.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "security",
+      "type": "icon",
+      "path": "icons/core/security.png",
+      "tags": [
+        "security",
+        "technology"
+      ],
+      "keywords": [
+        "security",
+        "privacy",
+        "compliance",
+        "安全",
+        "隐私",
+        "合规"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/security-checked/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/security-checked.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "mountain",
+      "type": "icon",
+      "path": "icons/core/mountain.png",
+      "tags": [
+        "mountain",
+        "nature"
+      ],
+      "keywords": [
+        "mountain",
+        "peak",
+        "山地",
+        "山脉",
+        "雪山",
+        "高峰"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/mountain/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/mountain.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "water",
+      "type": "icon",
+      "path": "icons/core/water.png",
+      "tags": [
+        "water",
+        "nature"
+      ],
+      "keywords": [
+        "water",
+        "ocean",
+        "river",
+        "水资源",
+        "海洋",
+        "河流",
+        "湖泊"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/water/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/water.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "climate",
+      "type": "icon",
+      "path": "icons/core/climate.png",
+      "tags": [
+        "climate",
+        "nature"
+      ],
+      "keywords": [
+        "climate",
+        "weather",
+        "temperature",
+        "气候",
+        "天气",
+        "温度"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/temperature/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/temperature.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "party",
+      "type": "icon",
+      "path": "icons/core/party.png",
+      "tags": [
+        "party",
+        "civic"
+      ],
+      "keywords": [
+        "party",
+        "党建",
+        "党委",
+        "党组织",
+        "党员"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/star/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/star.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "flag",
+      "type": "icon",
+      "path": "icons/core/flag.png",
+      "tags": [
+        "flag",
+        "civic"
+      ],
+      "keywords": [
+        "flag",
+        "milestone",
+        "国旗",
+        "旗帜",
+        "里程碑"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/flag/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/flag.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "law",
+      "type": "icon",
+      "path": "icons/core/law.png",
+      "tags": [
+        "law",
+        "civic"
+      ],
+      "keywords": [
+        "law",
+        "legal",
+        "legislation",
+        "法律",
+        "法治",
+        "立法"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/law/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/law.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
     {
       "id": "runtime",
       "type": "icon",
       "path": "icons/core/runtime.png",
       "tags": [
         "runtime",
-        "observability",
-        "status"
+        "agent"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "runtime",
+        "observability",
+        "status",
+        "运行",
+        "可观测",
+        "状态"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/activity-history/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/activity-history.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "timeline",
@@ -24,16 +1168,34 @@
       "path": "icons/core/timeline.png",
       "tags": [
         "timeline",
-        "event",
-        "history"
+        "structure"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "timeline",
+        "history",
+        "event",
+        "时间线",
+        "轨迹",
+        "事件",
+        "历史"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/timeline/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/timeline.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "tool",
@@ -41,16 +1203,33 @@
       "path": "icons/core/tool.png",
       "tags": [
         "tool",
-        "execution",
-        "operation"
+        "agent"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "tool",
+        "execution",
+        "operation",
+        "工具",
+        "执行",
+        "操作"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/toolbox/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/toolbox.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "llm",
@@ -58,16 +1237,35 @@
       "path": "icons/core/llm.png",
       "tags": [
         "llm",
-        "model",
         "agent"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "llm",
+        "model",
+        "agent",
+        "ai",
+        "大模型",
+        "模型",
+        "智能体",
+        "人工智能"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/artificial-intelligence/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/artificial-intelligence.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "file",
@@ -75,16 +1273,33 @@
       "path": "icons/core/file.png",
       "tags": [
         "file",
-        "artifact",
-        "output"
+        "document"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "file",
+        "artifact",
+        "output",
+        "文件",
+        "产物",
+        "输出"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/file/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/file.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "report",
@@ -92,16 +1307,32 @@
       "path": "icons/core/report.png",
       "tags": [
         "report",
-        "summary",
-        "runtime"
+        "document"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "report",
+        "briefing",
+        "报告",
+        "汇报",
+        "简报"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/business-report/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/business-report.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "contract",
@@ -109,16 +1340,33 @@
       "path": "icons/core/contract.png",
       "tags": [
         "contract",
-        "schema",
-        "template"
+        "document"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "contract",
+        "schema",
+        "agreement",
+        "契约",
+        "协议",
+        "结构约束"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/agreement/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/agreement.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "capacity",
@@ -126,33 +1374,65 @@
       "path": "icons/core/capacity.png",
       "tags": [
         "capacity",
-        "density",
         "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "capacity",
+        "limit",
+        "scale",
+        "容量",
+        "上限",
+        "规模"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/resize/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/resize.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "layout",
       "type": "icon",
       "path": "icons/core/layout.png",
       "tags": [
+        "layout"
+      ],
+      "keywords": [
         "layout",
         "composition",
-        "template"
+        "布局",
+        "版式",
+        "排版"
       ],
-      "style": "soft-line",
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/dashboard-layout/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/dashboard-layout.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "split",
@@ -160,16 +1440,33 @@
       "path": "icons/core/split.png",
       "tags": [
         "split",
-        "overflow",
-        "pagination"
+        "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "split",
+        "pagination",
+        "overflow",
+        "拆分",
+        "分页",
+        "溢出"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/split/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/split.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "align",
@@ -177,16 +1474,33 @@
       "path": "icons/core/align.png",
       "tags": [
         "align",
-        "center",
-        "balance"
+        "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "align",
+        "center",
+        "balance",
+        "对齐",
+        "居中",
+        "平衡"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/align-center/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/align-center.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "density",
@@ -194,16 +1508,33 @@
       "path": "icons/core/density.png",
       "tags": [
         "density",
-        "content",
-        "text"
+        "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "density",
+        "content",
+        "text",
+        "密度",
+        "内容",
+        "文字"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/content/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/content.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "chart",
@@ -211,16 +1542,33 @@
       "path": "icons/core/chart.png",
       "tags": [
         "chart",
-        "data",
-        "analysis"
+        "data"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "chart",
+        "graph",
+        "data",
+        "图表",
+        "数据图",
+        "可视化"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/combo-chart/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/combo-chart.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "kpi",
@@ -228,16 +1576,33 @@
       "path": "icons/core/kpi.png",
       "tags": [
         "kpi",
-        "metric",
-        "dashboard"
+        "data"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "kpi",
+        "metric",
+        "indicator",
+        "指标",
+        "绩效",
+        "度量"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/performance/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/performance.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "trend",
@@ -245,16 +1610,33 @@
       "path": "icons/core/trend.png",
       "tags": [
         "trend",
-        "growth",
-        "line"
+        "data"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "trend",
+        "growth",
+        "increase",
+        "趋势",
+        "增长",
+        "提升"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/growth/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/growth.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "source",
@@ -262,16 +1644,33 @@
       "path": "icons/core/source.png",
       "tags": [
         "source",
-        "citation",
-        "data"
+        "document"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "source",
+        "citation",
+        "reference",
+        "来源",
+        "引用",
+        "参考"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/source-code/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/source-code.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "warning",
@@ -279,16 +1678,34 @@
       "path": "icons/core/warning.png",
       "tags": [
         "warning",
-        "risk",
-        "budget"
+        "risk"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "warning",
+        "risk",
+        "danger",
+        "警告",
+        "风险",
+        "危险",
+        "异常"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/error/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/error.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "fix",
@@ -296,16 +1713,33 @@
       "path": "icons/core/fix.png",
       "tags": [
         "fix",
-        "repair",
-        "continue"
+        "agent"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "fix",
+        "repair",
+        "improve",
+        "修复",
+        "整改",
+        "优化"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/maintenance/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/maintenance.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "template",
@@ -313,16 +1747,32 @@
       "path": "icons/core/template.png",
       "tags": [
         "template",
-        "slide",
         "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "template",
+        "preset",
+        "模板",
+        "预设",
+        "母版"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/template/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/template.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "background",
@@ -330,33 +1780,31 @@
       "path": "icons/core/background.png",
       "tags": [
         "background",
-        "visual",
-        "hero"
+        "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "background",
+        "backdrop",
+        "背景",
+        "底图"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
-    },
-    {
-      "id": "primitive",
-      "type": "icon",
-      "path": "icons/core/primitive.png",
-      "tags": [
-        "primitive",
-        "shape",
-        "icon"
+      "dimensions": [
+        512,
+        512
       ],
-      "style": "soft-line",
-      "recommended_templates": [
-        "icon_grid",
-        "card_grid",
-        "content_slide"
-      ],
-      "license": "project-generated"
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/image/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/image.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "card",
@@ -364,16 +1812,33 @@
       "path": "icons/core/card.png",
       "tags": [
         "card",
-        "grid",
-        "module"
+        "layout"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "card",
+        "module",
+        "grid",
+        "卡片",
+        "模块",
+        "网格"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/stack/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/stack.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "flow",
@@ -381,16 +1846,33 @@
       "path": "icons/core/flow.png",
       "tags": [
         "flow",
-        "process",
-        "step"
+        "structure"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "flow",
+        "process",
+        "workflow",
+        "流程",
+        "工作流",
+        "步骤"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/workflow/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/workflow.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
       "id": "review",
@@ -398,190 +1880,1689 @@
       "path": "icons/core/review.png",
       "tags": [
         "review",
-        "qa",
-        "check"
+        "agent"
       ],
-      "style": "soft-line",
+      "keywords": [
+        "review",
+        "inspect",
+        "qa",
+        "审查",
+        "评审",
+        "检查",
+        "质检"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
       "recommended_templates": [
         "icon_grid",
         "card_grid",
-        "content_slide"
+        "content_slide",
+        "image_text"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/inspection/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/inspection.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
     },
     {
-      "id": "editorial_blue",
+      "id": "calendar",
+      "type": "icon",
+      "path": "icons/core/calendar.png",
+      "tags": [
+        "calendar",
+        "time"
+      ],
+      "keywords": [
+        "calendar",
+        "date",
+        "schedule",
+        "日历",
+        "日期",
+        "计划",
+        "排期"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/calendar/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/calendar.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "clock",
+      "type": "icon",
+      "path": "icons/core/clock.png",
+      "tags": [
+        "clock",
+        "time"
+      ],
+      "keywords": [
+        "clock",
+        "time",
+        "duration",
+        "时间",
+        "时长",
+        "周期"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/clock/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/clock.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "idea",
+      "type": "icon",
+      "path": "icons/core/idea.png",
+      "tags": [
+        "idea",
+        "creative"
+      ],
+      "keywords": [
+        "idea",
+        "insight",
+        "inspiration",
+        "想法",
+        "洞察",
+        "灵感",
+        "观点"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/idea/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/idea.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "innovation",
+      "type": "icon",
+      "path": "icons/core/innovation.png",
+      "tags": [
+        "innovation",
+        "creative"
+      ],
+      "keywords": [
+        "innovation",
+        "creative",
+        "创新",
+        "创意",
+        "突破"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/innovation/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/innovation.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "education",
+      "type": "icon",
+      "path": "icons/core/education.png",
+      "tags": [
+        "education",
+        "domain"
+      ],
+      "keywords": [
+        "education",
+        "school",
+        "training",
+        "教育",
+        "学校",
+        "培训",
+        "学习"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/school/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/school.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "technology",
+      "type": "icon",
+      "path": "icons/core/technology.png",
+      "tags": [
+        "technology",
+        "domain"
+      ],
+      "keywords": [
+        "technology",
+        "digital",
+        "tech",
+        "科技",
+        "技术",
+        "数字化"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/electronics/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/electronics.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "cloud",
+      "type": "icon",
+      "path": "icons/core/cloud.png",
+      "tags": [
+        "cloud",
+        "technology"
+      ],
+      "keywords": [
+        "cloud",
+        "cloud computing",
+        "云",
+        "云计算"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/cloud/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/cloud.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "network",
+      "type": "icon",
+      "path": "icons/core/network.png",
+      "tags": [
+        "network",
+        "technology"
+      ],
+      "keywords": [
+        "network",
+        "connection",
+        "internet",
+        "网络",
+        "连接",
+        "互联网"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/network/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/network.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "finance",
+      "type": "icon",
+      "path": "icons/core/finance.png",
+      "tags": [
+        "finance",
+        "domain"
+      ],
+      "keywords": [
+        "finance",
+        "bank",
+        "investment",
+        "金融",
+        "银行",
+        "投资"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/bank/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/bank.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "healthcare",
+      "type": "icon",
+      "path": "icons/core/healthcare.png",
+      "tags": [
+        "healthcare",
+        "domain"
+      ],
+      "keywords": [
+        "health",
+        "medical",
+        "healthcare",
+        "健康",
+        "医疗",
+        "医药"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/health-book/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/health-book.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "energy",
+      "type": "icon",
+      "path": "icons/core/energy.png",
+      "tags": [
+        "energy",
+        "domain"
+      ],
+      "keywords": [
+        "energy",
+        "electricity",
+        "power",
+        "能源",
+        "电力",
+        "能耗"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/lightning-bolt/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/lightning-bolt.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "manufacturing",
+      "type": "icon",
+      "path": "icons/core/manufacturing.png",
+      "tags": [
+        "manufacturing",
+        "domain"
+      ],
+      "keywords": [
+        "manufacturing",
+        "factory",
+        "industry",
+        "制造业",
+        "制造",
+        "工厂",
+        "工业"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 110,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/factory/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/factory.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "agriculture",
+      "type": "icon",
+      "path": "icons/core/agriculture.png",
+      "tags": [
+        "agriculture",
+        "domain"
+      ],
+      "keywords": [
+        "agriculture",
+        "farm",
+        "rural",
+        "农业",
+        "农场",
+        "乡村"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/farm/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/farm.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "transport",
+      "type": "icon",
+      "path": "icons/core/transport.png",
+      "tags": [
+        "transport",
+        "domain"
+      ],
+      "keywords": [
+        "transport",
+        "traffic",
+        "logistics",
+        "交通",
+        "运输",
+        "物流"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/train/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/train.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "city",
+      "type": "icon",
+      "path": "icons/core/city.png",
+      "tags": [
+        "city",
+        "geography"
+      ],
+      "keywords": [
+        "city",
+        "urban",
+        "building",
+        "城市",
+        "城区",
+        "建筑"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/city/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/city.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "globe",
+      "type": "icon",
+      "path": "icons/core/globe.png",
+      "tags": [
+        "globe",
+        "geography"
+      ],
+      "keywords": [
+        "globe",
+        "world",
+        "international",
+        "全球",
+        "世界",
+        "国际"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/globe/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/globe.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "award",
+      "type": "icon",
+      "path": "icons/core/award.png",
+      "tags": [
+        "award",
+        "people"
+      ],
+      "keywords": [
+        "award",
+        "honor",
+        "achievement",
+        "奖项",
+        "荣誉",
+        "成就"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/prize/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/prize.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "strategy",
+      "type": "icon",
+      "path": "icons/core/strategy.png",
+      "tags": [
+        "strategy",
+        "business"
+      ],
+      "keywords": [
+        "strategy",
+        "roadmap",
+        "strategy plan",
+        "战略",
+        "路线图",
+        "策略"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/strategy-board/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/strategy-board.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "teamwork",
+      "type": "icon",
+      "path": "icons/core/teamwork.png",
+      "tags": [
+        "teamwork",
+        "people"
+      ],
+      "keywords": [
+        "teamwork",
+        "cooperation",
+        "collaboration",
+        "协作",
+        "合作",
+        "共创"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/collaboration/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/collaboration.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "communication",
+      "type": "icon",
+      "path": "icons/core/communication.png",
+      "tags": [
+        "communication",
+        "people"
+      ],
+      "keywords": [
+        "communication",
+        "conversation",
+        "message",
+        "沟通",
+        "交流",
+        "对话"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/chat/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/chat.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "check",
+      "type": "icon",
+      "path": "icons/core/check.png",
+      "tags": [
+        "check",
+        "status"
+      ],
+      "keywords": [
+        "check",
+        "complete",
+        "success",
+        "完成",
+        "成功",
+        "确认",
+        "达成"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/checkmark/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/checkmark.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "summary",
+      "type": "icon",
+      "path": "icons/core/summary.png",
+      "tags": [
+        "summary",
+        "structure"
+      ],
+      "keywords": [
+        "summary",
+        "conclusion",
+        "takeaway",
+        "总结",
+        "结论",
+        "要点",
+        "回顾"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/summary-list/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/summary-list.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "quote",
+      "type": "icon",
+      "path": "icons/core/quote.png",
+      "tags": [
+        "quote",
+        "structure"
+      ],
+      "keywords": [
+        "quote",
+        "quotation",
+        "saying",
+        "引用语",
+        "金句",
+        "引言",
+        "语录"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/quote-left/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/quote-left.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "presentation",
+      "type": "icon",
+      "path": "icons/core/presentation.png",
+      "tags": [
+        "presentation",
+        "structure"
+      ],
+      "keywords": [
+        "presentation",
+        "slide",
+        "ppt",
+        "演示",
+        "幻灯片",
+        "演讲"
+      ],
+      "style": "fluency-systems-regular",
+      "priority": 100,
+      "recommended_templates": [
+        "icon_grid",
+        "card_grid",
+        "content_slide",
+        "image_text"
+      ],
+      "dimensions": [
+        512,
+        512
+      ],
+      "source_id": "icons8",
+      "source_url": "https://icons8.com/icon/set/presentation/fluency-systems-regular",
+      "download_url": "https://img.icons8.com/fluency-systems-regular/512/344054/presentation.png",
+      "license": "Icons8 License",
+      "attribution": "Icons by Icons8"
+    },
+    {
+      "id": "editorial_workspace",
       "type": "background",
-      "path": "backgrounds/editorial/editorial_blue.png",
+      "path": "backgrounds/editorial/editorial_workspace.jpg",
       "tags": [
         "title",
+        "hero",
+        "business",
+        "workspace"
+      ],
+      "keywords": [
+        "title",
+        "hero",
+        "business",
+        "workspace"
+      ],
+      "style": "editorial-photo",
+      "priority": 100,
+      "recommended_templates": [
+        "title_slide",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/Hi9GSwWkCJk",
+      "download_url": "https://picsum.photos/id/60/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Vadim Sherbakov on Unsplash"
+    },
+    {
+      "id": "editorial_sky",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_sky.jpg",
+      "tags": [
+        "title",
+        "quote",
+        "soft",
+        "sky"
+      ],
+      "keywords": [
+        "title",
+        "quote",
+        "soft",
+        "sky"
+      ],
+      "style": "editorial-photo",
+      "priority": 100,
+      "recommended_templates": [
+        "title_slide",
+        "quote_slide"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/6qORI5j_6n8",
+      "download_url": "https://picsum.photos/id/53/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by J Duclos on Unsplash"
+    },
+    {
+      "id": "editorial_city",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_city.jpg",
+      "tags": [
         "section",
         "hero",
-        "editorial",
-        "soft"
+        "city",
+        "architecture"
       ],
-      "style": "soft-editorial",
-      "recommended_templates": [
-        "title",
+      "keywords": [
         "section",
-        "hero"
+        "hero",
+        "city",
+        "architecture"
       ],
-      "license": "project-generated"
+      "style": "editorial-photo",
+      "priority": 100,
+      "recommended_templates": [
+        "section_divider",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/IoCWq07GaG4",
+      "download_url": "https://picsum.photos/id/43/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Oleg Chursin on Unsplash"
     },
     {
-      "id": "editorial_sage",
+      "id": "editorial_creative",
       "type": "background",
-      "path": "backgrounds/editorial/editorial_sage.png",
+      "path": "backgrounds/editorial/editorial_creative.jpg",
       "tags": [
         "title",
+        "section",
+        "creative",
+        "color"
+      ],
+      "keywords": [
+        "title",
+        "section",
+        "creative",
+        "color"
+      ],
+      "style": "editorial-photo",
+      "priority": 100,
+      "recommended_templates": [
+        "title_slide",
+        "section_divider"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/-kEr-QltARg",
+      "download_url": "https://picsum.photos/id/58/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Tony Naccarato on Unsplash"
+    },
+    {
+      "id": "editorial_heritage",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_heritage.jpg",
+      "tags": [
         "quote",
+        "section",
+        "heritage",
+        "texture"
+      ],
+      "keywords": [
+        "quote",
+        "section",
+        "heritage",
+        "texture"
+      ],
+      "style": "editorial-photo",
+      "priority": 100,
+      "recommended_templates": [
+        "quote_slide",
+        "section_divider"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/CtkDsu4w-Rs",
+      "download_url": "https://picsum.photos/id/78/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Paul Evans on Unsplash"
+    },
+    {
+      "id": "editorial_nature",
+      "type": "background",
+      "path": "backgrounds/editorial/editorial_nature.jpg",
+      "tags": [
         "summary",
-        "editorial",
-        "soft"
-      ],
-      "style": "soft-editorial",
-      "recommended_templates": [
-        "title",
         "quote",
-        "summary"
+        "nature",
+        "quiet"
       ],
-      "license": "project-generated"
-    },
-    {
-      "id": "editorial_gold",
-      "type": "background",
-      "path": "backgrounds/editorial/editorial_gold.png",
-      "tags": [
-        "section",
+      "keywords": [
         "summary",
-        "editorial",
-        "soft"
+        "quote",
+        "nature",
+        "quiet"
       ],
-      "style": "soft-editorial",
+      "style": "editorial-photo",
+      "priority": 100,
       "recommended_templates": [
-        "section",
-        "summary"
+        "summary_slide",
+        "quote_slide"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/87TJNWkepvI",
+      "download_url": "https://picsum.photos/id/95/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Kundan Ramisetti on Unsplash"
     },
     {
-      "id": "editorial_ink",
-      "type": "background",
-      "path": "backgrounds/editorial/editorial_ink.png",
+      "id": "pattern_cubes",
+      "type": "pattern",
+      "path": "patterns/subtle/cubes.png",
       "tags": [
-        "title",
-        "quote",
-        "editorial",
-        "soft"
+        "geometry",
+        "subtle",
+        "business"
       ],
-      "style": "soft-editorial",
+      "keywords": [
+        "geometry",
+        "subtle",
+        "business"
+      ],
+      "style": "subtle-pattern",
+      "priority": 100,
       "recommended_templates": [
-        "title",
-        "quote"
+        "content_slide",
+        "card_grid",
+        "chart_slide",
+        "section_divider"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "transparent-textures",
+      "source_url": "https://www.transparenttextures.com/patterns/cubes.png",
+      "download_url": "https://www.transparenttextures.com/patterns/cubes.png",
+      "license": "CC BY 3.0",
+      "attribution": "Transparent Textures"
     },
     {
-      "id": "editorial_coral",
-      "type": "background",
-      "path": "backgrounds/editorial/editorial_coral.png",
+      "id": "pattern_diagonal",
+      "type": "pattern",
+      "path": "patterns/subtle/diagmonds-light.png",
       "tags": [
-        "title",
-        "section",
-        "editorial",
-        "soft"
+        "diagonal",
+        "subtle",
+        "editorial"
       ],
-      "style": "soft-editorial",
+      "keywords": [
+        "diagonal",
+        "subtle",
+        "editorial"
+      ],
+      "style": "subtle-pattern",
+      "priority": 100,
       "recommended_templates": [
-        "title",
-        "section"
+        "content_slide",
+        "card_grid",
+        "chart_slide",
+        "section_divider"
       ],
-      "license": "project-generated"
-    },
-    {
-      "id": "editorial_lavender",
-      "type": "background",
-      "path": "backgrounds/editorial/editorial_lavender.png",
-      "tags": [
-        "quote",
-        "summary",
-        "editorial",
-        "soft"
+      "dimensions": [
+        1920,
+        1080
       ],
-      "style": "soft-editorial",
-      "recommended_templates": [
-        "quote",
-        "summary"
-      ],
-      "license": "project-generated"
+      "source_id": "transparent-textures",
+      "source_url": "https://www.transparenttextures.com/patterns/diagmonds-light.png",
+      "download_url": "https://www.transparenttextures.com/patterns/diagmonds-light.png",
+      "license": "CC BY 3.0",
+      "attribution": "Transparent Textures"
     },
     {
       "id": "pattern_grid",
       "type": "pattern",
-      "path": "patterns/subtle/pattern_grid.png",
+      "path": "patterns/subtle/grid-me.png",
       "tags": [
         "grid",
         "subtle",
-        "clean"
+        "technology"
+      ],
+      "keywords": [
+        "grid",
+        "subtle",
+        "technology"
       ],
       "style": "subtle-pattern",
+      "priority": 100,
       "recommended_templates": [
         "content_slide",
         "card_grid",
-        "chart_slide"
+        "chart_slide",
+        "section_divider"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "transparent-textures",
+      "source_url": "https://www.transparenttextures.com/patterns/grid-me.png",
+      "download_url": "https://www.transparenttextures.com/patterns/grid-me.png",
+      "license": "CC BY 3.0",
+      "attribution": "Transparent Textures"
     },
     {
       "id": "pattern_dots",
       "type": "pattern",
-      "path": "patterns/subtle/pattern_dots.png",
+      "path": "patterns/subtle/subtle-dots.png",
       "tags": [
         "dots",
         "subtle",
         "clean"
       ],
-      "style": "subtle-pattern",
-      "recommended_templates": [
-        "content_slide",
-        "card_grid",
-        "chart_slide"
-      ],
-      "license": "project-generated"
-    },
-    {
-      "id": "pattern_waves",
-      "type": "pattern",
-      "path": "patterns/subtle/pattern_waves.png",
-      "tags": [
-        "waves",
+      "keywords": [
+        "dots",
         "subtle",
         "clean"
       ],
       "style": "subtle-pattern",
+      "priority": 100,
       "recommended_templates": [
         "content_slide",
         "card_grid",
-        "chart_slide"
+        "chart_slide",
+        "section_divider"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "transparent-textures",
+      "source_url": "https://www.transparenttextures.com/patterns/subtle-dots.png",
+      "download_url": "https://www.transparenttextures.com/patterns/subtle-dots.png",
+      "license": "CC BY 3.0",
+      "attribution": "Transparent Textures"
     },
     {
-      "id": "pattern_diagonal",
-      "type": "pattern",
-      "path": "patterns/subtle/pattern_diagonal.png",
+      "id": "photo_technology_device",
+      "type": "photo",
+      "path": "photos/technology/photo_technology_device.jpg",
       "tags": [
-        "diagonal",
-        "subtle",
-        "clean"
+        "technology",
+        "device",
+        "workspace"
       ],
-      "style": "subtle-pattern",
+      "keywords": [
+        "technology",
+        "digital",
+        "device",
+        "computer",
+        "科技",
+        "技术",
+        "数字化",
+        "电脑",
+        "设备",
+        "系统",
+        "研发"
+      ],
+      "style": "content-photo",
+      "priority": 118,
       "recommended_templates": [
-        "content_slide",
-        "card_grid",
-        "chart_slide"
+        "image_text",
+        "image_hero"
       ],
-      "license": "project-generated"
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/yC-Yzbqy7PY",
+      "download_url": "https://picsum.photos/id/0/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Alejandro Escamilla on Unsplash"
+    },
+    {
+      "id": "photo_technology_workspace",
+      "type": "photo",
+      "path": "photos/technology/photo_technology_workspace.jpg",
+      "tags": [
+        "technology",
+        "data",
+        "workspace"
+      ],
+      "keywords": [
+        "data",
+        "platform",
+        "terminal",
+        "software",
+        "数据",
+        "平台",
+        "终端",
+        "软件",
+        "人工智能",
+        "大模型",
+        "ai"
+      ],
+      "style": "content-photo",
+      "priority": 116,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/Hi9GSwWkCJk",
+      "download_url": "https://picsum.photos/id/60/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Vadim Sherbakov on Unsplash"
+    },
+    {
+      "id": "photo_business_work",
+      "type": "photo",
+      "path": "photos/business/photo_business_work.jpg",
+      "tags": [
+        "business",
+        "people",
+        "workspace"
+      ],
+      "keywords": [
+        "business",
+        "office",
+        "team",
+        "work",
+        "商务",
+        "办公",
+        "企业",
+        "团队",
+        "协作",
+        "工作"
+      ],
+      "style": "content-photo",
+      "priority": 115,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/LNRyGwIJr5c",
+      "download_url": "https://picsum.photos/id/1/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Alejandro Escamilla on Unsplash"
+    },
+    {
+      "id": "photo_business_desk",
+      "type": "photo",
+      "path": "photos/business/photo_business_desk.jpg",
+      "tags": [
+        "business",
+        "planning",
+        "workspace"
+      ],
+      "keywords": [
+        "plan",
+        "report",
+        "strategy",
+        "operation",
+        "方案",
+        "报告",
+        "规划",
+        "战略",
+        "运营",
+        "总结"
+      ],
+      "style": "content-photo",
+      "priority": 108,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/ICW6QYOcdlg",
+      "download_url": "https://picsum.photos/id/180/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Galymzhan Abdugalimov on Unsplash"
+    },
+    {
+      "id": "photo_education_design",
+      "type": "photo",
+      "path": "photos/education/photo_education_design.jpg",
+      "tags": [
+        "education",
+        "creative",
+        "workspace"
+      ],
+      "keywords": [
+        "education",
+        "learning",
+        "training",
+        "design",
+        "教育",
+        "学习",
+        "培训",
+        "课程",
+        "设计",
+        "创意"
+      ],
+      "style": "content-photo",
+      "priority": 114,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/nJdwUHmaY8A",
+      "download_url": "https://picsum.photos/id/20/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Aleks Dorohovich on Unsplash"
+    },
+    {
+      "id": "photo_education_book",
+      "type": "photo",
+      "path": "photos/education/photo_education_book.jpg",
+      "tags": [
+        "education",
+        "book",
+        "knowledge"
+      ],
+      "keywords": [
+        "book",
+        "reading",
+        "knowledge",
+        "research",
+        "书籍",
+        "阅读",
+        "知识",
+        "研究",
+        "文化",
+        "文献"
+      ],
+      "style": "content-photo",
+      "priority": 112,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/cZhUxIQjILg",
+      "download_url": "https://picsum.photos/id/24/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Alejandro Escamilla on Unsplash"
+    },
+    {
+      "id": "photo_city_architecture",
+      "type": "photo",
+      "path": "photos/city/photo_city_architecture.jpg",
+      "tags": [
+        "city",
+        "architecture",
+        "civic"
+      ],
+      "keywords": [
+        "city",
+        "architecture",
+        "region",
+        "finance",
+        "government",
+        "城市",
+        "建筑",
+        "区域",
+        "金融",
+        "政务",
+        "政府"
+      ],
+      "style": "content-photo",
+      "priority": 110,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/IoCWq07GaG4",
+      "download_url": "https://picsum.photos/id/43/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Oleg Chursin on Unsplash"
+    },
+    {
+      "id": "photo_nature_outdoor",
+      "type": "photo",
+      "path": "photos/nature/photo_nature_outdoor.jpg",
+      "tags": [
+        "nature",
+        "outdoor",
+        "travel"
+      ],
+      "keywords": [
+        "outdoor",
+        "travel",
+        "mountain",
+        "tourism",
+        "户外",
+        "旅行",
+        "山地",
+        "旅游",
+        "风景"
+      ],
+      "style": "content-photo",
+      "priority": 107,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/d19by2PLaPc",
+      "download_url": "https://picsum.photos/id/54/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Nicholas Swanson on Unsplash"
+    },
+    {
+      "id": "photo_nature_ecology",
+      "type": "photo",
+      "path": "photos/nature/photo_nature_ecology.jpg",
+      "tags": [
+        "nature",
+        "ecology",
+        "environment"
+      ],
+      "keywords": [
+        "nature",
+        "ecology",
+        "environment",
+        "forest",
+        "自然",
+        "生态",
+        "环保",
+        "森林",
+        "绿色",
+        "可持续"
+      ],
+      "style": "content-photo",
+      "priority": 119,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/87TJNWkepvI",
+      "download_url": "https://picsum.photos/id/95/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Kundan Ramisetti on Unsplash"
+    },
+    {
+      "id": "photo_sports_baseball",
+      "type": "photo",
+      "path": "photos/sports/photo_sports_baseball.jpg",
+      "tags": [
+        "sports",
+        "people",
+        "action"
+      ],
+      "keywords": [
+        "sports",
+        "fitness",
+        "competition",
+        "baseball",
+        "体育",
+        "运动",
+        "健身",
+        "竞赛",
+        "棒球"
+      ],
+      "style": "content-photo",
+      "priority": 110,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/umLpP7uCZs0",
+      "download_url": "https://picsum.photos/id/73/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Jon Eckert on Unsplash"
+    },
+    {
+      "id": "photo_transport_bicycle",
+      "type": "photo",
+      "path": "photos/transport/photo_transport_bicycle.jpg",
+      "tags": [
+        "transport",
+        "mobility",
+        "city"
+      ],
+      "keywords": [
+        "transport",
+        "mobility",
+        "bicycle",
+        "traffic",
+        "交通",
+        "出行",
+        "自行车",
+        "运输",
+        "物流"
+      ],
+      "style": "content-photo",
+      "priority": 109,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/OxzhYtL-00Y",
+      "download_url": "https://picsum.photos/id/76/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Alexander Shustov on Unsplash"
+    },
+    {
+      "id": "photo_culture_heritage",
+      "type": "photo",
+      "path": "photos/culture/photo_culture_heritage.jpg",
+      "tags": [
+        "culture",
+        "heritage",
+        "history"
+      ],
+      "keywords": [
+        "culture",
+        "heritage",
+        "history",
+        "tradition",
+        "文化",
+        "遗产",
+        "历史",
+        "传统",
+        "建筑"
+      ],
+      "style": "content-photo",
+      "priority": 113,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/CtkDsu4w-Rs",
+      "download_url": "https://picsum.photos/id/78/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Paul Evans on Unsplash"
+    },
+    {
+      "id": "photo_creative_camera",
+      "type": "photo",
+      "path": "photos/creative/photo_creative_camera.jpg",
+      "tags": [
+        "creative",
+        "media",
+        "photography"
+      ],
+      "keywords": [
+        "creative",
+        "media",
+        "photo",
+        "camera",
+        "创意",
+        "媒体",
+        "摄影",
+        "相机",
+        "影像"
+      ],
+      "style": "content-photo",
+      "priority": 111,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/baRYCsjO6z4",
+      "download_url": "https://picsum.photos/id/91/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Jennifer Trovato on Unsplash"
+    },
+    {
+      "id": "photo_agriculture_field",
+      "type": "photo",
+      "path": "photos/agriculture/photo_agriculture_field.jpg",
+      "tags": [
+        "agriculture",
+        "nature",
+        "rural"
+      ],
+      "keywords": [
+        "agriculture",
+        "farm",
+        "crop",
+        "rural",
+        "农业",
+        "农田",
+        "粮食",
+        "乡村",
+        "种植"
+      ],
+      "style": "content-photo",
+      "priority": 117,
+      "recommended_templates": [
+        "image_text",
+        "image_hero"
+      ],
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source_id": "unsplash",
+      "source_url": "https://unsplash.com/photos/9VWOr22LhVI",
+      "download_url": "https://picsum.photos/id/107/1920/1080",
+      "license": "Unsplash License",
+      "attribution": "Photo by Lukas Schweizer on Unsplash"
     }
   ]
 }

@@ -40,7 +40,7 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 - 读取 tasks.json 后，令 `deck_theme = manifest["theme"]`；所有 `new_presentation` 和 `generate_xxx` 的 `palette` 必须使用该值。
 - 禁止调用 `get_palette_for_background`，禁止因 background 切换 palette。
-- task.background 非空时原样传入；为空时必须保持为空，不得自行选择背景。
+- task.background 非空时原样传入；为空时必须保持为空，不得自行选择背景。background 可能是主题 id，也可能是 `party_government/images/3.jpg` 这类具体图片引用。
 - 必须保存到 `script_dir / task["output_file"]`，禁止按 title 重新拼接文件名或改动空格、标点。
 
 ## ⚠️ 禁止写原始 python-pptx 代码
@@ -76,8 +76,8 @@ save_slide(prs.slides[-1], str(script_dir / task["output_file"]))
   generate_title_slide:       prs, palette, source, title, subtitle, author, date, kicker, background
   generate_section_divider:   prs, palette, source, number, title, subtitle, kicker, background
   generate_agenda:            prs, palette, source, kicker, title, items, background
-  generate_content_slide:     prs, palette, source, title, section_header, bullets, kicker, lede
-  generate_image_text:        prs, palette, source, title, layout, header, paragraph, kicker, sub_header, background
+  generate_content_slide:     prs, palette, source, title, section_header, bullets, kicker, lede, background
+  generate_image_text:        prs, palette, source, title, layout, layout_variant, header, paragraph, kicker, sub_header, background, image_path
   generate_card_grid:         prs, palette, source, title, layout, cards, kicker, subtitle, background
   generate_kpi_dashboard:     prs, palette, source, kicker, title, kpis, subtitle, background
   generate_chart_slide:       prs, palette, source, kicker, title, subtitle, chart_type, data, show_legend, background
@@ -96,7 +96,7 @@ save_slide(prs.slides[-1], str(script_dir / task["output_file"]))
 1. 用 read_file 读取 {{ .WorkDir }}/tasks.json（绝对路径）
 2. 找到需要处理的页面（指定页码或所有 pending 页面）
 3. 根据每个任务的 content_type 确定使用的生成器函数
-4. 所有页面 palette 使用 tasks.json 顶层 theme；background 非空时原样传递，为空时保持为空，不得自行选择或改色
+4. 所有页面 palette 使用 tasks.json 顶层 theme；background 非空时原样传递，为空时保持为空，不得自行选择、改色、压暗或叠加额外遮罩
 5. 仅在图表、KPI、案例或任务描述缺少事实依据时，用 search 搜索真实数据来充实内容
 6. 用 python3 执行生成代码，并逐字符使用 task.output_file 保存
 7. **不要修改 tasks.json 状态**，只负责生成 PPT 文件
@@ -105,6 +105,8 @@ save_slide(prs.slides[-1], str(script_dir / task["output_file"]))
 
 - 必须遵守字数限制（详见 generators.md）
 - 禁止花括号占位符、禁止"某公司"等匿名实体
+- content_slide 必须传真实 section_header；缺少时从页面主题概括一个短小标题，绝不传 `{小节标题}`
+- image_text 没有真实本地图片路径或 `asset:<photo-id>` 时省略 image_path 或传空字符串，由生成器插入可替换的语义默认图；禁止编造路径或绘制占位面板
 - 每条 bullet 必须包含具体数据或事实
 
 ## 失败报告规则

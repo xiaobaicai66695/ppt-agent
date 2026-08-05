@@ -1,7 +1,7 @@
 TEMPLATE = {
     "type": "image_text",
     "name": "图文混排页",
-    "description": "灵活组合图片和文字。常见形式：左图右文、右图左文、上图下文。可用于案例展示、产品介绍等。图片区域可留空让用户自行填入。",
+    "description": "灵活组合可替换图片和文字。常见形式：左图右文、右图左文、横向图片条带。未提供图片时自动插入语义相关的本地默认图，用户可在 PowerPoint 中直接更换。",
     "layout_hint": "left-image 或 right-image 或 top-image",
     "elements": {
         "kicker": {
@@ -21,7 +21,8 @@ TEMPLATE = {
             "position": "左侧60% 或 右侧40% 或 顶部50%",
             "aspect_ratio": "16:9 或 4:3 或 1:1",
             "border_radius": "0.1in（可选）",
-            "placeholder": "【图片占位】留空让用户自行填入，标注如「[请插入产品截图]」「[请插入架构图]」「[请插入团队照片]」"
+            "image_path": "可选：本地文件路径、photo 素材 id 或 asset:<photo-id>；为空时使用语义默认图",
+            "fallback": "必须插入真实 Picture 对象，不得使用图标、纹理面板或占位文案伪装图片"
         },
         "text_content": {
             "position": "与图片对侧",
@@ -49,7 +50,7 @@ TEMPLATE = {
         "图片可叠加半透明色块用于文字叠加（image_hero 变体）",
         "文字与图片间距至少 0.3 英寸",
         "图片区域可添加小型几何装饰（斜切角、小圆点）",
-        "如果图片留空，用浅色虚线边框标注占位区域，内含文字说明期望的图片内容",
+        "如果图片留空，自动插入本地默认图，保持为可替换的 PowerPoint Picture 对象",
         "文字区域左侧可有竖线装饰（primary 色，3pt）",
         "图片和文字可使用卡片形式包裹，增加层次感"
     ],
@@ -57,7 +58,7 @@ TEMPLATE = {
         "kicker": "产品介绍",
         "title": "智能推荐引擎",
         "layout": "right-image",
-        "image_placeholder": "[请插入产品界面截图]",
+        "image_path": "asset:photo_technology_device",
         "header": "个性化推荐系统",
         "sub_header": "基于深度学习的实时推荐引擎",
         "paragraph": "该推荐引擎通过深度学习算法实时分析用户行为数据，构建多维度用户画像，实现千人千面的个性化推荐。系统支持秒级响应，能够在用户浏览商品的瞬间完成推荐计算，同时通过A/B测试框架持续优化推荐效果，目前已在电商、内容平台等多个场景验证，显著提升用户点击率和转化率。"
@@ -66,7 +67,7 @@ TEMPLATE = {
         "kicker": "{领域标签}",
         "title": "{案例/产品名称}",
         "layout": "right-image",
-        "image_placeholder": "[请插入{图片内容描述}]",
+        "image_path": "",
         "header": "{核心技术/产品名称}",
         "sub_header": "{副标题}",
         "paragraph": "300-450字的自然语言段落"
@@ -79,6 +80,7 @@ TEMPLATE = {
     "never": [
         "禁止图片占比过小（小于30%）",
         "禁止图片和文字没有间距",
+        "禁止用图标、纹理块、虚线框或内部实现标签代替图片",
         "禁止将段落拆分为要点列表——必须用自然语言段落",
         "禁止段落字数少于300字或多于450字"
     ]

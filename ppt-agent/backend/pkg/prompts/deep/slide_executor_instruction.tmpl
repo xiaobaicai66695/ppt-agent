@@ -39,6 +39,7 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 - 读取 tasks.json 后，令 `deck_theme = manifest["theme"]`。`new_presentation` 和所有 `generate_xxx` 的 `palette` 必须始终使用 `deck_theme`。
 - 禁止调用 `get_palette_for_background`，禁止因单页 background 改写 palette。背景亮度与文字对比由生成器处理。
 - task.background 非空时原样传入；task.background 为空时必须保持为空，不得自行选择背景。
+- task.layout_variant 和 task.content_plan.visual_intent 只作为选择现有生成器参数的设计意图；当前仅 `generate_title_slide`、`generate_section_divider`、`generate_image_text`、`generate_card_grid` 支持 `layout_variant`，其他生成器没有该参数时禁止直接传入。
 - 输出路径必须逐字符使用 task.output_file：`output_path = script_dir / task["output_file"]`。禁止按 title 重新拼接文件名、增删空格或标点。
 
 ## ⚠️ 禁止写原始 python-pptx 代码
@@ -91,14 +92,16 @@ skills 目录（绝对路径）：{{ .SkillsDir }}
 
 **每个生成器的合法参数速查（详细参数表见 generators.md）：**
 
-  generate_image_text:       prs, palette, source, title, layout, header, paragraph, kicker, sub_header, background
-  generate_section_divider:   prs, palette, source, number, title, subtitle, kicker, background
+  generate_image_text:       prs, palette, source, title, layout, layout_variant, header, paragraph, kicker, sub_header, background, image_path
+  generate_section_divider:   prs, palette, source, number, title, subtitle, kicker, layout_variant, background
   generate_kpi_dashboard:     prs, palette, source, kicker, title, kpis, subtitle, background
   generate_chart_slide:       prs, palette, source, kicker, title, subtitle, chart_type, data, show_legend, background
   generate_icon_grid:         prs, palette, source, kicker, title, subtitle, layout, icons, background
   generate_swot_analysis:     prs, palette, source, kicker, title, subtitle, swot, background
   generate_comparison_table:  prs, palette, source, kicker, title, subtitle, headers, rows, recommendation, background
-  generate_title_slide:       prs, palette, source, title, subtitle, author, date, kicker, background
+  generate_title_slide:       prs, palette, source, title, subtitle, author, date, kicker, layout_variant, background
+  generate_card_grid:         prs, palette, source, title, cards, layout, layout_variant, kicker, subtitle, background
+  generate_content_slide:     prs, palette, source, title, section_header, bullets, kicker, lede, background
 
 ### content_type 映射规则（必须遵守）
 
@@ -162,11 +165,11 @@ generate_comparison_table(
 )
 ```
 
-### 背景图片（选择性使用）
+### 背景图片（常态化执行）
 
-背景图片用于强化封面、章节页、图文页和少量氛围页；信息密集页、图表页、表格页、KPI 页应优先保证留白、对比度和可读性，不要为了装饰强行添加背景图片。
+背景图片由任务规划阶段决定，用于强化封面、章节页、图文页、内容要点页和少量氛围页；图表页、表格页、KPI 页应优先保证留白、对比度和可读性。
 
-如需为幻灯片添加背景图片，可传入 `background` 参数：
+task.background 非空时必须原样传给 `background` 参数。它可能是主题 id，也可能是主题内具体图片引用：
 
 ```python
 generate_title_slide(
@@ -176,7 +179,7 @@ generate_title_slide(
     subtitle="2026年第一季度总结",
     author="党委办公室",
     date="2026年5月",
-    background="party_government",  # 强烈推荐添加背景
+    background=task.get("background") or None,
 )
 ```
 
@@ -192,7 +195,7 @@ generate_title_slide(
 
 后台在任务创建时已综合模板、主题和背景确定 manifest.theme。即使 task.background 非空，生成器的 palette 也必须继续使用 manifest.theme；绝不能根据背景二次选色。
 
-背景亮度由生成器按页面类型和背景来源自动处理。文字颜色会自动适配浅色/深色背景。
+背景亮度、磨砂玻璃蒙版和文字对比由生成器自动处理。SlideExecutor 不要自行压暗图片、改色或叠加额外遮罩。
 
 ## 生成器使用（核心）
 
@@ -206,13 +209,13 @@ generate_title_slide(
 
 ## 内容质量要求
 
-**所有内容必须遵守字数限制和充实度标准，详见 {{ .SkillsDir }}/visual_designer/SKILL.md。**
+**所有内容必须遵守 tasks.json 内容容量、字段结构和充实度标准，详见 {{ .SkillsDir }}/visual_designer/SKILL.md。**
 
 核心约束：
 - 禁止花括号占位符（如 `{要点1}`、`{数值}`）
 - 禁止"某公司"等匿名实体，必须使用真实名称
 - 每条内容必须包含具体数据或事实
-- 详见 SKILL.md 的「排版约束」和「内容充实度标准」章节
+- 详见 SKILL.md 的「内容容量与拆页」「description 与 content_plan」「内容充实度标准」章节
 
 ### 参数提取规则（最重要，必须遵守）
 
@@ -353,15 +356,23 @@ generate_quote_slide(
 7. 用 python3 执行生成代码，并逐字符使用 task.output_file 保存
 8. **不要修改 tasks.json 状态**，SlideExecutor 只负责生成 PPT 文件
 
-### 背景图片使用规范（强烈推荐）
+### 小标题与占位符
 
-**按页面类型选择是否添加背景图片。**
+- `content_slide` 必须传入真实 `section_header`，例如 `"Manifest Safety"`、`"核心机制"`、`"关键结论"`。
+- 禁止传 `{小节标题}`、`{副标题}`、`{要点1}` 等占位符；缺少小标题时，从页面主题概括一个 4-8 个词/字的短标题。
+- 其他生成器的 subtitle/sub_header 也遵循同样规则：没有真实内容就留空，不渲染占位符。
+- `image_text` 仅在任务内容明确给出真实本地路径或 `asset:<photo-id>` 时传 `image_path`；不得编造路径，也不得生成图片占位文案。没有显式图片时省略该参数或传空字符串，由生成器插入可替换的语义默认图。
+
+### 背景图片使用规范（常态化执行）
+
+**按 task.background 执行，不在 SlideExecutor 阶段重新选图。**
 
 读取 tasks.json 后，每个任务(task)的 background 字段可能包含背景主题标识：
 - **如果 background 非空，必须将该值作为 background 参数传给对应的 generate_xxx 函数**
 - 如果 background 为空，必须保持为空，不得自行选择背景主题
-- 背景图片会覆盖纯色背景，必须保证文字对比度和信息区域可读
-- 文字颜色会自动适配浅色/深色背景
+- 背景值也可能是 `party_government/images/3.jpg` 这类具体图片引用，必须逐字符原样传入
+- 背景图片会由生成器添加磨砂玻璃蒙版，必须保证文字对比度和信息区域可读
+- 文字颜色会自动适配背景蒙版
 
 示例：生成带背景的标题页
 ```python

@@ -29,6 +29,9 @@ __pycache__/
 
 # Keep project source and reusable visual assets trackable.
 !ppt-agent/skills/visual_designer/**/*.py
+!ppt-agent/skills/visual_designer/assets/**/*.jpg
+!ppt-agent/skills/visual_designer/assets/**/*.jpeg
+!ppt-agent/skills/visual_designer/assets/**/*.png
 !ppt-agent/skills/visual_designer/background_templates/**/*.jpg
 !ppt-agent/skills/visual_designer/background_templates/**/*.jpeg
 !ppt-agent/skills/visual_designer/background_templates/**/*.png

@@ -108,7 +108,7 @@ def generate(
 
         add_local_icon(
             slide,
-            icon_id_from_text(point, fallback="review"),
+            icon_id_from_text(point, fallback="check"),
             left=0.72, top=y + 0.04, size=0.36,
             palette=palette,
         )
@@ -129,6 +129,15 @@ def generate(
         slide,
         left=9.3, top=1.3, width=3.5, height=4.5,
         fill_color="primary", palette=palette,
+    )
+
+    add_local_icon(
+        slide,
+        "thanks",
+        left=10.72, top=1.78, size=0.66,
+        palette=palette,
+        with_badge=True,
+        badge_color="background",
     )
 
     # Thank you text

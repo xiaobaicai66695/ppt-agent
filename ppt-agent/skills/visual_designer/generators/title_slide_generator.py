@@ -7,12 +7,12 @@ from pptx.util import Inches
 
 from .base import (
     add_source_line,
-    PALETTES, rgb, add_text, add_ellipse, add_rect,
+    PALETTES, rgb, add_text, add_ellipse, add_rect, add_round_rect,
     set_slide_background, add_text_in_shape,
     new_presentation, resolve_background,
     set_image_background,
 )
-from .asset_manager import apply_asset_background
+from .asset_manager import apply_asset_background, add_local_icon, add_pattern_overlay, icon_id_from_text
 from .layout_intelligence import balanced_band_top, title_font_size
 
 
@@ -25,8 +25,9 @@ def generate(
     author: str = "{演讲者}",
     date: str = "{日期}",
     kicker: str = "",
+    layout_variant: str = "",
     background: str = None,
-    background_brightness: float = 0.25,
+    background_brightness: float = 0.95,
     glass_colors: dict = None,
 ) -> Presentation:
     """
@@ -40,6 +41,7 @@ def generate(
         author: Author/department name (bottom left).
         date: Date text (bottom right).
         kicker: Small label above title (e.g. "产品发布 · 2025").
+        layout_variant: "photo_full_bleed_center", "photo_full_bleed_left", or "editorial_split".
         background: 背景配置，支持：
                    - 主题名: "party_government", "minimalist_blue"
                    - 场景描述: "党建汇报", "商务演示"
@@ -63,12 +65,26 @@ def generate(
     else:
         bg_path = resolve_background(background) if background else None
         if bg_path:
-            colors = set_image_background(slide, bg_path, brightness=background_brightness, palette=palette)
+            colors = set_image_background(slide, bg_path, brightness=max(background_brightness, 0.9), palette=palette)
         else:
             set_slide_background(slide, palette)
             colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     title_size = title_font_size(title, base=44, sparse_boost=8, max_size=56)
+    variant = _resolve_layout_variant(layout_variant)
+
+    if variant == "photo_full_bleed_left":
+        return _render_left_title(
+            prs=prs, slide=slide, palette=palette, colors=colors, source=source,
+            title=title, subtitle=subtitle, author=author, date=date, kicker=kicker,
+            title_size=title_size,
+        )
+    if variant == "editorial_split":
+        return _render_editorial_split(
+            prs=prs, slide=slide, palette=palette, colors=colors, source=source,
+            title=title, subtitle=subtitle, author=author, date=date, kicker=kicker,
+            title_size=title_size,
+        )
 
     # Editorial side panel makes sparse title pages feel intentionally composed.
     add_rect(
@@ -151,5 +167,113 @@ def generate(
         colors=colors,
     )
 
+    add_source_line(slide, source, palette)
+    return prs
+
+
+def _resolve_layout_variant(layout_variant: str = "") -> str:
+    key = (layout_variant or "").strip().lower().replace("-", "_")
+    if key in {"photo_full_bleed_left", "left_photo", "left"}:
+        return "photo_full_bleed_left"
+    if key in {"editorial_split", "split"}:
+        return "editorial_split"
+    return "photo_full_bleed_center"
+
+
+def _render_left_title(
+    prs: Presentation,
+    slide,
+    palette: str,
+    colors: dict,
+    source: str,
+    title: str,
+    subtitle: str,
+    author: str,
+    date: str,
+    kicker: str,
+    title_size: int,
+) -> Presentation:
+    """Render a full-bleed visual cover with a left title lockup."""
+    add_rect(slide, left=0.0, top=0.0, width=0.18, height=7.5, fill_color="primary", palette=palette)
+    add_round_rect(
+        slide,
+        left=0.72, top=1.24, width=5.85, height=3.45,
+        fill_color="background",
+        palette=palette,
+        line_color="divider",
+        line_width=0.6,
+    )
+    add_rect(slide, left=0.72, top=1.24, width=0.08, height=3.45, fill_color="primary", palette=palette)
+
+    cur_y = 1.52
+    if kicker:
+        add_text(
+            slide, text=kicker,
+            left=1.08, top=cur_y, width=5.05, height=0.34,
+            font_size=13, bold=False, color="secondary", alignment="left",
+            palette=palette, colors=colors,
+        )
+        cur_y += 0.42
+
+    add_text(
+        slide, text=title,
+        left=1.08, top=cur_y, width=5.05, height=1.45,
+        font_size=max(34, min(48, title_size)), bold=True,
+        color="text", alignment="left", vertical_alignment="middle",
+        palette=palette, colors=colors,
+    )
+    cur_y += 1.58
+    if subtitle:
+        add_text(
+            slide, text=subtitle,
+            left=1.1, top=cur_y, width=4.95, height=0.62,
+            font_size=18 if len(subtitle) <= 30 else 16, bold=False,
+            color="secondary", alignment="left", vertical_alignment="middle",
+            palette=palette, colors=colors,
+        )
+
+    visual_text = " ".join([title, subtitle, kicker])
+    icon_id = icon_id_from_text(visual_text, fallback="presentation")
+    add_pattern_overlay(slide, "pattern_grid", left=7.25, top=1.05, width=4.9, height=4.55, opacity_backdrop=False, palette=palette)
+    add_local_icon(slide, icon_id, left=9.25, top=2.76, size=1.1, palette=palette, with_badge=True)
+    add_rect(slide, left=8.4, top=5.9, width=2.8, height=0.1, fill_color="accent", palette=palette)
+
+    add_text(slide, text=author, left=0.72, top=6.52, width=4.0, height=0.4, font_size=14, color="primary", alignment="left", palette=palette, colors=colors)
+    add_text(slide, text=date, left=9.0, top=6.5, width=3.5, height=0.4, font_size=12, color="text_muted", alignment="right", palette=palette, colors=colors)
+    add_source_line(slide, source, palette)
+    return prs
+
+
+def _render_editorial_split(
+    prs: Presentation,
+    slide,
+    palette: str,
+    colors: dict,
+    source: str,
+    title: str,
+    subtitle: str,
+    author: str,
+    date: str,
+    kicker: str,
+    title_size: int,
+) -> Presentation:
+    """Render an editorial split cover for clean report openings."""
+    add_rect(slide, left=7.15, top=0, width=6.18, height=7.5, fill_color="light_bg", palette=palette)
+    add_pattern_overlay(slide, "pattern_grid", left=7.35, top=0.25, width=5.65, height=6.95, opacity_backdrop=False, palette=palette)
+    add_round_rect(slide, left=8.0, top=1.18, width=4.4, height=4.55, fill_color="background", palette=palette, line_color="divider", line_width=0.6)
+    add_local_icon(slide, icon_id_from_text(title + " " + subtitle, fallback="presentation"), left=9.63, top=2.52, size=1.18, palette=palette, with_badge=True)
+    add_text(slide, text=kicker or "PRESENTATION", left=0.72, top=1.22, width=5.65, height=0.34, font_size=13, color="secondary", alignment="left", palette=palette, colors=colors)
+    add_text(
+        slide, text=title,
+        left=0.72, top=1.78, width=5.85, height=1.65,
+        font_size=max(34, min(50, title_size)), bold=True,
+        color="text", alignment="left", vertical_alignment="middle",
+        palette=palette, colors=colors,
+    )
+    if subtitle:
+        add_text(slide, text=subtitle, left=0.75, top=3.55, width=5.55, height=0.66, font_size=18, color="secondary", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
+    add_rect(slide, left=0.75, top=4.55, width=1.25, height=0.08, fill_color="primary", palette=palette)
+    add_text(slide, text=author, left=0.72, top=6.52, width=4.0, height=0.4, font_size=14, color="primary", alignment="left", palette=palette, colors=colors)
+    add_text(slide, text=date, left=4.4, top=6.52, width=2.2, height=0.4, font_size=12, color="text_muted", alignment="right", palette=palette, colors=colors)
     add_source_line(slide, source, palette)
     return prs

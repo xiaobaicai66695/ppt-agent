@@ -43,7 +43,7 @@ from generators import (
 | `prs` | `Optional[Presentation]` | `None` | 已有的 Presentation 对象，为 None 时自动创建 |
 | `palette` | `str` | `"ocean_soft"` | 配色方案名，见 palettes.md |
 | `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
-| `background` | `str` | `""` | 背景图片主题，传入 `"artistic"`、`"party_government"`、`"minimalist_blue"` 等主题名即启用图片背景（留空则用纯色背景）。可取值见 `background_templates/SKILL.md` |
+| `background` | `str` | `""` | 背景图片配置。可传主题名（如 `"party_government"`），也可传主题内具体图片引用（如 `"party_government/images/3.jpg"`）。留空则用纯色背景。可取值见 `background_templates/SKILL.md` |
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
@@ -64,29 +64,38 @@ from generators import (
 | `contract.overflow_strategy` | string | 内容超量时的推荐动作，例如 `split_slide`、`reduce_series` |
 | `contract.background_policy` | string | 背景策略：`image_recommended`、`image_optional`、`clean_default` |
 | `contract.visual_primitives` | string[] | 首选视觉 primitives，例如 `local_icons`、`shapes`、`charts`、`cards` |
+| `variants` | object[] | 同一 `content_type` 下的版式候选，例如 `photo_full_bleed_center`、`left_photo`、`equal_grid`；这是规划/selector 元数据，不是 generator 参数 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
+> 当前阶段 `layout_variant` 只写入 tasks.json 作为设计意图。`generate_title_slide`、`generate_section_divider`、`generate_image_text`、`generate_card_grid` 已显式支持 `layout_variant`；其他生成器禁止把 `layout_variant` 或 `visual_intent` 直接传入，除非对应源码已显式支持。
 
 ## 背景与素材策略
 
-- 标题页、章节分隔页、视觉冲击页优先考虑背景图，背景必须服务标题识别和主题氛围。
+- 标题页、章节分隔页、图文叙事页、金句页、总结页和视觉冲击页默认使用背景图，背景必须服务标题识别和主题氛围。
+- 任务规划阶段会优先写入主题内具体图片引用，以随机选择图片并避免同一主题相邻视觉页重复同一张图；若只收到主题名，生成器仍会随机解析该主题下的图片。
 - 信息密集页默认使用干净背景：`content_slide`、`card_grid`、`two_column`、`kpi_dashboard`、`chart_slide`、`comparison_table` 等不应默认叠复杂背景图。
+- 所有图片背景都会在生成器内叠加浅色磨砂玻璃蒙版；不要在 Agent 代码里额外压暗图片、改写 palette 或手工叠遮罩。
 - 当前阶段优先使用本地图标、文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素。
 - 不默认使用外部图片搜索或生成式图片资产；确需真实照片、产品图、人物图时，应作为单独需求确认来源、授权和成本。
 
 ## 本地素材库和动态排版
 
-本地素材库位于 `skills/visual_designer/assets/`，由 `assets/manifest.json` 统一登记。
+本地素材库位于 `skills/visual_designer/assets/`，由 v2 `assets/manifest.json` 统一登记；完整维护说明见 `skills/visual_designer/README.md`。
 
 | 类型 | 目录 | 用途 |
 |------|------|------|
-| `icon` | `assets/icons/core/` | 替换单字 glyph，用于卡片、图标网格和少字内容页 |
-| `background` | `assets/backgrounds/editorial/` | 标题页、章节页、金句页、总结页的低干扰背景 |
-| `pattern` | `assets/patterns/subtle/` | 信息页轻量纹理或后续装饰 |
+| `icon` | `assets/icons/core/` | 统一 Icons8 线性图标，用于卡片、图标网格、结构页和少字内容页 |
+| `background` | `assets/backgrounds/editorial/` | 标题页、章节页、金句页、总结页的照片型 editorial 背景 |
+| `pattern` | `assets/patterns/subtle/` | 信息页轻量纹理，已归一化为 1920x1080 PNG |
+
+`assets/manifest.json` 的外部素材必须包含 `source_id`、`source_url`、`download_url`、`license`、`attribution` 和 `dimensions`。图标语义来自 `keywords`/`tags`，最长关键词和 priority 决定匹配结果；未知语义默认返回空字符串，不渲染无关图标。
+
+主题照片独立登记在 `background_templates/manifest.json`。生成器按该文件读取主题场景、推荐 palette 和图片列表；主题 id 与 `<theme>/images/<file>` 具体路径继续兼容。
 
 生成器辅助模块：
 
-- `generators/asset_manager.py`：通过 manifest 解析素材，按 id/tag 查找图标和背景。
+- `generators/asset_manager.py`：通过 manifest 解析素材，按 id/tag/keyword 查找图标和背景，并提供 `validate_manifest()`。
+- `generators/background_manager.py`：通过主题 manifest 选择背景和推荐 palette，并提供 `validate_background_manifest()`；仅在 manifest 缺失时回退到旧目录扫描。
 - `generators/layout_intelligence.py`：计算内容密度，提供动态字号、对齐、网格选择和内容带居中。
 - `generators/base.py`：`add_text` 默认进行文本框自适配，包含行数估算、稀疏内容适度放大、溢出时缩小和自动垂直 anchor；需要显式表达时可用 `add_text_boxed`。
 
@@ -103,6 +112,15 @@ from generators import (
 - 没有真实图片输入时，图文页应渲染本地素材摘要面板，不得暴露 `[图片占位]` 一类占位文案。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
+素材维护与验证：
+
+```powershell
+python skills/visual_designer/scripts/sync_external_assets.py
+python -m unittest discover -s skills/visual_designer/tests -p "test_asset_library.py"
+```
+
+Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源及许可随 manifest 提交。Bing 图片搜索只可作为发现入口，不能替代原始页面和许可记录。
+
 ## 生成器函数参数
 
 ### 结构引导类
@@ -115,6 +133,7 @@ from generators import (
 | author | str | `"张三"` |
 | date | str | `"2025年1月"` |
 | kicker | str | `"产品发布 · 2025"` (可选，标题上方小标签) |
+| layout_variant | str | `"photo_full_bleed_center"`、`"photo_full_bleed_left"` 或 `"editorial_split"` |
 | background | str | `"artistic"` (可选，背景图片主题，为空则用纯色) |
 
 #### generate_section_divider — 章节分隔页
@@ -124,6 +143,7 @@ from generators import (
 | title | str | `"技术背景"` |
 | subtitle | str | `"从感知机到大模型"` |
 | kicker | str | `"第三章"` (可选，编号上方小标签) |
+| layout_variant | str | `"photo_band"`、`"number_sidebar"` 或 `"quiet_title"` |
 | background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_agenda — 目录页
@@ -150,10 +170,11 @@ from generators import (
 | 参数 | 类型 | 示例 |
 |------|------|------|
 | title | str | `"深度学习发展历程"` |
-| section_header | str | `"{小节标题}"` (可选) |
+| section_header | str | `"核心机制"` (可选；必须是真实小标题，禁止 `{小节标题}` 等占位符) |
 | bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据", ...]` (4-6条，每条≤35中文字符) |
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
 | lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
+| background | str | `"minimalist_blue/background.jpg"` (可选，内容要点页可使用背景，生成器会加局部玻璃面板保证正文可读) |
 
 #### generate_quote_slide — 金句/引言页
 | 参数 | 类型 | 示例 |
@@ -168,6 +189,8 @@ from generators import (
 |------|------|------|
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
+| layout_variant | str | `"left_photo"`、`"right_photo"` 或 `"photo_strip"`；传入后优先于 layout |
+| image_path | str | `"asset:photo_technology_device"`、注册 photo id 或本地文件路径；为空时自动选择语义默认图 |
 | header | str | `"核心技术突破"` |
 | paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
 | bullets | `List[str]` | ~~（已废弃，勿用 paragraph 拆分后的 bullets）~~ |
@@ -176,7 +199,7 @@ from generators import (
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
 | background | str | `"artistic"` (可选，背景图片主题) |
 
-> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。
+> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。`image_path` 缺失或无效时，生成器会从 `photo` 素材中选择可替换的真实图片；禁止自行绘制图片占位符或传入虚构路径。
 
 ### 对比与并列类
 
@@ -212,6 +235,7 @@ from generators import (
 |------|------|------|
 | title | str | `"六大核心能力"` |
 | layout | str | `"2x2"` 或 `"2x3"` 或 `"3x2"` |
+| layout_variant | str | `"equal_grid"`、`"featured_card_plus_grid"` 或 `"masonry_cards"` |
 | cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话..."}, ...]` ×4-8 (body 为 100-120 字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |
@@ -391,8 +415,8 @@ from generators import (
 | `save_slide` AttributeError | slide 对象无效（前一步 generate 失败未检查） | 检查 generate 返回值，每个文件独立 new_presentation |
 | `No module named 'generators'` | sys.path 指向了 skills/ 而非 skills/visual_designer | 确认路径：`script_dir / ".." / ".." / "skills" / "visual_designer"` |
 
-## 禁止修改的文件
+## 变更纪律
 
-- `skills/visual_designer/generators/__init__.py`
-- `skills/visual_designer/generators/base.py`
-- `skills/visual_designer/generators/*.py`
+- 常规页面生成必须复用 `skills/visual_designer/generators` 包，不在 Agent 生成代码中手写底层 `python-pptx` 绘制逻辑。
+- 当需求明确涉及视觉质量、背景、容量或布局能力时，可以修改对应 generator 和 `base.py` helper，但必须同步本文件、模板契约和聚焦 smoke 验证。
+- 修改导出函数签名时，同步 `generators/__init__.py`、SlideExecutor prompt 和相关模板 JSON；仅修改内部实现时不需要改导出表。

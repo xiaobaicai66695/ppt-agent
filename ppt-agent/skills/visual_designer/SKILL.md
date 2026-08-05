@@ -1,117 +1,188 @@
 ---
 name: visual_designer
-description: 为PPT幻灯片提供视觉设计指导。遵循本Skill生成设计JSON，调用Python工具生成PPT。
+description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 description/content_plan/layout_variant/background/source，并通过既有 Python generators 生成 PPT。
 ---
 
 # Visual Designer
 
-## 核心设计原则（强制要求）
+## 职责边界
 
-- **禁止原色/霓虹色**：必须使用低饱和度灰感色彩。详见 `references/palettes.md`
-- **优先浅色背景**：所有幻灯片使用米白、浅灰等浅色背景；深色背景仅限 charcoal_light 等特定商务场景
+本 Skill 的核心作用是指导 Agent **规划任务清单和生成器参数语义**，不是指导 LLM 手写视觉实现。
 
-## 字体原则
+### 主 Agent 负责
 
-同一页面层级统一字体家族。
+- 选择合法 `content_type`，只使用 `references/slide_types.md` 中的英文 id。
+- 决定整套 `theme`、`template`、页数、页面顺序和每页标题。
+- 填写 `description`、`content_plan`、`layout_variant`、`background`、`source` 等 tasks.json 字段。
+- 判断内容是否需要拆页、合并、改用更合适的页面类型。
+- 为需要事实的数据页、案例页、图表页补充真实来源。
 
-| 用途 | 推荐字体 |
-|------|---------|
-| 中文标题/正文 | 思源黑体 / 微软雅黑 / 苹方 |
-| 英文标题 | Georgia / Arial Black / Calibri / Cambria |
-| 英文正文 | Calibri / Calibri Light |
+### SlideExecutor 负责
 
-| 元素 | 字号 |
-|------|------|
-| 幻灯片标题 | 36-44pt 加粗 |
-| 章节标题 | 20-24pt 加粗 |
-| 正文文字 | 14-16pt |
-| 注释/来源 | 10-12pt 淡化色 |
+- 读取 tasks.json。
+- 将 `description/content_plan` 转换为对应 generator 的 keyword 参数。
+- 保持 `palette=manifest.theme`，逐字符使用 `task.output_file`。
+- 将 `background`、`layout_variant`、`source` 等已规划字段原样传给支持它们的 generator。
 
----
+### Python generators 负责
 
-## 布局骨架选择
+- 字号、行距、文本框宽高、换行、垂直居中、内容带居中。
+- 背景图片解析、亮度处理、磨砂玻璃蒙版、文字对比度。
+- 本地图标/图片/纹理选择，缺图时的默认图片或省略策略。
+- 卡片、图表、KPI、流程、时间线等具体视觉绘制。
 
-布局由**内容性质**驱动，而非要点数量决定。
+### 禁止混淆
 
-| 内容性质 | 推荐骨架 |
-|---------|---------|
-| 核心概念定义 | 居中意象 + 关键词强调 |
-| 多维度对比 | 双栏对称或卡片阵列 |
-| 发展历程/时间线 | 水平或垂直时间轴 |
-| 操作步骤/流程 | 分步图或流程图 |
-| 金句/核心观点 | 大字居中，充足留白 |
-| 数据展示 | **图表专页(chart_slide)优先，图注清晰+数据分析面板** |
-| 信息密集 | 分组 + 小标题，多级列表 |
-| 并列要点 | 错落排列，打破机械对齐 |
-
-### 布局节奏感
-
-- 多条并列时可以左右错开，让视觉有呼吸
-- 同一层级元素不必强制对齐，可通过缩进、色块、字号体现层级
-- 内容少时用留白和字号体现重点，不要撑满版面
-- 内容多时优先拆分，而非压缩到一屏
+- 不要在 tasks.json 或 prompt 中写具体字号、坐标、文本框宽度、蒙版透明度。
+- 不要要求 LLM 估算文字几何尺寸；只控制内容长度和字段结构。
+- 不要让 Agent 手写 `python-pptx` 绘图代码；所有页面必须复用 `generators` 包。
+- 不要把 `layout_variant` 当作 `content_type`。
 
 ---
 
-## 每页必须有视觉元素
+## tasks.json 规划原则
 
-**纯文字幻灯片无法打动任何人。**
+### 内容优先级
 
-布局选项：双栏（左文右图）、图标+文字行（图标放带颜色圆形中）、2x2 或 2x3 网格、大数字强调（60-72pt）、对比列、时间线、流程图。
+1. 用户当前主题、显式大纲、显式模板/配色/背景选择。
+2. 当前任务识别出的受众、场景、交付目的。
+3. 同领域历史偏好或用户确定性资料。
+4. 模板默认结构。
+
+模板示例内容只表达页面位置和叙事节奏，不能带入最终 PPT。
+
+### 主题与配色
+
+- 整套 PPT 只有一个顶层 `theme`，必须是 `references/palettes.md` 中的合法 palette id。
+- `background` 只表示背景图片主题或具体图片引用，不得据此改写 `theme`。
+- 禁止在 `description` 中写“使用 36pt 标题、蓝色渐变、深色蒙版”等实现细节。
+- 如果用户显式指定品牌色或单位风格，将其写成语义约束，例如“保持正式政务语气”“突出单位名称”，不要写 CSS 或 RGB 指令。
+
+### 页面类型选择
+
+布局由内容性质驱动，而不是机械按要点数量决定。
+
+| 内容性质 | 优先 content_type |
+|---------|-------------------|
+| 封面 | `title_slide` |
+| 目录 | `agenda` |
+| 章节转换 | `section_divider` |
+| 核心概念/普通要点 | `content_slide` |
+| 图文叙事/产品或场景说明 | `image_text` |
+| 多个平等要点 | `card_grid` / `three_column` / `icon_grid` |
+| 多维对比 | `two_column` / `comparison_table` |
+| 时间顺序 | `timeline` |
+| 流程步骤 | `process_flow` |
+| 关键数字 | `stat_slide` |
+| 多指标看板 | `kpi_dashboard` |
+| 趋势、占比、对比数据 | `chart_slide` |
+| 命名案例 | `example_detail` / `case_study` |
+| 原理、架构、深度分析 | `deep_dive` |
+| 金句、观点引用 | `quote_slide` |
+| 总结收束 | `summary_slide` |
+
+历史别名 `bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 不能写入新的 tasks.json；统一用 `chart_slide` 或 `comparison_table`。
+
+---
+
+## 内容容量与拆页
+
+**Agent 只负责控制内容容量和拆页，具体排版适配由 generator 负责。**
+
+### 推荐容量
+
+| 类型 | 推荐容量 | 超出时处理 |
+|------|----------|------------|
+| `content_slide` | 4-6 条 bullet，每条 25-35 中文字 | 拆成概述页 + 详解页，或改用 `deep_dive` |
+| `card_grid` | 4-6 张卡片，header 8-15 字，body 40-60 字 | 拆成两页卡片，或提炼为 4 张重点卡 |
+| `two_column` | 左右各 3-5 条，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
+| `image_text` | 300-450 字自然段，不拆 bullet | 过长拆为两页图文叙事 |
+| `kpi_dashboard` | 固定最多 4 个 KPI | 多指标拆成多页或改 `chart_slide` |
+| `chart_slide` | 1 个主图表，1-3 个 dataset | 多图表拆页 |
+| `timeline` / `process_flow` | 4-6 个节点 | 超过 6 个拆页或按阶段聚合 |
+| `summary_slide` | 最多 4 条总结 | 合并相似结论 |
+
+### 拆页判断
+
+- 一个页面需要同时承载“背景、方案、数据、启示”且文字明显超过模板容量时，拆为多页。
+- 内容不足时合并，避免为了页数制造空洞页面。
+- 内容过多时拆分，避免把多个主题塞到一页。
+- 拆页由主 Agent 在 tasks.json 中增加独立 `TaskItem` 完成；不要要求 generator 自动分页。
+- 拆出的 `task_id`、`page_index`、`output_file` 必须保持唯一且有序，可使用 `3.1_架构总览.pptx`、`3.2_核心模块详解.pptx` 这类文件名。
 
 ---
 
-## 避免常见错误
+## description 与 content_plan
 
-| 错误 | 正确做法 |
-|------|---------|
-| 重复使用相同布局 | 变换使用双栏、卡片等多种布局 |
-| 正文居中对齐 | 正文左对齐；仅标题居中 |
-| 字号对比不足 | 标题 36pt+，正文 14-16pt |
-| 默认用蓝色 | 选与主题相符的颜色 |
-| 纯文字幻灯片 | 添加图片、图标、图表 |
-| **标题下加装饰线** | **禁止。用留白或背景色代替。** |
+### description 写法
+
+`description` 是给 SlideExecutor 提取参数的自然语言契约，应包含页面要表达的核心内容，而不是视觉实现说明。
+
+应写：
+
+- 该页结论是什么。
+- 包含哪些命名实体、事实、数字、时间、来源。
+- 各字段之间的结构关系，例如“左栏讲原理，右栏放案例数据”。
+- 图表页的数据 labels、datasets、chart_type。
+- KPI 页的 value、label、delta、baseline。
+
+不应写：
+
+- 字号、坐标、形状宽高、透明度、阴影参数。
+- “手动加图片占位框”“画一条装饰线”“用 python-pptx 绘制”等实现指令。
+- `{要点1}`、`{小节标题}`、`某公司`、`若干数据` 等占位或匿名内容。
+
+### content_plan 推荐字段
+
+`content_plan` 用来让结构化内容更稳定，优先写业务语义：
+
+```json
+{
+  "summary": "本页核心结论",
+  "sections": [
+    {"title": "背景", "items": ["..."]},
+    {"title": "方案", "items": ["..."]}
+  ],
+  "chart_type": "bar",
+  "data": {
+    "labels": ["Q1", "Q2"],
+    "datasets": [{"name": "收入", "values": [120, 180]}]
+  },
+  "visual_intent": {
+    "role": "supporting_photo",
+    "asset_query": "企业服务场景",
+    "preferred_variant": "right_photo",
+    "image_position": "right"
+  }
+}
+```
+
+`visual_intent` 只表达“需要什么视觉语义”，不是绘图参数。
+
+可用 `role` 示例：
+
+- `hero_photo`
+- `supporting_photo`
+- `chart`
+- `cards`
+- `icon`
+- `map`
+- `process`
+- `timeline`
 
 ---
 
-## 排版约束
+## 背景图片规划
 
-- 页边距至少 0.5 英寸
-- 内容块间距 0.3-0.5 英寸
-- 元素超出幻灯片边界：所有元素应位于安全版心内（左右边距≥0.5英寸）
-- 内容超出版心容纳能力时，**必须主动拆分为多页**
+背景图片由主 Agent 在 tasks.json 的 `background` 字段中规划，生成器负责实际解析和渲染。
 
-### 文字量控制（强制要求）
+### 使用规则
 
-**信息密度优先。每页内容要充实，避免大片留白。内容溢出时优先分页，而非压缩字号。**
-
-| 元素 | 上限 | 超出时处理 |
-|------|------|-----------|
-| bullet_list 条目 | 每页 4-6 条 | 内容不足时合并，过多时拆分 |
-| 每条文字 | ≤35 个中文字符 | 包含具体数据或事实，信息密度高 |
-| 正文段落 | 每段 2 行内 | 拆出详情页 |
-| 一屏容纳不下 | 整体过长 | 拆为「概述页」+「详解页」 |
-
-**分页判断原则：**
-- 如果一个页面去掉标题后，正文+视觉元素仍显得拥挤 → 拆
-- 内容不足时合并页面，避免单页留白过多；内容过多时拆分，避免密密麻麻
-- 分页后的子页编号格式：`{页码}.{子页码}_{标题}.pptx`（如 `3.1_架构总览.pptx`、`3.2_核心模块详解.pptx`）
-
-### 文字溢出防护
-
-- **估算**：中文 `字数 × 字号 × 0.5`，英文 `字符数 × 字号 × 0.3`
-- **宽度**：几何体宽度 ≥ 文字宽度 + 两倍边距，宁可大不可小
-- **换行优先**，换行后仍超出才缩字号（最小 14pt）
-- **绝对不允许文字超出几何体边界**
-
----
-## 背景图片（按页面类型使用）
-
-背景图片用于增强叙事页的第一眼识别度，但不应压低信息页的可读性。
-
-- 标题页、章节页、视觉冲击页：推荐使用背景图片，并搭配浅色蒙层或留白保证标题对比度。
-- 图文叙事页、引用页、总结页：可按主题选择背景图片；若文字较多，优先保持干净背景。
-- 内容页、卡片页、双栏页、KPI、图表、表格、流程等信息密集页：默认使用纯色或浅色块背景，不使用复杂图片背景。
+- 标题页、章节页、视觉冲击页、金句页、总结页：默认可使用背景图片。
+- 图文叙事页、内容要点页：可使用背景图片，但正文容量较高时仍优先保证可读性。
+- 图表、表格、KPI、强数据页：优先留空 `background`，使用干净背景。
+- 相邻视觉页尽量不要重复同一张具体背景图。
+- 如果后端或模板已分配具体图片引用，原样保留。
 
 ### 可用背景主题
 
@@ -124,105 +195,88 @@ description: 为PPT幻灯片提供视觉设计指导。遵循本Skill生成设�
 | `snowy_mountain` | 雪山风景 | 自然、户外 |
 | `artistic` | 艺术涂鸦 | 艺术、创意、时尚 |
 
-### 使用方式
+### 字段形式
 
-在模板 JSON 中配置 `background` 字段：
+- 主题 id：`"party_government"`
+- 主题内具体图片引用：`"party_government/images/3.jpg"`
+- 不使用背景：`""`
 
-```json
-// 单页模板
-{
-  "name": "title_slide",
-  "fields": [
-    {"name": "background", "label": "背景图片", "type": "select",
-     "options": [
-       {"value": "", "label": "不使用背景"},
-       {"value": "party_government", "label": "党政办公"},
-       {"value": "minimalist_blue", "label": "简约蓝白"}
-     ]}
-  ]
-}
-
-// 全局模板
-{
-  "name": "generic",
-  "background_options": {
-    "themes": ["", "party_government", "minimalist_blue"],
-    "labels": ["不使用背景", "党政办公", "简约蓝白"]
-  }
-}
-```
-
-### 亮度设置
-
-背景亮度由生成器按页面类型和背景来源自动处理，原则是标题可读、图片主题可辨识。多数背景保持清晰明亮；标题页或章节页可由生成器叠加蒙层来保证文字对比度。
-
-### 本地视觉 primitives 优先
-
-当前阶段优先使用生成器已有的本地图标、文字 glyph、几何形状、卡片、图表和分隔组件。不要默认接外部图片搜索或生成式图片资产；只有用户明确要求真实图片、产品图、人物图或外部素材时再单独设计检索/生成流程。
-
-### 本地素材库
-
-本 skill 内置离线素材库：`assets/manifest.json` 统一登记 PNG 图标、编辑型背景和 subtle pattern。
-
-- 图标：`assets/icons/core/`，覆盖 runtime、timeline、tool、llm、file、report、contract、layout、chart、kpi、fix 等常用概念。
-- 背景：`assets/backgrounds/editorial/`，用于标题页、章节页、金句页、总结页等低密度叙事页。
-- 纹理：`assets/patterns/subtle/`，用于信息页的轻量层次，不应抢正文。
-- 生成器应通过 `generators/asset_manager.py` 读取 manifest，不要在各模板中散落硬编码素材路径。
-
-### 动态排版策略
-
-生成器应先判断内容密度，再决定字号、对齐和视觉锚点：
-
-- `sparse`：1-3 条短内容，优先居中、大字号、本地图标或视觉锚点，避免左上角小列表造成空洞。
-- `normal`：常规信息页，保持可扫描的左对齐和分组。
-- `dense`：内容多时收紧行距和字号，但不低于可读下限；超过容量仍应拆页。
-- 文字盒应使用生成器底层动态适配：估算行数、必要时缩小、内容稀疏时适度放大，并在空间充裕时自动垂直居中。
-- 列表、卡片、时间线、流程和 KPI 等成组元素应作为整体放入内容带中居中，不要固定从顶部或底部硬排。
-- 模板默认视觉区域不能出现“图片占位”等半成品文案；没有真实图片时使用本地图标、pattern 和语义摘要面板。
+不要在 `description` 中要求“压暗背景”“增加蒙版”“降低透明度”；这些由 generator 统一处理。
 
 ---
 
-## 内容充实度标准（强制要求）
+## layout_variant 与视觉意图
 
-**核心原则：内容页必须尽量包含具体、命名、带数字的实例。封面、目录、章节分隔、引用、总结等结构/叙事页按模板语义处理，不为了凑字段硬塞数据。**
+`layout_variant` 是同一 `content_type` 下的版式候选，只能写 generator 已支持的值。
 
-### 内容页优先包含的元素
+当前优先使用：
+
+| content_type | layout_variant 示例 |
+|--------------|---------------------|
+| `title_slide` | `photo_full_bleed_center` / `photo_full_bleed_left` / `editorial_split` |
+| `section_divider` | `photo_band` / `number_sidebar` / `quiet_title` |
+| `image_text` | `left_photo` / `right_photo` / `photo_strip` |
+| `card_grid` | `equal_grid` / `featured_card_plus_grid` / `masonry_cards` |
+
+其他页面如源码未显式支持 `layout_variant`，不要写该字段；可以只写 `content_plan.visual_intent` 表达语义。
+
+---
+
+## 本地素材与图片
+
+- 默认优先使用本地素材库，不默认做外部图片搜索或生成式图片。
+- `assets/manifest.json` 登记图标、图片、纹理等素材元数据。
+- `background_templates/manifest.json` 登记主题背景。
+- `image_text` 如果用户提供真实本地路径或 `asset:<photo-id>`，可写入 `content_plan.visual_intent` 或生成参数中的 `image_path` 语义；不要编造路径。
+- 没有明确图片时，任务规划只需写 `asset_query` 或留空，具体默认图片由 generator 选择。
+- 禁止写“图片占位”“虚线框”“待替换图片”等半成品文案。
+
+素材维护和 generator 级别验证见 `references/generators.md` 与 `README.md`。
+
+---
+
+## 内容充实度标准
+
+核心原则：内容页必须尽量包含具体、命名、带数字的事实。封面、目录、章节分隔、引用、总结等结构/叙事页按模板语义处理，不为了凑字段硬塞数据。
+
+### 内容页优先包含
 
 | 元素 | 要求 | 示例 |
 |------|------|------|
-| **kicker** | 内容页顶部优先加分类标签，结构页按模板支持情况使用 | `核心技术 · CNN架构`、`案例 · 金融风控`、`数据 · 季度增长` |
-| **lede** | 适合 `content_slide`、`deep_dive`、`example_detail` 等页面；标题页、目录页、引用页不强制 | `"三次架构迭代将推理延迟从 320ms 压缩到 18ms"` |
-| **具体实例** | 至少一个命名实体（公司/系统/人物/论文）+ 具体数字 | `蚂蚁金服 AlphaRisk`，不是 `某金融公司` |
-| **量化数据** | 每个论断后面跟具体数字 | `"大幅提升" ❌` → `"准确率从 76% 提升至 99.99%" ✅` |
+| `kicker` | 分类标签，说明页面语义 | `核心技术 · CNN架构`、`案例 · 金融风控` |
+| `lede` | 一句话结论，适合内容页/详解页 | `三次架构迭代将推理延迟从 320ms 压缩到 18ms` |
+| 命名实体 | 公司、系统、人物、论文、政策、地点等真实名称 | `蚂蚁 AlphaRisk`，不是 `某金融公司` |
+| 量化数据 | 数值、单位、时间、对比基准 | `准确率从 76% 提升至 99.99%` |
+| 来源 | 数据页和事实密集页必须有来源 | `来源: 国家统计局 2025 | https://...` |
 
-### 实例页（example_detail）设计模板
+### 实例页 example_detail
 
-每介绍一个重要概念或技术，必须配一页实例：
-
-```
+```text
 kicker: 实例 · {领域}
 title: {命名案例}: {一句话总结}
-content:
-  - 背景: {1-2句行业/问题背景}
-  - 方案: {2-3句技术方案描述，含具体技术栈}
-  - 关键数据: {至少2个量化指标，带单位和对比基准}
-  - 启示: {1句总结，点出可迁移的经验}
+context_block: 1-2 句行业/问题背景
+solution_block: 2-3 句技术方案，含具体技术栈或方法
+metrics: 至少 2-3 个量化指标，带单位和对比基准
+takeaway: 1 句可迁移启示
 ```
 
-### 详细页（deep_dive）设计模板
+### 深入页 deep_dive
 
-每讲解一个核心技术/架构/流程，使用双栏深入展开：
-
-| 左栏（原理/流程） | 右栏（代码/架构/数据） |
-|-------------------|------------------------|
-| 分步解释工作原理 | 代码片段/Python伪代码 |
-| 关键设计决策及原因 | 架构图描述或终端输出 |
-| 与其他方案的差异 | 性能数据或对比表格 |
+左侧写原理、流程、关键设计决策；右侧写代码/架构/案例/数据。不要把 deep_dive 填成普通 bullet 页。
 
 ### 禁止的内容模式
 
-- ❌ `"AI在各行业广泛应用"` — 太空泛，没有具体行业、具体应用、具体数字
-- ❌ `"某大型互联网公司"` — 必须给出真实公司名称
-- ❌ `"显著提升了效率"` — 必须说"部署时间从 3 天降至 2 小时"
-- ❌ 连续 3 页使用纯 bullet_list 无实例 — 第 3 页开始必须含 example_box 或 case_study_block
-- ❌ example_box 的 description 少于 40 个中文字符 — 必须展开写技术细节
+- `"AI在各行业广泛应用"`：太空泛，没有具体行业、应用、数字。
+- `"某大型互联网公司"`：匿名实体，必须给真实名称。
+- `"显著提升了效率"`：必须写清楚提升幅度和基准。
+- 连续 3 页纯 bullet_list 无案例或数据。
+- 数据页没有 `source`。
+
+---
+
+## 变更纪律
+
+- 常规页面生成必须复用 `skills/visual_designer/generators` 包。
+- 修改 generator 函数签名时，同步 `references/generators.md`、SlideExecutor prompt、模板 JSON 和相关测试。
+- 只调整 tasks.json 规划规则时，优先修改本文件和主 Agent prompt，不改 generator。
+- 视觉实现细节应沉淀到 `generators/base.py`、具体 generator 或 `references/generators.md`，不要混入本文件作为 LLM 手工排版指令。

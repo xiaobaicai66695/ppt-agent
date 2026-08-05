@@ -18,6 +18,32 @@
     "background_policy": "image_recommended",
     "visual_primitives": ["section_number", "background_image", "large_type"]
   },
+  "variants": [
+    {
+      "id": "photo_band",
+      "display_name": "主题照片横幅",
+      "description": "用横向主题图形成章节氛围，标题保持高对比，适合自然、城市、活动等章节开场。",
+      "best_for": ["章节开场", "场景切换", "叙事转场"],
+      "avoid_for": ["章节标题过长", "后续内容非常数据密集"],
+      "visual_intent": {"role": "hero_photo", "image_position": "background"}
+    },
+    {
+      "id": "number_sidebar",
+      "display_name": "章节编号侧栏",
+      "description": "强化章节编号和标题层级，使用纯色或轻纹理背景，适合结构化报告。",
+      "best_for": ["正式汇报", "课程章节", "方案分段"],
+      "avoid_for": ["需要强照片氛围的旅游/地域主题"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    },
+    {
+      "id": "quiet_title",
+      "display_name": "安静标题过渡",
+      "description": "保留大量留白，只突出章节标题和一句副标题，适合降低视觉噪音。",
+      "best_for": ["知识讲解", "总结过渡", "严肃报告"],
+      "avoid_for": ["需要制造强烈第一眼冲击"],
+      "visual_intent": {"role": "icon", "image_position": "inline"}
+    }
+  ],
   "fields": [
     {"name": "title", "label": "章节标题", "type": "text", "required": true},
     {"name": "subtitle", "label": "章节副标题", "type": "text", "required": false}

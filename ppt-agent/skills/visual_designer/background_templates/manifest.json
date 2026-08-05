@@ -1,0 +1,416 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-05",
+  "discovery_url": "https://cn.bing.com/images/search?q=%e8%83%8c%e6%99%af+%e5%9b%be%e7%89%87+%e5%a4%a7%e5%85%a8&qpvt=%e8%83%8c%e6%99%af%e5%9b%be%e7%89%87%e5%a4%a7%e5%85%a8&form=IGRE&first=1",
+  "sources": [
+    {
+      "id": "unsplash",
+      "homepage": "https://unsplash.com",
+      "license": "Unsplash License",
+      "terms_url": "https://unsplash.com/license",
+      "attribution": "Photo author and source URL are recorded per asset"
+    }
+  ],
+  "themes": [
+    {
+      "id": "party_government",
+      "name_cn": "党政办公",
+      "scenarios": [
+        "党建",
+        "政府",
+        "政务",
+        "机关",
+        "党委",
+        "党支部",
+        "红色"
+      ],
+      "priority": 10,
+      "recommended_palette": "government_red",
+      "images": [
+        {
+          "path": "party_government/images/1.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "party_government/images/2.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "party_government/images/3.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "party_government/images/4.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "party_government/images/5.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        }
+      ]
+    },
+    {
+      "id": "ink_wash_mountain",
+      "name_cn": "水墨山水",
+      "scenarios": [
+        "水墨",
+        "山水",
+        "艺术",
+        "自然"
+      ],
+      "priority": 8,
+      "recommended_palette": "sage_calm",
+      "images": [
+        {
+          "path": "ink_wash_mountain/images/1.jpg",
+          "dimensions": [
+            2560,
+            1440
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "ink_wash_mountain/images/2.jpg",
+          "dimensions": [
+            2560,
+            1440
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "ink_wash_mountain/images/3.jpg",
+          "dimensions": [
+            2560,
+            1440
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "ink_wash_mountain/images/4.jpg",
+          "dimensions": [
+            2560,
+            1440
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        }
+      ]
+    },
+    {
+      "id": "vintage_chinese",
+      "name_cn": "复古中国风",
+      "scenarios": [
+        "中国风",
+        "传统",
+        "文化",
+        "国风",
+        "古风",
+        "复古",
+        "文艺"
+      ],
+      "priority": 7,
+      "recommended_palette": "warm_terracotta",
+      "images": [
+        {
+          "path": "vintage_chinese/images/background.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "vintage_chinese/images/2.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/cZhUxIQjILg",
+          "download_url": "https://picsum.photos/id/24/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Alejandro Escamilla on Unsplash"
+        },
+        {
+          "path": "vintage_chinese/images/3.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/OxzhYtL-00Y",
+          "download_url": "https://picsum.photos/id/76/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Alexander Shustov on Unsplash"
+        },
+        {
+          "path": "vintage_chinese/images/4.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/CtkDsu4w-Rs",
+          "download_url": "https://picsum.photos/id/78/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Paul Evans on Unsplash"
+        }
+      ]
+    },
+    {
+      "id": "artistic",
+      "name_cn": "艺术涂鸦",
+      "scenarios": [
+        "艺术",
+        "创意",
+        "涂鸦",
+        "个性",
+        "时尚",
+        "现代艺术"
+      ],
+      "priority": 6,
+      "recommended_palette": "berry_cream",
+      "images": [
+        {
+          "path": "artistic/images/background.jpg",
+          "dimensions": [
+            1511,
+            850
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "artistic/images/2.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/VLdaxYyXJvw",
+          "download_url": "https://picsum.photos/id/56/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Sebastian Muller on Unsplash"
+        },
+        {
+          "path": "artistic/images/3.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/-kEr-QltARg",
+          "download_url": "https://picsum.photos/id/58/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Tony Naccarato on Unsplash"
+        },
+        {
+          "path": "artistic/images/4.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/-vq7mi4oF0s",
+          "download_url": "https://picsum.photos/id/82/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Rula Sibai on Unsplash"
+        }
+      ]
+    },
+    {
+      "id": "minimalist_blue",
+      "name_cn": "简约蓝白",
+      "scenarios": [
+        "商务",
+        "企业",
+        "科技",
+        "现代",
+        "简约",
+        "专业",
+        "会议",
+        "方案",
+        "产品"
+      ],
+      "priority": 5,
+      "recommended_palette": "ocean_soft",
+      "images": [
+        {
+          "path": "minimalist_blue/images/background.jpg",
+          "dimensions": [
+            1280,
+            720
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "minimalist_blue/images/2.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/IoCWq07GaG4",
+          "download_url": "https://picsum.photos/id/43/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Oleg Chursin on Unsplash"
+        },
+        {
+          "path": "minimalist_blue/images/3.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/6qORI5j_6n8",
+          "download_url": "https://picsum.photos/id/53/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by J Duclos on Unsplash"
+        },
+        {
+          "path": "minimalist_blue/images/4.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/YhZbnxqtooM",
+          "download_url": "https://picsum.photos/id/74/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Isaak Dury on Unsplash"
+        }
+      ]
+    },
+    {
+      "id": "snowy_mountain",
+      "name_cn": "雪山风景",
+      "scenarios": [
+        "自然",
+        "风景",
+        "户外",
+        "雪山",
+        "山川",
+        "旅行",
+        "环保"
+      ],
+      "priority": 4,
+      "recommended_palette": "charcoal_light",
+      "images": [
+        {
+          "path": "snowy_mountain/images/1.jpg",
+          "dimensions": [
+            3998,
+            2250
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "snowy_mountain/images/2.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "snowy_mountain/images/3.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "project-existing",
+          "source_url": "",
+          "download_url": "",
+          "license": "project-internal",
+          "attribution": ""
+        },
+        {
+          "path": "snowy_mountain/images/4.jpg",
+          "dimensions": [
+            1920,
+            1080
+          ],
+          "source_id": "unsplash",
+          "source_url": "https://unsplash.com/photos/V0yAek6BgGk",
+          "download_url": "https://picsum.photos/id/29/1920/1080",
+          "license": "Unsplash License",
+          "attribution": "Photo by Go Wild on Unsplash"
+        }
+      ]
+    }
+  ]
+}

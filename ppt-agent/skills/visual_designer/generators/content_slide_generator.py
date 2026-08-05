@@ -27,7 +27,7 @@ def generate(
     palette: str = "ocean_soft",
     source: str = "",
     title: str = "{页面标题}",
-    section_header: str = "{小节标题}",
+    section_header: str = "",
     bullets: List[str] = None,
     kicker: str = "",
     lede: str = "",
@@ -52,12 +52,22 @@ def generate(
     Returns:
         The Presentation object.
     """
+    title = _clean_placeholder(title)
+    section_header = _clean_placeholder(section_header)
+    kicker = _clean_placeholder(kicker)
+    lede = _clean_placeholder(lede)
     if bullets is None:
         bullets = [
             "{要点1}",
             "{要点2}",
             "{要点3}",
         ]
+    bullets = [_clean_placeholder(item) for item in bullets]
+    bullets = [item for item in bullets if item]
+    if not title:
+        title = "Key Takeaways"
+    if not section_header:
+        section_header = _infer_section_header(title, bullets, lede)
     bullets = short_items(bullets, 6)
     level = density_level(bullets, title=title, body=lede)
     is_sparse = level == "sparse" and not highlight_stats
@@ -69,13 +79,13 @@ def generate(
     slide = prs.slides.add_slide(blank_layout)
     bg_path = resolve_background(background) if background else None
     if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+        colors = set_image_background(slide, bg_path, brightness=0.98, palette=palette)
     else:
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
     if is_sparse:
-        icon_id = icon_id_from_text(" ".join([title, section_header, lede] + bullets), fallback="primitive")
+        icon_id = icon_id_from_text(" ".join([title, section_header, lede] + bullets), fallback="overview")
         add_local_icon(slide, icon_id, left=5.78, top=1.32, size=1.35, palette=palette, with_badge=True)
         if kicker:
             add_text(
@@ -140,6 +150,17 @@ def generate(
         )
         y_title = 0.7
 
+    if bg_path:
+        panel_width = 9.35 if not highlight_stats else 11.75
+        add_rect(
+            slide,
+            left=0.55, top=1.38, width=panel_width, height=4.72,
+            fill_color=(255, 255, 255, 176),
+            line_color="divider",
+            line_width=0.4,
+            palette=palette,
+        )
+
     # Left accent vertical bar
     add_rect(
         slide,
@@ -160,11 +181,13 @@ def generate(
 
     # Section header
     y_offset = 1.7 if not kicker else 1.55
+    text_width = 8.75 if bg_path and not highlight_stats else 11.5
+    bullet_width = 8.45 if bg_path and not highlight_stats else 11.0
     if section_header:
         add_text(
             slide,
             text=section_header,
-            left=0.7, top=y_offset, width=11.5, height=0.5,
+            left=0.7, top=y_offset, width=text_width, height=0.5,
             font_size=20, bold=True,
             color="primary", alignment="left",
             palette=palette,
@@ -177,7 +200,7 @@ def generate(
         add_text(
             slide,
             text=lede,
-            left=0.7, top=y_offset, width=11.5, height=0.5,
+            left=0.7, top=y_offset, width=text_width, height=0.5,
             font_size=14, bold=False,
             color="text_muted", alignment="left",
             palette=palette,
@@ -205,7 +228,7 @@ def generate(
         add_text(
             slide,
             text=item,
-            left=1.05, top=y, width=11.0, height=0.5,
+            left=1.05, top=y, width=bullet_width, height=0.5,
             font_size=item_font, bold=False,
             color="text", alignment="left",
             vertical_alignment="middle",
@@ -266,3 +289,40 @@ def generate(
 
     add_source_line(slide, source, palette)
     return prs
+
+
+def _clean_placeholder(value: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    normalized = value.replace(" ", "")
+    if normalized.startswith("{") and normalized.endswith("}"):
+        return ""
+    if "{" in normalized and "}" in normalized:
+        return ""
+    placeholder_values = {"页面标题", "小节标题", "副标题", "章节副标题"}
+    if normalized in placeholder_values or normalized.startswith("要点") and len(normalized) <= 4:
+        return ""
+    return value
+
+
+def _infer_section_header(title: str, bullets: List[str], lede: str) -> str:
+    text = " ".join([title or "", lede or ""] + (bullets or []))
+    lower = text.lower()
+    keyword_map = [
+        ("reliability", "Reliability Principles"),
+        ("manifest", "Manifest Robustness"),
+        ("runtime", "Runtime Guardrails"),
+        ("tool", "Tool-Call Safety"),
+        ("summary", "Executive Summary"),
+        ("takeaway", "Actionable Takeaways"),
+        ("可靠", "可靠性原则"),
+        ("运行时", "运行时护栏"),
+        ("工具", "工具调用安全"),
+        ("清单", "清单稳健性"),
+        ("总结", "核心回顾"),
+    ]
+    for keyword, header in keyword_map:
+        if keyword in lower or keyword in text:
+            return header
+    return "核心观点"

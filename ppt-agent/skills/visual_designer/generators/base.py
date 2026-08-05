@@ -231,7 +231,7 @@ def set_image_background(slide, image_path: str, brightness: float = 0.95, palet
     Args:
         slide: python-pptx Slide 对象
         image_path: 背景图片的完整路径（支持 JPG/PNG）
-        brightness: 亮度调整 (0.0-1.0)，值越小背景越暗。推荐值 0.8-0.95
+        brightness: 亮度调整 (0.0-1.0)，值越小背景越暗。推荐值 0.9-1.0
 
     Example:
         set_image_background(slide, "D:/path/to/background.jpg")
@@ -330,7 +330,7 @@ def add_frosted_glass_overlay(slide, palette: str = "ocean_soft"):
     add_rect(
         slide,
         left=0.0, top=0.0, width=13.333, height=7.5,
-        fill_color=(255, 255, 255, 128),
+        fill_color=(255, 255, 255, 96),
         line_color=None,
     )
     # 玻璃模式下，文字和色块用深色系（在白色磨砂底上可读），
@@ -456,6 +456,17 @@ def save_slide(slide, output_path: str):
                         if new_rel.target_part == src_rel.target_part:
                             chart_el.set("{" + r_ns + "}embed", new_rel_id)
                             break
+        for blip in el.findall(".//" + qn("a:blip")):
+            old_rid = blip.get("{" + r_ns + "}embed")
+            if old_rid and old_rid in src_slide_rel:
+                src_rel = src_slide_rel[old_rid]
+                if src_rel.reltype == RT.IMAGE:
+                    try:
+                        img_part = src_rel.target_part
+                        new_rid = dest_slide_part.relate_to(img_part, RT.IMAGE)
+                        blip.set("{" + r_ns + "}embed", new_rid)
+                    except Exception:
+                        pass
         dest_spTree.append(el)
 
     save_presentation(new_prs, output_path)
@@ -998,6 +1009,13 @@ def resolve_background(background: str) -> str:
     # 文件存在
     if os.path.exists(background):
         return background
+
+    normalized = background.replace("\\", "/").lstrip("/")
+    if ".." not in normalized:
+        from .background_manager import get_background_dir
+        candidate = get_background_dir() / normalized
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
 
     # 尝试作为 theme 或 scenario
     # theme 匹配时：固定使用该主题，随机选其中一张图片

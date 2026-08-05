@@ -1,121 +1,167 @@
-"""
-Background template manager - 背景图片路径获取工具
+"""Background theme catalog and local image resolver."""
 
-按主题或场景获取背景图片路径，支持动态扩充。
-"""
-import os
-import random
+from __future__ import annotations
+
+from functools import lru_cache
+import json
 from pathlib import Path
+import random
 from typing import Optional
 
-
-# 主题到中文名称和场景关键词的映射
-THEME_MAPPING = {
-    "party_government": {
-        "name_cn": "党政办公",
-        "scenarios": ["党建", "政府", "政务", "机关", "党委", "党支部", "红色"],
-        "priority": 10,
-    },
-    "minimalist_blue": {
-        "name_cn": "简约蓝白",
-        "scenarios": ["商务", "企业", "科技", "现代", "简约", "专业", "会议", "方案", "产品"],
-        "priority": 5,
-    },
-    "vintage_chinese": {
-        "name_cn": "复古中国风",
-        "scenarios": ["中国风", "传统", "文化", "国风", "古风", "复古", "文艺"],
-        "priority": 7,
-    },
-    "ink_wash_mountain": {
-        "name_cn": "水墨山水",
-        "scenarios": ["水墨", "山水", "艺术", "自然"],
-        "priority": 8,
-    },
-    "snowy_mountain": {
-        "name_cn": "雪山风景",
-        "scenarios": ["自然", "风景", "户外", "雪山", "山川", "旅行", "环保"],
-        "priority": 4,
-    },
-    "artistic": {
-        "name_cn": "艺术涂鸦",
-        "scenarios": ["艺术", "创意", "涂鸦", "个性", "时尚", "现代艺术"],
-        "priority": 6,
-    },
-}
+from PIL import Image
 
 
-# 背景主题 → 推荐配色方案映射
-# 当使用背景图片时，优先使用推荐配色以保持视觉协调
-BACKGROUND_PALETTE_MAP: dict[str, str] = {
-    "vintage_chinese": "warm_terracotta",   # 复古中国风 → 陶土橙（暖色调协调）
-    "ink_wash_mountain": "sage_calm",        # 水墨山水 → 鼠尾草绿（清雅脱俗）
-    "party_government": "government_red",   # 党政办公 → 党政红（政治庄重感）
-    "snowy_mountain": "charcoal_light",      # 雪山风景 → 浅炭灰（自然纯净）
-    "artistic": "berry_cream",              # 艺术涂鸦 → 玫瑰灰粉（创意时尚）
-    "minimalist_blue": "ocean_soft",         # 简约蓝白 → 雾霾蓝（协调统一）
-}
+BACKGROUND_ROOT = Path(__file__).resolve().parents[1] / "background_templates"
+BACKGROUND_MANIFEST_PATH = BACKGROUND_ROOT / "manifest.json"
+
+
+@lru_cache(maxsize=1)
+def load_background_manifest() -> dict:
+    if not BACKGROUND_MANIFEST_PATH.is_file():
+        return {"version": 0, "themes": []}
+    data = json.loads(BACKGROUND_MANIFEST_PATH.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {"version": 0, "themes": []}
+
+
+def _manifest_theme_mapping() -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for theme in load_background_manifest().get("themes", []):
+        theme_id = str(theme.get("id", "")).strip()
+        if not theme_id:
+            continue
+        result[theme_id] = {
+            "name_cn": theme.get("name_cn", theme_id),
+            "scenarios": theme.get("scenarios", []),
+            "priority": int(theme.get("priority", 0)),
+        }
+    return result
+
+
+def _manifest_palette_mapping() -> dict[str, str]:
+    return {
+        str(theme.get("id")): str(theme.get("recommended_palette"))
+        for theme in load_background_manifest().get("themes", [])
+        if theme.get("id") and theme.get("recommended_palette")
+    }
+
+
+# Kept as exported compatibility constants; their source of truth is manifest.json.
+THEME_MAPPING = _manifest_theme_mapping()
+BACKGROUND_PALETTE_MAP: dict[str, str] = _manifest_palette_mapping()
 
 
 def get_background_dir() -> Path:
-    """获取 background_templates 目录路径"""
-    current_dir = Path(__file__).parent.parent
-    return current_dir / "background_templates"
+    return BACKGROUND_ROOT
 
 
 def scan_backgrounds() -> list[dict]:
-    """
-    扫描 background_templates 目录，返回所有可用背景。
+    """Return manifest-backed themes, falling back to legacy directory scan."""
+    themes = load_background_manifest().get("themes", [])
+    if themes:
+        results: list[dict] = []
+        for theme in themes:
+            images: list[str] = []
+            image_records: list[dict] = []
+            for record in theme.get("images", []):
+                relative = str(record.get("path", "")).replace("\\", "/").lstrip("/")
+                target = _safe_background_path(relative)
+                if target and target.is_file():
+                    images.append(str(target))
+                    image_records.append(record)
+            if images:
+                results.append({
+                    "theme": str(theme.get("id", "")),
+                    "name_cn": str(theme.get("name_cn", theme.get("id", ""))),
+                    "scenarios": list(theme.get("scenarios", [])),
+                    "priority": int(theme.get("priority", 0)),
+                    "recommended_palette": str(theme.get("recommended_palette", "ocean_soft")),
+                    "images": images,
+                    "image_records": image_records,
+                })
+        return sorted(results, key=lambda item: -item["priority"])
+    return _scan_legacy_backgrounds()
 
-    Returns:
-        [
-            {
-                "theme": "party_government",
-                "name_cn": "党政办公",
-                "scenarios": ["党建", "政府", ...],
-                "priority": 10,
-                "images": [
-                    "D:/path/to/1.jpg",
-                    "D:/path/to/2.jpg",
-                ]
-            },
-            ...
-        ]
-    """
-    bg_dir = get_background_dir()
-    results = []
 
-    if not bg_dir.exists():
+def _scan_legacy_backgrounds() -> list[dict]:
+    results: list[dict] = []
+    if not BACKGROUND_ROOT.exists():
         return results
-
-    for theme_dir in bg_dir.iterdir():
+    for theme_dir in BACKGROUND_ROOT.iterdir():
         if not theme_dir.is_dir():
             continue
-
-        theme_name = theme_dir.name
-        mapping = THEME_MAPPING.get(theme_name, {})
-        images = []
-
-        # 扫描 images 子目录
         images_dir = theme_dir / "images"
-        if images_dir.exists():
-            for img in sorted(images_dir.glob("*.jpg")):
-                images.append(str(img))
-
-        # 扫描根目录的 background.jpg
+        images = [str(path) for path in sorted(images_dir.glob("*.jpg"))] if images_dir.exists() else []
         root_bg = theme_dir / "background.jpg"
-        if root_bg.exists() and str(root_bg) not in images:
+        if root_bg.is_file():
             images.append(str(root_bg))
+        if not images:
+            continue
+        mapping = THEME_MAPPING.get(theme_dir.name, {})
+        results.append({
+            "theme": theme_dir.name,
+            "name_cn": mapping.get("name_cn", theme_dir.name),
+            "scenarios": mapping.get("scenarios", []),
+            "priority": mapping.get("priority", 0),
+            "recommended_palette": BACKGROUND_PALETTE_MAP.get(theme_dir.name, "ocean_soft"),
+            "images": images,
+            "image_records": [],
+        })
+    return sorted(results, key=lambda item: -item["priority"])
 
-        if images:
-            results.append({
-                "theme": theme_name,
-                "name_cn": mapping.get("name_cn", theme_name),
-                "scenarios": mapping.get("scenarios", []),
-                "priority": mapping.get("priority", 0),
-                "images": images,
-            })
 
-    return sorted(results, key=lambda x: -x["priority"])
+def _safe_background_path(relative: str) -> Path | None:
+    if not relative or ".." in Path(relative).parts:
+        return None
+    target = (BACKGROUND_ROOT / relative).resolve()
+    try:
+        target.relative_to(BACKGROUND_ROOT.resolve())
+    except ValueError:
+        return None
+    return target
+
+
+def validate_background_manifest(min_images_per_theme: int = 4) -> list[str]:
+    errors: list[str] = []
+    data = load_background_manifest()
+    if data.get("version") != 1:
+        errors.append(f"unsupported_version:{data.get('version', '<missing>')}")
+    seen: set[str] = set()
+    for theme in data.get("themes", []):
+        theme_id = str(theme.get("id", "")).strip()
+        if not theme_id or theme_id in seen:
+            errors.append(f"duplicate_or_empty_theme:{theme_id or '<empty>'}")
+            continue
+        seen.add(theme_id)
+        images = theme.get("images", [])
+        if len(images) < min_images_per_theme:
+            errors.append(f"insufficient_images:{theme_id}:{len(images)}")
+        if not theme.get("recommended_palette"):
+            errors.append(f"missing_palette:{theme_id}")
+        for record in images:
+            relative = str(record.get("path", ""))
+            target = _safe_background_path(relative)
+            if not target or not target.is_file():
+                errors.append(f"missing:{theme_id}:{relative or '<empty>'}")
+                continue
+            expected = record.get("dimensions")
+            if not (isinstance(expected, list) and len(expected) == 2):
+                errors.append(f"invalid_dimensions:{theme_id}:{relative}")
+                continue
+            try:
+                with Image.open(target) as image:
+                    if [image.width, image.height] != expected:
+                        errors.append(f"dimension_mismatch:{theme_id}:{relative}")
+                    ratio = image.width / max(image.height, 1)
+                    if image.width < 1280 or image.height < 720 or abs(ratio - (16 / 9)) > 0.02:
+                        errors.append(f"not_16_9_compatible:{theme_id}:{relative}")
+            except Exception as exc:
+                errors.append(f"unreadable_image:{theme_id}:{relative}:{type(exc).__name__}")
+            source_id = str(record.get("source_id", ""))
+            if source_id and not source_id.startswith("project-"):
+                for field in ("source_url", "download_url", "license", "attribution"):
+                    if not record.get(field):
+                        errors.append(f"missing_external_metadata:{theme_id}:{relative}:{field}")
+    return errors
 
 
 def get_background(
@@ -123,73 +169,40 @@ def get_background(
     scenario: Optional[str] = None,
     random_select: bool = False,
 ) -> Optional[str]:
-    """
-    获取背景图片路径。
-
-    Args:
-        theme: 主题标识 (如 "party_government", "minimalist_blue")
-        scenario: 场景关键词 (如 "党建汇报", "商务演示")
-        random_select: 是否随机选择匹配的主题
-
-    Returns:
-        背景图片的完整路径，或 None
-
-    示例:
-        get_background(theme="party_government")
-        get_background(scenario="党建")
-        get_background(scenario="商务", random_select=True)
-    """
     backgrounds = scan_backgrounds()
     if not backgrounds:
         return None
 
     candidates = backgrounds
-
-    # 优先按 theme 匹配
     if theme:
-        candidates = [b for b in backgrounds if b["theme"] == theme]
+        candidates = [item for item in backgrounds if item["theme"] == theme]
         if not candidates:
-            # 模糊匹配 theme
-            candidates = [b for b in backgrounds if theme in b["theme"] or theme in b["name_cn"]]
-
-    # 按 scenario 匹配
+            candidates = [
+                item
+                for item in backgrounds
+                if theme in item["theme"] or theme in item["name_cn"]
+            ]
     if not candidates and scenario:
         scenario_lower = scenario.lower()
         candidates = [
-            b for b in backgrounds
-            if scenario_lower in b["name_cn"].lower() or
-               any(scenario_lower in s.lower() for s in b["scenarios"])
+            item
+            for item in backgrounds
+            if scenario_lower in item["name_cn"].lower()
+            or any(scenario_lower in value.lower() for value in item["scenarios"])
         ]
-
     if not candidates:
         candidates = backgrounds
 
-    # 随机或优先级
-    if random_select:
-        selected = random.choice(candidates)
-    else:
-        selected = candidates[0]
-
+    selected = random.choice(candidates) if random_select else candidates[0]
     images = selected.get("images", [])
-    if images:
-        return random.choice(images) if random_select else images[0]
-
-    return None
+    if not images:
+        return None
+    return random.choice(images) if random_select else images[0]
 
 
 def list_themes() -> list[dict]:
-    """列出所有可用主题及图片"""
     return scan_backgrounds()
 
 
 def get_palette_for_background(background_theme: str) -> str:
-    """
-    根据背景主题获取推荐配色方案。
-
-    Args:
-        background_theme: 背景主题标识 (如 "vintage_chinese")
-
-    Returns:
-        推荐配色方案名（如 "warm_terracotta"），如果无推荐则返回 "ocean_soft"
-    """
     return BACKGROUND_PALETTE_MAP.get(background_theme, "ocean_soft")

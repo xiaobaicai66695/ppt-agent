@@ -2,19 +2,22 @@
 
 ## 背景模板库
 
-本目录包含可用的PPT背景模板，按主题分类。所有图片为 **JPG格式 (1920x1080)**，适配16:9横屏PPT。
+本目录包含可用的 PPT 背景模板，按主题分类。图片均为 16:9 兼容 JPG（至少 1280x720），生成时统一裁切为 1920x1080。
+
+`manifest.json` 是主题、场景、推荐 palette、图片路径、来源和许可的唯一元数据来源；`generators/background_manager.py` 只在 manifest 缺失时进行旧目录扫描。
 
 ## 目录结构
 
 ```
 background_templates/
 ├── SKILL.md                    # 本文件
-├── party_government/          # 党政办公 (5张)
-├── ink_wash_mountain/         # 水墨山水 (4张)
-├── vintage_chinese/           # 复古中国风 (1张)
-├── minimalist_blue/           # 简约蓝白 (1张)
-├── snowy_mountain/           # 雪山风景 (3张)
-└── artistic/                 # 艺术涂鸦 (1张)
+├── manifest.json               # 主题和图片元数据
+├── party_government/           # 党政办公 (5张)
+├── ink_wash_mountain/          # 水墨山水 (4张)
+├── vintage_chinese/            # 复古中国风 (4张)
+├── minimalist_blue/            # 简约蓝白 (4张)
+├── snowy_mountain/             # 雪山风景 (4张)
+└── artistic/                   # 艺术创意 (4张)
 ```
 
 ## 主题说明
@@ -79,29 +82,49 @@ get_background(theme="party_government")
 get_background(scenario="党建汇报")
 ```
 
-### 4. 亮度设置
+### 4. 随机选择与防重复
+
+任务规划阶段会把主题 id 转换为主题内具体图片引用，例如：
+
+```json
+{
+  "background": "party_government/images/3.jpg"
+}
+```
+
+同一主题连续出现在多个视觉页时，必须随机选择图片，并避免相邻视觉页重复同一张。当前每个主题至少 4 张图片，规划阶段仍应写入具体图片引用以保证跨进程防重复。
+
+生成器仍兼容旧写法：
+
+```python
+background="party_government"
+```
+
+此时会在主题下随机选择图片，但跨独立 Python 进程无法保证相邻页不重复；需要严格防重复时，应使用具体图片引用。
+
+### 5. 亮度与蒙版
 
 背景亮度由具体生成器按页面类型自动选择，目标是在图片主题可辨识的同时保证标题和正文对比度。直接调用 `set_image_background` 时可通过 `brightness` 参数调整：
 
 ```python
 # brightness 范围 0.0-1.0
-set_image_background(slide, bg_path, brightness=0.8)  # 稍暗
-set_image_background(slide, bg_path, brightness=0.95)  # 明亮清晰
+set_image_background(slide, bg_path, brightness=0.92)  # 轻微柔化
+set_image_background(slide, bg_path, brightness=0.98)  # 明亮清晰
 ```
+
+所有图片背景都会自动叠加浅色磨砂玻璃蒙版。标题页不得默认使用过暗背景；正文密集时应增加局部卡片或面板，而不是继续压暗整张图。
 
 ## 动态扩充
 
 添加新背景：
 
-1. 在 `background_templates/` 下创建主题目录，放入 JPG 图片
-2. 更新 `generators/background_manager.py` 的 `THEME_MAPPING`：
+1. 优先在 `scripts/sync_external_assets.py` 中登记原始页面、下载地址、作者和许可。
+2. 运行同步脚本，将图片归一化到 `<theme>/images/` 并重建 manifest。
+3. 运行背景 manifest 校验和代表性页面 smoke test。
 
-```python
-THEME_MAPPING = {
-    "tech_blue": {               # 新主题目录名
-        "name_cn": "科技蓝",
-        "scenarios": ["科技", "技术"],
-        "priority": 6,
-    },
-}
+```powershell
+python scripts/sync_external_assets.py
+python -m unittest discover -s tests -p "test_asset_library.py"
 ```
+
+不要再修改 Python `THEME_MAPPING` 作为正常维护路径。Bing 图片搜索可用于发现素材，但入库前必须回到原始页面确认许可；来源不明、转载、水印图不得登记为可复用背景。

@@ -19,6 +19,33 @@
     "background_policy": "clean_default",
     "visual_primitives": ["cards", "local_icons", "accent_chips"]
   },
+  "variants": [
+    {
+      "id": "equal_grid",
+      "display_name": "均等卡片网格",
+      "description": "所有卡片同等权重，适合平行要点、能力模块和优势列表。",
+      "best_for": ["4-6 个并列要点", "模块说明", "能力矩阵"],
+      "avoid_for": ["存在一个核心重点需要突出"],
+      "generator_hints": {"layout": "2x3"},
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    },
+    {
+      "id": "featured_card_plus_grid",
+      "display_name": "重点卡片加网格",
+      "description": "突出一个主卡片，其余卡片作为支撑，适合有主次关系的能力或策略页。",
+      "best_for": ["一个核心观点 + 多个支撑点", "主策略拆解", "重点成果展示"],
+      "avoid_for": ["所有要点完全平权"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    },
+    {
+      "id": "masonry_cards",
+      "display_name": "错落卡片阵列",
+      "description": "通过不同高度或错位形成更自然的扫描节奏，适合故事性强的多卡片内容。",
+      "best_for": ["创意方案", "旅游/生态亮点", "多场景展示"],
+      "avoid_for": ["严肃对账表", "严格同权评分"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    }
+  ],
   "fields": [
     {"name": "title", "label": "页面标题", "type": "text", "required": true},
     {"name": "cards", "label": "卡片内容", "type": "textarea", "required": true}

@@ -1,17 +1,21 @@
 """Generator for image_text - 图文混排页."""
-from typing import Optional, List
+
+from pathlib import Path
+from typing import List, Optional
 
 from pptx import Presentation
 
+from .asset_manager import add_cropped_photo, asset_path, photo_id_from_text, resolve_photo
 from .base import (
+    PALETTES,
+    add_rect,
     add_source_line,
+    add_text,
     new_presentation,
-    PALETTES, add_text, add_rect, add_ellipse, add_round_rect,
+    resolve_background,
     set_slide_background,
-    resolve_background, set_image_background,
 )
-from .asset_manager import add_local_icon, add_pattern_overlay, icon_id_from_text
-from .layout_intelligence import balanced_band_top, focal_font_size, weighted_text_len
+from .layout_intelligence import balanced_band_top, weighted_text_len
 
 
 def generate(
@@ -20,6 +24,7 @@ def generate(
     source: str = "",
     title: str = "{页面标题}",
     layout: str = "right-image",
+    layout_variant: str = "",
     header: str = "{子标题}",
     paragraph: str = "",
     bullets: List[str] = None,
@@ -27,234 +32,351 @@ def generate(
     sub_header: str = "",
     background: str = None,
     glass_colors: dict = None,
+    image_path: str = "",
 ) -> Presentation:
+    """Generate a text explanation with one replaceable picture object.
+
+    ``image_path`` accepts a local file, a registered photo id, or
+    ``asset:<photo-id>``. When it is absent or invalid, the generator chooses a
+    semantic local photo, then a planned background image, and finally the
+    stable general workspace photo.
     """
-    Generate an image-text slide.
-
-    Args:
-        prs: Existing Presentation object. If None, creates a new one.
-        palette: Color palette name.
-        title: Slide title.
-        layout: "left-image" or "right-image".
-        header: Section/feature header text.
-        paragraph: A single paragraph of text (300-450 chars) for detailed description.
-        bullets: List of bullet items (legacy, use paragraph instead).
-        kicker: Small label above title (e.g. "功能 · 核心").
-        sub_header: Secondary header between title and feature header (e.g. "能力亮点").
-
-    Returns:
-        The Presentation object.
-    """
-    if bullets is None:
-        bullets = []
-
+    bullets = bullets or []
     if prs is None:
         prs = new_presentation(palette=palette)
 
-    blank_layout = prs.slide_layouts[6]
-    slide = prs.slides.add_slide(blank_layout)
-    bg_path = resolve_background(background) if background else None
-    if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
-    else:
-        set_slide_background(slide, palette)
-        colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    layout = _resolve_layout(layout=layout, layout_variant=layout_variant)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    set_slide_background(slide, palette)
+    colors = glass_colors or PALETTES.get(palette, PALETTES["ocean_soft"])
 
-    # Kicker (above title)
-    y_title = 0.4
+    visual_text = " ".join([title, header, sub_header, paragraph, *bullets])
+    content_image = _resolve_content_photo(
+        image_path=image_path,
+        background=background,
+        visual_text=visual_text,
+    )
+    if not content_image:
+        raise FileNotFoundError(
+            "image_text requires a valid image_path or the packaged default photo assets"
+        )
+
+    _render_title(slide, palette, colors, title, kicker)
+    if layout == "photo-strip":
+        _render_photo_strip(
+            slide=slide,
+            palette=palette,
+            colors=colors,
+            image_path=content_image,
+            header=header,
+            paragraph=paragraph,
+            bullets=bullets,
+            sub_header=sub_header,
+        )
+    else:
+        _render_side_photo(
+            slide=slide,
+            palette=palette,
+            colors=colors,
+            image_path=content_image,
+            layout=layout,
+            header=header,
+            paragraph=paragraph,
+            bullets=bullets,
+            sub_header=sub_header,
+        )
+
+    add_source_line(slide, source, palette)
+    return prs
+
+
+def _resolve_content_photo(image_path: str, background: str, visual_text: str) -> str | None:
+    explicit = resolve_photo(image_path=image_path, text="", fallback="")
+    if explicit:
+        return explicit
+
+    semantic_id = photo_id_from_text(visual_text, fallback="")
+    semantic = asset_path(semantic_id) if semantic_id else None
+    if semantic:
+        return semantic
+
+    planned_background = resolve_background(background) if background else None
+    if planned_background and Path(planned_background).is_file():
+        return planned_background
+
+    return resolve_photo(text="", fallback="photo_business_work")
+
+
+def _render_title(slide, palette: str, colors: dict, title: str, kicker: str) -> None:
     if kicker:
         add_text(
             slide,
             text=kicker,
-            left=0.5, top=0.1, width=12.0, height=0.3,
-            font_size=12, bold=False,
-            color="secondary", alignment="left",
+            left=0.5,
+            top=0.12,
+            width=12.0,
+            height=0.26,
+            font_size=12,
+            color="secondary",
+            alignment="left",
             palette=palette,
             colors=colors,
         )
-        y_title = 0.4
-
-    # Title
     add_text(
         slide,
         text=title,
-        left=0.5, top=y_title, width=12.0, height=0.7,
-        font_size=36, bold=True,
-        color="text", alignment="left",
+        left=0.5,
+        top=0.4,
+        width=12.0,
+        height=0.72,
+        font_size=36,
+        bold=True,
+        color="text",
+        alignment="left",
         palette=palette,
         colors=colors,
     )
 
+
+def _render_side_photo(
+    slide,
+    palette: str,
+    colors: dict,
+    image_path: str,
+    layout: str,
+    header: str,
+    paragraph: str,
+    bullets: List[str],
+    sub_header: str,
+) -> None:
     if layout == "left-image":
-        img_x, img_w = 0.5, 7.5
-        text_x = 8.3
-        text_w = 4.5
+        img_x, img_w = 0.5, 6.55
+        text_x, text_w = 7.4, 5.4
     else:
-        # right-image (default)
-        img_x, img_w = 7.0, 5.8
-        text_x = 0.5
-        text_w = 6.2
+        text_x, text_w = 0.5, 5.85
+        img_x, img_w = 6.7, 6.1
 
-    img_y = 1.35
-    img_h = 4.95
-
-    # Visual summary panel: local assets make the default state feel finished.
+    img_y, img_h = 1.35, 5.45
     add_rect(
         slide,
-        left=img_x, top=img_y, width=img_w, height=img_h,
-        fill_color="light_bg", palette=palette,
-    )
-    add_pattern_overlay(slide, "pattern_grid", left=img_x + 0.1, top=img_y + 0.1, width=img_w - 0.2, height=img_h - 0.2, opacity_backdrop=False, palette=palette)
-    add_rect(
-        slide,
-        left=img_x, top=img_y, width=img_w, height=0.06,
-        fill_color="accent", palette=palette,
-    )
-    add_rect(
-        slide,
-        left=img_x, top=img_y, width=0.06, height=img_h,
-        fill_color="accent", palette=palette,
-    )
-
-    visual_text = " ".join([title, header, sub_header, paragraph] + bullets)
-    icon_id = icon_id_from_text(visual_text, fallback="layout")
-    add_local_icon(
-        slide,
-        icon_id,
-        left=img_x + img_w * 0.5 - 0.62,
-        top=img_y + 0.78,
-        size=1.24,
+        left=img_x - 0.06,
+        top=img_y - 0.06,
+        width=img_w + 0.12,
+        height=img_h + 0.12,
+        fill_color="accent",
         palette=palette,
-        with_badge=True,
     )
-    add_round_rect(
-        slide,
-        left=img_x + img_w * 0.2,
-        top=img_y + 2.35,
-        width=img_w * 0.6,
-        height=0.78,
-        fill_color="background",
-        palette=palette,
-        line_color="divider",
-        line_width=0.6,
-    )
+    add_cropped_photo(slide, image_path, img_x, img_y, img_w, img_h)
+
+    body_weight = weighted_text_len(paragraph) if paragraph else sum(weighted_text_len(item) for item in bullets)
+    body_height = 3.55 if body_weight > 300 else 3.05 if body_weight > 180 else 2.45
+    content_height = 0.62 + (0.44 if sub_header else 0.16) + body_height
+    text_top = balanced_band_top(1.45, 5.1, content_height, min_top=1.35)
+
     add_text(
         slide,
         text=header,
-        left=img_x + img_w * 0.23,
-        top=img_y + 2.48,
-        width=img_w * 0.54,
-        height=0.38,
-        font_size=focal_font_size(header, base=22, max_size=30, min_size=16),
+        left=text_x,
+        top=text_top,
+        width=text_w,
+        height=0.62,
+        font_size=22,
         bold=True,
         color="primary",
-        alignment="center",
+        alignment="left",
         palette=palette,
         colors=colors,
     )
-    visual_notes = [
-        sub_header or "结构化内容",
-        "动态字号" if weighted_text_len(paragraph) < 500 else "容量控制",
-        "本地素材",
-    ]
-    note_w = (img_w - 1.0) / 3
-    for i, note in enumerate(visual_notes):
-        x = img_x + 0.5 + i * note_w
-        add_rect(slide, left=x, top=img_y + 3.62, width=note_w - 0.18, height=0.5, fill_color="background", palette=palette)
-        add_text(
-            slide,
-            text=note,
-            left=x + 0.08,
-            top=img_y + 3.71,
-            width=note_w - 0.34,
-            height=0.24,
-            font_size=11,
-            bold=True,
-            color="secondary",
-            alignment="center",
-            palette=palette,
-            colors=colors,
-        )
-
-    text_region_top = 1.42
-    text_region_h = 4.9
-    paragraph_h = 3.55 if paragraph else min(4.2, max(1.2, len(bullets[:6]) * 0.68))
-    content_h = 0.55 + (0.42 if sub_header else 0.15) + paragraph_h
-    text_top = balanced_band_top(text_region_top, text_region_h, content_h, min_top=1.35)
-
-    # Section header
-    add_text(
+    add_rect(
         slide,
-        text=header,
-        left=text_x, top=text_top, width=text_w, height=0.58,
-        font_size=20, bold=True,
-        color="primary", alignment="left",
+        left=text_x,
+        top=text_top + 0.7,
+        width=0.72,
+        height=0.05,
+        fill_color="primary",
         palette=palette,
-        colors=colors,
     )
 
-    # Sub header (between feature header and bullets)
-    y_content_start = text_top + 1.0
+    body_top = text_top + 0.92
     if sub_header:
         add_text(
             slide,
             text=sub_header,
-            left=text_x, top=text_top + 0.65, width=text_w, height=0.36,
-            font_size=13, bold=False,
-            color="secondary", alignment="left",
+            left=text_x,
+            top=body_top,
+            width=text_w,
+            height=0.4,
+            font_size=16,
+            bold=True,
+            color="secondary",
+            alignment="left",
             palette=palette,
             colors=colors,
         )
-        y_content_start = text_top + 1.14
-        # Accent line under sub_header
-        add_rect(
-            slide,
-            left=text_x, top=text_top + 1.05, width=1.0, height=0.04,
-            fill_color="divider", palette=palette,
-        )
-    else:
-        # Accent line under header
-        add_rect(
-            slide,
-            left=text_x, top=text_top + 0.68, width=1.0, height=0.05,
-            fill_color="primary", palette=palette,
-        )
+        body_top += 0.52
 
-    # Content: paragraph or bullets
+    _render_body(
+        slide=slide,
+        palette=palette,
+        colors=colors,
+        paragraph=paragraph,
+        bullets=bullets,
+        left=text_x,
+        top=body_top,
+        width=text_w,
+        height=min(body_height, 6.65 - body_top),
+    )
+
+
+def _render_photo_strip(
+    slide,
+    palette: str,
+    colors: dict,
+    image_path: str,
+    header: str,
+    paragraph: str,
+    bullets: List[str],
+    sub_header: str,
+) -> None:
+    img_x, img_y, img_w, img_h = 0.5, 1.32, 12.3, 2.72
+    add_rect(
+        slide,
+        left=img_x - 0.05,
+        top=img_y - 0.05,
+        width=img_w + 0.1,
+        height=img_h + 0.1,
+        fill_color="accent",
+        palette=palette,
+    )
+    add_cropped_photo(slide, image_path, img_x, img_y, img_w, img_h)
+
+    text_x, text_w = 0.72, 11.85
+    add_text(
+        slide,
+        text=header,
+        left=text_x,
+        top=4.3,
+        width=text_w,
+        height=0.52,
+        font_size=22,
+        bold=True,
+        color="primary",
+        alignment="left",
+        palette=palette,
+        colors=colors,
+    )
+    add_rect(
+        slide,
+        left=text_x,
+        top=4.91,
+        width=0.72,
+        height=0.05,
+        fill_color="primary",
+        palette=palette,
+    )
+
+    body_top = 5.06
+    if sub_header:
+        add_text(
+            slide,
+            text=sub_header,
+            left=text_x,
+            top=body_top,
+            width=text_w,
+            height=0.34,
+            font_size=16,
+            bold=True,
+            color="secondary",
+            alignment="left",
+            palette=palette,
+            colors=colors,
+        )
+        body_top += 0.42
+
+    _render_body(
+        slide=slide,
+        palette=palette,
+        colors=colors,
+        paragraph=paragraph,
+        bullets=bullets,
+        left=text_x,
+        top=body_top,
+        width=text_w,
+        height=max(0.9, 6.72 - body_top),
+    )
+
+
+def _render_body(
+    slide,
+    palette: str,
+    colors: dict,
+    paragraph: str,
+    bullets: List[str],
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+) -> None:
     if paragraph:
-        # Render paragraph with natural line wrapping
+        length = weighted_text_len(paragraph)
+        font_size = 17 if length < 220 else 16 if length < 360 else 15
         add_text(
             slide,
             text=paragraph,
-            left=text_x, top=y_content_start, width=text_w, height=4.0,
-            font_size=15 if weighted_text_len(paragraph) < 360 else 14, bold=False,
-            color="text", alignment="left",
-            vertical_alignment="middle" if weighted_text_len(paragraph) < 260 else "top",
-            line_spacing=0.95,
+            left=left,
+            top=top,
+            width=width,
+            height=height,
+            font_size=font_size,
+            color="text",
+            alignment="left",
+            vertical_alignment="middle" if length < 260 else "top",
+            line_spacing=1.0,
             palette=palette,
             colors=colors,
         )
-    else:
-        # Legacy: bullet list
-        for i, item in enumerate(bullets[:6] if bullets else []):
-            y = y_content_start + i * 0.85
+        return
 
-            # Bullet dot
-            add_rect(
-                slide,
-                left=text_x + 0.05, top=y + 0.12, width=0.12, height=0.12,
-                fill_color="secondary", palette=palette,
-            )
+    visible = bullets[:5]
+    if not visible:
+        return
+    row_height = height / len(visible)
+    for index, item in enumerate(visible):
+        y = top + index * row_height
+        add_rect(
+            slide,
+            left=left,
+            top=y + 0.14,
+            width=0.11,
+            height=0.11,
+            fill_color="secondary",
+            palette=palette,
+        )
+        add_text(
+            slide,
+            text=item,
+            left=left + 0.24,
+            top=y,
+            width=width - 0.24,
+            height=max(0.45, row_height - 0.05),
+            font_size=16,
+            color="text",
+            alignment="left",
+            vertical_alignment="middle",
+            palette=palette,
+            colors=colors,
+        )
 
-            add_text(
-                slide,
-                text=item,
-                left=text_x + 0.28, top=y, width=text_w - 0.3, height=0.75,
-                font_size=14, bold=False,
-                color="text", alignment="left",
-                palette=palette,
-                colors=colors,
-            )
 
-    add_source_line(slide, source, palette)
-    return prs
+def _resolve_layout(layout: str, layout_variant: str = "") -> str:
+    """Normalize variant metadata to a generator layout."""
+    key = (layout_variant or layout or "").strip().lower().replace("_", "-")
+    mapping = {
+        "left-photo": "left-image",
+        "left-image": "left-image",
+        "right-photo": "right-image",
+        "right-image": "right-image",
+        "photo-strip": "photo-strip",
+        "strip": "photo-strip",
+    }
+    return mapping.get(key, "right-image")
