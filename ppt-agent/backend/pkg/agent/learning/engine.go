@@ -269,12 +269,12 @@ func (e *Engine) UpdateProfileFromTask(userID int, task *TaskContext) {
 	e.profileStore.UpdateWithTask(userID, extracted)
 
 	// 更新领域偏好
-	if task.Domain != "" {
+	if task.Domain != "" && task.Domain != "unknown" {
 		e.profileStore.UpdateDomainPreference(userID, task.Domain)
 	}
 
 	// 记录成功
-	if task.Success {
+	if task.Success && task.Domain != "" && task.Domain != "unknown" {
 		e.profileStore.RecordSuccess(userID, task.Domain, task.Template, task.Theme, task.PageCount)
 	}
 

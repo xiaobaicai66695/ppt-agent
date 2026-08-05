@@ -16,6 +16,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
 	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
@@ -159,13 +160,8 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		cfg.Outline = outline
 	}
 
-	// 注入用户风格偏好上下文
 	uid := userIDGin(c)
-	userProfile := s.styleStore.Get(uid)
-	styleContext := userProfile.BuildStyleContext()
-	if styleContext != "" {
-		cfg.StyleContext = styleContext
-	}
+	// 用户偏好由意图识别后的 domain-aware 路径统一注入，避免在未知领域时提前强绑定历史风格。
 
 	info, err := s.tasks.CreateTask(c.Request.Context(), req.Query, uid, s.agentFactory, cfg)
 	if err != nil {
@@ -490,12 +486,38 @@ func (s *Server) mergeOutlineSlides(base *deep.TaskOutline, enriched []deep.Slid
 }
 
 func (s *Server) isValidBackground(name string) bool {
+	name = strings.TrimSpace(name)
 	for _, bg := range s.templateLoader.ListBackgrounds() {
 		if bg.Name == name {
 			return true
 		}
 	}
-	return false
+	return s.isValidBackgroundReference(name)
+}
+
+func (s *Server) isValidBackgroundReference(name string) bool {
+	name = filepath.ToSlash(strings.TrimSpace(name))
+	if name == "" || strings.HasPrefix(name, "/") || filepath.IsAbs(name) || strings.Contains(name, "..") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		return false
+	}
+	root, err := filepath.Abs(s.templateLoader.GetBackgroundTemplatesDir())
+	if err != nil {
+		return false
+	}
+	target, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(name)))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return false
+	}
+	info, err := os.Stat(target)
+	return err == nil && !info.IsDir()
 }
 
 func (s *Server) backgroundCatalog() string {
@@ -1411,6 +1433,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 		snapshot := sess.Snapshot()
 		info := ts.SnapshotInfo()
+		runtimeMeta := conversationRuntimeMeta(taskID, info.WorkDir)
 		messages := conversationMessagesWithFallback(snapshot.Messages, fullAnswer, info.ConversationContent, snapshot.UpdatedAt)
 		if info.Status == task.TaskStatusRunning {
 			// The unfinished turn is replayed from replay_after_event_id via SSE.
@@ -1432,6 +1455,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 			"prompt_tokens":         info.PromptTokens,
 			"completion_tokens":     info.CompletionTokens,
 			"total_tokens":          info.TotalTokens,
+			"runtime_meta":          runtimeMeta,
 			"created_at":            snapshot.CreatedAt,
 			"updated_at":            snapshot.UpdatedAt,
 		})
@@ -1462,6 +1486,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		})
 	}
 	messages = conversationMessagesWithFallback(messages, info.FullAnswer, info.ConversationContent, info.CreatedAt)
+	runtimeMeta := conversationRuntimeMeta(taskID, info.WorkDir)
 
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":               taskID,
@@ -1478,9 +1503,100 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		"prompt_tokens":         info.PromptTokens,
 		"completion_tokens":     info.CompletionTokens,
 		"total_tokens":          info.TotalTokens,
+		"runtime_meta":          runtimeMeta,
 		"created_at":            info.CreatedAt,
 		"updated_at":            info.CreatedAt,
 	})
+}
+
+var listRuntimeEvents = db.ListRuntimeEventSummaries
+var getRuntimeEvent = db.GetRuntimeEvent
+
+func conversationRuntimeMeta(taskID, workDir string) *agentutils.RuntimeMetaSnapshot {
+	snapshot, _ := agentutils.LoadRuntimeMetaSnapshot(workDir)
+	events := conversationRuntimeEvents(taskID)
+	if snapshot == nil {
+		if len(events) == 0 {
+			return nil
+		}
+		snapshot = &agentutils.RuntimeMetaSnapshot{TaskID: taskID, WorkDir: workDir}
+	}
+	if len(events) > 0 {
+		snapshot.RecentEvents = events
+		snapshot.EventCounts = runtimeEventCounts(events)
+	}
+	if snapshot.TaskID == "" {
+		snapshot.TaskID = taskID
+	}
+	if snapshot.WorkDir == "" {
+		snapshot.WorkDir = workDir
+	}
+	return snapshot
+}
+
+func conversationRuntimeEvents(taskID string) []agentutils.RuntimeEvent {
+	records, err := listRuntimeEvents(taskID)
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	events := make([]agentutils.RuntimeEvent, 0, len(records))
+	for _, record := range records {
+		events = append(events, runtimeEventFromRecord(record, false))
+	}
+	return events
+}
+
+func (s *Server) handleGetRuntimeEvent(c *gin.Context) {
+	taskID := c.Param("id")
+	eventID, err := strconv.ParseInt(c.Param("event_id"), 10, 64)
+	if err != nil || eventID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid event_id"})
+		return
+	}
+	record, err := getRuntimeEvent(taskID, eventID)
+	if err != nil || record == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "runtime event not found"})
+		return
+	}
+	c.JSON(http.StatusOK, runtimeEventFromRecord(*record, true))
+}
+
+func runtimeEventFromRecord(record db.RuntimeEventRecord, includeMetadata bool) agentutils.RuntimeEvent {
+	event := agentutils.RuntimeEvent{
+		ID:        record.EventID,
+		TaskID:    record.TaskID,
+		Timestamp: record.Timestamp.Format(time.RFC3339Nano),
+		ElapsedMS: record.ElapsedMS,
+		Kind:      record.Kind,
+		Phase:     record.Phase,
+		Name:      record.Name,
+		Status:    record.Status,
+		Detail:    record.Detail,
+	}
+	if includeMetadata && strings.TrimSpace(record.Metadata) != "" {
+		metadata := map[string]any{}
+		if err := json.Unmarshal([]byte(record.Metadata), &metadata); err == nil {
+			event.Metadata = metadata
+		} else {
+			event.Metadata = map[string]any{"raw": record.Metadata}
+		}
+	}
+	return event
+}
+
+func runtimeEventCounts(events []agentutils.RuntimeEvent) map[string]int {
+	if len(events) == 0 {
+		return nil
+	}
+	counts := make(map[string]int)
+	for _, event := range events {
+		kind := strings.TrimSpace(event.Kind)
+		if kind == "" {
+			kind = "event"
+		}
+		counts[kind]++
+	}
+	return counts
 }
 
 // ── 用户资料处理器 ───────────────────────────────────────────────────────
@@ -1501,13 +1617,14 @@ func (s *Server) handleUpdateUserProfile(c *gin.Context) {
 	uid := userIDGin(c)
 
 	var req struct {
-		PreferredThemes   []string `json:"preferred_themes"`
-		PreferredColors   []string `json:"preferred_colors"`
-		ContentPatterns   []string `json:"content_patterns"`
-		LayoutPreferences []string `json:"layout_preferences"`
-		LanguageTone      string   `json:"language_tone"`
-		TypicalPageCount  int      `json:"typical_page_count"`
-		SpecialNotes      []string `json:"special_notes"`
+		PreferredThemes   []string         `json:"preferred_themes"`
+		PreferredColors   []string         `json:"preferred_colors"`
+		ContentPatterns   []string         `json:"content_patterns"`
+		LayoutPreferences []string         `json:"layout_preferences"`
+		LanguageTone      string           `json:"language_tone"`
+		TypicalPageCount  int              `json:"typical_page_count"`
+		SpecialNotes      []string         `json:"special_notes"`
+		UserFacts         *style.UserFacts `json:"user_facts"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1537,6 +1654,9 @@ func (s *Server) handleUpdateUserProfile(c *gin.Context) {
 	}
 	if req.SpecialNotes != nil {
 		p.SpecialNotes = req.SpecialNotes
+	}
+	if req.UserFacts != nil {
+		p.UserFacts = *req.UserFacts
 	}
 
 	s.styleStore.Save(p)
@@ -1578,6 +1698,7 @@ func (s *Server) handleSummarizeProfile(c *gin.Context) {
 			"language_tone":      p.LanguageTone,
 			"typical_page_count": p.TypicalPageCount,
 			"special_notes":      p.SpecialNotes,
+			"user_facts":         p.UserFacts,
 		},
 		"task_count": p.TaskCount,
 		"updated_at": p.UpdatedAt,

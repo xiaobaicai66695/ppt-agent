@@ -517,6 +517,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	}
 	cfg.WorkDir = workDir
 	runtimeMeta := utils.NewRuntimeMeta(cfg.TaskID, workDir)
+	runtimeMeta.SetEventSink(persistRuntimeEvent)
 	intentAnchor := utils.IntentAnchor{
 		Summary: compactIntentSummary(query, 120), OriginalLength: len([]rune(query)),
 	}
@@ -859,15 +860,59 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	// ── 记录学习信号 ──
 	// 从 tasks.json 中收集 QA 结果，计算真实质量分数
 	qualityScore := calculateQualityScoreFromQA(ts.Info.WorkDir)
+	learnDomain, learnTemplate, learnTheme, learnPageCount := learningTaskContext(cfg, ts.Info.WorkDir, ts.Info.TotalCount)
 
 	deep.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
 		TaskID:       ts.Info.ID,
 		UserID:       ts.Info.UserID,
+		Domain:       learnDomain,
+		Template:     learnTemplate,
+		Theme:        learnTheme,
 		Duration:     durationFromResult(result),
 		Success:      ts.Info.Status == TaskStatusCompleted,
 		QualityScore: qualityScore,
-		PageCount:    ts.Info.TotalCount,
+		PageCount:    learnPageCount,
+		Themes:       nonEmptyStrings(learnTheme),
 	})
+}
+
+func learningTaskContext(cfg *deep.PPTTaskConfig, workDir string, fallbackPageCount int) (domain, template, theme string, pageCount int) {
+	pageCount = fallbackPageCount
+	if cfg != nil {
+		if cfg.IntentResult != nil {
+			domain = cfg.IntentResult.Domain.String()
+		}
+		if cfg.Outline != nil {
+			template = cfg.Outline.Template
+			theme = cfg.Outline.Theme
+			if len(cfg.Outline.Slides) > 0 {
+				pageCount = len(cfg.Outline.Slides)
+			}
+		}
+	}
+	if manifest, err := deep.ReadTasksManifest(workDir); err == nil && manifest != nil {
+		if strings.TrimSpace(manifest.Template) != "" {
+			template = manifest.Template
+		}
+		if strings.TrimSpace(manifest.Theme) != "" {
+			theme = manifest.Theme
+		}
+		if len(manifest.Tasks) > 0 {
+			pageCount = len(manifest.Tasks)
+		}
+	}
+	return strings.TrimSpace(domain), strings.TrimSpace(template), strings.TrimSpace(theme), pageCount
+}
+
+func nonEmptyStrings(values ...string) []string {
+	var result []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func applyDeliverySnapshotOutcome(ts *TaskState, delivery DeliverySnapshot) bool {
@@ -892,6 +937,36 @@ func applyDeliverySnapshotOutcome(ts *TaskState, delivery DeliverySnapshot) bool
 	ts.Info.Status = TaskStatusFailed
 	ts.Info.Error = message
 	return true
+}
+
+func persistRuntimeEvent(event utils.RuntimeEvent) {
+	if event.TaskID == "" {
+		return
+	}
+	metadata := ""
+	if len(event.Metadata) > 0 {
+		if data, err := json.Marshal(event.Metadata); err == nil {
+			metadata = string(data)
+		}
+	}
+	timestamp := time.Now()
+	if parsed, err := time.Parse(time.RFC3339Nano, event.Timestamp); err == nil {
+		timestamp = parsed
+	}
+	if err := db.CreateRuntimeEvent(&db.RuntimeEventRecord{
+		TaskID:    event.TaskID,
+		EventID:   event.ID,
+		Timestamp: timestamp,
+		ElapsedMS: event.ElapsedMS,
+		Kind:      event.Kind,
+		Phase:     event.Phase,
+		Name:      event.Name,
+		Status:    event.Status,
+		Detail:    event.Detail,
+		Metadata:  metadata,
+	}); err != nil {
+		logger.Warn("persist_runtime_event_failed", "task_id", event.TaskID, "event_id", event.ID, "error", err.Error())
+	}
 }
 
 func durationFromResult(result *deep.PPTTaskResult) time.Duration {
@@ -1238,6 +1313,9 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	if db.DB != nil {
 		if err := db.DeleteTaskRecord(id); err != nil {
 			logger.Error("db_delete_task_failed", "task_id", id, "error", err.Error())
+		}
+		if err := db.DeleteRuntimeEvents(id); err != nil {
+			logger.Error("db_delete_runtime_events_failed", "task_id", id, "error", err.Error())
 		}
 		// 级联删除会话消息。
 		if err := session.DeleteSessionFromDB(id); err != nil {

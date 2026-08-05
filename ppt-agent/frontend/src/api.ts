@@ -365,6 +365,11 @@ export async function fetchConversation(taskId: string): Promise<import('./types
   return res.json();
 }
 
+export async function fetchRuntimeEvent(taskId: string, eventId: number): Promise<import('./types').RuntimeEvent> {
+	const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/runtime-events/${eventId}`, { headers: authHeaders() }));
+  return res.json();
+}
+
 // ── User profile API ──────────────────────────────────────────────────────────────
 
 export async function fetchUserProfile(): Promise<import('./types').UserStyleProfile> {
@@ -396,6 +401,7 @@ export interface PreferenceSummary {
   language_tone: string;
   typical_page_count: number;
   special_notes: string[];
+  user_facts?: import('./types').UserFacts;
 }
 
 export async function summarizeProfile(): Promise<{ summary: PreferenceSummary; task_count: number; updated_at: string }> {

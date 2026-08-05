@@ -47,6 +47,12 @@ const prefsSaved = ref(false);
 const prefsError = ref('');
 
 interface PreferenceDraft {
+  display_name: string;
+  organization: string;
+  department: string;
+  job_title: string;
+  industry: string;
+  location: string;
   preferred_themes: string;
   preferred_colors: string;
   content_patterns: string;
@@ -68,7 +74,14 @@ async function openPrefs() {
   try {
     const data = await summarizeProfile();
     prefsSummary.value = data.summary;
+    const facts = data.summary.user_facts || {};
     prefsEditing.value = {
+      display_name: facts.display_name || '',
+      organization: facts.organization || '',
+      department: facts.department || '',
+      job_title: facts.job_title || '',
+      industry: facts.industry || '',
+      location: facts.location || '',
       preferred_themes: listToDraft(data.summary.preferred_themes),
       preferred_colors: listToDraft(data.summary.preferred_colors),
       content_patterns: listToDraft(data.summary.content_patterns),
@@ -90,6 +103,14 @@ async function savePrefs() {
   prefsError.value = '';
   try {
     await updateUserProfile({
+      user_facts: {
+        display_name: prefsEditing.value.display_name,
+        organization: prefsEditing.value.organization,
+        department: prefsEditing.value.department,
+        job_title: prefsEditing.value.job_title,
+        industry: prefsEditing.value.industry,
+        location: prefsEditing.value.location,
+      },
       preferred_themes: draftToList(prefsEditing.value.preferred_themes),
       preferred_colors: draftToList(prefsEditing.value.preferred_colors),
       content_patterns: draftToList(prefsEditing.value.content_patterns),
@@ -191,6 +212,23 @@ function closePrefs() {
           </div>
 
           <form v-else-if="prefsEditing" class="prefs-form" @submit.prevent="savePrefs">
+            <div class="prefs-section">
+              <span>确定性资料</span>
+              <div class="prefs-row">
+                <label>姓名/称呼<input v-model="prefsEditing.display_name" placeholder="李明" /></label>
+                <label>工作单位/组织<input v-model="prefsEditing.organization" placeholder="蓝鲸智云" /></label>
+              </div>
+              <div class="prefs-row">
+                <label>部门/团队<input v-model="prefsEditing.department" placeholder="产品研发部" /></label>
+                <label>职位/身份<input v-model="prefsEditing.job_title" placeholder="解决方案架构师" /></label>
+              </div>
+              <div class="prefs-row">
+                <label>行业/业务领域<input v-model="prefsEditing.industry" placeholder="企业服务" /></label>
+                <label>地区<input v-model="prefsEditing.location" placeholder="深圳" /></label>
+              </div>
+            </div>
+            <div class="prefs-section">
+              <span>风格偏好</span>
             <label>配色主题<input v-model="prefsEditing.preferred_themes" :placeholder="(prefsSummary?.preferred_themes || []).join(', ') || 'ocean_soft, sage_calm'" /></label>
             <label>偏好颜色<input v-model="prefsEditing.preferred_colors" :placeholder="(prefsSummary?.preferred_colors || []).join(', ') || '蓝色系, 高对比度'" /></label>
             <div class="prefs-row">
@@ -203,6 +241,7 @@ function closePrefs() {
             </div>
             <label>布局偏好<input v-model="prefsEditing.layout_preferences" placeholder="图表优先, 双栏对比" /></label>
             <label>内容模式<input v-model="prefsEditing.content_patterns" placeholder="案例驱动, 数据支撑" /></label>
+            </div>
             <p v-if="prefsError" class="prefs-error" role="alert">{{ prefsError }}</p>
             <footer>
               <button type="button" class="secondary" @click="closePrefs">取消</button>
@@ -260,6 +299,8 @@ function closePrefs() {
 .prefs-modal header button:hover { background: var(--surface-muted); }
 .prefs-loading { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); }.prefs-loading.error { color: var(--danger); }
 .prefs-form { padding: 20px; display: grid; gap: 14px; }
+.prefs-section { display: grid; gap: 12px; }
+.prefs-section > span { color: var(--text-muted); font-size: 10px; font-weight: 800; }
 .prefs-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
 .prefs-form input, .prefs-form select { min-width: 0; width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); }
 .prefs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

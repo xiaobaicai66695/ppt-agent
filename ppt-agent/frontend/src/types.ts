@@ -45,6 +45,7 @@ export interface ConversationSession {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  runtime_meta?: RuntimeMeta;
   created_at: string;
   updated_at: string;
 }
@@ -61,6 +62,15 @@ export interface ContentTypeCount {
   [key: string]: number;
 }
 
+export interface UserFacts {
+  display_name?: string;
+  organization?: string;
+  department?: string;
+  job_title?: string;
+  industry?: string;
+  location?: string;
+}
+
 export interface UserStyleProfile {
   user_id: number;
   preferred_themes: string[];
@@ -71,6 +81,7 @@ export interface UserStyleProfile {
   typical_page_count: number;
   content_types: ContentTypeCount;
   special_notes: string[];
+  user_facts?: UserFacts;
   task_count: number;
   updated_at: string;
 }
@@ -156,6 +167,7 @@ export interface RuntimeEvent {
   status?: string;
   detail?: string;
   metadata?: Record<string, unknown>;
+  metadata_loaded?: boolean;
 }
 
 export interface RuntimeMeta {

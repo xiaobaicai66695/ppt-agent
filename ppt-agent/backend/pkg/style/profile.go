@@ -73,35 +73,76 @@ func ParseAnimationLevel(s string) AnimationLevel {
 // ChartPreference 图表偏好
 type ChartPreference struct {
 	PreferredTypes []string `json:"preferred_types"` // 偏好的图表类型: bar, line, pie, etc.
-	Use3D         bool     `json:"use_3d"`         // 是否使用3D效果
-	ColorScheme   string   `json:"color_scheme"`   // 配色方案
+	Use3D          bool     `json:"use_3d"`          // 是否使用3D效果
+	ColorScheme    string   `json:"color_scheme"`    // 配色方案
 }
 
 // BrandPreferences 品牌元素偏好
 type BrandPreferences struct {
-	LogoPosition   string `json:"logo_position"`   // Logo位置: top-left, bottom-right, etc.
-	ShowFooter     bool   `json:"show_footer"`      // 是否显示页脚
-	FooterText     string `json:"footer_text"`     // 页脚文字
-	UseWatermark   bool   `json:"use_watermark"`    // 是否使用水印
-	WatermarkText  string `json:"watermark_text"`   // 水印文字
+	LogoPosition  string `json:"logo_position"`  // Logo位置: top-left, bottom-right, etc.
+	ShowFooter    bool   `json:"show_footer"`    // 是否显示页脚
+	FooterText    string `json:"footer_text"`    // 页脚文字
+	UseWatermark  bool   `json:"use_watermark"`  // 是否使用水印
+	WatermarkText string `json:"watermark_text"` // 水印文字
+}
+
+// UserFacts 是用户画像中的确定性资料，适合直接作为当前任务上下文。
+// 这些字段不是风格偏好，不需要按历史领域门控。
+type UserFacts struct {
+	DisplayName  string `json:"display_name"` // 用户姓名或常用称呼
+	Organization string `json:"organization"` // 工作单位、学校或组织
+	Department   string `json:"department"`   // 部门、学院或团队
+	JobTitle     string `json:"job_title"`    // 职位或身份
+	Industry     string `json:"industry"`     // 行业或业务领域
+	Location     string `json:"location"`     // 常驻地区或服务区域
+}
+
+func (f UserFacts) IsEmpty() bool {
+	return strings.TrimSpace(f.DisplayName) == "" &&
+		strings.TrimSpace(f.Organization) == "" &&
+		strings.TrimSpace(f.Department) == "" &&
+		strings.TrimSpace(f.JobTitle) == "" &&
+		strings.TrimSpace(f.Industry) == "" &&
+		strings.TrimSpace(f.Location) == ""
+}
+
+func (f UserFacts) PromptLines() []string {
+	fields := []struct {
+		label string
+		value string
+	}{
+		{"姓名/称呼", f.DisplayName},
+		{"工作单位/组织", f.Organization},
+		{"部门/团队", f.Department},
+		{"职位/身份", f.JobTitle},
+		{"行业/业务领域", f.Industry},
+		{"地区", f.Location},
+	}
+	lines := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if value := cleanFactValue(field.value); value != "" {
+			lines = append(lines, fmt.Sprintf("- %s: %s", field.label, value))
+		}
+	}
+	return lines
 }
 
 // ContentTone 内容语调
 type ContentTone struct {
-	Formality    string `json:"formality"`    // 正式程度: formal, semi-formal, casual
-	TechDensity  int    `json:"tech_density"` // 技术术语密度 1-10
-	DetailLevel  int    `json:"detail_level"` // 详细程度 1-10
-	HumorLevel   int    `json:"humor_level"`  // 幽默程度 1-10
+	Formality   string `json:"formality"`    // 正式程度: formal, semi-formal, casual
+	TechDensity int    `json:"tech_density"` // 技术术语密度 1-10
+	DetailLevel int    `json:"detail_level"` // 详细程度 1-10
+	HumorLevel  int    `json:"humor_level"`  // 幽默程度 1-10
 }
 
 // SuccessPattern 成功模式
 type SuccessPattern struct {
-	Domain         string   `json:"domain"`          // 应用领域
-	Template       string   `json:"template"`       // 成功使用的模板
-	Theme          string   `json:"theme"`          // 成功使用的配色
-	PageCount      int      `json:"page_count"`     // 成功使用的页数
+	Domain          string  `json:"domain"`            // 应用领域
+	Template        string  `json:"template"`          // 成功使用的模板
+	Theme           string  `json:"theme"`             // 成功使用的配色
+	PageCount       int     `json:"page_count"`        // 成功使用的页数
 	AvgQualityScore float64 `json:"avg_quality_score"` // 平均质量评分
-	SuccessCount   int      `json:"success_count"`  // 成功次数
+	SuccessCount    int     `json:"success_count"`     // 成功次数
 }
 
 // EnhancedProfile 增强版用户画像
@@ -111,15 +152,15 @@ type EnhancedProfile struct {
 	// 新增偏好维度
 	BrandElements    BrandPreferences `json:"brand_elements"`
 	ChartPreferences ChartPreference  `json:"chart_preferences"`
-	AnimationLevel   AnimationLevel  `json:"animation_level"`
-	ContentTone      ContentTone     `json:"content_tone"`
+	AnimationLevel   AnimationLevel   `json:"animation_level"`
+	ContentTone      ContentTone      `json:"content_tone"`
 	SuccessPatterns  []SuccessPattern `json:"success_patterns"`
 
 	// 学习统计
-	FirstTaskTime   time.Time `json:"first_task_time"`
-	LastActiveTime  time.Time `json:"last_active_time"`
-	TotalTasks      int       `json:"total_tasks"`
-	SuccessRate     float64   `json:"success_rate"` // 任务成功率
+	FirstTaskTime  time.Time `json:"first_task_time"`
+	LastActiveTime time.Time `json:"last_active_time"`
+	TotalTasks     int       `json:"total_tasks"`
+	SuccessRate    float64   `json:"success_rate"` // 任务成功率
 
 	// 领域偏好（基于任务历史）
 	DomainPreferences map[string]int `json:"domain_preferences"` // 领域 -> 次数
@@ -129,7 +170,7 @@ type EnhancedProfile struct {
 func NewEnhancedProfile(userID int) *EnhancedProfile {
 	return &EnhancedProfile{
 		UserProfile: UserProfile{
-			UserID:   userID,
+			UserID:    userID,
 			TaskCount: 0,
 			UpdatedAt: time.Now(),
 		},
@@ -155,9 +196,9 @@ func (p *EnhancedProfile) GetPreferredTemplates() []string {
 
 	// 从 ContentTypes 中推断模板偏好
 	contentTypeToTemplate := map[string][]string{
-		"title_slide":      {"tech-intro", "pitch-deck", "course-module"},
-		"content_slide":    {"tech-intro", "weekly-report"},
-		"section_divider":  {"tech-intro", "course-module"},
+		"title_slide":     {"tech-intro", "pitch-deck", "course-module"},
+		"content_slide":   {"tech-intro", "weekly-report"},
+		"section_divider": {"tech-intro", "course-module"},
 		"chart_slide":     {"research-report", "pitch-deck"},
 		"summary_slide":   {"tech-intro", "course-module"},
 	}
@@ -188,6 +229,42 @@ func (p *EnhancedProfile) GetPreferredTemplates() []string {
 	return result
 }
 
+// GetPreferredTemplatesForDomain returns scene-sensitive template preferences
+// only when the current task domain has matching historical evidence.
+func (p *EnhancedProfile) GetPreferredTemplatesForDomain(domain string) []string {
+	domain = normalizeDomainName(domain)
+	if domain == "" {
+		return nil
+	}
+
+	templates := make(map[string]int)
+	for _, sp := range p.SuccessPatterns {
+		if !sameDomain(domain, sp.Domain) || strings.TrimSpace(sp.Template) == "" {
+			continue
+		}
+		templates[sp.Template] += maxInt(sp.SuccessCount, 1)
+	}
+
+	if len(templates) == 0 && p.hasExactDomainHistory(domain) {
+		contentTypeToTemplate := map[string][]string{
+			"title_slide":     {"tech-intro", "pitch-deck", "course-module"},
+			"content_slide":   {"tech-intro", "weekly-report"},
+			"section_divider": {"tech-intro", "course-module"},
+			"chart_slide":     {"research-report", "pitch-deck"},
+			"summary_slide":   {"tech-intro", "course-module"},
+		}
+		for ct, count := range p.ContentTypes {
+			if ts, ok := contentTypeToTemplate[ct]; ok {
+				for _, t := range ts {
+					templates[t] += count
+				}
+			}
+		}
+	}
+
+	return sortedTemplateNames(templates)
+}
+
 // GetTypicalPageCount 获取用户典型页数
 func (p *EnhancedProfile) GetTypicalPageCount() int {
 	if p.TypicalPageCount > 0 {
@@ -211,6 +288,37 @@ func (p *EnhancedProfile) GetPreferredTheme() string {
 		return p.PreferredThemes[0]
 	}
 	return ""
+}
+
+// GetPreferredThemeForDomain returns a scene-sensitive theme only for exact
+// domain matches. Cross-domain colors/themes are intentionally not migrated.
+func (p *EnhancedProfile) GetPreferredThemeForDomain(domain string) string {
+	domain = normalizeDomainName(domain)
+	if domain == "" {
+		return ""
+	}
+
+	themeCounts := make(map[string]int)
+	for _, sp := range p.SuccessPatterns {
+		if !sameDomain(domain, sp.Domain) || strings.TrimSpace(sp.Theme) == "" {
+			continue
+		}
+		themeCounts[sp.Theme] += maxInt(sp.SuccessCount, 1)
+	}
+	if len(themeCounts) > 0 {
+		return sortedTemplateNames(themeCounts)[0]
+	}
+
+	if p.hasExactDomainHistory(domain) && len(p.PreferredThemes) > 0 {
+		return p.PreferredThemes[0]
+	}
+	return ""
+}
+
+// HasExactDomainHistory reports whether the profile contains reliable history
+// for the current domain. It is used to gate scene-sensitive preferences.
+func (p *EnhancedProfile) HasExactDomainHistory(domain string) bool {
+	return p.hasExactDomainHistory(domain)
 }
 
 // GetTopDomain 获取用户最常用的领域
@@ -258,10 +366,10 @@ func (p *EnhancedProfile) Recommend(req *RecommendRequest) *RecommendResult {
 func (p *EnhancedProfile) suggestTemplate(domain, complexity string) string {
 	domainTemplates := map[string][]string{
 		"business":   {"pitch-deck", "product-launch"},
-		"technical":   {"tech-sharing", "tech-intro"},
-		"academic":    {"course-module", "design-defense"},
-		"government":  {"politics-ideology", "current-affairs"},
-		"personal":    {"personal-summary", "weekly-report"},
+		"technical":  {"tech-sharing", "tech-intro"},
+		"academic":   {"course-module", "design-defense"},
+		"government": {"politics-ideology", "current-affairs"},
+		"personal":   {"personal-summary", "weekly-report"},
 		"creative":   {"activity-plan", "product-launch"},
 	}
 
@@ -307,6 +415,75 @@ func (p *EnhancedProfile) suggestPageCount(complexity int) int {
 	return 12
 }
 
+func (p *EnhancedProfile) hasExactDomainHistory(domain string) bool {
+	domain = normalizeDomainName(domain)
+	if domain == "" {
+		return false
+	}
+	for d, count := range p.DomainPreferences {
+		if count > 0 && sameDomain(domain, d) {
+			return true
+		}
+	}
+	for _, sp := range p.SuccessPatterns {
+		if sameDomain(domain, sp.Domain) && sp.SuccessCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedTemplateNames(counts map[string]int) []string {
+	type templateCount struct {
+		template string
+		count    int
+	}
+	var tc []templateCount
+	for t, c := range counts {
+		if strings.TrimSpace(t) == "" || c <= 0 {
+			continue
+		}
+		tc = append(tc, templateCount{t, c})
+	}
+	sort.Slice(tc, func(i, j int) bool { return tc[i].count > tc[j].count })
+
+	result := make([]string, 0, len(tc))
+	for _, t := range tc {
+		result = append(result, t.template)
+	}
+	return result
+}
+
+func normalizeDomainName(domain string) string {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "unknown" {
+		return ""
+	}
+	switch domain {
+	case "tech":
+		return "technical"
+	case "education":
+		return "academic"
+	case "politics":
+		return "government"
+	case "art":
+		return "creative"
+	default:
+		return domain
+	}
+}
+
+func sameDomain(a, b string) bool {
+	return normalizeDomainName(a) != "" && normalizeDomainName(a) == normalizeDomainName(b)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // RecommendRequest 推荐请求
 type RecommendRequest struct {
 	Domain     string
@@ -328,14 +505,15 @@ type UserProfile struct {
 	UserID            int              `json:"user_id"`
 	PreferredThemes   []string         `json:"preferred_themes"`
 	PreferredColors   []string         `json:"preferred_colors"`
-	ContentPatterns  []string         `json:"content_patterns"`
-	LayoutPreferences []string        `json:"layout_preferences"`
-	LanguageTone     string           `json:"language_tone"`
-	TypicalPageCount int              `json:"typical_page_count"`
-	ContentTypes     ContentTypeCount `json:"content_types"`
-	SpecialNotes     []string         `json:"special_notes"`
-	TaskCount        int              `json:"task_count"`
-	UpdatedAt        time.Time        `json:"updated_at"`
+	ContentPatterns   []string         `json:"content_patterns"`
+	LayoutPreferences []string         `json:"layout_preferences"`
+	LanguageTone      string           `json:"language_tone"`
+	TypicalPageCount  int              `json:"typical_page_count"`
+	ContentTypes      ContentTypeCount `json:"content_types"`
+	SpecialNotes      []string         `json:"special_notes"`
+	UserFacts         UserFacts        `json:"user_facts"`
+	TaskCount         int              `json:"task_count"`
+	UpdatedAt         time.Time        `json:"updated_at"`
 }
 
 // MergeWith 使用加权平均更新配置文件的样式数据
@@ -411,11 +589,21 @@ func (p *UserProfile) mergeWeighted(new *ExtractedStyle, existingWeight, newWeig
 
 // BuildStyleContext 生成人类可读的风格上下文字符串，用于注入到提示词
 func (p *UserProfile) BuildStyleContext() string {
-	if p.TaskCount == 0 {
+	if p.TaskCount == 0 && p.UserFacts.IsEmpty() {
 		return ""
 	}
 
 	var sb strings.Builder
+	if lines := p.UserFacts.PromptLines(); len(lines) > 0 {
+		sb.WriteString("\n\n【用户确定性资料】\n")
+		sb.WriteString(strings.Join(lines, "\n"))
+		sb.WriteString("\n")
+	}
+
+	if p.TaskCount == 0 {
+		return sb.String()
+	}
+
 	sb.WriteString("\n\n【用户风格偏好】（基于您过去 ")
 	sb.WriteString(intToStr(p.TaskCount))
 	sb.WriteString(" 次任务总结）\n")
@@ -474,22 +662,34 @@ func intToStr(n int) string {
 	return string(digits)
 }
 
+func cleanFactValue(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) > 120 {
+		return string(runes[:120])
+	}
+	return value
+}
+
 // ExtractedStyle 表示从单个任务中提取的样式数据
 type ExtractedStyle struct {
-	Themes           []string         `json:"themes,omitempty"`
-	Colors           []string         `json:"colors,omitempty"`
-	ContentPatterns  []string         `json:"content_patterns,omitempty"`
-	LayoutPreferences []string        `json:"layout_preferences,omitempty"`
-	LanguageTone     string           `json:"language_tone,omitempty"`
-	PageCount        int              `json:"page_count,omitempty"`
-	ContentTypes     ContentTypeCount `json:"content_types,omitempty"`
-	SpecialNotes     []string         `json:"special_notes,omitempty"`
+	Themes            []string         `json:"themes,omitempty"`
+	Colors            []string         `json:"colors,omitempty"`
+	ContentPatterns   []string         `json:"content_patterns,omitempty"`
+	LayoutPreferences []string         `json:"layout_preferences,omitempty"`
+	LanguageTone      string           `json:"language_tone,omitempty"`
+	PageCount         int              `json:"page_count,omitempty"`
+	ContentTypes      ContentTypeCount `json:"content_types,omitempty"`
+	SpecialNotes      []string         `json:"special_notes,omitempty"`
 }
 
 // TaskItemInfo 是用于样式提取的任务项的简化表示
 type TaskItemInfo struct {
 	ContentType string `json:"content_type"`
-	Theme      string `json:"theme"`
+	Theme       string `json:"theme"`
 }
 
 // ExtractFromTasks 从任务项列表和主题中提取样式偏好
@@ -520,24 +720,24 @@ func ExtractFromQuery(query string) *ExtractedStyle {
 	queryLower := strings.ToLower(query)
 
 	colorMap := map[string][]string{
-		"科技":   {"ocean_soft", "sage_calm"},
-		"技术":   {"ocean_soft"},
-		"学术":   {"ocean_soft", "sage_calm"},
-		"教学":   {"sage_calm", "simple_gray"},
-		"商务":   {"charcoal_light", "warm_terracotta"},
-		"路演":   {"charcoal_light", "berry_cream"},
-		"政务":   {"government_red", "patriotic_blue"},
-		"思政":   {"patriotic_blue", "government_red"},
-		"答辩":   {"debate_purple", "charcoal_light"},
-		"竞赛":   {"civic_gold", "innovation_green"},
-		"创新":   {"civic_gold", "berry_cream"},
-		"教育":   {"sage_calm", "simple_gray"},
-		"环保":   {"sage_calm", "report_green"},
-		"医疗":   {"ocean_soft", "medical_blue"},
-		"金融":   {"charcoal_light", "finance_gold"},
-		"简约":   {"simple_gray", "sage_calm"},
-		"活泼":   {"activity_orange", "berry_cream"},
-		"创意":   {"berry_cream", "lavender_mist"},
+		"科技": {"ocean_soft", "sage_calm"},
+		"技术": {"ocean_soft"},
+		"学术": {"ocean_soft", "sage_calm"},
+		"教学": {"sage_calm", "simple_gray"},
+		"商务": {"charcoal_light", "warm_terracotta"},
+		"路演": {"charcoal_light", "berry_cream"},
+		"政务": {"government_red", "patriotic_blue"},
+		"思政": {"patriotic_blue", "government_red"},
+		"答辩": {"debate_purple", "charcoal_light"},
+		"竞赛": {"civic_gold", "innovation_green"},
+		"创新": {"civic_gold", "berry_cream"},
+		"教育": {"sage_calm", "simple_gray"},
+		"环保": {"sage_calm", "report_green"},
+		"医疗": {"ocean_soft", "medical_blue"},
+		"金融": {"charcoal_light", "finance_gold"},
+		"简约": {"simple_gray", "sage_calm"},
+		"活泼": {"activity_orange", "berry_cream"},
+		"创意": {"berry_cream", "lavender_mist"},
 	}
 
 	for keyword, themes := range colorMap {
@@ -613,6 +813,7 @@ func (s *EnhancedProfileStore) GetEnhanced(userID int) *EnhancedProfile {
 		enhanced.SuccessPatterns = extPrefs.SuccessPatterns
 		enhanced.SuccessRate = extPrefs.SuccessRate
 		enhanced.DomainPreferences = extPrefs.DomainPreferences
+		enhanced.UserFacts = extPrefs.UserFacts
 	}
 
 	return enhanced
@@ -625,13 +826,14 @@ func (s *EnhancedProfileStore) SaveEnhanced(p *EnhancedProfile) {
 
 	// 保存扩展偏好
 	extPrefs := &extendedPreferences{
-		BrandElements:    p.BrandElements,
-		ChartPreferences: p.ChartPreferences,
-		AnimationLevel:   p.AnimationLevel,
-		ContentTone:      p.ContentTone,
-		SuccessPatterns:  p.SuccessPatterns,
-		SuccessRate:     p.SuccessRate,
+		BrandElements:     p.BrandElements,
+		ChartPreferences:  p.ChartPreferences,
+		AnimationLevel:    p.AnimationLevel,
+		ContentTone:       p.ContentTone,
+		SuccessPatterns:   p.SuccessPatterns,
+		SuccessRate:       p.SuccessRate,
 		DomainPreferences: p.DomainPreferences,
+		UserFacts:         p.UserFacts,
 	}
 	s.saveExtendedPreferences(p.UserID, extPrefs)
 }
@@ -673,7 +875,7 @@ func (s *EnhancedProfileStore) RecordSuccess(userID int, domain, template, theme
 			Theme:           theme,
 			PageCount:       pageCount,
 			AvgQualityScore: 4.5,
-			SuccessCount:   1,
+			SuccessCount:    1,
 		})
 	}
 
@@ -684,13 +886,14 @@ func (s *EnhancedProfileStore) RecordSuccess(userID int, domain, template, theme
 
 // extendedPreferences 扩展偏好存储结构
 type extendedPreferences struct {
-	BrandElements     BrandPreferences   `json:"brand_elements"`
-	ChartPreferences  ChartPreference    `json:"chart_preferences"`
-	AnimationLevel    AnimationLevel     `json:"animation_level"`
-	ContentTone       ContentTone        `json:"content_tone"`
-	SuccessPatterns   []SuccessPattern   `json:"success_patterns"`
-	SuccessRate       float64           `json:"success_rate"`
-	DomainPreferences map[string]int     `json:"domain_preferences"`
+	BrandElements     BrandPreferences `json:"brand_elements"`
+	ChartPreferences  ChartPreference  `json:"chart_preferences"`
+	AnimationLevel    AnimationLevel   `json:"animation_level"`
+	ContentTone       ContentTone      `json:"content_tone"`
+	SuccessPatterns   []SuccessPattern `json:"success_patterns"`
+	SuccessRate       float64          `json:"success_rate"`
+	DomainPreferences map[string]int   `json:"domain_preferences"`
+	UserFacts         UserFacts        `json:"user_facts"`
 }
 
 // loadExtendedPreferences 从数据库加载扩展偏好
@@ -700,11 +903,9 @@ func (s *EnhancedProfileStore) loadExtendedPreferences(userID int) *extendedPref
 		return nil
 	}
 
-	ext := &extendedPreferences{}
-	if r.ExtendedPreferences != "" {
-		if err := json.Unmarshal([]byte(r.ExtendedPreferences), ext); err != nil {
-			logger.Warn("extended_prefs_unmarshal_failed", "error", err.Error())
-		}
+	ext := parseExtendedPreferences(r.ExtendedPreferences)
+	if ext == nil {
+		ext = &extendedPreferences{}
 	}
 
 	// 兼容旧数据：回退到基础字段
@@ -753,25 +954,27 @@ func (ps *ProfileStore) toDBRecord(p *UserProfile) *db.UserStyleProfile {
 	if err != nil {
 		logger.Warn("profile_marshal_failed", "field", "SpecialNotes", "error", err.Error())
 	}
+	extended := ps.extendedPreferencesForSave(p)
 
 	return &db.UserStyleProfile{
-		UserID:            uint(p.UserID),
-		PreferredThemes:   string(themes),
-		PreferredColors:   string(colors),
-		ContentPatterns:   string(patterns),
-		LanguageTone:      p.LanguageTone,
-		TypicalPageCount:  p.TypicalPageCount,
-		ContentTypes:      string(contentTypes),
-		SpecialNotes:      string(notes),
-		TaskCount:         p.TaskCount,
-		UpdatedAt:        time.Now(),
+		UserID:              uint(p.UserID),
+		PreferredThemes:     string(themes),
+		PreferredColors:     string(colors),
+		ContentPatterns:     string(patterns),
+		LanguageTone:        p.LanguageTone,
+		TypicalPageCount:    p.TypicalPageCount,
+		ContentTypes:        string(contentTypes),
+		SpecialNotes:        string(notes),
+		ExtendedPreferences: extended,
+		TaskCount:           p.TaskCount,
+		UpdatedAt:           time.Now(),
 	}
 }
 
 func (ps *ProfileStore) fromDBRecord(r *db.UserStyleProfile) *UserProfile {
 	p := &UserProfile{
-		UserID:            int(r.UserID),
-		LanguageTone:      r.LanguageTone,
+		UserID:           int(r.UserID),
+		LanguageTone:     r.LanguageTone,
 		TypicalPageCount: r.TypicalPageCount,
 		TaskCount:        r.TaskCount,
 		UpdatedAt:        r.UpdatedAt,
@@ -792,8 +995,39 @@ func (ps *ProfileStore) fromDBRecord(r *db.UserStyleProfile) *UserProfile {
 	if err := json.Unmarshal([]byte(r.SpecialNotes), &p.SpecialNotes); err != nil {
 		logger.Warn("profile_unmarshal_failed", "field", "SpecialNotes", "error", err.Error())
 	}
+	if ext := parseExtendedPreferences(r.ExtendedPreferences); ext != nil {
+		p.UserFacts = ext.UserFacts
+	}
 
 	return p
+}
+
+func (ps *ProfileStore) extendedPreferencesForSave(p *UserProfile) string {
+	ext := &extendedPreferences{}
+	if existing, err := db.GetUserStyleProfile(uint(p.UserID)); err == nil && existing != nil {
+		if loaded := parseExtendedPreferences(existing.ExtendedPreferences); loaded != nil {
+			ext = loaded
+		}
+	}
+	ext.UserFacts = p.UserFacts
+	data, err := json.Marshal(ext)
+	if err != nil {
+		logger.Warn("profile_marshal_failed", "field", "ExtendedPreferences", "error", err.Error())
+		return ""
+	}
+	return string(data)
+}
+
+func parseExtendedPreferences(raw string) *extendedPreferences {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var ext extendedPreferences
+	if err := json.Unmarshal([]byte(raw), &ext); err != nil {
+		logger.Warn("profile_unmarshal_failed", "field", "ExtendedPreferences", "error", err.Error())
+		return nil
+	}
+	return &ext
 }
 
 // Get 返回用户配置文件，从数据库加载

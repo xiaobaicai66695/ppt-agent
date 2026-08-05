@@ -202,28 +202,23 @@ func (m *ProfileMatcher) EnhanceWithProfile(classification *intent.Classificatio
 
 	// 尝试转换为 EnhancedProfile
 	if ep, ok := profile.(EnhancedProfileProvider); ok {
-		// 使用用户历史偏好增强推荐
-		if templates := ep.GetPreferredTemplates(); len(templates) > 0 {
-			// 将用户偏好模板添加到推荐列表前面
+		domain := classification.Domain.String()
+
+		// 使用同领域历史偏好增强推荐。跨领域模板不前置，避免历史场景污染当前规划。
+		if templates := preferredTemplatesForDomain(ep, domain); len(templates) > 0 {
 			classification.SuggestedTemplates = append(templates, classification.SuggestedTemplates...)
-			// 去重
 			classification.SuggestedTemplates = deduplicateStringSlice(classification.SuggestedTemplates, 5)
 		}
 
-		// 使用用户的典型页数作为参考
+		// 典型页数只在当前任务没有页数估算时补位；显式/模型识别出的页数优先。
 		if typicalPages := ep.GetTypicalPageCount(); typicalPages > 0 {
-			// 如果用户没有明确指定页数，使用用户偏好
-			if classification.Complexity.PageCountEstimate == 0 {
+			if classification.Complexity.PageCountEstimate == 0 && classification.SuggestedPageCount == 0 {
 				classification.SuggestedPageCount = typicalPages
-			} else {
-				// 取平均值
-				classification.SuggestedPageCount = (classification.SuggestedPageCount + typicalPages) / 2
 			}
 		}
 
-		// 使用用户的主题偏好
-		if theme := ep.GetPreferredTheme(); theme != "" {
-			// 如果没有明确的主题建议，使用用户偏好
+		// 配色/主题属于高场景敏感字段，只在同领域历史中补位。
+		if theme := preferredThemeForDomain(ep, domain); theme != "" {
 			if classification.SuggestedTheme == "" {
 				classification.SuggestedTheme = theme
 			}
@@ -236,6 +231,25 @@ type EnhancedProfileProvider interface {
 	GetPreferredTemplates() []string
 	GetTypicalPageCount() int
 	GetPreferredTheme() string
+}
+
+type domainAwareProfileProvider interface {
+	GetPreferredTemplatesForDomain(domain string) []string
+	GetPreferredThemeForDomain(domain string) string
+}
+
+func preferredTemplatesForDomain(profile EnhancedProfileProvider, domain string) []string {
+	if p, ok := profile.(domainAwareProfileProvider); ok {
+		return p.GetPreferredTemplatesForDomain(domain)
+	}
+	return nil
+}
+
+func preferredThemeForDomain(profile EnhancedProfileProvider, domain string) string {
+	if p, ok := profile.(domainAwareProfileProvider); ok {
+		return p.GetPreferredThemeForDomain(domain)
+	}
+	return ""
 }
 
 func deduplicateStringSlice(ss []string, maxLen int) []string {

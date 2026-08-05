@@ -261,7 +261,11 @@ func ProcessUserIntent(ctx context.Context, query string, userID int) (*PPTTaskC
 
 	// 如果有用户画像，增强 StyleContext
 	if result.Profile != nil {
-		cfg.StyleContext = enhanceStyleContextWithProfile(cfg.StyleContext, result.Profile)
+		domain := ""
+		if result.Intent != nil {
+			domain = result.Intent.Domain.String()
+		}
+		cfg.StyleContext = enhanceStyleContextWithProfile(cfg.StyleContext, result.Profile, domain)
 	}
 
 	return cfg, nil
@@ -301,70 +305,107 @@ func GetUserInsights(userID int) *agentlearning.InsightsReport {
 	return nil
 }
 
-// enhanceStyleContextWithProfile 根据用户画像增强 StyleContext
-func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedProfile) string {
+// enhanceStyleContextWithProfile 根据当前领域筛选用户画像后增强 StyleContext。
+// 历史偏好只是参考信号；与当前主题、outline 或显式模板选择冲突时必须让位。
+func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedProfile, domain string) string {
 	if profile == nil {
 		return baseContext
 	}
 
 	var sb strings.Builder
-	sb.WriteString(baseContext)
-	sb.WriteString("\n\n【用户历史偏好】")
+	if strings.TrimSpace(baseContext) != "" {
+		sb.WriteString(strings.TrimSpace(baseContext))
+		sb.WriteString("\n")
+	}
+	if lines := profile.UserFacts.PromptLines(); len(lines) > 0 {
+		sb.WriteString("\n【用户确定性资料】\n")
+		sb.WriteString("- 使用原则: 这些资料可直接作为称谓、署名、组织背景和工作场景上下文；若当前任务另有明确说明，以当前任务为准。\n")
+		sb.WriteString(strings.Join(lines, "\n"))
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n【用户偏好参考】\n")
+	sb.WriteString("- 使用原则: 当前主题、用户显式大纲、显式模板/配色选择优先；历史偏好仅作弱参考，冲突时忽略。\n")
+	if strings.TrimSpace(domain) != "" && !strings.EqualFold(domain, "unknown") {
+		sb.WriteString(fmt.Sprintf("- 当前识别领域: %s\n", domain))
+	}
 
-	// 语言风格偏好
+	// 低敏偏好：可跨领域参考。
 	if profile.LanguageTone != "" {
-		sb.WriteString(fmt.Sprintf("\n- 语言风格: %s", profile.LanguageTone))
+		sb.WriteString(fmt.Sprintf("- 语言风格参考: %s\n", profile.LanguageTone))
 	}
-
-	// 配色偏好
-	if len(profile.PreferredColors) > 0 {
-		sb.WriteString(fmt.Sprintf("\n- 偏好配色: %s", profile.PreferredColors[0]))
+	if profile.TypicalPageCount > 0 {
+		sb.WriteString(fmt.Sprintf("- 常用页数参考: %d 页；如果当前需求指定页数，以当前需求为准。\n", profile.TypicalPageCount))
 	}
-
-	// 布局偏好
-	if len(profile.LayoutPreferences) > 0 {
-		sb.WriteString(fmt.Sprintf("\n- 偏好布局: %s", profile.LayoutPreferences[0]))
-	}
-
-	// 模板偏好
-	if len(profile.PreferredThemes) > 0 {
-		sb.WriteString(fmt.Sprintf("\n- 偏好模板风格: %s", profile.PreferredThemes[0]))
-	}
-
-	// 动画偏好
 	if profile.AnimationLevel != style.AnimationNone {
-		sb.WriteString(fmt.Sprintf("\n- 动画偏好: %s", profile.AnimationLevel.String()))
+		sb.WriteString(fmt.Sprintf("- 动画强度参考: %s\n", profile.AnimationLevel.String()))
 	}
 
-	// 成功模式
-	if len(profile.SuccessPatterns) > 0 {
-		sb.WriteString("\n- 历史成功经验:")
+	// 高敏偏好：只有同领域历史才注入，避免跨场景迁移。
+	if hasExactDomainHistory(profile, domain) {
+		sb.WriteString("- 同领域历史可参考项:\n")
+		if theme := profile.GetPreferredThemeForDomain(domain); theme != "" {
+			sb.WriteString(fmt.Sprintf("  - 历史常用主题/模板风格: %s\n", theme))
+		}
+		if len(profile.PreferredColors) > 0 {
+			sb.WriteString(fmt.Sprintf("  - 历史配色参考: %s\n", profile.PreferredColors[0]))
+		}
+		if len(profile.LayoutPreferences) > 0 {
+			sb.WriteString(fmt.Sprintf("  - 历史布局参考: %s\n", profile.LayoutPreferences[0]))
+		}
+		if len(profile.SpecialNotes) > 0 {
+			notes := profile.SpecialNotes
+			if len(notes) > 3 {
+				notes = notes[len(notes)-3:]
+			}
+			sb.WriteString(fmt.Sprintf("  - 历史备注参考: %s\n", strings.Join(notes, "；")))
+		}
+		if len(profile.SuccessPatterns) > 0 {
+			sb.WriteString("  - 历史成功经验:\n")
+		}
 		for i, sp := range profile.SuccessPatterns {
 			if i >= 2 { // 最多显示2个
 				break
 			}
+			if !strings.EqualFold(strings.TrimSpace(sp.Domain), strings.TrimSpace(domain)) {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("\n  • %s领域使用%s模板，评分%.1f",
 				sp.Domain, sp.Template, sp.AvgQualityScore))
 		}
+	} else if hasSceneSensitivePreferences(profile) {
+		sb.WriteString("- 已跳过历史模板/配色/布局/备注等场景敏感偏好：未找到当前领域的历史证据。\n")
 	}
 
-	// 品牌元素
+	// 显式品牌资产可跨领域复用，但仍低于当前任务中用户显式选择。
 	if profile.BrandElements.LogoPosition != "" {
-		sb.WriteString(fmt.Sprintf("\n- Logo位置: %s", profile.BrandElements.LogoPosition))
+		sb.WriteString(fmt.Sprintf("- 品牌 Logo 位置参考: %s\n", profile.BrandElements.LogoPosition))
 	}
 	if profile.BrandElements.FooterText != "" {
-		sb.WriteString(fmt.Sprintf("\n- 页脚文字: %s", profile.BrandElements.FooterText))
+		sb.WriteString(fmt.Sprintf("- 品牌页脚参考: %s\n", profile.BrandElements.FooterText))
 	}
 
-	// 图表偏好
+	// 图表偏好偏向表达习惯，可作为弱参考。
 	if len(profile.ChartPreferences.PreferredTypes) > 0 {
-		sb.WriteString(fmt.Sprintf("\n- 偏好图表类型: %s", profile.ChartPreferences.PreferredTypes[0]))
+		sb.WriteString(fmt.Sprintf("- 图表类型参考: %s\n", profile.ChartPreferences.PreferredTypes[0]))
 	}
 
-	// 典型页数
-	if profile.TypicalPageCount > 0 {
-		sb.WriteString(fmt.Sprintf("\n- 典型页数: %d页", profile.TypicalPageCount))
-	}
+	return strings.TrimSpace(sb.String())
+}
 
-	return sb.String()
+func hasExactDomainHistory(profile *style.EnhancedProfile, domain string) bool {
+	if profile == nil || strings.TrimSpace(domain) == "" || strings.EqualFold(domain, "unknown") {
+		return false
+	}
+	return profile.HasExactDomainHistory(domain)
+}
+
+func hasSceneSensitivePreferences(profile *style.EnhancedProfile) bool {
+	if profile == nil {
+		return false
+	}
+	return len(profile.PreferredThemes) > 0 ||
+		len(profile.PreferredColors) > 0 ||
+		len(profile.LayoutPreferences) > 0 ||
+		len(profile.SuccessPatterns) > 0 ||
+		len(profile.SpecialNotes) > 0
 }
