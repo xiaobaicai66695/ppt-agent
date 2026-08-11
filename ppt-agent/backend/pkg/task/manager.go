@@ -15,7 +15,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/db"
@@ -43,7 +43,7 @@ type SSERichEvent struct {
 	ToolName         string                     `json:"tool_name,omitempty"`
 	ToolArgs         string                     `json:"tool_args,omitempty"`
 	Error            string                     `json:"error,omitempty"`
-	Tasks            []*deep.TaskItem           `json:"tasks,omitempty"`
+	Tasks            []*deck.TaskItem           `json:"tasks,omitempty"`
 	Done             int                        `json:"done,omitempty"`
 	Total            int                        `json:"total,omitempty"`
 	Files            []string                   `json:"files,omitempty"`
@@ -86,7 +86,7 @@ type TaskState struct {
 	turnEventID   uint64
 	listeners     map[string]chan SSERichEvent
 	cancel        context.CancelFunc
-	result        *deep.PPTTaskResult
+	result        *deck.PPTTaskResult
 	reportedFiles map[string]bool
 	runtimeMeta   *utils.RuntimeMeta
 	delivery      DeliverySnapshot
@@ -439,7 +439,7 @@ func (ts *TaskState) persist() {
 }
 
 // AgentFactory 为特定任务配置创建 agent。
-type AgentFactory func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent, error)
+type AgentFactory func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error)
 
 // ErrTaskAlreadyRunning 当尝试创建任务时如果另一个任务正在运行，则返回此错误。
 var ErrTaskAlreadyRunning = fmt.Errorf("已有任务正在执行，请等待当前任务完成后再创建新任务")
@@ -471,7 +471,7 @@ func (tm *TaskManager) HasRunningTasks() bool {
 // CreateTask 创建一个新任务，启动 agent 执行（在一个 goroutine 中），
 // 并返回任务信息。
 func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
-	factory AgentFactory, cfg *deep.PPTTaskConfig) (*TaskInfo, error) {
+	factory AgentFactory, cfg *deck.PPTTaskConfig) (*TaskInfo, error) {
 
 	if tm.HasRunningTask(userID) {
 		return nil, ErrTaskAlreadyRunning
@@ -482,7 +482,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	if cfg.IntentResult == nil {
 		routingCtx, cancelRouting := context.WithTimeout(ctx,
 			time.Duration(utils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 12))*time.Second)
-		intentCfg, err := deep.ProcessUserIntent(routingCtx, query, userID)
+		intentCfg, err := deck.ProcessUserIntent(routingCtx, query, userID)
 		cancelRouting()
 		if err != nil {
 			logger.Warn("intent_process_failed", "error", err.Error())
@@ -543,7 +543,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	// 如果用户提供了 outline，先写入 tasks.json，跳过 AI 规划阶段
 	if cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
 		manifest := outlineToManifest(cfg.Outline, workDir)
-		if err := deep.WriteTasksManifest(workDir, manifest); err != nil {
+		if err := deck.WriteTasksManifest(workDir, manifest); err != nil {
 			return nil, fmt.Errorf("写入大纲失败: %w", err)
 		}
 		runtimeMeta.FreezePlan(runtimePlanSlides(manifest.Tasks))
@@ -594,7 +594,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 }
 
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,
-	cfg *deep.PPTTaskConfig, query string) {
+	cfg *deck.PPTTaskConfig, query string) {
 	startedAt := time.Now()
 	if ts.runtimeMeta != nil {
 		ts.runtimeMeta.RecordPhase("preparing", "初始化任务运行环境")
@@ -693,8 +693,8 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		cancelRun(errDeliveryMetadataComplete)
 	})
 
-	result, err := deep.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event deep.AgentEvent) {
-		if event.Type == deep.AgentEventProgress {
+	result, err := deck.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event deck.AgentEvent) {
+		if event.Type == deck.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
 				Type:        "progress",
 				Phase:       event.Phase,
@@ -718,7 +718,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
 	if err == nil && ctx.Err() == nil {
-		renderResult, renderErr := deep.RenderDeckByTaskIDWorkflow(ctx, cfg, func(event deep.DeckRenderEvent) {
+		renderResult, renderErr := deck.RenderDeckByTaskIDWorkflow(ctx, cfg, func(event deck.DeckRenderEvent) {
 			switch event.Type {
 			case "workflow_start":
 				ts.Broadcast(SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail})
@@ -796,7 +796,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 	if delivery.Total > 0 {
 		if result == nil {
-			result = &deep.PPTTaskResult{Duration: time.Since(startedAt)}
+			result = &deck.PPTTaskResult{Duration: time.Since(startedAt)}
 		}
 		result.TotalSlides = delivery.Total
 		result.DoneSlides = delivery.Done
@@ -893,7 +893,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	qualityScore := calculateQualityScoreFromQA(ts.Info.WorkDir)
 	learnDomain, learnTemplate, learnTheme, learnPageCount := learningTaskContext(cfg, ts.Info.WorkDir, ts.Info.TotalCount)
 
-	deep.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
+	deck.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
 		TaskID:       ts.Info.ID,
 		UserID:       ts.Info.UserID,
 		Domain:       learnDomain,
@@ -907,7 +907,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	})
 }
 
-func learningTaskContext(cfg *deep.PPTTaskConfig, workDir string, fallbackPageCount int) (domain, template, theme string, pageCount int) {
+func learningTaskContext(cfg *deck.PPTTaskConfig, workDir string, fallbackPageCount int) (domain, template, theme string, pageCount int) {
 	pageCount = fallbackPageCount
 	if cfg != nil {
 		if cfg.IntentResult != nil {
@@ -921,7 +921,7 @@ func learningTaskContext(cfg *deep.PPTTaskConfig, workDir string, fallbackPageCo
 			}
 		}
 	}
-	if manifest, err := deep.ReadTasksManifest(workDir); err == nil && manifest != nil {
+	if manifest, err := deck.ReadTasksManifest(workDir); err == nil && manifest != nil {
 		if strings.TrimSpace(manifest.Template) != "" {
 			template = manifest.Template
 		}
@@ -1000,7 +1000,7 @@ func persistRuntimeEvent(event utils.RuntimeEvent) {
 	}
 }
 
-func durationFromResult(result *deep.PPTTaskResult) time.Duration {
+func durationFromResult(result *deck.PPTTaskResult) time.Duration {
 	if result == nil {
 		return 0
 	}
@@ -1008,7 +1008,7 @@ func durationFromResult(result *deep.PPTTaskResult) time.Duration {
 }
 
 // detectAndBroadcastPhase 从 Planner 工具事件推断当前阶段并广播进度事件。
-func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
+func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
 	detail := event.PhaseDetail
 	if detail == "" {
 		detail = event.ToolArgs
@@ -1109,7 +1109,7 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 			}
 		}
 
-		manifest, err := deep.ReconcileTasksManifestOutputFiles(workDir)
+		manifest, err := deck.ReconcileTasksManifestOutputFiles(workDir)
 		if err != nil || manifest == nil {
 			continue
 		}
@@ -1126,11 +1126,11 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 			if !isCompletedSlideStatus(item.Status) && item.OutputFile != "" {
 				pendingFiles = append(pendingFiles, item.OutputFile)
 			}
-			if currentSlide == nil && item.Status == deep.StatusGenerating {
+			if currentSlide == nil && item.Status == deck.StatusGenerating {
 				slide := runtimePlanSlide(item)
 				currentSlide = &slide
 			}
-			if nextPendingSlide == nil && item.Status == deep.StatusPending {
+			if nextPendingSlide == nil && item.Status == deck.StatusPending {
 				slide := runtimePlanSlide(item)
 				nextPendingSlide = &slide
 			}
@@ -1347,53 +1347,53 @@ func (tm *TaskManager) DeleteTask(id string) error {
 }
 
 // ReadTasksManifestFile 读取并返回任务的 tasks.json。
-func (tm *TaskManager) ReadTasksManifestFile(id string) (*deep.TasksManifest, error) {
+func (tm *TaskManager) ReadTasksManifestFile(id string) (*deck.TasksManifest, error) {
 	ts := tm.GetTaskState(id)
 	if ts == nil {
 		return nil, os.ErrNotExist
 	}
-	return deep.ReadTasksManifest(ts.Info.WorkDir)
+	return deck.ReadTasksManifest(ts.Info.WorkDir)
 }
 
 // TaskFilesAsJSON 返回任务的 tasks.json 作为原始 JSON 字节。
 func (tm *TaskManager) TaskFilesAsJSON(workDir string) ([]byte, error) {
 	return json.Marshal(struct {
-		Tasks []*deep.TaskItem `json:"tasks"`
+		Tasks []*deck.TaskItem `json:"tasks"`
 	}{
 		Tasks: nil,
 	})
 }
 
 // outlineToManifest 将用户编排的 outline 转换为 TasksManifest
-func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksManifest {
-	tasks := make([]*deep.TaskItem, 0, len(outline.Slides))
+func outlineToManifest(outline *deck.TaskOutline, workDir string) *deck.TasksManifest {
+	tasks := make([]*deck.TaskItem, 0, len(outline.Slides))
 	for i, slide := range outline.Slides {
 		safeTitle := sanitizeFilename(slide.Title)
 		if strings.TrimSpace(safeTitle) == "" {
 			safeTitle = fmt.Sprintf("slide-%d", i+1)
 		}
-		item := &deep.TaskItem{
+		item := &deck.TaskItem{
 			TaskID:      fmt.Sprintf("slide-%d", i+1),
 			PageIndex:   i + 1,
 			Title:       slide.Title,
 			ContentType: slide.ContentType,
 			Description: slide.Description,
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
-			Status:      deep.StatusPending,
+			Status:      deck.StatusPending,
 			CreatedAt:   time.Now().Format(time.RFC3339),
 			Background:  slide.Background,
 		}
 		// Carry through content_plan if present
 		if slide.ContentPlan != nil {
-			item.ContentPlan = &deep.ContentPlan{
+			item.ContentPlan = &deck.ContentPlan{
 				Summary:  slide.ContentPlan.Summary,
-				Elements: make([]deep.ContentElement, len(slide.ContentPlan.Elements)),
+				Elements: make([]deck.ContentElement, len(slide.ContentPlan.Elements)),
 			}
 			copy(item.ContentPlan.Elements, slide.ContentPlan.Elements)
 		}
 		tasks = append(tasks, item)
 	}
-	return &deep.TasksManifest{
+	return &deck.TasksManifest{
 		Title:    outline.Title,
 		Theme:    outline.Theme,
 		Template: outline.Template,
@@ -1401,7 +1401,7 @@ func outlineToManifest(outline *deep.TaskOutline, workDir string) *deep.TasksMan
 	}
 }
 
-func runtimePlanSlides(items []*deep.TaskItem) []utils.PlanSlide {
+func runtimePlanSlides(items []*deck.TaskItem) []utils.PlanSlide {
 	slides := make([]utils.PlanSlide, 0, len(items))
 	for _, item := range items {
 		if item != nil {
@@ -1411,7 +1411,7 @@ func runtimePlanSlides(items []*deep.TaskItem) []utils.PlanSlide {
 	return slides
 }
 
-func runtimePlanSlide(item *deep.TaskItem) utils.PlanSlide {
+func runtimePlanSlide(item *deck.TaskItem) utils.PlanSlide {
 	return utils.PlanSlide{
 		PageIndex: item.PageIndex, TaskID: item.TaskID, Title: item.Title,
 		ContentType: item.ContentType, OutputFile: CanonicalOutputFile(item.OutputFile), Status: item.Status,
@@ -1419,7 +1419,7 @@ func runtimePlanSlide(item *deep.TaskItem) utils.PlanSlide {
 }
 
 func isCompletedSlideStatus(status string) bool {
-	return status == deep.StatusDone || status == deep.StatusQADone || status == deep.StatusFixed
+	return status == deck.StatusDone || status == deck.StatusQADone || status == deck.StatusFixed
 }
 
 func compactIntentSummary(query string, limit int) string {
@@ -1455,7 +1455,7 @@ func (ts *TaskState) persistConversationContent() {
 		logger.Warn("load_conversation_messages_failed", "task_id", info.ID, "error", err.Error())
 	}
 
-	manifest, manifestErr := deep.ReadTasksManifest(info.WorkDir)
+	manifest, manifestErr := deck.ReadTasksManifest(info.WorkDir)
 
 	var b strings.Builder
 	b.WriteString("## 任务信息\n")
@@ -1521,7 +1521,7 @@ func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) str
 	}
 
 	// tasks.json 快照
-	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
+	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
 	if err == nil && manifest != nil {
 		b.WriteString("\n## 当前页面列表\n")
 		b.WriteString("| # | 标题 | 类型 | 状态 | QA |\n")
@@ -1570,7 +1570,7 @@ func sanitizeFilename(name string) string {
 // calculateQualityScoreFromQA 从 tasks.json 中的 QA 结果计算质量分数
 // 返回 0-5 的分数，0 表示没有 QA 结果
 func calculateQualityScoreFromQA(workDir string) float64 {
-	manifest, err := deep.ReadTasksManifest(workDir)
+	manifest, err := deck.ReadTasksManifest(workDir)
 	if err != nil || manifest == nil || len(manifest.Tasks) == 0 {
 		return 4.0 // 没有 QA 结果时返回默认值
 	}

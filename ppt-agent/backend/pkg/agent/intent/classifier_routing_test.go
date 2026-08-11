@@ -40,7 +40,7 @@ func TestClassifierUsesOneLLMRouteAndRouterReusesIt(t *testing.T) {
 		"domain":"creative","complexity_level":6,"page_count_estimate":18,
 		"confidence":0.94,"suggested_theme":"ocean_soft","suggested_templates":["tech-intro"],
 		"suggested_background":"snowy_mountain","use_background":true,
-		"agent_type":"deep","pipeline":["plan","generate"],"concurrency":5
+		"agent_type":"planner","pipeline":["plan","generate"],"concurrency":5
 	}`}
 	classifier := newTextClassifier(model)
 	classification, err := classifier.Classify(context.Background(), "介绍一下大兴安岭", 1)
@@ -64,7 +64,7 @@ func TestClassifierUsesOneLLMRouteAndRouterReusesIt(t *testing.T) {
 	if got := model.calls.Load(); got != 1 {
 		t.Fatalf("model calls=%d, want one shared classification", got)
 	}
-	if decision.AgentType != "deep" || len(decision.Pipeline) != 2 || decision.Pipeline[0] != "plan" || decision.Pipeline[1] != "generate" {
+	if decision.AgentType != "planner" || len(decision.Pipeline) != 2 || decision.Pipeline[0] != "plan" || decision.Pipeline[1] != "generate" {
 		t.Fatalf("decision=%#v", decision)
 	}
 	if !decision.SkipQA || !decision.SkipFix || decision.Source != "llm" {
@@ -82,7 +82,7 @@ func TestClassifierUsesDeterministicFallbackWithoutRules(t *testing.T) {
 		t.Fatalf("model calls=%d, want 1", got)
 	}
 	// The fallback is operational, not a keyword interpretation of "修改".
-	if classification.Intent != intent.IntentCreate || classification.AgentType != "deep" || classification.RoutingSource != "fallback" {
+	if classification.Intent != intent.IntentCreate || classification.AgentType != "planner" || classification.RoutingSource != "fallback" {
 		t.Fatalf("fallback=%#v", classification)
 	}
 	if classification.SuggestedPageCount <= 0 || classification.Complexity.PageCountEstimate <= 0 {
@@ -99,7 +99,7 @@ func TestRouterNormalizesUnsupportedAgentAndRemovesQA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.AgentType != "deep" || decision.Concurrency != 10 {
+	if decision.AgentType != "planner" || decision.Concurrency != 10 {
 		t.Fatalf("decision=%#v", decision)
 	}
 	if !decision.SkipQA || !decision.SkipFix || len(decision.Pipeline) != 2 {

@@ -24,7 +24,7 @@
 
 ## 验证与部署
 
-- 本地 `go test ./pkg/web ./pkg/task ./pkg/agent/deep` 通过。
+- 本地 `go test ./pkg/web ./pkg/task ./pkg/agent/deck` 通过。
 - 本地 `go build ./...` 通过。
 - 本地 `python -m py_compile pkg/tools/qa/pptx_qa_converter.py` 通过。
 - 远端聚焦 Go 测试和 Linux 构建通过。

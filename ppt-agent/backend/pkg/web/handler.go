@@ -14,7 +14,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
@@ -131,7 +131,7 @@ func (s *Server) handleMe(c *gin.Context) {
 func (s *Server) handleCreateTask(c *gin.Context) {
 	var req struct {
 		Query             string             `json:"query"`
-		Outline           *deep.TaskOutline  `json:"outline,omitempty"`
+		Outline           *deck.TaskOutline  `json:"outline,omitempty"`
 		TemplateSelection *TemplateSelection `json:"template_selection,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Query) == "" {
@@ -148,7 +148,7 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	if req.Outline == nil && req.TemplateSelection != nil && strings.EqualFold(strings.TrimSpace(req.TemplateSelection.Mode), "recommended") {
 		routingCtx, cancel := context.WithTimeout(c.Request.Context(),
 			time.Duration(agentutils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 12))*time.Second)
-		intentCfg, err := deep.ProcessUserIntent(routingCtx, req.Query, uid)
+		intentCfg, err := deck.ProcessUserIntent(routingCtx, req.Query, uid)
 		cancel()
 		if err != nil {
 			logger.Warn("template_recommendation_intent_failed", "error", err.Error())
@@ -193,7 +193,7 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	c.JSON(http.StatusCreated, info)
 }
 
-func mergeIntentTaskConfig(target, source *deep.PPTTaskConfig) {
+func mergeIntentTaskConfig(target, source *deck.PPTTaskConfig) {
 	if target == nil || source == nil {
 		return
 	}
@@ -434,7 +434,7 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"description": content})
 }
 
-func (s *Server) prepareOutline(_ context.Context, query string, outline *deep.TaskOutline) (*deep.TaskOutline, error) {
+func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.TaskOutline) (*deck.TaskOutline, error) {
 	if outline == nil || len(outline.Slides) == 0 {
 		return outline, nil
 	}
@@ -447,8 +447,8 @@ func (s *Server) prepareOutline(_ context.Context, query string, outline *deep.T
 	if strings.TrimSpace(outline.Title) == "" {
 		outline.Title = strings.TrimSpace(query)
 	}
-	if outline.ContentMode != deep.OutlineContentModeTemplateScaffold {
-		outline.ContentMode = deep.OutlineContentModeUserOutline
+	if outline.ContentMode != deck.OutlineContentModeTemplateScaffold {
+		outline.ContentMode = deck.OutlineContentModeUserOutline
 	}
 
 	for i := range outline.Slides {
@@ -470,7 +470,7 @@ func (s *Server) prepareOutline(_ context.Context, query string, outline *deep.T
 
 // enrichOutline keeps the legacy explicit AI-fill endpoint compatible. Task
 // creation deliberately avoids it; the main Agent completes template content.
-func (s *Server) enrichOutline(ctx context.Context, query string, outline *deep.TaskOutline) (*deep.TaskOutline, error) {
+func (s *Server) enrichOutline(ctx context.Context, query string, outline *deck.TaskOutline) (*deck.TaskOutline, error) {
 	prepared, err := s.prepareOutline(ctx, query, outline)
 	if err != nil {
 		return nil, err
@@ -485,7 +485,7 @@ func (s *Server) enrichOutline(ctx context.Context, query string, outline *deep.
 	return s.mergeOutlineSlides(prepared, enriched), nil
 }
 
-func outlineNeedsEnrichment(outline *deep.TaskOutline) bool {
+func outlineNeedsEnrichment(outline *deck.TaskOutline) bool {
 	for _, slide := range outline.Slides {
 		if len([]rune(strings.TrimSpace(slide.Description))) < 30 || slide.ContentPlan == nil {
 			return true
@@ -494,7 +494,7 @@ func outlineNeedsEnrichment(outline *deep.TaskOutline) bool {
 	return false
 }
 
-func (s *Server) mergeOutlineSlides(base *deep.TaskOutline, enriched []deep.SlideOutline) *deep.TaskOutline {
+func (s *Server) mergeOutlineSlides(base *deck.TaskOutline, enriched []deck.SlideOutline) *deck.TaskOutline {
 	for i := range base.Slides {
 		if i >= len(enriched) {
 			break
@@ -590,7 +590,7 @@ func layoutDescriptionTarget(contentType string) string {
 	}
 }
 
-func (s *Server) generateOutlineSlides(ctx context.Context, query string, outline *deep.TaskOutline) ([]deep.SlideOutline, error) {
+func (s *Server) generateOutlineSlides(ctx context.Context, query string, outline *deck.TaskOutline) ([]deck.SlideOutline, error) {
 	model, err := s.aiModelFactory(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("模型初始化失败: %w", err)
@@ -679,7 +679,7 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
 	}
 
 	var result struct {
-		Slides []deep.SlideOutline `json:"slides"`
+		Slides []deck.SlideOutline `json:"slides"`
 	}
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
@@ -699,7 +699,7 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
 func (s *Server) handleAIGenerateOutline(c *gin.Context) {
 	var req struct {
 		Query   string            `json:"query"`
-		Outline *deep.TaskOutline `json:"outline"`
+		Outline *deck.TaskOutline `json:"outline"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -920,7 +920,7 @@ func (s *Server) routeContinueIntent(ctx context.Context, message string, workDi
 
 	// ── LLM 分类 ──────────────────────────────────────────────────
 	var tasksSummary string
-	manifest, err := deep.ReadTasksManifest(workDir)
+	manifest, err := deck.ReadTasksManifest(workDir)
 	if err == nil && manifest != nil && len(manifest.Tasks) > 0 {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("当前 PPT 共 %d 页：\n", len(manifest.Tasks)))
@@ -1113,7 +1113,7 @@ func extractTargetPages(message string) []int {
 func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *RouteResult, continueMessage string, ch chan task.SSERichEvent) {
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在更新页面计划并重新渲染...\n"}
 
-	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
+	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
 	if err != nil || manifest == nil {
 		ch <- task.SSERichEvent{Type: "error", Error: "无法读取任务清单"}
 		markTaskFailed(ts, "无法读取任务清单")
@@ -1127,17 +1127,17 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		if strings.TrimSpace(route.Reason) != "" {
 			title = "补充说明"
 		}
-		newTask := &deep.TaskItem{
+		newTask := &deck.TaskItem{
 			TaskID:      fmt.Sprint(nextPage),
 			PageIndex:   nextPage,
 			Title:       title,
 			ContentType: "content_slide",
 			Description: fmt.Sprintf("根据用户继续请求新增页面：%s", continueMessage),
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", nextPage, title),
-			Status:      deep.StatusPending,
-			ContentPlan: &deep.ContentPlan{
+			Status:      deck.StatusPending,
+			ContentPlan: &deck.ContentPlan{
 				Summary: fmt.Sprintf("补充说明用户要求：%s", continueMessage),
-				Elements: []deep.ContentElement{{
+				Elements: []deck.ContentElement{{
 					Type:  "bullet_list",
 					Items: []string{continueMessage, "围绕原演示主题补充新的信息点", "保持与前后页面一致的叙事和视觉风格"},
 				}},
@@ -1152,7 +1152,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		}
 		if len(pages) == 0 {
 			for _, item := range manifest.Tasks {
-				if item != nil && (item.Status == deep.StatusDone || item.Status == deep.StatusQADone || item.Status == deep.StatusFixed) {
+				if item != nil && (item.Status == deck.StatusDone || item.Status == deck.StatusQADone || item.Status == deck.StatusFixed) {
 					pages = append(pages, item.PageIndex)
 				}
 			}
@@ -1190,7 +1190,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		ch <- task.SSERichEvent{Type: "answer", Content: "所有页面已标记为待重新生成\n"}
 	}
 
-	if err := deep.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
+	if err := deck.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
 		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("更新任务清单失败: %v", err)}
 		markTaskFailed(ts, err.Error())
 		return
@@ -1198,7 +1198,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 
 	runtimeMeta := agentutils.NewRuntimeMeta(taskID, ts.Info.WorkDir)
 	runtimeMeta.RecordPhase("rendering", "继续请求已写入 DeckSpec，开始并发渲染")
-	cfg := &deep.PPTTaskConfig{
+	cfg := &deck.PPTTaskConfig{
 		WorkDir:     ts.Info.WorkDir,
 		TaskID:      taskID,
 		SkillsDir:   s.skillDir,
@@ -1206,7 +1206,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		RuntimeMeta: runtimeMeta,
 		Concurrency: 5,
 	}
-	if _, err := deep.RenderDeckByTaskIDWorkflow(context.Background(), cfg, func(event deep.DeckRenderEvent) {
+	if _, err := deck.RenderDeckByTaskIDWorkflow(context.Background(), cfg, func(event deck.DeckRenderEvent) {
 		ch <- deckRenderSSE(event)
 	}); err != nil {
 		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("幻灯片生成出错: %v", err)}
@@ -1215,8 +1215,8 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 
 	s.refreshFileList(ts, ch)
 
-	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
-	var progressTasks []*deep.TaskItem
+	manifest, _ = deck.ReadTasksManifest(ts.Info.WorkDir)
+	var progressTasks []*deck.TaskItem
 	if manifest != nil {
 		progressTasks = manifest.Tasks
 		ts.Mu.Lock()
@@ -1236,7 +1236,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 	}
 }
 
-func findManifestTaskByPage(manifest *deep.TasksManifest, pageIdx int) *deep.TaskItem {
+func findManifestTaskByPage(manifest *deck.TasksManifest, pageIdx int) *deck.TaskItem {
 	if manifest == nil {
 		return nil
 	}
@@ -1248,7 +1248,7 @@ func findManifestTaskByPage(manifest *deep.TasksManifest, pageIdx int) *deep.Tas
 	return nil
 }
 
-func markTaskForRerender(workDir string, item *deep.TaskItem, instruction string, isFix bool) {
+func markTaskForRerender(workDir string, item *deck.TaskItem, instruction string, isFix bool) {
 	if item == nil {
 		return
 	}
@@ -1259,7 +1259,7 @@ func markTaskForRerender(workDir string, item *deep.TaskItem, instruction string
 			item.FixAttempts++
 		}
 	}
-	item.Status = deep.StatusPending
+	item.Status = deck.StatusPending
 	if item.OutputFile != "" {
 		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
 	}
@@ -1276,7 +1276,7 @@ func buildContinueInstruction(route *RouteResult, message string) string {
 	return "用户继续请求：" + message
 }
 
-func deckRenderSSE(event deep.DeckRenderEvent) task.SSERichEvent {
+func deckRenderSSE(event deck.DeckRenderEvent) task.SSERichEvent {
 	switch event.Type {
 	case "workflow_start":
 		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail}
@@ -1638,7 +1638,7 @@ func (s *Server) handleSummarizeProfile(c *gin.Context) {
 // updateUserStyleFromTask is called when a task completes to extract and save style preferences.
 // 核心逻辑由 LLM 分析 PPTX 文本内容完成，fallback 到规则提取。
 func (s *Server) updateUserStyleFromTask(userID int, workDir string, query string) {
-	manifest, err := deep.ReadTasksManifest(workDir)
+	manifest, err := deck.ReadTasksManifest(workDir)
 	if err != nil || manifest == nil {
 		return
 	}
@@ -1720,7 +1720,7 @@ func (s *Server) handleSubmitFeedback(c *gin.Context) {
 
 	uid := userIDGin(c)
 
-	engine := deep.GetLearningEngine()
+	engine := deck.GetLearningEngine()
 	if engine == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
 		return
@@ -1748,7 +1748,7 @@ func (s *Server) handleSubmitFeedback(c *gin.Context) {
 func (s *Server) handleGetUserInsights(c *gin.Context) {
 	uid := userIDGin(c)
 
-	engine := deep.GetLearningEngine()
+	engine := deck.GetLearningEngine()
 	if engine == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
 		return
@@ -1767,7 +1767,7 @@ func (s *Server) handleGetRecommendations(c *gin.Context) {
 	uid := userIDGin(c)
 	domain := c.Query("domain")
 
-	engine := deep.GetLearningEngine()
+	engine := deck.GetLearningEngine()
 	if engine == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
 		return

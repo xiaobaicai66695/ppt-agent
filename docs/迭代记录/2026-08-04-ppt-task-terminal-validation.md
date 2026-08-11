@@ -19,7 +19,7 @@
 ## 验证与部署
 
 - 新增 0/23 manifest、RuntimeMeta 0/23、完整 23/23、空 manifest 四类回归测试。
-- `go test ./pkg/task ./pkg/agent/deep ./pkg/web` 通过。
+- `go test ./pkg/task ./pkg/agent/deck ./pkg/web` 通过。
 - `go build ./...` 通过。
 - 远端聚焦测试与 Linux 构建通过。
 - 已部署到 `/ppt/ppt-agent`，服务 PID `23035`，`/api/health` 返回 200，日志确认 MySQL 与模型初始化成功。
@@ -29,5 +29,5 @@
 - `docs/issues/todo.md`
 - `ppt-agent/backend/pkg/task/manager.go`
 - `ppt-agent/backend/pkg/task/manager_delivery_test.go`
-- `ppt-agent/backend/pkg/agent/deep/types.go`
-- `ppt-agent/backend/pkg/agent/deep/types_test.go`
+- `ppt-agent/backend/pkg/agent/deck/types.go`
+- `ppt-agent/backend/pkg/agent/deck/types_test.go`

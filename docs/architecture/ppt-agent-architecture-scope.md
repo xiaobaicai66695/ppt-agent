@@ -8,7 +8,7 @@
 
 1. 前端选择模板/原子布局，形成 `TaskOutline`。
 2. Go Web API 校验并补齐 outline，创建任务工作目录。
-3. `TaskManager` 启动 Eino ADK Deep Agent，并通过 SSE 推送进度。
+3. `TaskManager` 启动 Eino ADK 旧多子代理架构，并通过 SSE 推送进度。
 4. 主 Agent 生成/维护 `tasks.json`，按页调用 `SlideExecutor`。
 5. `SlideExecutor` 读取 `tasks.json`，调用 Python `generators` 包生成单页 `.pptx`。
 6. 后端轮询 `tasks.json` 和工作目录，发现 PPTX 后推送 `file_ready`，前端请求下载和缩略图。
@@ -18,7 +18,7 @@ flowchart LR
   U["用户"] --> F["frontend<br/>Compose / Dashboard"]
   F --> W["backend/pkg/web<br/>REST + SSE"]
   W --> TM["backend/pkg/task<br/>TaskManager"]
-  TM --> DA["backend/pkg/agent/deep<br/>PPTTaskDeepAgent"]
+  TM --> DA["backend/pkg/agent/deck<br/>PPTTask旧多子代理架构"]
   DA --> M["tasks.json<br/>TasksManifest"]
   DA --> SE["SlideExecutor"]
   DA --> R["Reviewer<br/>可选 QA"]
@@ -37,8 +37,8 @@ flowchart LR
 | Web 入口 | `ppt-agent/backend/main.go` | 读取 `.env`、初始化 logger/callback/skill/backend/db，组装 web/cli 两种启动模式 | 改服务启动、模型工厂、skill 路径、输出目录时看这里 |
 | HTTP API | `ppt-agent/backend/pkg/web` | Gin 路由、认证、任务接口、模板接口、AI 补全、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
 | 任务生命周期 | `ppt-agent/backend/pkg/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
-| 多 Agent 编排 | `ppt-agent/backend/pkg/agent/deep` | 主 DeepAgent、SlideExecutor、Reviewer、Fixer、`tasks.json` 类型与读写 | 改生成流程、任务清单契约、QA/Fix、outline 直通、Agent prompt 时看这里 |
-| Prompt 模板 | `ppt-agent/backend/pkg/prompts/deep` | 主 Agent、SlideExecutor、Reviewer、Fixer 指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
+| 多 Agent 编排 | `ppt-agent/backend/pkg/agent/deck` | 主 旧多子代理架构、SlideExecutor、Reviewer、Fixer、`tasks.json` 类型与读写 | 改生成流程、任务清单契约、QA/Fix、outline 直通、Agent prompt 时看这里 |
+| Prompt 模板 | `ppt-agent/backend/pkg/prompts/planner` | 主 Agent、SlideExecutor、Reviewer、Fixer 指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
 | 工具层 | `ppt-agent/backend/pkg/tools` | `read_file`、`edit_file`、`python3`、`search`、`batch_convert`、QA 等 Eino tool | 改工具能力、安全边界、转换行为、搜索策略时看这里 |
 | 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 full-deck/single-page JSON，暴露 theme/background | 改模板元数据、前端模板列表、后端 outline 校验时看这里 |
 | 前端工作台 | `ppt-agent/frontend/src` | Vue 3 页面、API 类型、任务 Dashboard、模板编排、缩略图预览 | 改用户流程、展示状态、API 类型、SSE 消费时看这里 |
@@ -53,7 +53,7 @@ flowchart LR
 
 - `runWebMode` 将输出目录设为 `ppt-agent/weboutput`。
 - `skillsDir` 指向 `ppt-agent/skills`，供 Eino skill backend、prompt 和 Python 生成器共同使用。
-- `agentFactory` 为每个任务创建新的 `deep.PPTTaskDeepAgent`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
+- `agentFactory` 为每个任务创建新的 `deck.PPTTask旧多子代理架构`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
 - `web.NewServer` 负责路由、模板 loader、任务管理器、风格画像、日志分析服务。
 
 ### 3.2 模板编排到任务创建
@@ -91,7 +91,7 @@ interface TaskOutline {
 
 ### 3.3 `tasks.json` 是主协作契约
 
-`backend/pkg/agent/deep/types.go` 定义 `TasksManifest` 和 `TaskItem`。这是主 Agent、子 Agent、后端轮询、前端进度展示之间最重要的共享状态。
+`backend/pkg/agent/deck/types.go` 定义 `TasksManifest` 和 `TaskItem`。这是主 Agent、子 Agent、后端轮询、前端进度展示之间最重要的共享状态。
 
 ```json
 {
@@ -127,20 +127,20 @@ interface TaskOutline {
 
 修改 `tasks.json` 相关逻辑时要同时看：
 
-- `backend/pkg/agent/deep/types.go`
+- `backend/pkg/agent/deck/types.go`
 - `backend/pkg/task/manager.go`
 - `backend/pkg/web/handler.go`
-- `backend/pkg/prompts/deep/master_instruction.tmpl`
-- `backend/pkg/prompts/deep/slide_executor_instruction.tmpl`
+- `backend/pkg/prompts/planner/master_instruction.tmpl`
+- `backend/pkg/prompts/planner/slide_executor_instruction.tmpl`
 - `frontend/src/types.ts`
 - `frontend/src/pages/DashboardPage.vue`
 - `frontend/src/api.ts`
 
 ## 4. Agent 分工
 
-### 4.1 主 Agent：`PPTTaskDeepAgent`
+### 4.1 主 Agent：`PPTTask旧多子代理架构`
 
-代码在 `backend/pkg/agent/deep/agent.go`，prompt 在 `backend/pkg/prompts/deep/master_instruction.tmpl`。
+代码在 `backend/pkg/agent/deck/agent.go`，prompt 在 `backend/pkg/prompts/planner/master_instruction.tmpl`。
 
 职责：
 
@@ -168,7 +168,7 @@ interface TaskOutline {
 
 ### 4.2 SlideExecutor
 
-代码在 `backend/pkg/agent/deep/slide_executor.go`，prompt 在 `slide_executor_instruction.tmpl`。
+代码在 `backend/pkg/agent/deck/slide_executor.go`，prompt 在 `slide_executor_instruction.tmpl`。
 
 职责：
 
@@ -193,10 +193,10 @@ interface TaskOutline {
 
 ### 4.3 Reviewer / Fixer
 
-Reviewer 是可选质量审查分支。当前 `newPPTTaskDeepAgent` 以 `cfg.EnableQA` 和路由 `SkipQA` 决定是否创建 Reviewer；`isQAEnabled()` 读取 `ENABLE_QA=true`，但 web/cli 的任务工厂当前没有显式给 `cfg.EnableQA` 赋值，因此默认运行路径仍是关闭 QA。若后续要恢复在线 QA，需要同时检查配置注入、环境变量和路由决策。代码在：
+Reviewer 是可选质量审查分支。当前 `newPPTTask旧多子代理架构` 以 `cfg.EnableQA` 和路由 `SkipQA` 决定是否创建 Reviewer；`isQAEnabled()` 读取 `ENABLE_QA=true`，但 web/cli 的任务工厂当前没有显式给 `cfg.EnableQA` 赋值，因此默认运行路径仍是关闭 QA。若后续要恢复在线 QA，需要同时检查配置注入、环境变量和路由决策。代码在：
 
-- `backend/pkg/agent/deep/reviewer.go`
-- `backend/pkg/agent/deep/fixer.go`
+- `backend/pkg/agent/deck/reviewer.go`
+- `backend/pkg/agent/deck/fixer.go`
 - `backend/pkg/tools/qa`
 - `backend/pkg/tools/batch_convert.go`
 
@@ -280,10 +280,10 @@ SSE 消费重点：
 | 新增/修改模板预设 | `skills/visual_designer/templates/full-decks/*.json`、对应 `.py`、`backend/pkg/templates/loader.go`、`frontend/src/pages/ComposePage.vue` | 模板 JSON 解析、前端模板加载 |
 | 新增原子布局 | `templates/single-page/*.json/.py`、`generators/*_generator.py`、`generators/__init__.py`、`references/generators.md`、`frontend/src/pages/ComposePage.vue` | `py_compile`、单页生成、前端 layout 列表 |
 | 改 PPT 视觉质量 | `SKILL.md`、`generators/base.py`、具体 generator、`layout_intelligence.py`、模板 contract | 相关模板 PPTX 生成、PDF/PNG 渲染检查 |
-| 改内容规划质量 | `pkg/web/handler.go` 的 outline 补齐、`pkg/prompts/deep/*.tmpl`、模板 contract | 后端相关测试、手工 outline JSON 样例 |
-| 改任务状态/进度 | `pkg/task/manager.go`、`pkg/agent/deep/types.go`、`pkg/web/streamer.go`、`frontend/src/types.ts`、`DashboardPage.vue` | Go 单元测试、SSE 手工/最小任务 |
+| 改内容规划质量 | `pkg/web/handler.go` 的 outline 补齐、`pkg/prompts/planner/*.tmpl`、模板 contract | 后端相关测试、手工 outline JSON 样例 |
+| 改任务状态/进度 | `pkg/task/manager.go`、`pkg/agent/deck/types.go`、`pkg/web/streamer.go`、`frontend/src/types.ts`、`DashboardPage.vue` | Go 单元测试、SSE 手工/最小任务 |
 | 改下载/缩略图 | `pkg/web/handler.go`、`thumbnail.go`、`tools/batch_convert.go`、`SlidePreviewCard.vue` | 单文件下载、缩略图 404/503/成功路径 |
-| 改继续对话/再生成 | `pkg/web/handler.go` 的 continue 分支、`pkg/task/manager.go`、`pkg/agent/deep/run.go`、`DashboardPage.vue` | 运行中排队、完成后继续、指定页再生成 |
+| 改继续对话/再生成 | `pkg/web/handler.go` 的 continue 分支、`pkg/task/manager.go`、`pkg/agent/deck/run.go`、`DashboardPage.vue` | 运行中排队、完成后继续、指定页再生成 |
 | 改模型/fallback/token | `pkg/agent/utils/model.go`、`compressor.go`、`runtime_meta.go`、`main.go` | 聚焦 Go 测试、无凭据时说明不可跑真实模型 |
 | 改认证/管理后台 | `pkg/auth`、`pkg/db`、`pkg/web/middleware.go`、`frontend/src/stores/auth.ts`、`AdminPage.vue` | 登录/鉴权路径、DB 可用性 |
 | 改日志分析/观测 | `pkg/log_analysis`、`pkg/agent/utils/runtime_meta.go`、`DashboardPage.vue` timeline | 后端单测、前端 build |
@@ -354,7 +354,7 @@ SSE 消费重点：
 
 | 改动范围 | 推荐命令 |
 | --- | --- |
-| 后端任务/API/Agent | `go test ./pkg/web ./pkg/task ./pkg/agent/deep` |
+| 后端任务/API/Agent | `go test ./pkg/web ./pkg/task ./pkg/agent/deck` |
 | 后端公共工具/模型 | `go test ./pkg/agent/utils ./pkg/tools/...` 或更小包 |
 | 后端编译面 | `go build ./...` |
 | 前端 API/types/UI | `npm run build` |

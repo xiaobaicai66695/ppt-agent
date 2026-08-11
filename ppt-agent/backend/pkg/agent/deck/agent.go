@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package deep
+package deck
 
 import (
 	"context"

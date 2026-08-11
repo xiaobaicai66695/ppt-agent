@@ -22,7 +22,7 @@
 
 ## 验证与部署
 
-- `go test ./pkg/prompts ./pkg/agent/deep ./pkg/task ./pkg/web` 通过。
+- `go test ./pkg/prompts ./pkg/agent/deck ./pkg/task ./pkg/web` 通过。
 - `go build ./...`、`npm test -- --run`、`npm run build` 通过。
 - `openspec validate ppt-agent-deck-style-and-thumbnail-reliability --strict` 通过。
 - 远端聚焦 Go 测试和 Linux 构建通过；服务 PID `4094435`，健康检查 200。
@@ -36,6 +36,6 @@
 
 - `docs/issues/todo.md`
 - `openspec/changes/ppt-agent-deck-style-and-thumbnail-reliability/`
-- `ppt-agent/backend/pkg/prompts/deep/*.tmpl`
-- `ppt-agent/backend/pkg/agent/deep/types.go`
+- `ppt-agent/backend/pkg/prompts/planner/*.tmpl`
+- `ppt-agent/backend/pkg/agent/deck/types.go`
 - `ppt-agent/frontend/src/utils/workbench.ts`

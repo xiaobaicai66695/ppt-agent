@@ -35,19 +35,19 @@ type PatternType int
 
 const (
 	PatternTimeDistribution PatternType = iota // 时间分布模式
-	PatternDomainPreference                  // 领域偏好模式
-	PatternTemplateSuccess                   // 模板成功率模式
-	PatternQualityTrend                     // 质量趋势模式
-	PatternEditPattern                      // 编辑行为模式
+	PatternDomainPreference                    // 领域偏好模式
+	PatternTemplateSuccess                     // 模板成功率模式
+	PatternQualityTrend                        // 质量趋势模式
+	PatternEditPattern                         // 编辑行为模式
 )
 
 // Pattern 识别到的模式
 type Pattern struct {
-	Type       PatternType      // 模式类型
-	Confidence float64          // 置信度 0-1
-	Data      map[string]interface{} // 模式数据
-	Insight   string           // 洞察描述
-	Suggestion string          // 建议
+	Type       PatternType            // 模式类型
+	Confidence float64                // 置信度 0-1
+	Data       map[string]interface{} // 模式数据
+	Insight    string                 // 洞察描述
+	Suggestion string                 // 建议
 }
 
 // Analyzer 模式分析器
@@ -69,9 +69,9 @@ type Analyzer struct {
 
 // AnalyzerStats 分析器统计
 type AnalyzerStats struct {
-	TotalSignals   int
-	PatternsFound  int
-	LastAnalysis   time.Time
+	TotalSignals  int
+	PatternsFound int
+	LastAnalysis  time.Time
 }
 
 // TaskPattern 任务模式
@@ -225,10 +225,10 @@ func (a *Analyzer) analyzeTimePatterns(signals []*LearningSignal) []*Pattern {
 			Type:       PatternTimeDistribution,
 			Confidence: float64(maxCount) / float64(len(signals)+1),
 			Data: map[string]interface{}{
-				"peak_hours": peakHours,
+				"peak_hours":    peakHours,
 				"total_signals": len(signals),
 			},
-			Insight:   "用户活跃时段分析",
+			Insight:    "用户活跃时段分析",
 			Suggestion: "可以在用户活跃时段提前准备资源，提高响应速度",
 		}
 		patterns = append(patterns, pattern)
@@ -295,11 +295,11 @@ func (a *Analyzer) analyzeQualityTrends(signals []*LearningSignal) []*Pattern {
 			Type:       PatternQualityTrend,
 			Confidence: confidence,
 			Data: map[string]interface{}{
-				"avg_score":    avgScore,
-				"trend":        trend,
+				"avg_score":   avgScore,
+				"trend":       trend,
 				"sample_size": scoreCount,
 			},
-			Insight:   "用户任务质量分析",
+			Insight:    "用户任务质量分析",
 			Suggestion: a.getQualitySuggestion(trend, avgScore),
 		}
 		patterns = append(patterns, pattern)
@@ -327,10 +327,10 @@ func (a *Analyzer) analyzeEditPatterns(signals []*LearningSignal) []*Pattern {
 				Type:       PatternEditPattern,
 				Confidence: min(editRatio*2, 1.0),
 				Data: map[string]interface{}{
-					"edit_ratio": editRatio,
+					"edit_ratio":    editRatio,
 					"total_signals": len(signals),
 				},
-				Insight:   "用户编辑行为较多",
+				Insight:    "用户编辑行为较多",
 				Suggestion: "建议生成更符合用户期望的初始内容，或提供更多定制选项",
 			}
 			patterns = append(patterns, pattern)
@@ -406,10 +406,10 @@ func (a *Analyzer) GenerateInsights(userID int) *InsightsReport {
 	patterns := a.AnalyzeUserPatterns(userID)
 
 	report := &InsightsReport{
-		UserID:       userID,
-		GeneratedAt:  time.Now(),
-		Patterns:     patterns,
-		Summary:      "",
+		UserID:          userID,
+		GeneratedAt:     time.Now(),
+		Patterns:        patterns,
+		Summary:         "",
 		Recommendations: []string{},
 	}
 
@@ -432,10 +432,10 @@ func (a *Analyzer) GenerateInsights(userID int) *InsightsReport {
 
 // InsightsReport 洞察报告
 type InsightsReport struct {
-	UserID         int
-	GeneratedAt    time.Time
-	Patterns      []*Pattern
-	Summary       string
+	UserID          int
+	GeneratedAt     time.Time
+	Patterns        []*Pattern
+	Summary         string
 	Recommendations []string
 }
 
@@ -523,11 +523,11 @@ func (a *Analyzer) buildSignalAnalysisPrompt(signals []*LearningSignal) string {
 		}
 		if s.Context != nil {
 			entry["context"] = map[string]interface{}{
-				"phase":          s.Context.TaskPhase,
-				"quality_score":  s.Context.QualityScore,
-				"duration_sec":   s.Context.Duration,
-				"action_type":    s.Context.ActionType,
-				"page_index":     s.Context.PageIndex,
+				"phase":         s.Context.TaskPhase,
+				"quality_score": s.Context.QualityScore,
+				"duration_sec":  s.Context.Duration,
+				"action_type":   s.Context.ActionType,
+				"page_index":    s.Context.PageIndex,
 			}
 		}
 		if s.Data != nil {
@@ -558,7 +558,7 @@ var patternTypeMap = map[string]PatternType{
 	"time_pattern":       PatternTimeDistribution,
 	"content_preference": PatternTemplateSuccess,
 	"domain_preference":  PatternDomainPreference,
-	"complexity_pattern":  PatternQualityTrend,
+	"complexity_pattern": PatternQualityTrend,
 }
 
 func (a *Analyzer) parsePatterns(content string) ([]*Pattern, error) {

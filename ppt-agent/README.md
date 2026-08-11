@@ -13,7 +13,7 @@ ppt-agent/
 │   ├── go.mod                       # Go 依赖
 │   └── pkg/
 │       ├── agent/                   # 智能体编排与任务规划
-│       │   ├── deep/                # DeepAgent 主流程、任务清单、单页执行器
+│       │   ├── deck/                # DeckSpec 规划、任务清单和并发渲染编排
 │       │   ├── intent/              # 用户意图识别与模板/背景推荐
 │       │   ├── learning/            # 用户偏好学习
 │       │   ├── router/              # 路由决策
@@ -51,14 +51,14 @@ ppt-agent/
 
 ## 运行链路
 
-用户通过前端创建任务后，后端会先识别意图并选择模板、配色、页数和背景主题。随后 DeepAgent 生成 `tasks.json`，每个页面被拆成独立任务，再由 SlideExecutor 调用 Python 生成器生成单页 PPTX。任务管理器负责合并结果、记录进度、生成缩略图并通过 SSE 推送状态。
+用户通过前端创建任务后，后端会先识别意图并选择模板、配色、页数和背景主题。随后 Planner 生成 `tasks.json`，每个页面被拆成独立任务，再由渲染工作池调用 Python 生成器生成单页 PPTX。任务管理器负责合并结果、记录进度、生成缩略图并通过 SSE 推送状态。
 
 ```text
 用户请求
   ↓
 意图识别与模板推荐
   ↓
-DeepAgent 规划 tasks.json
+Planner 规划 tasks.json
   ↓
 SlideExecutor 分页生成 PPTX
   ↓
@@ -75,7 +75,7 @@ SlideExecutor 分页生成 PPTX
 
 - 提供任务创建、查询、下载、缩略图、会话和管理接口。
 - 管理任务目录、任务状态、输出文件和数据库记录。
-- 调用 DeepAgent 完成页面规划与分页生成。
+- 调用 Planner 完成页面规划，并由渲染工作池完成分页生成。
 - 维护运行元数据，记录模型调用、工具调用、错误和阶段耗时。
 - 加载模板、配色、背景主题和本地素材。
 
@@ -133,7 +133,7 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 
 ## 任务清单契约
 
-`tasks.json` 是多智能体协作的核心文件。主 Agent 只通过 `update_tasks_manifest` 初始化或更新任务清单，避免并发覆盖整个文件。
+`tasks.json` 是 Planner 与渲染工作池之间的核心契约。Planner 只通过 `update_tasks_manifest` 初始化或更新任务清单，避免并发覆盖整个文件。
 
 单页任务的关键字段：
 
@@ -164,21 +164,13 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 
 ## 运行模式
 
-默认使用 DeepAgent 模式：
+默认使用 Planner 模式：
 
 ```bash
-AGENT_MODE=deep
+AGENT_MODE=planner
 ```
 
-DeepAgent 负责整体规划与分批调度，SlideExecutor 负责单页生成。当前生成闭环主要依赖代码维护的任务状态和输出文件校验；QA、Reviewer 和 Fixer 可通过环境变量控制，默认不作为低成本生成链路的必要步骤。
-
-历史串行模式仍保留：
-
-```bash
-AGENT_MODE=planexecute
-```
-
-该模式按规划、执行、重规划的顺序运行，主要用于兼容和调试。
+Planner 负责整体规划，渲染工作池负责按页并发调用生成器。当前生成闭环主要依赖代码维护的任务状态和输出文件校验；QA 默认不作为低成本生成链路的必要步骤。
 
 ## 模型与回退
 
@@ -237,7 +229,7 @@ python skills/visual_designer/generators/generator.py
 
 ```bash
 cd backend
-go test ./pkg/web ./pkg/task ./pkg/agent/deep
+go test ./pkg/web ./pkg/task ./pkg/agent/deck
 go build ./...
 ```
 
@@ -265,8 +257,8 @@ python -c "import sys; sys.path.insert(0, 'skills/visual_designer'); from genera
 | `ARK_MODEL_BACKUP1` 到 `ARK_MODEL_BACKUP4` | 备用模型 | 可选 |
 | `ARK_TEXT_MODEL` | 轻量文本模型 | 可选 |
 | `ARK_QA_MODEL` | 视觉审查模型 | 可选 |
-| `AGENT_MODE` | 执行模式 | `deep` |
-| `DEEP_AGENT_CONCURRENCY` | 分页生成并发数 | `5` |
+| `AGENT_MODE` | 执行模式 | `planner` |
+| `PLANNER_CONCURRENCY` | 分页生成并发数 | `5` |
 | `ENABLE_QA` | 是否启用 QA | `false` |
 | `STREAM_TIMEOUT` | 单次流式调用超时 | `3m` |
 | `PYTHON_BIN` | Python 可执行文件 | `/root/pptx_env/bin/python` |

@@ -21,7 +21,7 @@
 
 ## 验证
 
-- 聚焦后端测试通过：`pkg/agent/contentplan`、`pkg/agent/deep`、`pkg/generic`、`pkg/web`、`pkg/task`、`pkg/agent/utils`、`pkg/db`。
+- 聚焦后端测试通过：`pkg/agent/contentplan`、`pkg/agent/deck`、`pkg/generic`、`pkg/web`、`pkg/task`、`pkg/agent/utils`、`pkg/db`。
 - `go build ./...` 通过；Linux `amd64`、`CGO_ENABLED=0` 二进制构建通过。
 - `npm run test` 通过，2 个测试文件共 8 项；`npm run build` 通过。
 - `openspec validate ppt-template-entry-recommendation-hardening --strict` 通过。
@@ -40,7 +40,7 @@
 - `openspec/changes/ppt-template-entry-recommendation-hardening/`
 - `ppt-agent/backend/pkg/agent/contentplan/`
 - `ppt-agent/backend/pkg/web/template_recommendation.go`
-- `ppt-agent/backend/pkg/agent/deep/agent.go`
+- `ppt-agent/backend/pkg/agent/deck/agent.go`
 - `ppt-agent/frontend/src/pages/HomePage.vue`
 - `ppt-agent/frontend/src/pages/ComposePage.vue`
 - `ppt-agent/frontend/src/components/ConversationComposer.vue`

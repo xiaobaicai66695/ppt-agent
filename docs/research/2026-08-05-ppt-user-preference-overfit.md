@@ -34,7 +34,7 @@ web.handleCreateTask
   |   直接把基础用户画像写入 cfg.StyleContext
   |
   v
-task.CreateTask / deep.ProcessUserIntent
+task.CreateTask / deck.ProcessUserIntent
   |-- learning.Engine.ProcessTask(query, userID)
   |   |-- intent.Classifier 得到 Domain / SuggestedTemplates / SuggestedTheme / SuggestedPageCount
   |   |-- profileStore.GetEnhanced(userID)
@@ -42,7 +42,7 @@ task.CreateTask / deep.ProcessUserIntent
   |       把历史模板、主题、典型页数合入分类结果
   |
   v
-deep.enhanceStyleContextWithProfile()
+deck.enhanceStyleContextWithProfile()
   再把增强画像写入 StyleContext
   |
   v
@@ -62,8 +62,8 @@ master_instruction.tmpl
 - `ppt-agent/backend/pkg/web/handler.go:163` 在任务创建时直接注入 `UserProfile.BuildStyleContext()`。
 - `ppt-agent/backend/pkg/style/profile.go:412` 的 `BuildStyleContext()` 会输出“请在生成PPT时遵循上述偏好”，对当前任务没有相关性判断。
 - `ppt-agent/backend/pkg/agent/router/engine.go:198` 的 `EnhanceWithProfile()` 会把 `GetPreferredTemplates()` 前置到 `SuggestedTemplates`，并用历史典型页数影响当前页数。
-- `ppt-agent/backend/pkg/agent/deep/agent.go:244` 会把推荐模板、推荐配色、推荐页数继续写入 `StyleContext`。
-- `ppt-agent/backend/pkg/agent/deep/agent.go:304` 的 `enhanceStyleContextWithProfile()` 会再次注入历史配色、布局、模板风格、成功经验等高敏感字段。
+- `ppt-agent/backend/pkg/agent/deck/agent.go:244` 会把推荐模板、推荐配色、推荐页数继续写入 `StyleContext`。
+- `ppt-agent/backend/pkg/agent/deck/agent.go:304` 的 `enhanceStyleContextWithProfile()` 会再次注入历史配色、布局、模板风格、成功经验等高敏感字段。
 - `ppt-agent/backend/pkg/style/profile.go:149` 的 `GetPreferredTemplates()` 会从全局成功模式和 `ContentTypes` 推断模板，未按当前领域过滤。
 - `ppt-agent/backend/pkg/agent/learning/updater.go:230` 要求 LLM 对画像字段做追加式更新，`applyProfileUpdates()` 对 themes/colors/layout/content_types/domain_preferences 也是追加或累加。
 - `ppt-agent/doc/learning-system-domain-match.md` 已经识别出“领域相关性判断”这个方向，但实现层仍未真正落地。

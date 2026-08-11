@@ -18,7 +18,7 @@ func (m *learningRoutingModel) Generate(context.Context, []*schema.Message, ...i
 		"intent":"create","intent_reasoning":"生成地域介绍演示","domain":"creative",
 		"complexity_level":5,"page_count_estimate":12,"confidence":0.91,
 		"suggested_theme":"ocean_soft","suggested_templates":[],
-		"agent_type":"deep","pipeline":["plan","generate"],"concurrency":5
+		"agent_type":"planner","pipeline":["plan","generate"],"concurrency":5
 	}`, nil), nil
 }
 
@@ -46,7 +46,7 @@ func TestProcessTaskUsesConfiguredTextFactoryOnce(t *testing.T) {
 	if classification.RoutingSource != "llm" {
 		t.Fatalf("intent=%#v", classification)
 	}
-	if decision.AgentType != "deep" || len(decision.Pipeline) != 2 {
+	if decision.AgentType != "planner" || len(decision.Pipeline) != 2 {
 		t.Fatalf("routing=%#v", decision)
 	}
 }

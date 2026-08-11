@@ -11,7 +11,7 @@ go mod tidy
 go build ./...          # 验证编译
 go build -o ppt-agent . # 编译二进制
 
-# 前端 (React + TypeScript + Vite)
+# 前端 (Vue 3 + TypeScript + Vite)
 cd frontend
 npm install
 npm run dev             # 端口 3000，/api 代理到 localhost:8080
@@ -27,9 +27,9 @@ cd backend
 go run ./cmd/search_runner.go
 
 # 运行时环境变量
-export AGENT_MODE=deep              # "deep" (并行) 或空 (串行 plan-execute)
+export AGENT_MODE=planner           # 默认 Planner + renderer workflow
 export INTERACTIVE=false           # 跳过人机交互确认
-export DEEP_AGENT_CONCURRENCY=3    # 最大并行幻灯片生成数 (默认 5)
+export PLANNER_CONCURRENCY=3       # 最大并行幻灯片生成数 (默认 5)
 export COZELOOP_API_TOKEN=         # 可选: CozeLoop 可观测性
 export COZELOOP_WORKSPACE_ID=      # 可选: CozeLoop 工作区
 export LOG_FILE="./logs/app.log"   # 日志文件路径
@@ -44,13 +44,9 @@ export ENABLE_QA="true"            # 是否启用 QA 质检 (默认 true)
 
 ## 架构
 
-### 两种执行模式
+### 执行模式
 
-1. **DeepAgent 模式** (`AGENT_MODE=deep`，默认)：使用 `eino prebuilt/deep`。主 Agent (`PPTTaskDeepAgent`) 将任务委托给三个子 Agent——`SlideExecutor`（通过 python-pptx 生成幻灯片）、`Reviewer`（多模态视觉 QA）、`Fixer`（修复 QA 发现的问题）。主 Agent 写入 `tasks.json` 并编排整个流水线。幻灯片可并行生成（由 `DEEP_AGENT_CONCURRENCY` 控制）。
-
-2. **Plan-Execute-Replan 模式**（传统，串行）：使用 `eino prebuilt/planexecute`。三个 Agent 顺序运行——`Planner` → `Executor` → `Replanner`——循环直到所有幻灯片完成。每张幻灯片逐一生成，每张后接 QA。
-
-两种模式共享相同的工具实现、Skill 注入和模型配置。Prompts 在两种模式间有约 70% 的重叠。
+当前默认链路是 `AGENT_MODE=planner`：先做意图分类和模板/背景推荐，再由 `PPTPlanner` 生成强 schema 的 `tasks.json`，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
 
 ### QA 质检开关
 
@@ -61,9 +57,8 @@ QA 质检可通过 `ENABLE_QA` 环境变量控制（默认 `true`）：
 
 相关代码：
 - `.env` 文件中的 `ENABLE_QA` 配置
-- `pkg/agent/deep/types.go` 中的 `PPTTaskConfig.EnableQA` 字段
-- `pkg/agent/deep/agent.go` 中的 `isQAEnabled()` 辅助函数和条件创建 Reviewer
-- `pkg/prompts/deep/master_instruction.tmpl` 中的 `{{if .EnableQA}}` 条件渲染
+- `pkg/agent/deck/types.go` 中的 `PPTTaskConfig.EnableQA` 字段
+- `pkg/prompts/planner/master_instruction.tmpl` 中的 Planner 阶段约束
 
 ### 模型 Fallback 链
 
@@ -71,7 +66,7 @@ QA 质检可通过 `ENABLE_QA` 环境变量控制（默认 `true`）：
 - `ARK_MODEL` → `ARK_MODEL_BACKUP1` → `ARK_MODEL_BACKUP2` → `ARK_MODEL_BACKUP3` → `ARK_MODEL_BACKUP4`
 - 触发 429 限流时：失败模型暂停 30 秒，继续尝试下一个
 - 所有模型失败 → 返回错误
-- Fallback 链每个 Agent 独立创建（Planner、Executor、SlideExecutor、Fixer 各有一个实例）。QA Reviewer 通过 `QAModelFn` 获取独立模型。
+- Fallback 链按职责创建。当前主链路由 Planner 使用工具调用模型，QA 模型通过 `QAModelFn` 按需获取。
 
 ### Token 追踪
 
@@ -79,30 +74,25 @@ QA 质检可通过 `ENABLE_QA` 环境变量控制（默认 `true`）：
 
 ### 上下文压缩
 
-`ChatModelCompressor` (`pkg/agent/utils/compressor.go`) 仅包装 DeepAgent 编排器的聊天模型（不包装子 Agent）。双触发条件：`MessageThreshold=12` 或 `TokenThreshold=30000`（估算字符数）。策略：`system + [压缩摘要] + [最近 4 轮对话]`。压缩通过专用 fallback 模型运行，`MaxTokens=4096`。
+`ChatModelCompressor` (`pkg/agent/utils/compressor.go`) 包装 Planner 的聊天模型。当前阈值由 Planner 创建时配置，策略是保留系统指令、结构化摘要和最近对话。压缩通过专用 fallback 文本模型运行。
 
-### 任务生命周期 (DeepAgent 模式)
+### 任务生命周期
 
-主 Agent 将 `tasks.json` 写入工作目录。每个任务经历以下状态：
+Planner 将 `tasks.json` 写入工作目录。每个任务经历以下状态：
 
 ```
 pending → generating → done → qa_done → fixed
 ```
 
-主 Agent 在将任务分发给 SlideExecutor 时设置 `generating`，在执行器报告成功后设置 `done`。`generating` 状态在 Agent prompt 指令中设置（Go 类型中不强制）。
+渲染工作池在调用 `generate_slide` 前设置 `generating`，生成成功后设置 `done`。
 
 `TasksManifest` 上的辅助方法（`NeedsFix()`、`PendingTasks()`、`DoneTasks()`）驱动编排循环。QA 结果存储在每个任务的 `qa_report` 字段中。每张幻灯片最多修复 2 次。
 
-状态常量定义在 `pkg/agent/deep/types.go`。`WriteTasksManifest` 函数合并新任务与现有状态（写入不覆盖进行中的状态）。
+状态常量定义在 `pkg/agent/deck/types.go`。`WriteTasksManifest` 函数合并新任务与现有状态（写入不覆盖进行中的状态）。
 
 ### Visual QA 流水线
 
-根据执行模式有两种 QA 模式：
-
-- **DeepAgent 模式**：Reviewer 子 Agent 使用 `single_qa_review` (`pkg/tools/qa/qa_tool.go`)——每次一页，由主 Agent 在每个任务完成后调用。
-- **Plan-Execute-Replan 模式**：所有幻灯片生成后使用批量 QA。
-
-两者共享相同的底层流水线：
+QA 默认不在低成本生成链路中执行；如后续重新启用，应复用底层流水线：
 1. 运行 `pptx_qa_converter.py`，调用 LibreOffice（PPTX→PDF）然后 pdftoppm（PDF→JPEG，150 DPI）
 2. 查找与请求的 PPTX 文件名匹配的图像
 3. 将图像 + system prompt 发送给多模态 LLM（通过 `modelFn`）
@@ -126,7 +116,7 @@ Skills 从 `skills/` 目录（`SKILL.md` 文件）通过 `LoadSkillsFromDir` →
 
 ### Prompt 字符串模式
 
-`slide_executor.go` 和 `planexecute/executor.go` 使用包级常量 `bt`（`"\`"`) 在 Go 原始字符串字面量中嵌入反引号。当向 prompt 字符串添加 markdown 代码格式（反引号）时，使用 `+ bt +` 连接——永远不要在原始字符串字面量中嵌套反引号。
+Planner prompt 位于 `pkg/prompts/planner/master_instruction.tmpl`。Prompt 要保持结构化、短路径、少歧义，避免把具体坐标、字号和底层绘制细节交给 LLM。
 
 ### 后台日志分析
 

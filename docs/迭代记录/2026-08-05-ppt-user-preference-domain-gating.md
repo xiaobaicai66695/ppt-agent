@@ -23,7 +23,7 @@
   - 同领域历史才参与模板排序和主题补位。
   - 典型页数只在当前分类未给出页数估计时补位，不再和当前估计取平均。
 
-- `ppt-agent/backend/pkg/agent/deep/agent.go`
+- `ppt-agent/backend/pkg/agent/deck/agent.go`
   - `ProcessUserIntent()` 将意图识别出的 domain 传入偏好注入逻辑。
   - `enhanceStyleContextWithProfile()` 改为“用户偏好参考”文案，明确当前主题、用户显式大纲、显式模板/配色优先。
   - 语言风格、常用页数、动画、图表等低敏字段可跨领域弱参考；模板、主题、配色、布局、备注、成功经验等高敏字段必须同领域命中。
@@ -45,7 +45,7 @@
 
 ## 验证
 
-- `go test ./pkg/agent/router ./pkg/agent/deep ./pkg/agent/learning ./pkg/style ./pkg/task ./pkg/web`
+- `go test ./pkg/agent/router ./pkg/agent/deck ./pkg/agent/learning ./pkg/style ./pkg/task ./pkg/web`
 - `go build ./...`
 - `go test ./...`
 
@@ -54,7 +54,7 @@
 - `ppt-agent/backend/pkg/agent/router/profile_matcher_test.go`
   - 跨领域历史不前置模板、不覆盖主题、不影响已识别页数。
   - 同领域历史可补充模板和主题。
-- `ppt-agent/backend/pkg/agent/deep/preference_context_test.go`
+- `ppt-agent/backend/pkg/agent/deck/preference_context_test.go`
   - 跨领域不注入模板、主题、配色、布局、备注等高敏感偏好。
   - 同领域可注入场景敏感偏好。
 

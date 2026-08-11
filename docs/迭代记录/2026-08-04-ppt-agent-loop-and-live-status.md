@@ -16,7 +16,7 @@
 
 ## 验证与部署
 
-- `go test ./pkg/agent/deep ./pkg/task ./pkg/web ./pkg/prompts` 通过。
+- `go test ./pkg/agent/deck ./pkg/task ./pkg/web ./pkg/prompts` 通过。
 - `go build ./...` 通过。
 - `npm test -- --run` 通过，共 13 项；`npm run build` 通过。
 - `openspec validate ppt-agent-loop-and-live-status --strict` 通过。
@@ -26,7 +26,7 @@
 
 - `docs/issues/todo.md`
 - `openspec/changes/ppt-agent-loop-and-live-status/`
-- `ppt-agent/backend/pkg/agent/deep/manifest_tool.go`
+- `ppt-agent/backend/pkg/agent/deck/manifest_tool.go`
 - `ppt-agent/backend/pkg/task/manager.go`
 - `ppt-agent/backend/pkg/web/handler.go`
 - `ppt-agent/frontend/src/pages/DashboardPage.vue`

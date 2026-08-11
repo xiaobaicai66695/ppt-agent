@@ -28,7 +28,7 @@
 
 ## 验证
 
-- `go test ./pkg/agent/utils ./pkg/task ./pkg/web ./pkg/agent/deep`
+- `go test ./pkg/agent/utils ./pkg/task ./pkg/web ./pkg/agent/deck`
 - `go test ./...`
 - `go build ./...`
 - Linux `amd64` 后端构建通过。

@@ -182,7 +182,7 @@ func (r *ClassificationResult) NeedsFullPipeline() bool {
 
 // RoutingDecision 路由决策
 type RoutingDecision struct {
-	AgentType     string   // Agent类型: deep/quick/simple
+	AgentType     string   // Agent 类型：planner
 	Pipeline      []string // 执行的pipeline阶段
 	Concurrency   int      // 并发数
 	Source        string   // llm 或 fallback
@@ -199,7 +199,7 @@ type RoutingDecision struct {
 // NewDefaultRoutingDecision 返回默认路由决策
 func NewDefaultRoutingDecision() *RoutingDecision {
 	return &RoutingDecision{
-		AgentType:    "deep",
+		AgentType:    "planner",
 		Pipeline:     []string{"plan", "generate"},
 		Concurrency:  5,
 		Source:       "fallback",

@@ -29,32 +29,32 @@ type SignalType int
 
 const (
 	SignalExplicitFeedback SignalType = iota // 显式反馈（用户评分）
-	SignalImplicitFeedback                 // 隐式反馈（用户行为）
-	SignalEditAction                       // 编辑行为
-	SignalAbandonTask                      // 放弃任务
-	SignalCompletion                       // 任务完成
-	SignalQAResult                        // QA结果
-	SignalTimeSpent                       // 时间消耗
+	SignalImplicitFeedback                   // 隐式反馈（用户行为）
+	SignalEditAction                         // 编辑行为
+	SignalAbandonTask                        // 放弃任务
+	SignalCompletion                         // 任务完成
+	SignalQAResult                           // QA结果
+	SignalTimeSpent                          // 时间消耗
 )
 
 // LearningSignal 学习信号
 type LearningSignal struct {
-	Type      SignalType              // 信号类型
-	UserID    int                     // 用户ID
-	TaskID    string                  // 任务ID
-	Data      map[string]interface{}   // 信号数据
-	Timestamp time.Time               // 时间戳
-	Context   *SignalContext          // 上下文信息
+	Type      SignalType             // 信号类型
+	UserID    int                    // 用户ID
+	TaskID    string                 // 任务ID
+	Data      map[string]interface{} // 信号数据
+	Timestamp time.Time              // 时间戳
+	Context   *SignalContext         // 上下文信息
 }
 
 // SignalContext 信号上下文
 type SignalContext struct {
-	TaskPhase     string  // 任务阶段: plan/generate/qa/fix/complete
-	PageIndex     int     // 页面索引（如果是页面级别）
-	ActionType    string  // 操作类型
-	Duration      float64 // 持续时间（秒）
-	QualityScore  float64 // 质量评分
-	InteractionCount int // 交互次数
+	TaskPhase        string  // 任务阶段: plan/generate/qa/fix/complete
+	PageIndex        int     // 页面索引（如果是页面级别）
+	ActionType       string  // 操作类型
+	Duration         float64 // 持续时间（秒）
+	QualityScore     float64 // 质量评分
+	InteractionCount int     // 交互次数
 }
 
 // Collector 反馈采集器
@@ -209,7 +209,7 @@ func (c *Collector) RecordImplicitFeedback(userID int, taskID string, action str
 		UserID: userID,
 		TaskID: taskID,
 		Data: map[string]interface{}{
-			"action":  action,
+			"action":   action,
 			"implicit": true,
 		},
 		Context: &SignalContext{
@@ -231,7 +231,7 @@ func (c *Collector) RecordEditAction(userID int, taskID string, pageIndex int, b
 			"edit_type":  "content_modification",
 		},
 		Context: &SignalContext{
-			PageIndex: pageIndex,
+			PageIndex:  pageIndex,
 			ActionType: "edit",
 		},
 	}
@@ -249,7 +249,7 @@ func (c *Collector) RecordTaskCompletion(userID int, taskID string, duration tim
 		},
 		Context: &SignalContext{
 			TaskPhase:    "complete",
-			Duration:    duration.Seconds(),
+			Duration:     duration.Seconds(),
 			QualityScore: qualityScore,
 		},
 	}

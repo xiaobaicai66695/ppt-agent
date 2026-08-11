@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
@@ -37,11 +37,11 @@ var explicitPageCountPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(\d{1,2})\s*(?:页|頁|pages?|slides?)\s*(?:的)?\s*(?:PPT|演示文稿|幻灯片|deck|presentation)`),
 }
 
-func (s *Server) resolveTemplateSelection(query string, selection *TemplateSelection) (*deep.TaskOutline, TemplateStrategy, error) {
+func (s *Server) resolveTemplateSelection(query string, selection *TemplateSelection) (*deck.TaskOutline, TemplateStrategy, error) {
 	return s.resolveTemplateSelectionWithIntent(query, selection, nil)
 }
 
-func (s *Server) resolveTemplateSelectionWithIntent(query string, selection *TemplateSelection, intent *agentintent.ClassificationResult) (*deep.TaskOutline, TemplateStrategy, error) {
+func (s *Server) resolveTemplateSelectionWithIntent(query string, selection *TemplateSelection, intent *agentintent.ClassificationResult) (*deck.TaskOutline, TemplateStrategy, error) {
 	if selection == nil {
 		return nil, TemplateStrategy{}, nil
 	}
@@ -185,9 +185,9 @@ func (s *Server) validThemeOrFallback(name string) string {
 	return ""
 }
 
-func (s *Server) outlineFromTemplate(query string, preset *templates.TemplateInfo, strategy TemplateStrategy) *deep.TaskOutline {
+func (s *Server) outlineFromTemplate(query string, preset *templates.TemplateInfo, strategy TemplateStrategy) *deck.TaskOutline {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	slides := make([]deep.SlideOutline, 0, len(preset.DefaultSlides))
+	slides := make([]deck.SlideOutline, 0, len(preset.DefaultSlides))
 	previousBackground := ""
 	for _, slide := range preset.DefaultSlides {
 		background := strings.TrimSpace(slide.Background)
@@ -198,30 +198,30 @@ func (s *Server) outlineFromTemplate(query string, preset *templates.TemplateInf
 			background = s.randomBackgroundReference(background, previousBackground, rng)
 			previousBackground = background
 		}
-		slides = append(slides, deep.SlideOutline{
+		slides = append(slides, deck.SlideOutline{
 			Title: slide.Title, ContentType: slide.ContentType,
 			Description: slide.Description, Background: background,
 		})
 	}
-	return &deep.TaskOutline{
+	return &deck.TaskOutline{
 		Template: preset.Name, Theme: strategy.Theme, Title: strings.TrimSpace(query),
-		ContentMode:   deep.OutlineContentModeTemplateScaffold,
+		ContentMode:   deck.OutlineContentModeTemplateScaffold,
 		UseBackground: strategy.UseBackground, RecommendedBackground: strategy.Background,
 		RecommendationReason: strategy.Reason, Slides: slides,
 	}
 }
 
-func (s *Server) recommendedOutlineFromTemplate(query string, preset *templates.TemplateInfo, strategy TemplateStrategy) *deep.TaskOutline {
-	return &deep.TaskOutline{
+func (s *Server) recommendedOutlineFromTemplate(query string, preset *templates.TemplateInfo, strategy TemplateStrategy) *deck.TaskOutline {
+	return &deck.TaskOutline{
 		Template:              preset.Name,
 		Theme:                 strategy.Theme,
 		Title:                 strings.TrimSpace(query),
-		ContentMode:           deep.OutlineContentModeRecommendedStyle,
+		ContentMode:           deck.OutlineContentModeRecommendedStyle,
 		UseBackground:         strategy.UseBackground,
 		RecommendedBackground: strategy.Background,
 		RecommendationReason:  strategy.Reason,
 		SuggestedPageCount:    strategy.PageCount,
-		Slides:                []deep.SlideOutline{},
+		Slides:                []deck.SlideOutline{},
 	}
 }
 

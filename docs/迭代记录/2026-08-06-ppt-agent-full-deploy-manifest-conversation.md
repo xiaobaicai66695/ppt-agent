@@ -16,7 +16,7 @@
 
 ## 本地验证
 
-- `go test ./pkg/agent/deep -run ManifestTool -count=1`
+- `go test ./pkg/agent/deck -run ManifestTool -count=1`
 - `go test ./pkg/web -run Conversation -count=1`
 - `go test ./...`
 - `go build ./...`

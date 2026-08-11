@@ -41,7 +41,7 @@
 
 ## 验证
 
-- 后端聚焦测试：`go test ./pkg/agent/intent ./pkg/agent/deep ./pkg/agent/utils ./pkg/prompts ./pkg/templates ./pkg/web`
+- 后端聚焦测试：`go test ./pkg/agent/intent ./pkg/agent/deck ./pkg/agent/utils ./pkg/prompts ./pkg/templates ./pkg/web`
 - 后端全量测试：`go test ./...`
 - 并发回归：`go test -race ./pkg/task ./pkg/session ./pkg/web`
 - 后端构建：`go build ./...`

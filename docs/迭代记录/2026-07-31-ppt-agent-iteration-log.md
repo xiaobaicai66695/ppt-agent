@@ -4,7 +4,7 @@
 
 - 建立并归档 OpenSpec change：`openspec/changes/archive/2026-07-31-ppt-agent-harness-runtime/`。
 - 增加任务级 `RuntimeMeta`：阶段、耗时、工具调用、工具错误、同参重复、token、压缩、QA 计数、slide 进度、缺失文件和预算 warning。
-- 将 runtime status 注入 DeepAgent、SlideExecutor、Reviewer、Fixer 的模型调用。
+- 将 runtime status 注入 旧多子代理架构、SlideExecutor、Reviewer、Fixer 的模型调用。
 - 将 runtime metadata 接入 task manager、SSE `runtime_meta` 事件和 Dashboard 开发者状态栏。
 - 增加离线 PPT eval fixture 和 artifact evaluator：`docs/eval/ppt_quality_cases.json`、`ppt-agent/scripts/eval_ppt_quality.py`。
 - 归档后的 OpenSpec specs 已生成在 `openspec/specs/`。

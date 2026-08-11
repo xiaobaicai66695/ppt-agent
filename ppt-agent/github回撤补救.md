@@ -125,7 +125,7 @@ MYSQL_DSN=root:password@tcp(127.0.0.1:3306)/myapp?charset=utf8mb4
 COZELOOP_API_TOKEN=
 COZELOOP_WORKSPACE_ID=
 PYTHON_BIN=/root/pptx_env/bin/python
-AGENT_MODE=deep
+AGENT_MODE=planner
 ```
 
 ---

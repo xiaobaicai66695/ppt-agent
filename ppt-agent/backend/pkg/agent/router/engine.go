@@ -41,7 +41,7 @@ func NewEngine(classifier *intent.Classifier) *Engine {
 func (e *Engine) Route(classification *intent.ClassificationResult, profile interface{}) (*intent.RoutingDecision, error) {
 	if classification == nil {
 		classification = &intent.ClassificationResult{
-			Intent: intent.IntentCreate, AgentType: "deep", Pipeline: []string{"plan", "generate"},
+			Intent: intent.IntentCreate, AgentType: "planner", Pipeline: []string{"plan", "generate"},
 			Concurrency: 5, RoutingSource: "fallback",
 		}
 	}
@@ -72,12 +72,12 @@ func (e *Engine) makeRoutingDecision(classification *intent.ClassificationResult
 	}
 	decision.Reason = classification.IntentReasoning
 
-	// The executable path is Planner + renderer workflow. The external
-	// agent_type value remains "deep" as a compatibility enum.
-	if strings.EqualFold(strings.TrimSpace(classification.AgentType), "deep") {
-		decision.AgentType = "deep"
+	// The executable path is Planner + renderer workflow.
+	if strings.EqualFold(strings.TrimSpace(classification.AgentType), "planner") {
+		decision.AgentType = "planner"
 	} else {
-		logger.Warn("routing_agent_normalized", "requested", classification.AgentType, "selected", "deep")
+		logger.Warn("routing_agent_normalized", "requested", classification.AgentType, "selected", "planner")
+		decision.AgentType = "planner"
 	}
 	decision.Pipeline = []string{"plan", "generate"}
 	decision.SkipQA = true

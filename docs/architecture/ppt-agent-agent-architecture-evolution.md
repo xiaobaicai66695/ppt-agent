@@ -11,7 +11,7 @@ ReAct 自由工具调用
   ↓
 Plan-Execute-Replan 串行规划执行
   ↓
-DeepAgent + tasks.json + SlideExecutor 子 Agent
+旧多子代理架构 + tasks.json + SlideExecutor 子 Agent
   ↓
 Planner-Compiler-Renderer 工作流
 ```
@@ -77,9 +77,9 @@ LLM 负责不确定性：
 
 这一阶段的核心教训是：**LLM 可以设计页面，但不应该每次从零编写底层 PPT 绘制代码。**
 
-## 4. 阶段三：DeepAgent + Visual Designer 生成器
+## 4. 阶段三：旧多子代理架构 + Visual Designer 生成器
 
-第三阶段转向 DeepAgent 架构：主 Agent 负责任务规划和 `tasks.json`，子 Agent 作为 `SlideExecutor` 按页执行。与此同时，PPT 绘制能力下沉到 `skills/visual_designer/generators`，通过 `python-pptx` 生成器和模板契约约束页面结构。
+第三阶段转向 旧多子代理架构 架构：主 Agent 负责任务规划和 `tasks.json`，子 Agent 作为 `SlideExecutor` 按页执行。与此同时，PPT 绘制能力下沉到 `skills/visual_designer/generators`，通过 `python-pptx` 生成器和模板契约约束页面结构。
 
 典型链路是：
 
@@ -119,7 +119,7 @@ SlideExecutor 子 Agent 读取单页任务
 
 ## 5. 阶段四：Planner-Compiler-Renderer 工作流
 
-下一版更适合采用工作流优先的架构，而不是继续加深 DeepAgent 子 Agent 层级。目标是把系统拆成准备、编译、渲染、交付四段：
+下一版更适合采用工作流优先的架构，而不是继续加深 旧多子代理架构 子 Agent 层级。目标是把系统拆成准备、编译、渲染、交付四段：
 
 ```text
 用户需求

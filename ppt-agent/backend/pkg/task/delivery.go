@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 )
 
 // CanonicalOutputFile converts absolute, relative, Windows, and POSIX paths to
@@ -56,7 +56,7 @@ func DeduplicateOutputFiles(files []string) []string {
 
 // ManifestOutputFiles returns one canonical output file for each completed
 // logical slide in page order.
-func ManifestOutputFiles(manifest *deep.TasksManifest) []string {
+func ManifestOutputFiles(manifest *deck.TasksManifest) []string {
 	if manifest == nil {
 		return nil
 	}
@@ -66,7 +66,7 @@ func ManifestOutputFiles(manifest *deep.TasksManifest) []string {
 		if item == nil || item.OutputFile == "" {
 			continue
 		}
-		if item.Status != deep.StatusDone && item.Status != deep.StatusQADone && item.Status != deep.StatusFixed {
+		if item.Status != deck.StatusDone && item.Status != deck.StatusQADone && item.Status != deck.StatusFixed {
 			continue
 		}
 		key := StableSlideKey(item.PageIndex, item.TaskID, item.OutputFile)

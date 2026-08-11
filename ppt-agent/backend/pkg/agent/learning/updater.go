@@ -42,13 +42,13 @@ type Updater struct {
 	modelFactory func(ctx context.Context) (GenerateModel, error)
 
 	// 信号缓冲：按 userID 分组累积，达到阈值或定时触发 LLM 分析
-	mu          sync.Mutex
-	buffers     map[int][]*LearningSignal // userID → signals
-	bufferSize  int
-	flushTimer  *time.Ticker
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	mu         sync.Mutex
+	buffers    map[int][]*LearningSignal // userID → signals
+	bufferSize int
+	flushTimer *time.Ticker
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
 // UpdaterConfig 更新器配置。
@@ -336,14 +336,14 @@ type profileUpdates struct {
 }
 
 type profileUpdatesFields struct {
-	PreferredThemes   []string          `json:"preferred_themes"`
-	PreferredColors   []string          `json:"preferred_colors"`
-	LanguageTone      string            `json:"language_tone"`
-	LayoutPreferences []string          `json:"layout_preferences"`
-	ContentTypes      map[string]int    `json:"content_types"`
-	SpecialNotes      []string          `json:"special_notes"`
-	DomainPreferences map[string]int    `json:"domain_preferences"`
-	AnimationLevel    string            `json:"animation_level"`
+	PreferredThemes   []string           `json:"preferred_themes"`
+	PreferredColors   []string           `json:"preferred_colors"`
+	LanguageTone      string             `json:"language_tone"`
+	LayoutPreferences []string           `json:"layout_preferences"`
+	ContentTypes      map[string]int     `json:"content_types"`
+	SpecialNotes      []string           `json:"special_notes"`
+	DomainPreferences map[string]int     `json:"domain_preferences"`
+	AnimationLevel    string             `json:"animation_level"`
 	ContentTone       *contentToneUpdate `json:"content_tone"`
 }
 

@@ -19,7 +19,7 @@
 //
 //	prompts/
 //	├── prompts.go                       # 本文件，通用加载函数
-//	├── deep/                            # PPT Planner 模板（保留目录名兼容旧调用）
+//	├── planner/                         # PPT Planner 模板
 //	│   └── master_instruction.tmpl
 //	└── style/                          # Style extraction templates
 //
@@ -34,7 +34,7 @@ import (
 	"text/template"
 )
 
-//go:embed deep/*.tmpl style/*.tmpl log_analysis/*.tmpl
+//go:embed planner/*.tmpl style/*.tmpl log_analysis/*.tmpl
 var FS embed.FS
 
 // templateFuncs 提供给所有模板的函数映射。
@@ -142,7 +142,7 @@ func Render(name string, data *TemplateData) (string, error) {
 
 // RenderPlanner 渲染 PPT Planner 模板。
 func RenderPlanner(name string, data *TemplateData) (string, error) {
-	return Render("deep/"+name, data)
+	return Render("planner/"+name, data)
 }
 
 // RenderLogAnalysis 渲染日志分析模板。

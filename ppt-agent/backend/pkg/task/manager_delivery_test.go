@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
@@ -220,11 +220,11 @@ func TestApplyDeliverySnapshotOutcomePreservesUserCancellation(t *testing.T) {
 
 func TestPollProgressSignalsMetadataCompletion(t *testing.T) {
 	workDir := t.TempDir()
-	manifest := &deep.TasksManifest{Tasks: []*deep.TaskItem{{
+	manifest := &deck.TasksManifest{Tasks: []*deck.TaskItem{{
 		TaskID: "1", PageIndex: 1, Title: "封面", ContentType: "title_slide",
-		OutputFile: "1_封面.pptx", Status: deep.StatusPending,
+		OutputFile: "1_封面.pptx", Status: deck.StatusPending,
 	}}}
-	if err := deep.WriteTasksManifest(workDir, manifest); err != nil {
+	if err := deck.WriteTasksManifest(workDir, manifest); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workDir, "1_封面.pptx"), []byte("pptx"), 0600); err != nil {

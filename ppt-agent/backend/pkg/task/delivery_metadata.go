@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 )
 
 var errDeliveryMetadataComplete = errors.New("delivery metadata complete")
@@ -22,7 +22,7 @@ func (s DeliverySnapshot) Complete() bool {
 	return s.Total > 0 && s.Done == s.Total && len(s.PendingTasks) == 0
 }
 
-func deliverySnapshotFromManifest(manifest *deep.TasksManifest) DeliverySnapshot {
+func deliverySnapshotFromManifest(manifest *deck.TasksManifest) DeliverySnapshot {
 	if manifest == nil {
 		return DeliverySnapshot{}
 	}
@@ -59,7 +59,7 @@ func (ts *TaskState) deliverySnapshot() DeliverySnapshot {
 }
 
 func (tm *TaskManager) syncDeliveryMetadata(ts *TaskState, workDir string) (DeliverySnapshot, error) {
-	manifest, err := deep.ReconcileTasksManifestOutputFiles(workDir)
+	manifest, err := deck.ReconcileTasksManifestOutputFiles(workDir)
 	if err != nil {
 		return DeliverySnapshot{}, err
 	}

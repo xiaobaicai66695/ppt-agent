@@ -26,7 +26,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
@@ -131,7 +131,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 	operator := &command.LocalOperator{}
 
 	concurrency := 5
-	if c := firstNonEmptyEnv("PLANNER_CONCURRENCY", "DEEP_AGENT_CONCURRENCY"); c != "" {
+	if c := os.Getenv("PLANNER_CONCURRENCY"); c != "" {
 		if v, err := strconv.Atoi(c); err == nil && v > 0 {
 			concurrency = v
 		}
@@ -142,14 +142,14 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 	}
 
 	// Agent factory: creates a fresh agent per task with the right WorkDir/TaskID.
-	agentFactory := func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent, error) {
+	agentFactory := func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error) {
 		cfg.Concurrency = concurrency
 		cfg.Operator = operator
 		cfg.QAModelFn = qaModelFn
 		cfg.Skills = skillsContent
 		cfg.SkillsDir = skillsDir
 		cfg.EnableQA = false
-		return deep.NewPPTPlannerAgent(ctx, cfg)
+		return deck.NewPPTPlannerAgent(ctx, cfg)
 	}
 
 	srv := web.NewServer(&web.ServerConfig{
@@ -159,8 +159,8 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		SkillsDir:    skillsDir,
 		Operator:     operator,
 		AgentFactory: agentFactory,
-		MakeTaskConfig: func(taskID string) *deep.PPTTaskConfig {
-			return &deep.PPTTaskConfig{
+		MakeTaskConfig: func(taskID string) *deck.PPTTaskConfig {
+			return &deck.PPTTaskConfig{
 				TaskID: taskID,
 			}
 		},
@@ -266,7 +266,7 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	operator *command.LocalOperator, skillsContent, skillsDir string, interactive bool, hm *human.Manager) {
 
 	concurrency := 5
-	if envConcurrency := firstNonEmptyEnv("PLANNER_CONCURRENCY", "DEEP_AGENT_CONCURRENCY"); envConcurrency != "" {
+	if envConcurrency := os.Getenv("PLANNER_CONCURRENCY"); envConcurrency != "" {
 		if c, err := strconv.Atoi(envConcurrency); err == nil && c > 0 {
 			concurrency = c
 		}
@@ -278,7 +278,7 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	}
 
 	logger.Info("planner_creating")
-	agent, err := deep.NewPPTPlannerAgent(ctx, &deep.PPTTaskConfig{
+	agent, err := deck.NewPPTPlannerAgent(ctx, &deck.PPTTaskConfig{
 		WorkDir:     outputDir,
 		TaskID:      taskID,
 		Concurrency: concurrency,
@@ -293,17 +293,17 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	}
 	logger.Info("planner_created")
 
-	cfg := &deep.PPTTaskConfig{
+	cfg := &deck.PPTTaskConfig{
 		WorkDir:  outputDir,
 		TaskID:   taskID,
 		Operator: operator,
 	}
 
-	var result *deep.PPTTaskResult
+	var result *deck.PPTTaskResult
 	if interactive && hm != nil {
-		result, err = deep.RunPPTPlannerWithHuman(ctx, agent, cfg, userQuery, hm)
+		result, err = deck.RunPPTPlannerWithHuman(ctx, agent, cfg, userQuery, hm)
 	} else {
-		result, err = deep.RunPPTPlanner(ctx, agent, cfg, userQuery)
+		result, err = deck.RunPPTPlanner(ctx, agent, cfg, userQuery)
 	}
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -323,15 +323,6 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 
 // ---------------------------------------------------------------------------
 // Shared helpers
-
-func firstNonEmptyEnv(keys ...string) string {
-	for _, key := range keys {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-	}
-	return ""
-}
 
 type aiModelAdapter struct {
 	model model.ToolCallingChatModel

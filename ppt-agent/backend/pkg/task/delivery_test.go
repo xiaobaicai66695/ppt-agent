@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 )
 
 func TestCanonicalOutputFileHandlesPathForms(t *testing.T) {
@@ -35,11 +35,11 @@ func TestDeduplicateOutputFilesPreservesFirstSeenOrder(t *testing.T) {
 }
 
 func TestManifestOutputFilesDeduplicatesLogicalPage(t *testing.T) {
-	manifest := &deep.TasksManifest{Tasks: []*deep.TaskItem{
-		{TaskID: "slide-1", PageIndex: 1, OutputFile: "1_cover.pptx", Status: deep.StatusDone},
-		{TaskID: "legacy-copy", PageIndex: 1, OutputFile: "/srv/task/1_cover.pptx", Status: deep.StatusDone},
-		{TaskID: "slide-2", PageIndex: 2, OutputFile: "2_agenda.pptx", Status: deep.StatusQADone},
-		{TaskID: "slide-3", PageIndex: 3, OutputFile: "3_pending.pptx", Status: deep.StatusPending},
+	manifest := &deck.TasksManifest{Tasks: []*deck.TaskItem{
+		{TaskID: "slide-1", PageIndex: 1, OutputFile: "1_cover.pptx", Status: deck.StatusDone},
+		{TaskID: "legacy-copy", PageIndex: 1, OutputFile: "/srv/task/1_cover.pptx", Status: deck.StatusDone},
+		{TaskID: "slide-2", PageIndex: 2, OutputFile: "2_agenda.pptx", Status: deck.StatusQADone},
+		{TaskID: "slide-3", PageIndex: 3, OutputFile: "3_pending.pptx", Status: deck.StatusPending},
 	}}
 	want := []string{"1_cover.pptx", "2_agenda.pptx"}
 	if got := ManifestOutputFiles(manifest); !reflect.DeepEqual(got, want) {

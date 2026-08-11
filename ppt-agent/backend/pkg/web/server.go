@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
@@ -35,7 +35,7 @@ type Server struct {
 	styleStore      *style.ProfileStore
 	styleExtractor  *style.Extractor
 	agentFactory    task.AgentFactory
-	makeTaskConfig  func(taskID string) *deep.PPTTaskConfig
+	makeTaskConfig  func(taskID string) *deck.PPTTaskConfig
 	taskIDGen       func() string
 	engine          *gin.Engine
 	addr            string
@@ -62,7 +62,7 @@ type ServerConfig struct {
 	SkillsDir      string
 	Operator       commandline.Operator
 	AgentFactory   task.AgentFactory
-	MakeTaskConfig func(taskID string) *deep.PPTTaskConfig
+	MakeTaskConfig func(taskID string) *deck.PPTTaskConfig
 	AIModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
@@ -139,7 +139,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	}
 
 	// 初始化智能学习引擎（意图分类 + 偏好学习）
-	deep.InitLearningEngine(cfg.AIModelFactory, cfg.TextModelFactory)
+	deck.InitLearningEngine(cfg.AIModelFactory, cfg.TextModelFactory)
 
 	// 创建任务管理器，并注册风格更新回调
 	s.tasks = task.NewTaskManager(cfg.BaseDir,

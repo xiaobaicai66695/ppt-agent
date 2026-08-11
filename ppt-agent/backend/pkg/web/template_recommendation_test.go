@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
@@ -81,7 +81,7 @@ func TestRecommendationProducesStyleGuidanceWithoutPresetSlides(t *testing.T) {
 	if !strategy.UseBackground || strategy.Background == "" {
 		t.Fatalf("strategy = %#v, want background", strategy)
 	}
-	if outline.ContentMode != deep.OutlineContentModeRecommendedStyle || len(outline.Slides) != 0 {
+	if outline.ContentMode != deck.OutlineContentModeRecommendedStyle || len(outline.Slides) != 0 {
 		t.Fatalf("recommended outline copied preset slides: %#v", outline)
 	}
 	if outline.SuggestedPageCount != 9 || outline.Template != "course-module" || outline.Theme != "sage_calm" {
@@ -192,9 +192,9 @@ func TestResolveTemplateSelectionRejectsMissingPreset(t *testing.T) {
 
 func TestPrepareOutlineDoesNotEnrichOrReplaceUserContent(t *testing.T) {
 	server := testTemplateServer(t)
-	outline := &deep.TaskOutline{
+	outline := &deck.TaskOutline{
 		Template: "custom", Theme: "ocean_soft", Title: "用户标题",
-		Slides: []deep.SlideOutline{
+		Slides: []deck.SlideOutline{
 			{Title: "已有标题", ContentType: "content_slide", Description: "用户已经填写的短内容"},
 			{Title: "", ContentType: "summary_slide", Description: ""},
 		},
@@ -203,7 +203,7 @@ func TestPrepareOutlineDoesNotEnrichOrReplaceUserContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ContentMode != deep.OutlineContentModeUserOutline {
+	if got.ContentMode != deck.OutlineContentModeUserOutline {
 		t.Fatalf("content mode = %q", got.ContentMode)
 	}
 	if got.Slides[0].Description != "用户已经填写的短内容" {
