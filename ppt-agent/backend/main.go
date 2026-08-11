@@ -152,6 +152,16 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		return deck.NewPPTPlannerAgent(ctx, cfg)
 	}
 
+	logAnalysisModelFactory := func(ctx context.Context) (model.ToolCallingChatModel, error) {
+		return agentutils.NewFallbackToolCallingChatModel(ctx,
+			agentutils.WithMaxTokens(8192),
+			agentutils.WithTemperature(0),
+		)
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("LOG_ANALYSIS_ENABLED")), "false") {
+		logAnalysisModelFactory = nil
+	}
+
 	srv := web.NewServer(&web.ServerConfig{
 		Addr:         addr,
 		BaseDir:      outputBase,
@@ -202,12 +212,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 			}
 			return &aiModelAdapter{model: m}, nil
 		},
-		LogAnalysisModelFactory: func(ctx context.Context) (model.ToolCallingChatModel, error) {
-			return agentutils.NewFallbackToolCallingChatModel(ctx,
-				agentutils.WithMaxTokens(8192),
-				agentutils.WithTemperature(0),
-			)
-		},
+		LogAnalysisModelFactory: logAnalysisModelFactory,
 		LogAnalysisIdleInterval: parseDurationEnv("LOG_ANALYSIS_IDLE_INTERVAL", 5*time.Minute),
 	})
 
