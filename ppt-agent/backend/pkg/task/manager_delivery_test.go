@@ -218,6 +218,23 @@ func TestApplyDeliverySnapshotOutcomePreservesUserCancellation(t *testing.T) {
 	}
 }
 
+func TestShouldSyncDeliveryAfterRunSkipsPlannerFailureWithoutManifest(t *testing.T) {
+	workDir := t.TempDir()
+
+	if shouldSyncDeliveryAfterRun(workDir, true) {
+		t.Fatal("planner failure without tasks.json should not sync delivery")
+	}
+	if !shouldSyncDeliveryAfterRun(workDir, false) {
+		t.Fatal("successful planner path should sync delivery")
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "tasks.json"), []byte(`{"tasks":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !shouldSyncDeliveryAfterRun(workDir, true) {
+		t.Fatal("render failure with tasks.json should sync delivery")
+	}
+}
+
 func TestPollProgressSignalsMetadataCompletion(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &deck.TasksManifest{Tasks: []*deck.TaskItem{{

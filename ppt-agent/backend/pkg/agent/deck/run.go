@@ -198,6 +198,7 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 		lastMessage       adk.Message
 		lastMessageStream *schema.StreamReader[adk.Message]
 		answerBuf         strings.Builder
+		plannerErr        error
 	)
 
 	for {
@@ -268,6 +269,9 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 				Type:  AgentEventError,
 				Error: event.Err.Error(),
 			})
+			if plannerErr == nil {
+				plannerErr = event.Err
+			}
 		}
 	}
 
@@ -290,13 +294,23 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 		Duration: time.Since(start.StartTime),
 	}
 
-	if manifestErr == nil && manifest != nil {
-		result.TotalSlides = len(manifest.Tasks)
-		result.DoneSlides = manifest.CompletedCount()
-		for _, t := range manifest.Tasks {
-			if t.Status == StatusDone || t.Status == StatusQADone || t.Status == StatusFixed {
-				result.Files = append(result.Files, filepath.Join(cfg.WorkDir, t.OutputFile))
-			}
+	if plannerErr != nil {
+		return result, fmt.Errorf("Planner 执行失败: %w", plannerErr)
+	}
+	if manifestErr != nil {
+		if os.IsNotExist(manifestErr) {
+			return result, fmt.Errorf("Planner 未生成 DeckSpec/tasks.json，无法进入渲染: %w", manifestErr)
+		}
+		return result, fmt.Errorf("读取 Planner DeckSpec/tasks.json 失败: %w", manifestErr)
+	}
+	if manifest == nil || len(manifest.Tasks) == 0 {
+		return result, fmt.Errorf("Planner 生成的 DeckSpec 为空，无法进入渲染")
+	}
+	result.TotalSlides = len(manifest.Tasks)
+	result.DoneSlides = manifest.CompletedCount()
+	for _, t := range manifest.Tasks {
+		if t.Status == StatusDone || t.Status == StatusQADone || t.Status == StatusFixed {
+			result.Files = append(result.Files, filepath.Join(cfg.WorkDir, t.OutputFile))
 		}
 	}
 

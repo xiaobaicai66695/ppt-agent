@@ -779,7 +779,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 
 	delivery := ts.deliverySnapshot()
-	if !delivery.Complete() && ts.Info.Status != TaskStatusCancelled {
+	if !delivery.Complete() && ts.Info.Status != TaskStatusCancelled && shouldSyncDeliveryAfterRun(cfg.WorkDir, taskFailed) {
 		if synced, syncErr := tm.syncDeliveryMetadata(ts, cfg.WorkDir); syncErr == nil {
 			delivery = synced
 		} else {
@@ -905,6 +905,16 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		PageCount:    learnPageCount,
 		Themes:       nonEmptyStrings(learnTheme),
 	})
+}
+
+func shouldSyncDeliveryAfterRun(workDir string, taskFailed bool) bool {
+	if !taskFailed {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); err != nil && os.IsNotExist(err) {
+		return false
+	}
+	return true
 }
 
 func learningTaskContext(cfg *deck.PPTTaskConfig, workDir string, fallbackPageCount int) (domain, template, theme string, pageCount int) {
