@@ -14,11 +14,11 @@ import {
   Square,
   X,
 } from 'lucide-vue-next';
-import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta } from '../types';
+import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta, RuntimeEvent } from '../types';
 import { STATUS_LABELS } from '../types';
 import {
   fetchTasks, createTask, fetchTask, cancelTask, deleteTask,
-  isLoggedIn, continueTask, fetchConversation,
+  isLoggedIn, continueTask, fetchConversation, fetchRuntimeEvent,
 } from '../api';
 import { authState } from '../stores/auth';
 import AppShell from '../components/AppShell.vue';
@@ -27,9 +27,11 @@ import ProgressBar from '../components/ProgressBar.vue';
 import EventLog from '../components/EventLog.vue';
 import SlidePreviewCard from '../components/SlidePreviewCard.vue';
 import ConversationComposer from '../components/ConversationComposer.vue';
+import RuntimeEventDetail from '../components/RuntimeEventDetail.vue';
 import {
-  deriveLiveActivity, mergeConversationMessages, mergeSlideDeliveries, nextReplayCursor,
-  recoverConversationMessages, summarizeTaskTitle,
+  compactRuntimeEvents, deriveLiveActivity, mergeConversationMessages, mergeRuntimeMeta, mergeSlideDeliveries,
+  nextReplayCursor, recoverConversationMessages, runtimeEventDetailLabel, runtimeEventKindLabel,
+  runtimeEventNameLabel, runtimeEventStatusLabel, summarizeTaskTitle,
 } from '../utils/workbench';
 
 const router = useRouter();
@@ -49,6 +51,9 @@ const finalMessage = ref('');
 const duration = ref('');
 const activeWorkers = ref(0);
 const runtimeMeta = ref<RuntimeMeta | null>(null);
+const selectedRuntimeEvent = ref<RuntimeEvent | null>(null);
+const selectedRuntimeEventLoading = ref(false);
+const selectedRuntimeEventError = ref('');
 const thumbnailVersions = ref<Record<string, number>>({});
 const thumbnailFailures = ref<Record<string, string>>({});
 const cancelling = ref(false);
@@ -105,6 +110,13 @@ async function loadConversation(taskId: string, replace = false) {
     if (session.duration) duration.value = session.duration;
     if (session.done_count !== undefined) doneCount.value = session.done_count;
     if (session.total_count !== undefined) totalCount.value = session.total_count;
+    if (session.runtime_meta) {
+	  const merged = mergeRuntimeMeta(runtimeMeta.value, session.runtime_meta);
+      runtimeMeta.value = merged;
+      if (selectedRuntimeEvent.value && !merged.recent_events?.some(evt => evt.id === selectedRuntimeEvent.value?.id)) {
+        selectedRuntimeEvent.value = null;
+      }
+    }
     return session;
   } catch {
     if (selectedId.value === taskId) composerError.value = '对话历史暂时无法恢复，任务产物仍可正常查看';
@@ -202,6 +214,7 @@ interface Batch { id: number; taskIds: string[]; ts: number; done: boolean; }
 const batches = ref<Batch[]>([]);
 let batchIdSeq = 0;
 let es: EventSource | null = null;
+type RuntimeCategory = 'all' | 'llm' | 'tool' | 'compression' | 'phase' | 'delivery' | 'error' | 'other';
 
 const selectedTask = computed(() => tasks.value.find(t => t.id === selectedId.value));
 const selectedTaskTitle = computed(() => summarizeTaskTitle(selectedTask.value?.query || '任务工作台'));
@@ -236,7 +249,38 @@ const runtimeQATotal = computed(() =>
   + (runtimeMeta.value?.qa_low_issues || 0)
 );
 const runtimeWarnings = computed(() => runtimeMeta.value?.budget_warnings || []);
-const runtimeTimeline = computed(() => (runtimeMeta.value?.recent_events || []).slice(-24).reverse());
+const selectedRuntimeCategory = ref<RuntimeCategory>('all');
+const runtimeTimelineAll = computed(() => compactRuntimeEvents(
+  (runtimeMeta.value?.recent_events || []).slice().reverse(),
+));
+const runtimeTimeline = computed(() => (
+  selectedRuntimeCategory.value === 'all'
+    ? runtimeTimelineAll.value
+    : runtimeTimelineAll.value.filter(evt => runtimeEventCategory(evt) === selectedRuntimeCategory.value)
+));
+const runtimeCategoryOptions = computed(() => {
+  const counts: Record<RuntimeCategory, number> = {
+    all: runtimeTimelineAll.value.length,
+    llm: 0,
+    tool: 0,
+    compression: 0,
+    phase: 0,
+    delivery: 0,
+    error: 0,
+    other: 0,
+  };
+  for (const evt of runtimeTimelineAll.value) counts[runtimeEventCategory(evt)] += 1;
+  return ([
+    ['all', '全部'],
+    ['llm', 'ChatModel'],
+    ['tool', 'ToolCall'],
+    ['compression', 'Compression'],
+    ['phase', 'Phase'],
+    ['delivery', 'Delivery'],
+    ['error', 'Error'],
+    ['other', 'Other'],
+  ] as Array<[RuntimeCategory, string]>).map(([key, label]) => ({ key, label, count: counts[key] }));
+});
 const liveActivity = computed(() => deriveLiveActivity({
   status: selectedTask.value?.status,
   phase: currentPhase.value,
@@ -248,9 +292,72 @@ const liveActivity = computed(() => deriveLiveActivity({
   error: selectedTask.value?.error,
 }));
 
-function eventStatusLabel(status?: string): string {
-  if (!status) return 'ok';
-  return status;
+function runtimeEventCategory(evt: RuntimeEvent): RuntimeCategory {
+  const kind = (evt.kind || '').toLowerCase();
+  const name = (evt.name || '').toLowerCase();
+  const status = (evt.status || '').toLowerCase();
+  if (status === 'error' || status === 'failed' || kind.includes('error')) return 'error';
+  if (kind.startsWith('llm') || name.includes('chatmodel') || name.includes('chat_model')) return 'llm';
+  if (kind.startsWith('tool') || name === 'toolnode') return 'tool';
+  if (kind === 'compression') return 'compression';
+  if (kind.includes('manifest') || kind.includes('file') || kind.includes('terminal') || kind.includes('delivery') || kind.includes('plan') || kind.includes('intent')) return 'delivery';
+  if (kind.includes('phase') || kind.includes('progress')) return 'phase';
+  return 'other';
+}
+
+function runtimeEventCategoryLabel(evt: RuntimeEvent): string {
+  const labels: Record<RuntimeCategory, string> = {
+    all: '全部',
+    llm: 'ChatModel',
+    tool: 'ToolCall',
+    compression: 'Compression',
+    phase: 'Phase',
+    delivery: 'Delivery',
+    error: 'Error',
+    other: 'Other',
+  };
+  return labels[runtimeEventCategory(evt)];
+}
+
+function setRuntimeCategory(category: RuntimeCategory) {
+  selectedRuntimeCategory.value = category;
+  if (
+    selectedRuntimeEvent.value
+    && category !== 'all'
+    && runtimeEventCategory(selectedRuntimeEvent.value) !== category
+  ) {
+    selectedRuntimeEvent.value = null;
+    selectedRuntimeEventError.value = '';
+    selectedRuntimeEventLoading.value = false;
+  }
+}
+
+async function selectRuntimeEvent(evt: RuntimeEvent) {
+  if (selectedRuntimeEvent.value?.id === evt.id) {
+    selectedRuntimeEvent.value = null;
+    selectedRuntimeEventError.value = '';
+    return;
+  }
+  selectedRuntimeEvent.value = evt;
+  selectedRuntimeEventError.value = '';
+  if (!selectedId.value || evt.metadata_loaded || evt.metadata) return;
+  const taskId = selectedId.value;
+  const eventId = evt.id;
+  selectedRuntimeEventLoading.value = true;
+  try {
+    const detail = await fetchRuntimeEvent(taskId, eventId);
+    if (selectedRuntimeEvent.value?.id === eventId && selectedId.value === taskId) {
+      selectedRuntimeEvent.value = { ...evt, ...detail, metadata_loaded: true };
+    }
+  } catch (error) {
+    if (selectedRuntimeEvent.value?.id === eventId && selectedId.value === taskId) {
+      selectedRuntimeEventError.value = error instanceof Error ? error.message : '事件详情加载失败';
+    }
+  } finally {
+    if (selectedRuntimeEvent.value?.id === eventId && selectedId.value === taskId) {
+      selectedRuntimeEventLoading.value = false;
+    }
+  }
 }
 
 const sampleQueries = [
@@ -453,7 +560,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
 
       case 'runtime_meta':
         if (evt.runtime_meta) {
-          runtimeMeta.value = evt.runtime_meta;
+          runtimeMeta.value = mergeRuntimeMeta(runtimeMeta.value, evt.runtime_meta);
         }
         break;
 
@@ -490,7 +597,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
         if (evt.message) finalMessage.value = evt.message;
         if (evt.duration) duration.value = evt.duration;
         if (evt.tasks) taskItems.value = evt.tasks;
-        if (evt.runtime_meta) runtimeMeta.value = evt.runtime_meta;
+        if (evt.runtime_meta) runtimeMeta.value = mergeRuntimeMeta(runtimeMeta.value, evt.runtime_meta);
         if (evt.total_tokens) {
           const t = tasks.value.find(x => x.id === taskId);
           if (t) {
@@ -767,24 +874,25 @@ async function selectTask(id: string) {
   finalMessage.value = '';
   duration.value = t.duration || '';
   activeWorkers.value = 0;
-  batches.value = [];
+	batches.value = [];
 	runtimeMeta.value = null;
+	selectedRuntimeEvent.value = null;
+	selectedRuntimeEventLoading.value = false;
+	selectedRuntimeEventError.value = '';
 	selectedSlides.value = new Set();
 	sseCompleted = false;
 	lastSeenEventID = 0;
 	streamingAssistant.value = '';
 
-  if (t.status !== 'failed') {
-    if (t.status === 'running') {
-	  // Restore finalized turns first, then replay only the unfinished turn.
-	  const session = await loadConversation(id, true);
-	  if (epoch !== selectionEpoch || selectedId.value !== id) return;
-	  lastSeenEventID = nextReplayCursor(0, session?.replay_after_event_id || 0);
-	  connectSSE(id, lastSeenEventID);
-	  startPolling(id);
-	} else {
-	  await loadConversation(id, true);
-    }
+  if (t.status === 'running') {
+    // Restore finalized turns first, then replay only the unfinished turn.
+    const session = await loadConversation(id, true);
+    if (epoch !== selectionEpoch || selectedId.value !== id) return;
+    lastSeenEventID = nextReplayCursor(0, session?.replay_after_event_id || 0);
+    connectSSE(id, lastSeenEventID);
+    startPolling(id);
+  } else {
+    await loadConversation(id, true);
   }
 }
 
@@ -1099,23 +1207,53 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
             <div v-if="runtimeTimeline.length > 0" class="runtime-timeline">
             <div class="timeline-head">
               <span>Timeline</span>
-              <small>{{ runtimeTimeline.length }} recent events</small>
+              <small>{{ runtimeTimeline.length }} / {{ runtimeTimelineAll.length }} events</small>
+            </div>
+            <div class="timeline-filters">
+              <button
+                v-for="category in runtimeCategoryOptions"
+                :key="category.key"
+                type="button"
+                class="timeline-filter"
+                :class="{ active: selectedRuntimeCategory === category.key }"
+                :disabled="category.count === 0"
+                @click="setRuntimeCategory(category.key)"
+              >
+                <span>{{ category.label }}</span>
+                <strong>{{ category.count }}</strong>
+              </button>
             </div>
             <div class="timeline-list">
-              <div
+              <button
                 v-for="evt in runtimeTimeline"
                 :key="evt.id"
+                type="button"
                 class="timeline-row"
-                :class="evt.status || 'ok'"
+                :class="[evt.status || 'ok', { selected: selectedRuntimeEvent?.id === evt.id }]"
+                @click="selectRuntimeEvent(evt)"
               >
                 <span class="timeline-time">{{ fmtElapsed(evt.elapsed_ms) }}</span>
-                <span class="timeline-kind">{{ evt.kind }}</span>
+                <span class="timeline-category" :class="runtimeEventCategory(evt)">{{ runtimeEventCategoryLabel(evt) }}</span>
+                <span class="timeline-kind">{{ runtimeEventKindLabel(evt) }}</span>
                 <span class="timeline-main">
-                  <strong>{{ evt.name || evt.phase || 'task' }}</strong>
-                  <small>{{ evt.phase || 'phase' }} · {{ eventStatusLabel(evt.status) }}</small>
+                  <strong>{{ runtimeEventNameLabel(evt) }}</strong>
+                  <small>{{ evt.phase || '任务' }} · {{ runtimeEventStatusLabel(evt.status) }}</small>
                 </span>
-                <span v-if="evt.detail" class="timeline-detail">{{ evt.detail }}</span>
+                <span class="timeline-detail" :class="{ muted: !evt.detail }">{{ runtimeEventDetailLabel(evt) }}</span>
+              </button>
+            </div>
+            <div v-if="selectedRuntimeEvent" class="timeline-detail-panel">
+              <div class="timeline-detail-head">
+                <strong>{{ runtimeEventKindLabel(selectedRuntimeEvent) }} · {{ runtimeEventNameLabel(selectedRuntimeEvent) }}</strong>
+                <button type="button" class="timeline-close" @click="selectedRuntimeEvent = null">
+                  <X :size="14" />
+                </button>
               </div>
+              <RuntimeEventDetail
+                :event="selectedRuntimeEvent"
+                :loading="selectedRuntimeEventLoading"
+                :error="selectedRuntimeEventError"
+              />
             </div>
             </div>
           </div>
@@ -1293,14 +1431,33 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .runtime-timeline { overflow: hidden; }
 .timeline-head { min-height: 38px; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--divider); color: var(--text-secondary); font-size: 10px; font-weight: 700; }
 .timeline-head small { color: var(--text-muted); font-size: 9px; font-weight: 500; }
-.timeline-list { max-height: 280px; overflow: auto; }
-.timeline-row { min-height: 42px; padding: 7px 10px; display: grid; grid-template-columns: 54px 90px minmax(130px, 1fr) minmax(160px, 2fr); align-items: center; gap: 8px; border-bottom: 1px solid var(--divider); font-size: 9px; }
+.timeline-filters { padding: 7px 8px; display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid var(--divider); background: var(--surface); }
+.timeline-filter { min-width: 82px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--divider); border-radius: 4px; color: var(--text-muted); background: var(--surface-muted); font-size: 9px; font-weight: 750; cursor: pointer; }
+.timeline-filter strong { color: var(--text-secondary); font-size: 10px; }
+.timeline-filter:hover:not(:disabled), .timeline-filter.active { border-color: var(--info); color: var(--text); background: var(--info-soft); }
+.timeline-filter:disabled { opacity: 0.45; cursor: default; }
+.timeline-list { max-height: 320px; overflow: auto; }
+.timeline-row { width: 100%; min-height: 42px; padding: 7px 10px; display: grid; grid-template-columns: 54px 76px 90px minmax(130px, 1fr) minmax(160px, 2fr); align-items: center; gap: 8px; border: 0; border-bottom: 1px solid var(--divider); color: inherit; background: transparent; font-size: 9px; text-align: left; cursor: pointer; }
 .timeline-row:last-child { border-bottom: 0; }
 .timeline-row.error, .timeline-row.failed, .timeline-row.cancelled { background: var(--danger-soft); }.timeline-row.warning { background: var(--warning-soft); }
+.timeline-row:hover, .timeline-row.selected { background: var(--surface-muted); }
+.timeline-row.error:hover, .timeline-row.error.selected, .timeline-row.failed:hover, .timeline-row.failed.selected, .timeline-row.cancelled:hover, .timeline-row.cancelled.selected { background: var(--danger-soft); }
+.timeline-row.warning:hover, .timeline-row.warning.selected { background: var(--warning-soft); }
 .timeline-time, .timeline-kind { color: var(--text-muted); font-family: ui-monospace, monospace; }
+.timeline-category { min-width: 0; padding: 3px 5px; border-radius: 3px; color: var(--text-muted); background: var(--surface-muted); font-family: ui-monospace, monospace; font-size: 8px; font-weight: 800; text-align: center; }
+.timeline-category.llm { color: var(--info); background: var(--info-soft); }
+.timeline-category.tool { color: var(--success); background: var(--success-soft); }
+.timeline-category.phase { color: var(--warning); background: var(--warning-soft); }
+.timeline-category.delivery { color: var(--accent); background: var(--accent-soft); }
+.timeline-category.compression { color: var(--info); background: var(--info-soft); box-shadow: inset 0 0 0 1px var(--divider); }
+.timeline-category.error { color: var(--danger); background: var(--danger-soft); }
 .timeline-main { min-width: 0; display: flex; flex-direction: column; }.timeline-main strong { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }.timeline-main small { color: var(--text-muted); }
-.timeline-detail { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
-
+.timeline-detail { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }.timeline-detail.muted { opacity: 0.65; }
+.timeline-detail-panel { border-top: 1px solid var(--divider); background: var(--surface-muted); }
+.timeline-detail-head { min-height: 36px; padding: 0 10px; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 10px; }
+.timeline-detail-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-close { margin-left: auto; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 4px; color: var(--text-muted); background: transparent; cursor: pointer; }
+.timeline-close:hover { color: var(--text); background: var(--surface); }
 .final-message { padding: 14px 16px; }
 .final-header { display: flex; align-items: center; gap: 8px; }.final-header h3 { margin: 0; color: var(--success); font-size: 13px; }
 .final-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; color: var(--success); background: #fff; }

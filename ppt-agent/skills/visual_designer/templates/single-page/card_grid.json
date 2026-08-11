@@ -8,7 +8,11 @@
     "capacity": {
       "max_items": 6,
       "min_items": 4,
-      "max_header_chars": 14,
+      "target_header_chars_min": 6,
+      "target_header_chars_max": 16,
+      "max_header_chars": 20,
+      "target_body_chars_min": 60,
+      "target_body_chars_max": 100,
       "max_body_chars": 120,
       "density": "normal"
     },

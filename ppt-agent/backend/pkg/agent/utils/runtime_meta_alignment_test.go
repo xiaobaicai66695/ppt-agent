@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cloudwego/eino/schema"
 )
 
 func TestRuntimeMetaFreezesPlanAndExposesAlignmentSnapshot(t *testing.T) {
@@ -98,5 +100,175 @@ func TestRuntimeMetaReportsStructuralAndDeliveryDeviations(t *testing.T) {
 	}
 	if report.Snapshot.AlignmentStatus != "warning" || len(report.Snapshot.AlignmentWarnings) == 0 {
 		t.Fatalf("alignment fields missing from report: %#v", report.Snapshot)
+	}
+}
+
+func TestRuntimeMetaEmitsFullEventDetailsToSink(t *testing.T) {
+	workDir := t.TempDir()
+	meta := NewRuntimeMeta("task-observe", workDir)
+	var events []RuntimeEvent
+	meta.SetEventSink(func(event RuntimeEvent) {
+		events = append(events, event)
+	})
+	fullArgs := `{"code":"print(\"hello\")","notes":"keep the complete payload"}`
+	fullResult := "stdout:\nhello\nfull result body"
+	meta.RecordToolStart("python3", fullArgs)
+	meta.RecordToolEnd("python3", fullArgs, fullResult)
+	meta.RecordLLMStartDetails("ChatModel", map[string]any{
+		"history": []map[string]any{
+			{"role": "user", "content": "build a deck"},
+			{"role": "meta", "content": "llm_call_metadata", "metadata": map[string]any{"model": "test-model"}},
+		},
+	})
+	meta.RecordLLMEndDetails("ChatModel", 11, 7, 18, map[string]any{
+		"output": map[string]any{"role": "assistant", "content": "done"},
+	})
+	if err := meta.WriteReport("completed"); err != nil {
+		t.Fatalf("WriteReport() error = %v", err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("events = %d, want 4: %#v", len(events), events)
+	}
+	toolEnd := events[1]
+	if toolEnd.Metadata["args"] != fullArgs || toolEnd.Metadata["result"] != fullResult {
+		t.Fatalf("tool detail not persisted: %#v", toolEnd.Metadata)
+	}
+	llmStart := events[2]
+	history, ok := llmStart.Metadata["history"].([]map[string]any)
+	if !ok || len(history) != 2 {
+		t.Fatalf("llm history missing: %#v", llmStart.Metadata["history"])
+	}
+	llmEnd := events[3]
+	if llmEnd.Metadata["prompt_tokens"].(int64) != 11 || llmEnd.Metadata["total_tokens"].(int64) != 18 {
+		t.Fatalf("token detail missing: %#v", llmEnd.Metadata)
+	}
+
+	snapshot, err := LoadRuntimeMetaSnapshot(workDir)
+	if err != nil {
+		t.Fatalf("LoadRuntimeMetaSnapshot() error = %v", err)
+	}
+	if len(snapshot.RecentEvents) != 0 {
+		t.Fatalf("runtime report should not store full events on disk: %#v", snapshot.RecentEvents)
+	}
+}
+
+func TestRuntimeMetaDeduplicatesManifestValidationAndUsesProgressStatus(t *testing.T) {
+	meta := NewRuntimeMeta("task-manifest", t.TempDir())
+	var events []RuntimeEvent
+	meta.SetEventSink(func(event RuntimeEvent) {
+		events = append(events, event)
+	})
+
+	meta.RecordManifestValidation(0, 2, nil, []string{"slide-1", "slide-2"})
+	meta.RecordManifestValidation(0, 2, nil, []string{"slide-1", "slide-2"})
+	meta.RecordManifestValidation(1, 2, nil, []string{"slide-2"})
+	meta.RecordManifestValidation(2, 2, nil, nil)
+
+	if len(events) != 3 {
+		t.Fatalf("manifest events = %d, want 3 state changes: %#v", len(events), events)
+	}
+	if events[0].Status != "running" || events[1].Status != "running" {
+		t.Fatalf("pending manifest should be running, got %#v", events)
+	}
+	if events[2].Status != "ok" {
+		t.Fatalf("complete manifest should be ok, got %#v", events[2])
+	}
+	if events[1].Detail != "已完成 1/2 页，还有 1 页待生成" {
+		t.Fatalf("unexpected progress detail: %q", events[1].Detail)
+	}
+	if got := meta.Snapshot().EventCounts["manifest_validated"]; got != 3 {
+		t.Fatalf("manifest event count = %d, want 3", got)
+	}
+	for _, event := range events {
+		if len(event.Metadata) != 2 || event.Metadata["done"] == nil || event.Metadata["total"] == nil {
+			t.Fatalf("manifest metadata should contain only done/total: %#v", event.Metadata)
+		}
+	}
+}
+
+func TestRuntimeStatusBarOnlyInjectsGeneratedAndTotalSlides(t *testing.T) {
+	meta := NewRuntimeMeta("task-progress", t.TempDir())
+	meta.RecordSlideProgress(3, 9, 2)
+	meta.RecordToolStart("read_file", `{"path":"tasks.json"}`)
+	status := meta.StatusBar()
+	if status != "<agent_progress>\ngenerated_slides: 3\ntotal_slides: 9\n</agent_progress>" {
+		t.Fatalf("unexpected model metadata: %q", status)
+	}
+}
+
+func TestSlideProgressEventMetadataOnlyContainsGeneratedAndTotalSlides(t *testing.T) {
+	meta := NewRuntimeMeta("task-progress-event", t.TempDir())
+	var event RuntimeEvent
+	meta.SetEventSink(func(recorded RuntimeEvent) { event = recorded })
+
+	meta.RecordSlideProgress(3, 9, 2)
+
+	if event.Kind != "slide_progress" {
+		t.Fatalf("event kind = %q, want slide_progress", event.Kind)
+	}
+	if len(event.Metadata) != 2 || event.Metadata["done"] != 3 || event.Metadata["total"] != 9 {
+		t.Fatalf("slide progress metadata should contain only done/total: %#v", event.Metadata)
+	}
+}
+
+func TestRuntimeMetaPersistsEventsBeyondRecentWindow(t *testing.T) {
+	meta := NewRuntimeMeta("task-history", t.TempDir())
+	var persisted []RuntimeEvent
+	meta.SetEventSink(func(event RuntimeEvent) { persisted = append(persisted, event) })
+	for i := 0; i < runtimeRecentEventLimit+25; i++ {
+		meta.RecordToolStart("read_file", string(rune('a'+i%20)))
+	}
+	if len(meta.Snapshot().RecentEvents) != runtimeRecentEventLimit {
+		t.Fatalf("recent window size = %d", len(meta.Snapshot().RecentEvents))
+	}
+	if len(persisted) != runtimeRecentEventLimit+25 || persisted[0].ID != 1 {
+		t.Fatalf("persistent sink lost early events: %d %#v", len(persisted), persisted[:1])
+	}
+}
+
+func TestCompressionEventIncludesDifferenceAndUserAnchor(t *testing.T) {
+	meta := NewRuntimeMeta("task-compress", t.TempDir())
+	var event RuntimeEvent
+	meta.SetEventSink(func(recorded RuntimeEvent) { event = recorded })
+	meta.RecordCompressionDetails(120, 28, 42000, 11000, "生成一套生态报告", []string{"使用智能推荐", "突出背景图片"})
+	if event.Kind != "compression" || event.Metadata["removed_messages"] != 92 || event.Metadata["saved_tokens"] != 31000 {
+		t.Fatalf("compression diff missing: %#v", event)
+	}
+	requirements, ok := event.Metadata["preserved_requirements"].([]string)
+	if !ok || len(requirements) != 2 || event.Metadata["user_intent_summary"] != "生成一套生态报告" {
+		t.Fatalf("compression user anchor missing: %#v", event.Metadata)
+	}
+}
+
+func TestCompressionSummaryAnchorsWholeUserMessages(t *testing.T) {
+	summary := ExtractKeyDecisions([]*schema.Message{
+		schema.SystemMessage("system"),
+		schema.UserMessage("生成一套 12 页生态保护报告，重点展示真实数据和背景图片"),
+		schema.AssistantMessage("开始规划", nil),
+		schema.UserMessage("<agent_progress>\ngenerated_slides: 3\ntotal_slides: 12\n</agent_progress>"),
+		schema.UserMessage("配色改为 report_green，并保留用户提供的大纲标题"),
+	})
+	if summary.UserIntentSummary != "生成一套 12 页生态保护报告，重点展示真实数据和背景图片" {
+		t.Fatalf("user intent anchor = %q", summary.UserIntentSummary)
+	}
+	if len(summary.PreservedRequirements) != 2 || summary.PreservedRequirements[1] != "配色改为 report_green，并保留用户提供的大纲标题" {
+		t.Fatalf("preserved requirements = %#v", summary.PreservedRequirements)
+	}
+}
+
+func TestRuntimeMetaMarksMissingManifestFilesAsWarning(t *testing.T) {
+	meta := NewRuntimeMeta("task-missing", t.TempDir())
+	var event RuntimeEvent
+	meta.SetEventSink(func(recorded RuntimeEvent) {
+		event = recorded
+	})
+
+	meta.RecordManifestValidation(2, 2, []string{"2_summary.pptx"}, nil)
+
+	if event.Status != "warning" {
+		t.Fatalf("missing files status = %q, want warning", event.Status)
+	}
+	if event.Detail != "已完成 2/2 页，缺少 1 个文件" {
+		t.Fatalf("unexpected warning detail: %q", event.Detail)
 	}
 }

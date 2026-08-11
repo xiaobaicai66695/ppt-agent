@@ -1440,30 +1440,31 @@ func compactIntentSummary(query string, limit int) string {
 // persistConversationContent 从对话消息表（数据库）和内存中的 SSE 事件流中提取有意义的内容，
 // 将它们合并为可读的对话文本，并存储到 ts.Info 中以便后续持久化到数据库。
 // 在任务结束时调用（成功、取消或错误）。
+var listConversationMessagesForSummary = db.ListConversationMessages
+
 func (ts *TaskState) persistConversationContent() {
 	ts.Mu.Lock()
-	defer ts.Mu.Unlock()
+	info := ts.Info
+	ts.Mu.Unlock()
 
-	// 从数据库加载所有对话消息（覆盖 continue 轮次）
-	var dbMessages []db.ConversationMessage
-	if db.DB != nil {
-		var err error
-		dbMessages, err = db.ListConversationMessages(ts.Info.ID)
-		if err != nil {
-			logger.Warn("load_conversation_messages_failed", "task_id", ts.Info.ID, "error", err.Error())
-		}
+	// Database and filesystem I/O stay outside TaskState.Mu so readers can keep
+	// serving the in-memory task and answer while persistence is slow.
+	dbMessages, err := listConversationMessagesForSummary(info.ID)
+	if err != nil {
+		logger.Warn("load_conversation_messages_failed", "task_id", info.ID, "error", err.Error())
 	}
+
+	manifest, manifestErr := deep.ReadTasksManifest(info.WorkDir)
 
 	var b strings.Builder
 	b.WriteString("## 任务信息\n")
 	b.WriteString(fmt.Sprintf("- 状态: %s | 进度: %d/%d | 耗时: %s\n",
-		ts.Info.Status, ts.Info.DoneCount, ts.Info.TotalCount, ts.Info.Duration))
-	if ts.Info.Error != "" {
-		b.WriteString(fmt.Sprintf("- 错误: %s\n", ts.Info.Error))
+		info.Status, info.DoneCount, info.TotalCount, info.Duration))
+	if info.Error != "" {
+		b.WriteString(fmt.Sprintf("- 错误: %s\n", info.Error))
 	}
 
-	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
-	if err == nil && manifest != nil && len(manifest.Tasks) > 0 {
+	if manifestErr == nil && manifest != nil && len(manifest.Tasks) > 0 {
 		b.WriteString("\n## 幻灯片概览\n")
 		b.WriteString("| # | 标题 | 类型 | 状态 | QA |\n")
 		b.WriteString("|---|------|------|------|----|\n")
@@ -1495,6 +1496,8 @@ func (ts *TaskState) persistConversationContent() {
 		b.WriteString(fmt.Sprintf("\n%s: %s\n", roleTag, trimmed))
 	}
 
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	ts.Info.ConversationContent = b.String()
 }
 

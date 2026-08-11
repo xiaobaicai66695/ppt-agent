@@ -19,7 +19,9 @@ package deep
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -77,7 +79,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	}
 
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
-	manifestTool := newManifestTool(cfg.WorkDir)
+	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline)
 	searchTool := tools.NewSearchTool()
 	subAgents := []adk.Agent{slideExecutor}
 
@@ -152,9 +154,11 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 	outlineContentMode := ""
 	outlineUseBackground := false
 	outlineBackground := ""
+	suggestedPageCount := 0
 	outlineQuery := query // user's original topic description
 	hasOutline := outline != nil && len(outline.Slides) > 0
-	if hasOutline {
+	hasStyleRecommendation := outline != nil && outline.ContentMode == OutlineContentModeRecommendedStyle
+	if outline != nil {
 		outlineTemplate = outline.Template
 		outlineTheme = outline.Theme
 		outlineTitle = outline.Title
@@ -163,24 +167,28 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		if outline.UseBackground {
 			outlineBackground = outline.RecommendedBackground
 		}
+		suggestedPageCount = outline.SuggestedPageCount
 	}
 
 	data := &prompts.TemplateData{
-		TmplDir:              tmplDir,
-		TasksJSON:            tasksJSON,
-		TemplateCatalog:      templateCatalog,
-		StyleContext:         styleContext,
-		HasOutline:           hasOutline,
-		OutlineQuery:         outlineQuery,
-		OutlineTemplate:      outlineTemplate,
-		OutlineTheme:         outlineTheme,
-		OutlineTitle:         outlineTitle,
-		OutlineContentMode:   outlineContentMode,
-		OutlineUseBackground: outlineUseBackground,
-		OutlineBackground:    outlineBackground,
-		SkillsDir:            skillsDir,
-		EnableQA:             enableQA,
-		Concurrency:          concurrency,
+		TmplDir:                tmplDir,
+		TasksJSON:              tasksJSON,
+		TemplateCatalog:        templateCatalog,
+		StyleContext:           styleContext,
+		HasOutline:             hasOutline,
+		HasStyleRecommendation: hasStyleRecommendation,
+		OutlineQuery:           outlineQuery,
+		OutlineTemplate:        outlineTemplate,
+		OutlineTheme:           outlineTheme,
+		OutlineTitle:           outlineTitle,
+		OutlineContentMode:     outlineContentMode,
+		OutlineUseBackground:   outlineUseBackground,
+		OutlineBackground:      outlineBackground,
+		SuggestedPageCount:     suggestedPageCount,
+		AvailableBackgrounds:   availableBackgroundCatalog(skillsDir),
+		SkillsDir:              skillsDir,
+		EnableQA:               enableQA,
+		Concurrency:            concurrency,
 	}
 
 	instruction, err := prompts.RenderDeepAgent("master_instruction", data)
@@ -188,6 +196,27 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		panic("failed to render deep agent master instruction template: " + err.Error())
 	}
 	return instruction
+}
+
+func availableBackgroundCatalog(skillsDir string) string {
+	root := filepath.Join(skillsDir, "visual_designer", "background_templates")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	items := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		images, _ := filepath.Glob(filepath.Join(root, entry.Name(), "images", "*"))
+		if len(images) == 0 {
+			continue
+		}
+		items = append(items, fmt.Sprintf("%s(%d images)", entry.Name(), len(images)))
+	}
+	sort.Strings(items)
+	return strings.Join(items, ", ")
 }
 
 // ── 智能学习引擎 ──────────────────────────────────────────────────────────

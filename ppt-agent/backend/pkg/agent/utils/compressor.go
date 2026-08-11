@@ -93,6 +93,12 @@ func DefaultCompressorConfig() *CompressorConfig {
 
 // CompressionSummary 是压缩后摘要的结构化格式
 type CompressionSummary struct {
+	// UserIntentSummary is a deterministic anchor copied from the first real user request.
+	UserIntentSummary string `json:"user_intent_summary"`
+
+	// PreservedRequirements keeps whole user messages as bounded requirements.
+	PreservedRequirements []string `json:"preserved_requirements"`
+
 	// KeyDecisions 关键决策，结构化保留，不会被 LLM 自由文本丢失
 	KeyDecisions struct {
 		Template       string   `json:"template,omitempty"`        // 模板名称
@@ -108,15 +114,13 @@ type CompressionSummary struct {
 
 	// ConversationSummary 自由格式对话摘要，描述中间轮次的交互过程
 	ConversationSummary string `json:"conversation_summary"`
-
-	// RuntimeMeta preserves code-maintained state across compression.
-	RuntimeMeta *RuntimeMetaSnapshot `json:"runtime_meta,omitempty"`
 }
 
 // ExtractKeyDecisions 从对话历史中解析关键决策
 func ExtractKeyDecisions(messages []*schema.Message) *CompressionSummary {
 	summary := &CompressionSummary{}
 	summary.KeyDecisions.OtherDecisions = []string{}
+	summary.UserIntentSummary, summary.PreservedRequirements = extractUserIntentAnchor(messages)
 
 	// 正则匹配模板名称
 	templateRe := regexp.MustCompile(`(?i)(?:模板|template)[：:\s]*([a-zA-Z0-9_\-]+)`)
@@ -173,35 +177,63 @@ func ExtractKeyDecisions(messages []*schema.Message) *CompressionSummary {
 	return summary
 }
 
+func extractUserIntentAnchor(messages []*schema.Message) (string, []string) {
+	var requirements []string
+	for _, msg := range messages {
+		if msg == nil || msg.Role != schema.User {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" || isRuntimeControlMessage(content) {
+			continue
+		}
+		requirements = append(requirements, truncateString(content, 360))
+	}
+	requirements = boundedStrings(requirements, 6, 360)
+	if len(requirements) == 0 {
+		return "", nil
+	}
+	return truncateString(requirements[0], 520), requirements
+}
+
+func isRuntimeControlMessage(content string) bool {
+	return strings.HasPrefix(content, "<agent_status>") ||
+		strings.HasPrefix(content, "<agent_progress>") ||
+		strings.HasPrefix(content, "【对话压缩摘要") ||
+		strings.HasPrefix(content, "【上下文压缩交接")
+}
+
 // conversationToSummary 调用 LLM 将中间对话压缩为自由摘要
 func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChatModel,
-	keyDecisions *CompressionSummary, conversationText string) (string, string, error) {
+	base *CompressionSummary, conversationText string) (*CompressionSummary, string, error) {
 
-	keyDecisionsJSON, _ := json.Marshal(keyDecisions)
+	baseJSON, _ := json.Marshal(base)
 
-	summaryPrompt := fmt.Sprintf(`你是一个对话摘要助手。将下面的对话历史压缩为简洁的摘要。
+	summaryPrompt := fmt.Sprintf(`你是 PPT Agent 的上下文压缩助手。请以用户原始目标和后续明确要求为最高优先级，将早期执行轨迹压缩为结构化交接。
 
-【关键决策（必须原样保留到输出 JSON 中）】：
+【用户目标、明确要求与代码提取的关键决策】：
 %s
 
-【待摘要的对话历史】：
+【待压缩的早期执行轨迹】：
 %s
 
-请按以下 JSON 格式输出，不要输出任何其他内容：
+输出一个 JSON 对象：
 {
+	"user_intent_summary": "一句话重述用户最终要完成的目标",
+	"preserved_requirements": ["仍然生效的用户要求，保持原意和优先级"],
   "progress_summary": "简要描述已完成的工作和当前进度（50字以内）",
   "conversation_summary": "用50字以内概括中间轮次的交互过程"
-}`, keyDecisionsJSON, conversationText)
+}`, baseJSON, conversationText)
 
 	sumCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	resp, err := summarizer.Generate(sumCtx, []*schema.Message{
-		schema.SystemMessage("你是一个对话摘要助手，擅长将长对话压缩为简洁的结构化摘要。只输出 JSON，不要输出解释。"),
+		schema.SystemMessage("你负责生成结构化上下文交接。用户原始目标与后续明确要求拥有最高保留优先级，输出为 JSON 对象。"),
 		schema.UserMessage(summaryPrompt),
 	})
 	if err != nil {
-		return "", summaryPrompt, fmt.Errorf("summarizer 调用失败: %w", err)
+		return nil, summaryPrompt, fmt.Errorf("summarizer 调用失败: %w", err)
 	}
 
 	raw := resp.Content
@@ -211,16 +243,19 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 	raw = strings.TrimSuffix(raw, "```")
 	raw = strings.TrimSpace(raw)
 
-	var parsed struct {
-		ProgressSummary     string `json:"progress_summary"`
-		ConversationSummary string `json:"conversation_summary"`
-	}
+	var parsed CompressionSummary
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		logger.Warn("summarizer_json_parse_failed", "raw", truncateString(raw, 200), "error", err.Error())
-		return strings.TrimSpace(raw), summaryPrompt, nil
+		return nil, summaryPrompt, err
 	}
 
-	return parsed.ConversationSummary, summaryPrompt, nil
+	result := *base
+	result.UserIntentSummary = base.UserIntentSummary
+	result.PreservedRequirements = boundedStrings(
+		append(append([]string{}, base.PreservedRequirements...), parsed.PreservedRequirements...), 8, 360)
+	result.ProgressSummary = truncateString(strings.TrimSpace(parsed.ProgressSummary), 240)
+	result.ConversationSummary = truncateString(strings.TrimSpace(parsed.ConversationSummary), 240)
+	return &result, summaryPrompt, nil
 }
 
 // ChatModelCompressor 包装 ChatModel，在调用前对消息历史进行上下文压缩。
@@ -287,7 +322,7 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
-	compressed, err := c.compress(ctx, messages)
+	compressed, handoff, err := c.compress(ctx, messages)
 	if err != nil {
 		logger.Warn("compress_failed_fallback", "error", err.Error())
 		return c.inner.Generate(ctx, messages, opts...)
@@ -304,7 +339,8 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		"after_msgs", len(compressed), "after_tokens", afterLen,
 		"saved_pct", fmt.Sprintf("%.1f%%", saved))
 	if c.runtime != nil {
-		c.runtime.RecordCompression(beforeLen, afterLen, fmt.Sprintf("%.1f%%", saved))
+		c.runtime.RecordCompressionDetails(len(messages), len(compressed), beforeLen, afterLen,
+			handoff.UserIntentSummary, handoff.PreservedRequirements)
 	}
 
 	return c.inner.Generate(ctx, compressed, opts...)
@@ -319,7 +355,7 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
-	compressed, err := c.compress(ctx, messages)
+	compressed, handoff, err := c.compress(ctx, messages)
 	if err != nil {
 		logger.Warn("compress_failed_fallback", "error", err.Error())
 		return c.inner.Stream(ctx, messages, opts...)
@@ -336,7 +372,8 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		"after_msgs", len(compressed), "after_tokens", afterLen,
 		"saved_pct", fmt.Sprintf("%.1f%%", saved))
 	if c.runtime != nil {
-		c.runtime.RecordCompression(beforeLen, afterLen, fmt.Sprintf("%.1f%%", saved))
+		c.runtime.RecordCompressionDetails(len(messages), len(compressed), beforeLen, afterLen,
+			handoff.UserIntentSummary, handoff.PreservedRequirements)
 	}
 
 	return c.inner.Stream(ctx, compressed, opts...)
@@ -365,9 +402,9 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 }
 
 // compress 执行实际的压缩逻辑
-func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.Message) ([]*schema.Message, error) {
+func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.Message) ([]*schema.Message, *CompressionSummary, error) {
 	if len(messages) < 2 {
-		return messages, nil // 无需压缩
+		return messages, ExtractKeyDecisions(messages), nil
 	}
 
 	// 解析消息结构
@@ -425,7 +462,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	}
 
 	if preservePairs >= len(pairs) {
-		return messages, nil
+		return messages, ExtractKeyDecisions(messages), nil
 	}
 
 	headPairs := pairs[:len(pairs)-preservePairs]
@@ -456,10 +493,15 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	}
 
 	// 调用 summarizer 生成自由摘要
-	convSummary, summaryPrompt, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String())
-	if c.tracker != nil && (err == nil || convSummary != "") {
+	handoff, summaryPrompt, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String())
+	completionText := ""
+	if handoff != nil {
+		completionBytes, _ := json.Marshal(handoff)
+		completionText = string(completionBytes)
+	}
+	if c.tracker != nil && (err == nil || completionText != "") {
 		promptTokens := tokenEstimate(summaryPrompt)
-		completionTokens := tokenEstimate(convSummary)
+		completionTokens := tokenEstimate(completionText)
 		c.tracker.Add(promptTokens, completionTokens, promptTokens+completionTokens)
 		if c.runtime != nil {
 			c.runtime.RecordLLMTokens(int64(promptTokens), int64(completionTokens), int64(promptTokens+completionTokens))
@@ -467,36 +509,14 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	}
 	if err != nil {
 		logger.Warn("conversation_summary_failed", "error", err.Error())
-		convSummary = "[早期对话已压缩省略]"
+		handoff = keyDecisions
+		handoff.ProgressSummary = fmt.Sprintf("已压缩 %d 轮早期轨迹，保留 %d 轮近期上下文", len(headPairs), preservePairs)
+		handoff.ConversationSummary = "早期工具轨迹已压缩，用户目标与明确要求由确定性锚点保留"
 	}
 
-	// 第三步：构建结构化摘要消息
-	summaryData := struct {
-		KeyDecisions struct {
-			Template    string   `json:"template,omitempty"`
-			ColorScheme string   `json:"color_scheme,omitempty"`
-			Theme       string   `json:"theme,omitempty"`
-			TotalPages  int      `json:"total_pages,omitempty"`
-			SlideTypes  []string `json:"slide_types,omitempty"`
-		} `json:"key_decisions"`
-		ProgressSummary     string               `json:"progress_summary"`
-		ConversationSummary string               `json:"conversation_summary"`
-		RuntimeMeta         *RuntimeMetaSnapshot `json:"runtime_meta,omitempty"`
-	}{
-		ConversationSummary: convSummary,
-	}
-	summaryData.KeyDecisions.Template = keyDecisions.KeyDecisions.Template
-	summaryData.KeyDecisions.ColorScheme = keyDecisions.KeyDecisions.ColorScheme
-	summaryData.KeyDecisions.Theme = keyDecisions.KeyDecisions.Theme
-	summaryData.KeyDecisions.TotalPages = keyDecisions.KeyDecisions.TotalPages
-	summaryData.KeyDecisions.SlideTypes = keyDecisions.KeyDecisions.SlideTypes
-	if c.runtime != nil {
-		snap := c.runtime.Snapshot()
-		summaryData.RuntimeMeta = &snap
-	}
-
-	summaryJSON, _ := json.Marshal(summaryData)
-	progressPart := keyDecisions.ProgressSummary
+	// 第三步：构建以用户意图为锚点的结构化摘要消息。
+	summaryJSON, _ := json.Marshal(handoff)
+	progressPart := handoff.ProgressSummary
 	if progressPart == "" {
 		progressPart = fmt.Sprintf("已完成 %d/%d 对话轮次，保留 %d 轮近期待查",
 			len(headPairs), len(pairs), preservePairs)
@@ -506,7 +526,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	compressed := []*schema.Message{systemMsg}
 	compressed = append(compressed, &schema.Message{
 		Role: schema.User,
-		Content: fmt.Sprintf("【对话压缩摘要 | 已完成 %d/%d 轮】\n```json\n%s\n```\n%s",
+		Content: fmt.Sprintf("【上下文压缩交接 | 已压缩 %d/%d 轮】\n```json\n%s\n```\n当前进度：%s",
 			len(headPairs), len(pairs), summaryJSON, progressPart),
 	})
 
@@ -536,7 +556,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		}
 	}
 
-	return compressed, nil
+	return compressed, handoff, nil
 }
 
 // pairWithToolCalls 描述一轮 user+assistant 对话及其 tool result

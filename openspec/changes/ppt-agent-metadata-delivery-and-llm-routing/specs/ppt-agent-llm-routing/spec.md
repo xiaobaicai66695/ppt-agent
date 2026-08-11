@@ -32,3 +32,4 @@ The initial PPT generation route SHALL skip Reviewer and automatic Fixer stages 
 #### Scenario: User requests a post-delivery correction
 - **WHEN** a user explicitly asks to modify a delivered page
 - **THEN** the existing targeted correction flow MAY invoke Fixer independently of initial generation QA
+

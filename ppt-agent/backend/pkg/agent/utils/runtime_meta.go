@@ -31,6 +31,8 @@ import (
 
 const runtimeRecentEventLimit = 80
 
+type RuntimeEventSink func(event RuntimeEvent)
+
 // RuntimeMeta is a code-maintained status bar for an agent run. It keeps
 // frequently needed operational facts out of long trajectory scans.
 type RuntimeMeta struct {
@@ -54,9 +56,13 @@ type RuntimeMeta struct {
 	CompletionTokens int64
 	TotalTokens      int64
 
-	CompressionBeforeTokens int
-	CompressionAfterTokens  int
-	CompressionSavedPct     string
+	CompressionBeforeTokens    int
+	CompressionAfterTokens     int
+	CompressionSavedPct        string
+	CompressionBeforeMessages  int
+	CompressionAfterMessages   int
+	CompressionRemovedMessages int
+	CompressionSavedTokens     int
 
 	Budgets        RuntimeBudgets
 	BudgetWarnings []string
@@ -77,6 +83,17 @@ type RuntimeMeta struct {
 	EventSeq     int64
 	EventCounts  map[string]int
 	RecentEvents []RuntimeEvent
+	EventSink    RuntimeEventSink
+
+	lastManifestValidation *manifestValidationState
+}
+
+type manifestValidationState struct {
+	Done         int
+	Total        int
+	MissingFiles []string
+	PendingTasks []string
+	Status       string
 }
 
 type RuntimeBudgets struct {
@@ -138,9 +155,13 @@ type RuntimeMetaSnapshot struct {
 	CompletionTokens int64 `json:"completion_tokens,omitempty"`
 	TotalTokens      int64 `json:"total_tokens,omitempty"`
 
-	CompressionBeforeTokens int    `json:"compression_before_tokens,omitempty"`
-	CompressionAfterTokens  int    `json:"compression_after_tokens,omitempty"`
-	CompressionSavedPct     string `json:"compression_saved_pct,omitempty"`
+	CompressionBeforeTokens    int    `json:"compression_before_tokens,omitempty"`
+	CompressionAfterTokens     int    `json:"compression_after_tokens,omitempty"`
+	CompressionSavedPct        string `json:"compression_saved_pct,omitempty"`
+	CompressionBeforeMessages  int    `json:"compression_before_messages,omitempty"`
+	CompressionAfterMessages   int    `json:"compression_after_messages,omitempty"`
+	CompressionRemovedMessages int    `json:"compression_removed_messages,omitempty"`
+	CompressionSavedTokens     int    `json:"compression_saved_tokens,omitempty"`
 
 	Budgets        RuntimeBudgets `json:"budgets,omitempty"`
 	BudgetWarnings []string       `json:"budget_warnings,omitempty"`
@@ -297,6 +318,15 @@ func RuntimeMetaFromContext(ctx context.Context) *RuntimeMeta {
 	return nil
 }
 
+func (m *RuntimeMeta) SetEventSink(sink RuntimeEventSink) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.EventSink = sink
+}
+
 func (m *RuntimeMeta) RecordPhase(phase, detail string) {
 	if m == nil {
 		return
@@ -333,10 +363,11 @@ func (m *RuntimeMeta) RecordToolStart(name, args string) {
 	m.refreshBudgetWarningsLocked()
 	m.recordEventLocked("tool_start", name, "running", "", map[string]any{
 		"args_preview": truncateString(args, 220),
+		"args":         args,
 	})
 }
 
-func (m *RuntimeMeta) RecordToolEnd(name, resultPreview string) {
+func (m *RuntimeMeta) RecordToolEnd(name, args, result string) {
 	if m == nil {
 		return
 	}
@@ -347,7 +378,10 @@ func (m *RuntimeMeta) RecordToolEnd(name, resultPreview string) {
 		name = "unknown"
 	}
 	m.recordEventLocked("tool_end", name, "ok", "", map[string]any{
-		"result_preview": truncateString(strings.TrimSpace(resultPreview), 220),
+		"args_preview":   truncateString(args, 220),
+		"args":           args,
+		"result_preview": truncateString(strings.TrimSpace(result), 220),
+		"result":         result,
 	})
 }
 
@@ -368,6 +402,10 @@ func (m *RuntimeMeta) RecordToolError(name, errText string) {
 }
 
 func (m *RuntimeMeta) RecordLLMStart(name string) {
+	m.RecordLLMStartDetails(name, nil)
+}
+
+func (m *RuntimeMeta) RecordLLMStartDetails(name string, metadata map[string]any) {
 	if m == nil {
 		return
 	}
@@ -377,10 +415,14 @@ func (m *RuntimeMeta) RecordLLMStart(name string) {
 	if name == "" {
 		name = "chat_model"
 	}
-	m.recordEventLocked("llm_start", name, "running", "", nil)
+	m.recordEventLocked("llm_start", name, "running", "", metadata)
 }
 
 func (m *RuntimeMeta) RecordLLMTokens(prompt, completion, total int64) {
+	m.RecordLLMEndDetails("chat_model", prompt, completion, total, nil)
+}
+
+func (m *RuntimeMeta) RecordLLMEndDetails(name string, prompt, completion, total int64, metadata map[string]any) {
 	if m == nil {
 		return
 	}
@@ -389,7 +431,72 @@ func (m *RuntimeMeta) RecordLLMTokens(prompt, completion, total int64) {
 	m.PromptTokens += prompt
 	m.CompletionTokens += completion
 	m.TotalTokens += total
-	m.recordEventLocked("llm_end", "chat_model", "ok", "", map[string]any{
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "chat_model"
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["prompt_tokens"] = prompt
+	metadata["completion_tokens"] = completion
+	metadata["total_tokens"] = total
+	m.recordEventLocked("llm_end", name, "ok", "", metadata)
+}
+
+func (m *RuntimeMeta) RecordLLMEnd(name string, metadata map[string]any) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "chat_model"
+	}
+	m.recordEventLocked("llm_end", name, "ok", "", metadata)
+}
+
+func (m *RuntimeMeta) RecordLLMErrorDetails(name, errText string, metadata map[string]any) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "chat_model"
+	}
+	m.LastError = truncateString(strings.TrimSpace(errText), 240)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["error"] = errText
+	m.recordEventLocked("llm_error", name, "error", m.LastError, metadata)
+}
+
+func (m *RuntimeMeta) RecordToolErrorDetails(name, errText string, metadata map[string]any) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "unknown"
+	}
+	m.ToolErrors[name]++
+	m.LastError = truncateString(strings.TrimSpace(errText), 240)
+	m.refreshBudgetWarningsLocked()
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["error"] = errText
+	m.recordEventLocked("tool_error", name, "error", m.LastError, metadata)
+}
+
+func (m *RuntimeMeta) RecordLLMTokensLegacy(prompt, completion, total int64) {
+	m.RecordLLMEndDetails("chat_model", prompt, completion, total, map[string]any{
 		"prompt_tokens":     prompt,
 		"completion_tokens": completion,
 		"total_tokens":      total,
@@ -423,6 +530,10 @@ func (m *RuntimeMeta) SetLLMTokens(prompt, completion, total int64) {
 }
 
 func (m *RuntimeMeta) RecordCompression(beforeTokens, afterTokens int, savedPct string) {
+	m.RecordCompressionDetails(0, 0, beforeTokens, afterTokens, "", nil)
+}
+
+func (m *RuntimeMeta) RecordCompressionDetails(beforeMessages, afterMessages, beforeTokens, afterTokens int, userIntent string, requirements []string) {
 	if m == nil {
 		return
 	}
@@ -430,11 +541,25 @@ func (m *RuntimeMeta) RecordCompression(beforeTokens, afterTokens int, savedPct 
 	defer m.mu.Unlock()
 	m.CompressionBeforeTokens = beforeTokens
 	m.CompressionAfterTokens = afterTokens
+	m.CompressionBeforeMessages = beforeMessages
+	m.CompressionAfterMessages = afterMessages
+	m.CompressionRemovedMessages = maxInt(0, beforeMessages-afterMessages)
+	m.CompressionSavedTokens = maxInt(0, beforeTokens-afterTokens)
+	savedPct := "0.0%"
+	if beforeTokens > 0 {
+		savedPct = fmt.Sprintf("%.1f%%", 100*(1-float64(afterTokens)/float64(beforeTokens)))
+	}
 	m.CompressionSavedPct = savedPct
 	m.recordEventLocked("compression", "context_compressor", "ok", "", map[string]any{
-		"before_tokens": beforeTokens,
-		"after_tokens":  afterTokens,
-		"saved_pct":     savedPct,
+		"before_messages":        beforeMessages,
+		"after_messages":         afterMessages,
+		"removed_messages":       m.CompressionRemovedMessages,
+		"before_tokens":          beforeTokens,
+		"after_tokens":           afterTokens,
+		"saved_tokens":           m.CompressionSavedTokens,
+		"saved_pct":              savedPct,
+		"user_intent_summary":    truncateString(strings.TrimSpace(userIntent), 240),
+		"preserved_requirements": boundedStrings(requirements, 6, 180),
 	})
 }
 
@@ -451,9 +576,8 @@ func (m *RuntimeMeta) RecordSlideProgress(done, total, missing int) {
 	m.TotalSlides = total
 	m.MissingFiles = missing
 	m.recordEventLocked("slide_progress", "tasks_manifest", "ok", "", map[string]any{
-		"done":    done,
-		"total":   total,
-		"missing": missing,
+		"done":  done,
+		"total": total,
 	})
 }
 
@@ -491,14 +615,32 @@ func (m *RuntimeMeta) RecordManifestValidation(done, total int, missingFiles, pe
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	status := "ok"
-	if len(missingFiles) > 0 || len(pendingTasks) > 0 {
+	if total <= 0 || len(pendingTasks) > 0 {
+		status = "running"
+	}
+	if len(missingFiles) > 0 {
 		status = "warning"
 	}
-	m.recordEventLocked("manifest_validated", "tasks.json", status, "", map[string]any{
-		"done":          done,
-		"total":         total,
-		"missing_files": missingFiles,
-		"pending_tasks": pendingTasks,
+	state := manifestValidationState{
+		Done:         done,
+		Total:        total,
+		MissingFiles: append([]string(nil), missingFiles...),
+		PendingTasks: append([]string(nil), pendingTasks...),
+		Status:       status,
+	}
+	if m.lastManifestValidation != nil && reflect.DeepEqual(*m.lastManifestValidation, state) {
+		return
+	}
+	m.lastManifestValidation = &state
+	detail := fmt.Sprintf("已完成 %d/%d 页", done, total)
+	if len(missingFiles) > 0 {
+		detail += fmt.Sprintf("，缺少 %d 个文件", len(missingFiles))
+	} else if len(pendingTasks) > 0 {
+		detail += fmt.Sprintf("，还有 %d 页待生成", len(pendingTasks))
+	}
+	m.recordEventLocked("manifest_validated", "tasks.json", status, detail, map[string]any{
+		"done":  done,
+		"total": total,
 	})
 }
 
@@ -538,37 +680,41 @@ func (m *RuntimeMeta) Snapshot() RuntimeMetaSnapshot {
 		started = time.Now()
 	}
 	return RuntimeMetaSnapshot{
-		TaskID:                  m.TaskID,
-		WorkDir:                 m.WorkDir,
-		ElapsedMS:               time.Since(started).Milliseconds(),
-		Phase:                   m.Phase,
-		PhaseDetail:             m.PhaseDetail,
-		LastError:               m.LastError,
-		LastTool:                m.LastTool,
-		ToolCalls:               cloneIntMap(m.ToolCalls),
-		ToolErrors:              cloneIntMap(m.ToolErrors),
-		SameToolArgsStreak:      m.SameToolArgsStreak,
-		PromptTokens:            m.PromptTokens,
-		CompletionTokens:        m.CompletionTokens,
-		TotalTokens:             m.TotalTokens,
-		CompressionBeforeTokens: m.CompressionBeforeTokens,
-		CompressionAfterTokens:  m.CompressionAfterTokens,
-		CompressionSavedPct:     m.CompressionSavedPct,
-		Budgets:                 m.Budgets,
-		BudgetWarnings:          append([]string(nil), m.BudgetWarnings...),
-		DoneSlides:              m.DoneSlides,
-		TotalSlides:             m.TotalSlides,
-		MissingFiles:            m.MissingFiles,
-		QAHighIssues:            m.QAHighIssues,
-		QAMediumIssues:          m.QAMediumIssues,
-		QALowIssues:             m.QALowIssues,
-		IntentAnchor:            m.IntentAnchor,
-		PlanSlides:              clonePlanSlides(m.PlanSlides),
-		CurrentSlide:            clonePlanSlide(m.CurrentSlide),
-		AlignmentStatus:         m.AlignmentStatus,
-		AlignmentWarnings:       append([]AlignmentWarning(nil), m.AlignmentWarnings...),
-		EventCounts:             cloneIntMap(m.EventCounts),
-		RecentEvents:            append([]RuntimeEvent(nil), m.RecentEvents...),
+		TaskID:                     m.TaskID,
+		WorkDir:                    m.WorkDir,
+		ElapsedMS:                  time.Since(started).Milliseconds(),
+		Phase:                      m.Phase,
+		PhaseDetail:                m.PhaseDetail,
+		LastError:                  m.LastError,
+		LastTool:                   m.LastTool,
+		ToolCalls:                  cloneIntMap(m.ToolCalls),
+		ToolErrors:                 cloneIntMap(m.ToolErrors),
+		SameToolArgsStreak:         m.SameToolArgsStreak,
+		PromptTokens:               m.PromptTokens,
+		CompletionTokens:           m.CompletionTokens,
+		TotalTokens:                m.TotalTokens,
+		CompressionBeforeTokens:    m.CompressionBeforeTokens,
+		CompressionAfterTokens:     m.CompressionAfterTokens,
+		CompressionSavedPct:        m.CompressionSavedPct,
+		CompressionBeforeMessages:  m.CompressionBeforeMessages,
+		CompressionAfterMessages:   m.CompressionAfterMessages,
+		CompressionRemovedMessages: m.CompressionRemovedMessages,
+		CompressionSavedTokens:     m.CompressionSavedTokens,
+		Budgets:                    m.Budgets,
+		BudgetWarnings:             append([]string(nil), m.BudgetWarnings...),
+		DoneSlides:                 m.DoneSlides,
+		TotalSlides:                m.TotalSlides,
+		MissingFiles:               m.MissingFiles,
+		QAHighIssues:               m.QAHighIssues,
+		QAMediumIssues:             m.QAMediumIssues,
+		QALowIssues:                m.QALowIssues,
+		IntentAnchor:               m.IntentAnchor,
+		PlanSlides:                 clonePlanSlides(m.PlanSlides),
+		CurrentSlide:               clonePlanSlide(m.CurrentSlide),
+		AlignmentStatus:            m.AlignmentStatus,
+		AlignmentWarnings:          append([]AlignmentWarning(nil), m.AlignmentWarnings...),
+		EventCounts:                cloneIntMap(m.EventCounts),
+		RecentEvents:               runtimeEventSummaries(m.RecentEvents),
 	}
 }
 
@@ -585,36 +731,10 @@ func (m *RuntimeMeta) StatusBar() string {
 	if m == nil {
 		return ""
 	}
-	snap := m.Snapshot()
-	lines := []string{
-		"<agent_status>",
-		fmt.Sprintf("task_id: %s", snap.TaskID),
-		fmt.Sprintf("elapsed_ms: %d", snap.ElapsedMS),
-		fmt.Sprintf("phase: %s", snap.Phase),
-		fmt.Sprintf("slides: %d/%d done, %d missing", snap.DoneSlides, snap.TotalSlides, snap.MissingFiles),
-		fmt.Sprintf("tokens: prompt=%d completion=%d total=%d", snap.PromptTokens, snap.CompletionTokens, snap.TotalTokens),
-		fmt.Sprintf("last_tool: %s same_args_streak=%d", snap.LastTool, snap.SameToolArgsStreak),
-		fmt.Sprintf("tool_calls: %s", formatIntMap(snap.ToolCalls)),
-		fmt.Sprintf("tool_errors: %s", formatIntMap(snap.ToolErrors)),
-		fmt.Sprintf("qa_issues: high=%d medium=%d low=%d", snap.QAHighIssues, snap.QAMediumIssues, snap.QALowIssues),
-		fmt.Sprintf("intent: %s", snap.IntentAnchor.Summary),
-		fmt.Sprintf("alignment: %s warnings=%d", snap.AlignmentStatus, len(snap.AlignmentWarnings)),
-		fmt.Sprintf("compression: before=%d after=%d saved=%s", snap.CompressionBeforeTokens, snap.CompressionAfterTokens, snap.CompressionSavedPct),
-	}
-	if len(snap.BudgetWarnings) > 0 {
-		lines = append(lines, "budget_warnings: "+strings.Join(snap.BudgetWarnings, " | "))
-	}
-	if snap.PhaseDetail != "" {
-		lines = append(lines, "phase_detail: "+snap.PhaseDetail)
-	}
-	if snap.LastError != "" {
-		lines = append(lines, "last_error: "+snap.LastError)
-	}
-	lines = append(lines,
-		"policy: if same_args_streak>=3 or a tool has repeated errors, stop repeating the same action; inspect state, change strategy, or report a blocker.",
-		"</agent_status>",
-	)
-	return strings.Join(lines, "\n")
+	m.mu.RLock()
+	done, total := m.DoneSlides, m.TotalSlides
+	m.mu.RUnlock()
+	return fmt.Sprintf("<agent_progress>\ngenerated_slides: %d\ntotal_slides: %d\n</agent_progress>", done, total)
 }
 
 func (m *RuntimeMeta) refreshBudgetWarningsLocked() {
@@ -647,6 +767,7 @@ func (m *RuntimeMeta) WriteReport(status string) error {
 		return nil
 	}
 	snap := m.Snapshot()
+	snap.RecentEvents = nil
 	report := RuntimeReport{
 		TaskID:      snap.TaskID,
 		WorkDir:     snap.WorkDir,
@@ -663,6 +784,54 @@ func (m *RuntimeMeta) WriteReport(status string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(m.WorkDir, "runtime_report.json"), data, 0644)
+}
+
+func LoadRuntimeMetaSnapshot(workDir string) (*RuntimeMetaSnapshot, error) {
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" {
+		return nil, fmt.Errorf("workDir is required")
+	}
+	reportPath := filepath.Join(workDir, "runtime_report.json")
+	data, reportErr := os.ReadFile(reportPath)
+	if reportErr != nil {
+		return nil, reportErr
+	}
+	var report RuntimeReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, err
+	}
+	snap := report.Snapshot
+	if snap.WorkDir == "" {
+		snap.WorkDir = workDir
+	}
+	return &snap, nil
+}
+
+func countRuntimeEvents(events []RuntimeEvent) map[string]int {
+	if len(events) == 0 {
+		return nil
+	}
+	counts := make(map[string]int)
+	for _, event := range events {
+		kind := strings.TrimSpace(event.Kind)
+		if kind == "" {
+			kind = "event"
+		}
+		counts[kind]++
+	}
+	return counts
+}
+
+func runtimeEventSummaries(events []RuntimeEvent) []RuntimeEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	summaries := make([]RuntimeEvent, len(events))
+	for i, event := range events {
+		event.Metadata = nil
+		summaries[i] = event
+	}
+	return summaries
 }
 
 func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metadata map[string]any) {
@@ -699,22 +868,9 @@ func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metad
 	if len(m.RecentEvents) > runtimeRecentEventLimit {
 		m.RecentEvents = m.RecentEvents[len(m.RecentEvents)-runtimeRecentEventLimit:]
 	}
-	if m.WorkDir == "" {
-		return
+	if m.EventSink != nil {
+		m.EventSink(event)
 	}
-	data, err := json.Marshal(event)
-	if err != nil {
-		return
-	}
-	if err := os.MkdirAll(m.WorkDir, 0755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(m.WorkDir, "runtime_events.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(data, '\n'))
 }
 
 func (s RuntimeMetaSnapshot) MarshalJSONBytes() []byte {
@@ -822,4 +978,38 @@ func formatIntMap(values map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", k, values[k]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func boundedStrings(values []string, limit, maxLen int) []string {
+	result := make([]string, 0, minInt(len(values), limit))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = truncateString(strings.TrimSpace(value), maxLen)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

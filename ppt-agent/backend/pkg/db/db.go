@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,12 @@ import (
 )
 
 var DB *gorm.DB
+
+const dbOperationTimeout = 5 * time.Second
+
+func withOperationTimeout() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), dbOperationTimeout)
+}
 
 // User — 邮箱注册，可选密码。
 type User struct {
@@ -93,6 +100,22 @@ type TaskErrorAnalysis struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// RuntimeEventRecord — 任务运行 Timeline 事件，保存完整 tool/LLM 入参、输出和元数据。
+type RuntimeEventRecord struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	TaskID    string    `gorm:"size:64;uniqueIndex:idx_runtime_event_task_seq;index;not null" json:"task_id"`
+	EventID   int64     `gorm:"uniqueIndex:idx_runtime_event_task_seq;not null" json:"event_id"`
+	Timestamp time.Time `gorm:"index" json:"timestamp"`
+	ElapsedMS int64     `gorm:"default:0" json:"elapsed_ms"`
+	Kind      string    `gorm:"size:64;index" json:"kind"`
+	Phase     string    `gorm:"size:64;index" json:"phase"`
+	Name      string    `gorm:"size:128;index" json:"name"`
+	Status    string    `gorm:"size:32;index" json:"status"`
+	Detail    string    `gorm:"type:text" json:"detail"`
+	Metadata  string    `gorm:"type:longtext" json:"metadata"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ── TaskRecord 增删改查 ──────────────────────────────────────────────────
 
 func CreateTaskRecord(r *TaskRecord) error {
@@ -129,15 +152,19 @@ func CreateConversationMessage(m *ConversationMessage) error {
 	if DB == nil {
 		return nil
 	}
-	return DB.Create(m).Error
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	return DB.WithContext(ctx).Create(m).Error
 }
 
 func ListConversationMessages(taskID string) ([]ConversationMessage, error) {
 	if DB == nil {
 		return nil, nil
 	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
 	var msgs []ConversationMessage
-	err := DB.Where("task_id = ?", taskID).Order("timestamp ASC").Find(&msgs).Error
+	err := DB.WithContext(ctx).Where("task_id = ?", taskID).Order("timestamp ASC").Find(&msgs).Error
 	return msgs, err
 }
 
@@ -146,6 +173,63 @@ func DeleteConversationMessages(taskID string) error {
 		return nil
 	}
 	return DB.Where("task_id = ?", taskID).Delete(&ConversationMessage{}).Error
+}
+
+// ── RuntimeEventRecord 增删改查 ─────────────────────────────────────────────
+
+func CreateRuntimeEvent(r *RuntimeEventRecord) error {
+	if DB == nil || r == nil {
+		return nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	return DB.WithContext(ctx).Create(r).Error
+}
+
+func ListRuntimeEvents(taskID string) ([]RuntimeEventRecord, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	var events []RuntimeEventRecord
+	err := DB.WithContext(ctx).Where("task_id = ?", taskID).Order("event_id ASC").Find(&events).Error
+	return events, err
+}
+
+func ListRuntimeEventSummaries(taskID string) ([]RuntimeEventRecord, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	var events []RuntimeEventRecord
+	err := DB.WithContext(ctx).Select("id", "task_id", "event_id", "timestamp", "elapsed_ms", "kind", "phase", "name", "status", "detail", "created_at").
+		Where("task_id = ?", taskID).
+		Order("event_id ASC").
+		Find(&events).Error
+	return events, err
+}
+
+func GetRuntimeEvent(taskID string, eventID int64) (*RuntimeEventRecord, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	var event RuntimeEventRecord
+	err := DB.WithContext(ctx).Where("task_id = ? AND event_id = ?", taskID, eventID).First(&event).Error
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
+func DeleteRuntimeEvents(taskID string) error {
+	if DB == nil {
+		return nil
+	}
+	return DB.Where("task_id = ?", taskID).Delete(&RuntimeEventRecord{}).Error
 }
 
 // ── UserStyleProfile 增删改查 ─────────────────────────────────────────────────
@@ -232,7 +316,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 

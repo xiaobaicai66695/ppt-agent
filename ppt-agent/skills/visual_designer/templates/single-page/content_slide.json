@@ -8,7 +8,9 @@
     "capacity": {
       "max_items": 6,
       "min_items": 4,
-      "max_chars_per_item": 35,
+      "target_chars_per_item_min": 35,
+      "target_chars_per_item_max": 60,
+      "max_chars_per_item": 80,
       "density": "normal"
     },
     "required_fields": ["title", "bullets"],

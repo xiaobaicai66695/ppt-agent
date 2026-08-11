@@ -42,8 +42,6 @@ type ConversationSession struct {
 
 // AddUserMessage 向对话追加用户消息并持久化。
 func (s *ConversationSession) AddUserMessage(content string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	msg := db.ConversationMessage{
 		TaskID:    s.TaskID,
 		Role:      "user",
@@ -53,6 +51,8 @@ func (s *ConversationSession) AddUserMessage(content string) error {
 	if err := db.CreateConversationMessage(&msg); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = append(s.Messages, Message{
 		Role:      "user",
 		Content:   content,
@@ -64,8 +64,6 @@ func (s *ConversationSession) AddUserMessage(content string) error {
 
 // AddAssistantMessage 向对话追加助手消息并持久化。
 func (s *ConversationSession) AddAssistantMessage(content string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	msg := db.ConversationMessage{
 		TaskID:    s.TaskID,
 		Role:      "assistant",
@@ -75,6 +73,8 @@ func (s *ConversationSession) AddAssistantMessage(content string) error {
 	if err := db.CreateConversationMessage(&msg); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = append(s.Messages, Message{
 		Role:      "assistant",
 		Content:   content,

@@ -69,7 +69,7 @@ save_slide(prs.slides[-1], "{{ .WorkDir }}/{output_file}")
 
 - 必须通过 generators 重新生成整页
 - 重新生成时必须复用 tasks.json 中已有的 title、description、content_plan
-- 如任务含 background 字段，非空时必须继续传给 generator；不要为了修复擅自删除背景
+- 如任务含 background 字段，非空时必须逐字符原样传给 generator；它可能是主题 id，也可能是 `party_government/images/3.jpg` 这类具体图片引用，不要为了修复擅自删除或改写背景
 - 禁止修改 skill 文档、模板 JSON、generators 目录或 tasks.json；Fixer 只负责产出修复后的 PPTX 文件
 - 禁止直接使用 `from pptx import Presentation` 逐 shape 修改已有 PPTX
 - **不需要进行 QA 检查**，直接使用用户请求作为验收标准

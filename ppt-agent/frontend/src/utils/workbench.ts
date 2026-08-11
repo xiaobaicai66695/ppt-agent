@@ -1,4 +1,6 @@
-import type { ConversationMessage, ConversationSession, LiveActivity, TaskItem, TaskStatus } from '../types';
+import type {
+  ConversationMessage, ConversationSession, LiveActivity, RuntimeEvent, RuntimeMeta, TaskItem, TaskStatus,
+} from '../types';
 
 export interface SlideDeliveryEntry {
   key: string;
@@ -200,6 +202,105 @@ export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
     || '正在思考并推进任务';
   const detail = input.total && input.total > 0 ? `已完成 ${input.done || 0}/${input.total} 页` : '任务正在持续运行';
   return { label, detail, state: input.status === 'running' ? 'running' : 'idle' };
+}
+
+function runtimeEventFingerprint(event: RuntimeEvent): string {
+  return [event.timestamp, event.kind, event.name, event.status, event.phase, event.detail].join('\u0000');
+}
+
+function runtimeEventIdentity(event: RuntimeEvent): string {
+  if (event.id > 0) return `${event.task_id || ''}\u0000${event.id}`;
+  return runtimeEventFingerprint(event);
+}
+
+export function mergeRuntimeEvents(current: RuntimeEvent[] = [], incoming: RuntimeEvent[] = []): RuntimeEvent[] {
+  const merged = new Map<string, RuntimeEvent>();
+  for (const event of [...current, ...incoming]) {
+    const key = runtimeEventIdentity(event);
+    const previous = merged.get(key);
+    if (!previous) {
+      merged.set(key, { ...event });
+      continue;
+    }
+    merged.set(key, {
+      ...previous,
+      ...event,
+      metadata: event.metadata ?? previous.metadata,
+      metadata_loaded: event.metadata_loaded ?? previous.metadata_loaded,
+    });
+  }
+  return [...merged.values()].sort((a, b) => {
+    if (a.id > 0 && b.id > 0 && a.id !== b.id) return a.id - b.id;
+    return Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
+  });
+}
+
+export function mergeRuntimeMeta(current: RuntimeMeta | null | undefined, incoming: RuntimeMeta): RuntimeMeta {
+  return {
+    ...(current || {}),
+    ...incoming,
+    recent_events: mergeRuntimeEvents(current?.recent_events || [], incoming.recent_events || []),
+  } as RuntimeMeta;
+}
+
+export function compactRuntimeEvents(events: RuntimeEvent[]): RuntimeEvent[] {
+  const compacted: RuntimeEvent[] = [];
+  for (const event of events) {
+    const previous = compacted[compacted.length - 1];
+    if (
+      event.kind === 'manifest_validated'
+      && previous?.kind === 'manifest_validated'
+      && runtimeEventFingerprint(event) === runtimeEventFingerprint(previous)
+    ) {
+      continue;
+    }
+    compacted.push(event);
+  }
+  return compacted;
+}
+
+export function runtimeEventKindLabel(event: RuntimeEvent): string {
+  const labels: Record<string, string> = {
+    manifest_validated: '交付进度核对',
+    phase_changed: '阶段切换',
+    slide_progress: '页面生成进度',
+    task_terminal: '任务结束',
+    file_created: '文件已生成',
+    compression: '上下文压缩',
+  };
+  return labels[event.kind] || event.kind;
+}
+
+export function runtimeEventNameLabel(event: RuntimeEvent): string {
+  if (event.kind === 'manifest_validated' && event.name === 'tasks.json') return 'PPT 页清单';
+  if (event.kind === 'compression') return '对话上下文';
+  return event.name || event.phase || '任务';
+}
+
+export function runtimeEventStatusLabel(status?: string): string {
+  const labels: Record<string, string> = {
+    ok: '正常',
+    running: '进行中',
+    warning: '需注意',
+    error: '错误',
+    failed: '失败',
+    cancelled: '已取消',
+  };
+  return labels[(status || 'ok').toLowerCase()] || status || '正常';
+}
+
+export function runtimeEventDetailLabel(event: RuntimeEvent): string {
+  if (event.detail) return event.detail;
+  if (event.kind === 'manifest_validated') return 'PPT 页清单状态已核对';
+  if (event.kind === 'compression') {
+    const metadata = event.metadata || {};
+    const before = Number(metadata.before_tokens || 0);
+    const after = Number(metadata.after_tokens || 0);
+    const saved = String(metadata.saved_pct || '');
+    if (before > 0 || after > 0) return `Token ${before.toLocaleString()} → ${after.toLocaleString()}${saved ? `，节省 ${saved}` : ''}`;
+    return '用户要求已锚定，早期轨迹已压缩';
+  }
+  return '可展开查看详情';
 }
 
 function escapeHtml(value: string): string {

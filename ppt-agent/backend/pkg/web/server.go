@@ -207,6 +207,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		// 会话/继续路由
 		tasks.POST("/:id/continue", s.taskOwnershipMiddleware(), s.handleContinueTask)
 		tasks.GET("/:id/conversation", s.taskOwnershipMiddleware(), s.handleGetConversation)
+		tasks.GET("/:id/runtime-events/:event_id", s.taskOwnershipMiddleware(), s.handleGetRuntimeEvent)
 	}
 
 	// 用户资料路由（需要认证）

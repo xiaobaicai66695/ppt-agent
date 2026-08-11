@@ -187,6 +187,10 @@ export interface RuntimeMeta {
   compression_before_tokens?: number;
   compression_after_tokens?: number;
   compression_saved_pct?: string;
+  compression_before_messages?: number;
+  compression_after_messages?: number;
+  compression_removed_messages?: number;
+  compression_saved_tokens?: number;
   budgets?: RuntimeBudgets;
   budget_warnings?: string[];
   done_slides?: number;

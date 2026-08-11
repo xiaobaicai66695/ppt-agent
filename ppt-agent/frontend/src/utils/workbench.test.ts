@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ConversationMessage, ConversationSession, TaskItem } from '../types';
+import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem } from '../types';
 import {
-  canonicalOutputFile, deriveLiveActivity, mergeConversationMessages, mergeSlideDeliveries,
-  nextReplayCursor, recoverConversationMessages, renderSafeMarkdown, summarizeTaskTitle,
+  canonicalOutputFile, compactRuntimeEvents, deriveLiveActivity, mergeConversationMessages,
+  mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
+  runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
+  summarizeTaskTitle,
 } from './workbench';
 
 describe('workbench utilities', () => {
@@ -76,6 +78,55 @@ describe('workbench utilities', () => {
       label: '正在检索并核实资料', detail: '已完成 3/12 页', state: 'running',
     });
     expect(deriveLiveActivity({ status: 'running', connectionInterrupted: true }).label).toBe('正在恢复实时连接');
+  });
+
+  it('collapses repeated legacy manifest polling events but keeps progress changes', () => {
+    const event = (id: number, detail = ''): RuntimeEvent => ({
+      id, timestamp: '2026-08-05T00:00:00Z', elapsed_ms: id * 1000,
+      kind: 'manifest_validated', name: 'tasks.json', phase: 'preparing', status: 'warning', detail,
+    });
+    const result = compactRuntimeEvents([
+      event(4, '已完成 1/2 页'), event(3), event(2), event(1),
+    ]);
+    expect(result.map(item => item.id)).toEqual([4, 3]);
+  });
+
+  it('uses readable labels for manifest delivery events', () => {
+    const event: RuntimeEvent = {
+      id: 1, timestamp: '2026-08-05T00:00:00Z', elapsed_ms: 1000,
+      kind: 'manifest_validated', name: 'tasks.json', status: 'running',
+    };
+    expect(runtimeEventKindLabel(event)).toBe('交付进度核对');
+    expect(runtimeEventNameLabel(event)).toBe('PPT 页清单');
+    expect(runtimeEventStatusLabel(event.status)).toBe('进行中');
+    expect(runtimeEventDetailLabel(event)).toBe('PPT 页清单状态已核对');
+  });
+
+  it('merges persisted tool history with the bounded SSE tail by event id', () => {
+	const event = (id: number, name: string, metadata?: Record<string, unknown>): RuntimeEvent => ({
+	  id, task_id: 'task-1', timestamp: `2026-08-05T00:00:0${id}Z`, elapsed_ms: id * 1000,
+	  kind: 'tool_end', name, status: 'ok', metadata,
+	});
+	const persisted = [event(1, 'read_file'), event(2, 'edit_file')];
+	const tail = [event(2, 'edit_file', { result: 'updated' }), event(3, 'python3')];
+	const merged = mergeRuntimeEvents(persisted, tail);
+	expect(merged.map(item => item.name)).toEqual(['read_file', 'edit_file', 'python3']);
+	expect(merged[1].metadata).toEqual({ result: 'updated' });
+
+	const meta = mergeRuntimeMeta({ elapsed_ms: 1, recent_events: persisted }, { elapsed_ms: 3, recent_events: tail });
+	expect(meta.elapsed_ms).toBe(3);
+	expect(meta.recent_events).toHaveLength(3);
+  });
+
+  it('labels compression as an observable before-after event', () => {
+	const event: RuntimeEvent = {
+	  id: 9, timestamp: '2026-08-05T00:00:09Z', elapsed_ms: 9000,
+	  kind: 'compression', name: 'context_compressor', status: 'ok',
+	  metadata: { before_tokens: 42000, after_tokens: 11000, saved_pct: '73.8%' },
+	};
+	expect(runtimeEventKindLabel(event)).toBe('上下文压缩');
+	expect(runtimeEventNameLabel(event)).toBe('对话上下文');
+	expect(runtimeEventDetailLabel(event)).toContain('42,000 → 11,000');
   });
 
   it('escapes raw html while rendering markdown blocks', () => {

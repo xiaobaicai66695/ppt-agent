@@ -18,6 +18,7 @@ package callback
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +50,8 @@ const maxToolArgsLen = 300
 
 // keyToAgentName 是用于在 context 中存储 agent 名称的 key
 const keyToAgentName = "eino.callback.agent.name"
+
+type callbackInputDetailsKey struct{}
 
 // SetAgentName 将 agent 名称存入 context（供 wrapper/agent 调用）
 func SetAgentName(ctx context.Context, name string) context.Context {
@@ -142,6 +145,14 @@ func extractToolArgs(input callbacks.CallbackInput) string {
 	return truncate(tci.ArgumentsInJSON, maxToolArgsLen)
 }
 
+func extractFullToolArgs(input callbacks.CallbackInput) string {
+	tci := tool.ConvCallbackInput(input)
+	if tci == nil || tci.ArgumentsInJSON == "" {
+		return ""
+	}
+	return tci.ArgumentsInJSON
+}
+
 // extractToolResult 提取工具结果字符串（带截断）
 func extractToolResult(output callbacks.CallbackOutput) string {
 	tco := tool.ConvCallbackOutput(output)
@@ -152,6 +163,173 @@ func extractToolResult(output callbacks.CallbackOutput) string {
 		return "(empty)"
 	}
 	return truncate(tco.Response, maxToolOutputLen)
+}
+
+func extractFullToolResult(output callbacks.CallbackOutput) string {
+	tco := tool.ConvCallbackOutput(output)
+	if tco == nil {
+		return ""
+	}
+	if tco.Response != "" {
+		return tco.Response
+	}
+	if tco.ToolOutput != nil {
+		data, err := json.Marshal(tco.ToolOutput)
+		if err == nil {
+			return string(data)
+		}
+	}
+	return ""
+}
+
+func callbackInputDetailsFromContext(ctx context.Context) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	if details, ok := ctx.Value(callbackInputDetailsKey{}).(map[string]any); ok {
+		return cloneMetadata(details)
+	}
+	return nil
+}
+
+func cloneMetadata(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func modelInputDetails(input callbacks.CallbackInput, agentName, runName string) map[string]any {
+	mi := model.ConvCallbackInput(input)
+	if mi == nil {
+		return map[string]any{"agent": agentName, "name": runName}
+	}
+	history := serializeMessages(mi.Messages)
+	history = append(history, map[string]any{
+		"role":    "meta",
+		"content": "llm_call_metadata",
+		"metadata": map[string]any{
+			"agent":       agentName,
+			"name":        runName,
+			"config":      mi.Config,
+			"tool_choice": mi.ToolChoice,
+			"tools":       serializeTools(mi.Tools),
+			"extra":       mi.Extra,
+		},
+	})
+	return map[string]any{
+		"agent":       agentName,
+		"name":        runName,
+		"history":     history,
+		"tools":       serializeTools(mi.Tools),
+		"tool_choice": mi.ToolChoice,
+		"config":      mi.Config,
+		"extra":       mi.Extra,
+	}
+}
+
+func modelOutputDetails(output callbacks.CallbackOutput) map[string]any {
+	mo := model.ConvCallbackOutput(output)
+	if mo == nil {
+		return nil
+	}
+	details := map[string]any{}
+	if mo.Message != nil {
+		details["output"] = serializeMessage(mo.Message)
+	}
+	if mo.TokenUsage != nil {
+		details["token_usage"] = map[string]any{
+			"prompt_tokens":            mo.TokenUsage.PromptTokens,
+			"prompt_token_details":     mo.TokenUsage.PromptTokenDetails,
+			"completion_tokens":        mo.TokenUsage.CompletionTokens,
+			"completion_token_details": mo.TokenUsage.CompletionTokensDetails,
+			"total_tokens":             mo.TokenUsage.TotalTokens,
+			"reasoning_tokens":         mo.TokenUsage.CompletionTokensDetails.ReasoningTokens,
+			"cached_prompt_tokens":     mo.TokenUsage.PromptTokenDetails.CachedTokens,
+		}
+	}
+	if mo.Config != nil {
+		details["output_config"] = mo.Config
+	}
+	if mo.Extra != nil {
+		details["output_extra"] = mo.Extra
+	}
+	return details
+}
+
+func serializeMessages(messages []*schema.Message) []map[string]any {
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		out = append(out, serializeMessage(message))
+	}
+	return out
+}
+
+func serializeMessage(message *schema.Message) map[string]any {
+	if message == nil {
+		return map[string]any{"role": "meta", "content": "<nil message>"}
+	}
+	item := map[string]any{
+		"role":    string(message.Role),
+		"content": message.Content,
+	}
+	if message.Name != "" {
+		item["name"] = message.Name
+	}
+	if message.ToolCallID != "" {
+		item["tool_call_id"] = message.ToolCallID
+	}
+	if message.ToolName != "" {
+		item["tool_name"] = message.ToolName
+	}
+	if len(message.ToolCalls) > 0 {
+		item["tool_calls"] = message.ToolCalls
+	}
+	if message.ReasoningContent != "" {
+		item["reasoning_content"] = message.ReasoningContent
+	}
+	if message.ResponseMeta != nil {
+		item["response_meta"] = message.ResponseMeta
+	}
+	if len(message.MultiContent) > 0 {
+		item["multi_content"] = message.MultiContent
+	}
+	if len(message.UserInputMultiContent) > 0 {
+		item["user_input_multi_content"] = message.UserInputMultiContent
+	}
+	if len(message.AssistantGenMultiContent) > 0 {
+		item["assistant_output_multi_content"] = message.AssistantGenMultiContent
+	}
+	if message.Extra != nil {
+		item["extra"] = message.Extra
+	}
+	return item
+}
+
+func serializeTools(tools []*schema.ToolInfo) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, toolInfo := range tools {
+		if toolInfo == nil {
+			continue
+		}
+		var params any
+		if toolInfo.ParamsOneOf != nil {
+			if schemaParams, err := toolInfo.ParamsOneOf.ToJSONSchema(); err == nil {
+				params = schemaParams
+			}
+		}
+		out = append(out, map[string]any{
+			"name":   toolInfo.Name,
+			"desc":   toolInfo.Desc,
+			"params": params,
+			"extra":  toolInfo.Extra,
+		})
+	}
+	return out
 }
 
 // StreamEvent 打印流式事件信息（从 MessageStream 中读取并消费）
@@ -263,16 +441,29 @@ func NewLogHandler() callbacks.Handler {
 
 			switch info.Component {
 			case components.ComponentOfTool:
-				args := extractToolArgs(input)
+				fullArgs := extractFullToolArgs(input)
+				args := truncate(fullArgs, maxToolArgsLen)
+				if fullArgs == "" {
+					args = extractToolArgs(input)
+				}
 				if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
-					meta.RecordToolStart(info.Name, args)
+					meta.RecordToolStart(info.Name, fullArgs)
 				}
 				logger.Default().Info("tool_call_start", append(fields, "args", args)...)
+				ctx = context.WithValue(ctx, callbackInputDetailsKey{}, map[string]any{
+					"kind":         "tool",
+					"agent":        agentName,
+					"name":         info.Name,
+					"args":         fullArgs,
+					"args_preview": args,
+				})
 			case components.ComponentOfChatModel:
+				details := modelInputDetails(input, agentName, info.Name)
 				if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
-					meta.RecordLLMStart(info.Name)
+					meta.RecordLLMStartDetails(info.Name, details)
 				}
 				logger.Default().Info("llm_call_start", fields...)
+				ctx = context.WithValue(ctx, callbackInputDetailsKey{}, details)
 			case adk.ComponentOfAgent:
 				metrics.RecordAgentCall(agentName)
 				logger.Default().Info("agent_start", fields...)
@@ -293,28 +484,45 @@ func NewLogHandler() callbacks.Handler {
 
 			switch info.Component {
 			case components.ComponentOfTool:
+				inputDetails := callbackInputDetailsFromContext(ctx)
+				fullArgs, _ := inputDetails["args"].(string)
 				result := extractToolResult(output)
+				fullResult := extractFullToolResult(output)
 				if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
-					meta.RecordToolEnd(info.Name, result)
+					meta.RecordToolEnd(info.Name, fullArgs, fullResult)
 				}
 				logger.Default().Info("tool_call_end", append(fields, "result_preview", truncate(result, 100))...)
 				metrics.RecordToolCall(info.Name, "success")
 			case components.ComponentOfChatModel:
-				if mo := model.ConvCallbackOutput(output); mo != nil && mo.TokenUsage != nil {
-					tu := mo.TokenUsage
+				metadata := callbackInputDetailsFromContext(ctx)
+				outputDetails := modelOutputDetails(output)
+				for k, v := range outputDetails {
+					if metadata == nil {
+						metadata = map[string]any{}
+					}
+					metadata[k] = v
+				}
+				if mo := model.ConvCallbackOutput(output); mo != nil {
+					var promptTokens, completionTokens, totalTokens int
+					if mo.TokenUsage != nil {
+						tu := mo.TokenUsage
+						promptTokens = tu.PromptTokens
+						completionTokens = tu.CompletionTokens
+						totalTokens = tu.TotalTokens
+						if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
+							tt.Add(tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
+						}
+					}
 					logger.Default().Info("llm_call_end",
 						append(fields,
-							"prompt_tokens", tu.PromptTokens,
-							"completion_tokens", tu.CompletionTokens,
-							"total_tokens", tu.TotalTokens,
+							"prompt_tokens", promptTokens,
+							"completion_tokens", completionTokens,
+							"total_tokens", totalTokens,
 						)...)
-					metrics.RecordTokens(int64(tu.PromptTokens), int64(tu.CompletionTokens), int64(tu.TotalTokens))
+					metrics.RecordTokens(int64(promptTokens), int64(completionTokens), int64(totalTokens))
 					metrics.RecordLLMCall("success")
-					if tt := utils.TokenTrackerFromContext(ctx); tt != nil {
-						tt.Add(tu.PromptTokens, tu.CompletionTokens, tu.TotalTokens)
-					}
 					if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
-						meta.RecordLLMTokens(int64(tu.PromptTokens), int64(tu.CompletionTokens), int64(tu.TotalTokens))
+						meta.RecordLLMEndDetails(info.Name, int64(promptTokens), int64(completionTokens), int64(totalTokens), metadata)
 					}
 				}
 			case adk.ComponentOfAgent:
@@ -340,9 +548,9 @@ func NewLogHandler() callbacks.Handler {
 			)
 			if meta := utils.RuntimeMetaFromContext(ctx); meta != nil {
 				if info != nil && info.Component == components.ComponentOfChatModel {
-					meta.RecordLLMError(infoName, err.Error())
+					meta.RecordLLMErrorDetails(infoName, err.Error(), callbackInputDetailsFromContext(ctx))
 				} else {
-					meta.RecordToolError(infoName, err.Error())
+					meta.RecordToolErrorDetails(infoName, err.Error(), callbackInputDetailsFromContext(ctx))
 				}
 			}
 

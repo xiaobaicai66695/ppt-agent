@@ -51,13 +51,20 @@ const (
 func streamTimeout() time.Duration {
 	v := os.Getenv("STREAM_TIMEOUT")
 	if v == "" {
-		return 3 * time.Minute
+		return 8 * time.Minute
 	}
 	d, err := time.ParseDuration(v)
-	if err != nil || d <= 0 {
-		return 3 * time.Minute
+	if err != nil {
+		return 8 * time.Minute
 	}
 	return d
+}
+
+// adkStreamingEnabled controls ADK runner streaming.
+// It is disabled by default because streaming tool-call arguments can be
+// delivered in partial chunks and trigger intermittent JSON parse failures in ToolNode.
+func adkStreamingEnabled() bool {
+	return strings.EqualFold(os.Getenv("ADK_ENABLE_STREAMING"), "true")
 }
 
 // nextWithTimeout 调用 iter.Next() 但如果在配置的timeout时间内没有事件到达则放弃底层流
@@ -111,7 +118,7 @@ func StartPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{
 		Agent:           agent,
-		EnableStreaming: true,
+		EnableStreaming: adkStreamingEnabled(),
 	})
 
 	iter := runner.Run(ctx, []adk.Message{
@@ -385,7 +392,7 @@ func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{
 		Agent:           agent,
-		EnableStreaming: true,
+		EnableStreaming: adkStreamingEnabled(),
 	})
 
 	iter := runner.Run(ctx, []adk.Message{
@@ -547,7 +554,7 @@ func runAgentWithCallback(ctx context.Context, agent adk.Agent, userInput string
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{
 		Agent:           agent,
-		EnableStreaming: true,
+		EnableStreaming: adkStreamingEnabled(),
 	})
 
 	var messages []adk.Message

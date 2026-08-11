@@ -11,8 +11,8 @@ func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
 	var outline TaskOutline
 	err := json.Unmarshal([]byte(`{
 		"template":"custom","theme":"ocean_soft","title":"测试",
-		"slides":[{"title":"数据","content_type":"content_slide","description":"",
-		"content_plan":{"elements":[{"type":"bullet_list","items":[{"title":"增长","description":"20%"},"稳定"]}]}}]
+		"slides":[{"title":"数据","content_type":"content_slide","layout_variant":"icon_rows","description":"",
+		"content_plan":{"visual_intent":{"role":"icon","preferred_variant":"icon_rows"},"elements":[{"type":"bullet_list","items":[{"title":"增长","description":"20%"},"稳定"]}]}}]
 	}`), &outline)
 	if err != nil {
 		t.Fatalf("unmarshal outline: %v", err)
@@ -20,6 +20,30 @@ func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
 	items := outline.Slides[0].ContentPlan.Elements[0].Items
 	if len(items) != 2 || items[0] != "增长: 20%" || items[1] != "稳定" {
 		t.Fatalf("items = %#v", items)
+	}
+	if outline.Slides[0].LayoutVariant != "icon_rows" {
+		t.Fatalf("layout_variant = %q", outline.Slides[0].LayoutVariant)
+	}
+	if outline.Slides[0].ContentPlan.VisualIntent == nil || outline.Slides[0].ContentPlan.VisualIntent.Role != "icon" {
+		t.Fatalf("visual intent = %#v", outline.Slides[0].ContentPlan.VisualIntent)
+	}
+}
+
+func TestContentElementUnmarshalNormalizesTextAndDescriptionArrays(t *testing.T) {
+	var element ContentElement
+	if err := json.Unmarshal([]byte(`{
+		"type":"column",
+		"title":"自然风光",
+		"text":["天山天池","喀纳斯湖"],
+		"description":["高山湖泊","四季皆美"]
+	}`), &element); err != nil {
+		t.Fatal(err)
+	}
+	if element.Text != "天山天池\n喀纳斯湖" {
+		t.Fatalf("text = %q", element.Text)
+	}
+	if element.Description != "高山湖泊\n四季皆美" {
+		t.Fatalf("description = %q", element.Description)
 	}
 }
 

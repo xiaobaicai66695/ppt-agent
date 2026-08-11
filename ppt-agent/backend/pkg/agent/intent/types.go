@@ -147,20 +147,22 @@ func (u Urgency) String() string {
 
 // ClassificationResult 意图分类结果
 type ClassificationResult struct {
-	Intent             Intent     // 识别到的意图
-	IntentReasoning    string     // 意图判断的理由
-	Complexity         Complexity // 复杂度评估
-	Domain             Domain     // 应用领域
-	Urgency            Urgency    // 紧迫度
-	Confidence         float64    // 分类置信度 0-1
-	SuggestedActions   []string   // 建议的下一步动作
-	SuggestedTemplates []string   // 建议的模板
-	SuggestedTheme     string     // 建议的配色主题
-	SuggestedPageCount int        // 建议的页数
-	AgentType          string     // LLM 选择的可执行 Agent 类型
-	Pipeline           []string   // LLM 建议的执行阶段
-	Concurrency        int        // LLM 建议的页面生成并发数
-	RoutingSource      string     // llm 或 fallback
+	Intent              Intent     // 识别到的意图
+	IntentReasoning     string     // 意图判断的理由
+	Complexity          Complexity // 复杂度评估
+	Domain              Domain     // 应用领域
+	Urgency             Urgency    // 紧迫度
+	Confidence          float64    // 分类置信度 0-1
+	SuggestedActions    []string   // 建议的下一步动作
+	SuggestedTemplates  []string   // 建议的模板
+	SuggestedTheme      string     // 建议的配色主题
+	SuggestedBackground string     // 建议的背景主题
+	UseBackground       *bool      // 是否在适合的页面使用图片背景
+	SuggestedPageCount  int        // 建议的页数
+	AgentType           string     // LLM 选择的可执行 Agent 类型
+	Pipeline            []string   // LLM 建议的执行阶段
+	Concurrency         int        // LLM 建议的页面生成并发数
+	RoutingSource       string     // llm 或 fallback
 }
 
 // HasHighConfidence 判断是否有高置信度

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
 func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
@@ -30,6 +31,45 @@ func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
 		if event.ID != want {
 			t.Fatalf("Events[%d].ID = %d, want %d", i, event.ID, want)
 		}
+	}
+}
+
+func TestPersistConversationContentDoesNotHoldTaskLockDuringDatabaseRead(t *testing.T) {
+	oldList := listConversationMessagesForSummary
+	started := make(chan struct{})
+	release := make(chan struct{})
+	listConversationMessagesForSummary = func(string) ([]db.ConversationMessage, error) {
+		close(started)
+		<-release
+		return nil, nil
+	}
+	defer func() { listConversationMessagesForSummary = oldList }()
+
+	ts := &TaskState{Info: TaskInfo{ID: "task-slow-db", WorkDir: t.TempDir()}}
+	ts.fullAnswer.WriteString("内存中的完整回答")
+	persisted := make(chan struct{})
+	go func() {
+		ts.persistConversationContent()
+		close(persisted)
+	}()
+	<-started
+
+	answer := make(chan string, 1)
+	go func() { answer <- ts.FullAnswer() }()
+	select {
+	case got := <-answer:
+		if got != "内存中的完整回答" {
+			t.Fatalf("full answer = %q", got)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("FullAnswer blocked behind database persistence")
+	}
+
+	close(release)
+	select {
+	case <-persisted:
+	case <-time.After(time.Second):
+		t.Fatal("conversation persistence did not finish after database release")
 	}
 }
 

@@ -6,8 +6,12 @@
   "allowed_palettes": ["ocean_soft", "sage_calm", "berry_cream", "lavender_mist", "charcoal_light", "civic_gold"],
   "contract": {
     "capacity": {
-      "max_quote_chars": 64,
-      "max_attribution_chars": 28,
+      "target_quote_chars_min": 35,
+      "target_quote_chars_max": 110,
+      "max_quote_chars": 140,
+      "target_attribution_chars_min": 8,
+      "target_attribution_chars_max": 32,
+      "max_attribution_chars": 40,
       "density": "low"
     },
     "required_fields": ["quote"],

@@ -16,3 +16,4 @@ The system SHALL maintain generated-page delivery state as code-owned metadata a
 #### Scenario: Metadata is empty
 - **WHEN** no planned slides exist in delivery metadata
 - **THEN** the task SHALL NOT treat zero delivered out of zero planned as successful delivery
+
