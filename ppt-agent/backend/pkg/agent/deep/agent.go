@@ -26,7 +26,6 @@ import (
 	"sync"
 
 	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
@@ -73,36 +72,27 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 	}
 	chatModel = agentutils.NewRuntimeStatusChatModel(chatModel, cfg.RuntimeMeta)
 
-	slideExecutor, err := newSlideExecutorAgent(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("创建 SlideExecutor 子代理失败: %w", err)
-	}
-
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
 	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline)
 	searchTool := tools.NewSearchTool()
-	subAgents := []adk.Agent{slideExecutor}
 
-	deepAgent, err := deep.New(ctx, &deep.Config{
-		Name:        "PPTTaskDeepAgent",
-		Description: "PPT 任务调度代理，负责规划并并行生成 PPT 幻灯片",
-		ChatModel:   chatModel,
+	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "PPTPlanner",
+		Description: "PPT 规划代理，负责在意图分类后生成可执行的 DeckSpec/tasks.json，不负责渲染页面。",
+		Model:       chatModel,
 		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision)),
-		SubAgents:   subAgents,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: []tool.BaseTool{manifestTool, readFileTool, searchTool},
 			},
 		},
-		WithoutWriteTodos:      true,
-		WithoutGeneralSubAgent: true,
-		MaxIteration:           agentutils.EnvInt("MASTER_MAX_ITERATIONS", 120),
+		MaxIterations: agentutils.EnvInt("PLANNER_MAX_ITERATIONS", 40),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("创建 Deep Agent 失败: %w", err)
+		return nil, fmt.Errorf("创建 Planner Agent 失败: %w", err)
 	}
 
-	return deepAgent, nil
+	return planner, nil
 }
 
 // getConcurrency 从路由决策获取并发数，默认 5

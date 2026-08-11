@@ -720,6 +720,40 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	})
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
+	if err == nil && ctx.Err() == nil {
+		renderResult, renderErr := deep.RenderDeckByTaskIDWorkflow(ctx, cfg, func(event deep.DeckRenderEvent) {
+			switch event.Type {
+			case "workflow_start":
+				ts.Broadcast(SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail})
+			case "slide_start":
+				ts.Broadcast(SSERichEvent{
+					Type:        "progress",
+					Phase:       "rendering",
+					PhaseDetail: fmt.Sprintf("开始生成第 %d 页：%s", event.PageIndex, event.Detail),
+				})
+			case "slide_done":
+				ts.Broadcast(SSERichEvent{
+					Type:        "progress",
+					Phase:       "rendering",
+					PhaseDetail: fmt.Sprintf("第 %d 页生成完成：%s", event.PageIndex, event.OutputFile),
+				})
+			case "slide_error":
+				ts.Broadcast(SSERichEvent{
+					Type:        "error",
+					Error:       fmt.Sprintf("第 %d 页生成失败：%s", event.PageIndex, event.Error),
+					Phase:       "rendering",
+					PhaseDetail: event.OutputFile,
+				})
+			}
+		})
+		if renderResult != nil {
+			result = renderResult
+		}
+		if renderErr != nil {
+			err = renderErr
+		}
+	}
+
 	ts.Mu.Lock()
 	ts.result = result
 	ts.Mu.Unlock()

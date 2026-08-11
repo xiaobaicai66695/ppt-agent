@@ -61,14 +61,14 @@ func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *tes
 	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", nil, "介绍大兴安岭", false, 5)
 	for _, want := range []string{
 		"页面完成状态由后端依据代码元数据维护",
-		"根据代码元数据的 `done/total` 继续下一窗口",
-		"达到 N/N 后结束",
+		"Planner 完成 `tasks.json` 后立即结束",
+		"validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile_delivery",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"Reviewer", "Fixer", "QA 质检", "bash(command=", "文件落地确认"} {
+	for _, forbidden := range []string{"Reviewer", "Fixer", "QA 质检", "bash(command=", "文件落地确认", "task | 并行调用 SlideExecutor"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("prompt still contains removed stage/tool %q", forbidden)
 		}

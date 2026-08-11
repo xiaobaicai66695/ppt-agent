@@ -124,9 +124,11 @@ SlideExecutor 子 Agent 读取单页任务
 ```text
 用户需求
   ↓
+意图分类与路由：识别领域、复杂度、页数、模板/配色建议和并发策略
+  ↓
 Planner：生成 DeckSpec / tasks.json
   ↓
-Asset Planner：搜索事实、案例和背景图片候选
+Asset Planner：搜索事实、案例和背景图片候选（图片获取工具未就绪前只记录 asset_query）
   ↓
 Validator：校验 schema、容量、背景、素材和页面一致性
   ↓

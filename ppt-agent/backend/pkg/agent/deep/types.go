@@ -176,12 +176,9 @@ func WriteTasksManifest(workDir string, manifest *TasksManifest) error {
 	tasksManifestMu.Lock()
 	defer tasksManifestMu.Unlock()
 
-	filePath := filepath.Join(workDir, "tasks.json")
-	tmpPath := filePath + ".tmp"
-
 	// 读取现有数据以补齐调用方没有携带的运行时字段。调用方显式传入的新
 	// status/qa_report/fix_attempts 必须被尊重，否则 done 会被旧的 pending 覆盖。
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filepath.Join(workDir, "tasks.json"))
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -211,13 +208,17 @@ func WriteTasksManifest(workDir string, manifest *TasksManifest) error {
 		}
 	}
 
-	// 原子写入：先写入临时文件，然后重命名
-	// os.Rename is atomic on POSIX (and safe on Windows with exclusive access).
+	return writeTasksManifestUnlocked(workDir, manifest)
+}
+
+func writeTasksManifestUnlocked(workDir string, manifest *TasksManifest) error {
+	filePath := filepath.Join(workDir, "tasks.json")
+	tmpPath := filePath + ".tmp"
+
 	content, err := manifest.MustMarshalJSON()
 	if err != nil {
 		return err
 	}
-	// Validate the JSON is actually valid by unmarshaling it back
 	if err := json.Unmarshal(content, &TasksManifest{}); err != nil {
 		return fmt.Errorf("tasks manifest produced invalid JSON: %w", err)
 	}
@@ -225,10 +226,51 @@ func WriteTasksManifest(workDir string, manifest *TasksManifest) error {
 		return err
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
-		os.Remove(tmpPath) // clean up on failure
+		os.Remove(tmpPath)
 		return err
 	}
 	return nil
+}
+
+// PatchTaskRuntimeFields updates one task's runtime-only fields under the same
+// manifest lock used by WriteTasksManifest. Worker-pool rendering calls this
+// instead of rewriting the full planning contract from concurrent goroutines.
+func PatchTaskRuntimeFields(workDir, taskID, status, qaReport string, fixAttemptsDelta int) error {
+	tasksManifestMu.Lock()
+	defer tasksManifestMu.Unlock()
+
+	data, err := os.ReadFile(filepath.Join(workDir, "tasks.json"))
+	if err != nil {
+		return err
+	}
+	manifest := &TasksManifest{}
+	if err := manifest.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	var found bool
+	for _, task := range manifest.Tasks {
+		if task == nil || task.TaskID != taskID {
+			continue
+		}
+		found = true
+		if status != "" {
+			task.Status = status
+		}
+		if qaReport != "" {
+			task.QAReport = qaReport
+		}
+		if fixAttemptsDelta != 0 {
+			task.FixAttempts += fixAttemptsDelta
+		}
+		if task.CreatedAt == "" {
+			task.CreatedAt = time.Now().Format(time.RFC3339)
+		}
+		break
+	}
+	if !found {
+		return fmt.Errorf("task_id %s not found in tasks.json", taskID)
+	}
+	return writeTasksManifestUnlocked(workDir, manifest)
 }
 
 // ReconcileTasksManifestOutputFiles normalizes uniquely identifiable page
@@ -497,4 +539,5 @@ const (
 	StatusDone       = "done"
 	StatusQADone     = "qa_done"
 	StatusFixed      = "fixed"
+	StatusFailed     = "failed"
 )
