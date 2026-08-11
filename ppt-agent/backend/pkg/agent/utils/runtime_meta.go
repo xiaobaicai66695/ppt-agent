@@ -254,7 +254,8 @@ func (m *RuntimeMeta) FreezePlan(slides []PlanSlide) {
 	m.PlanSlides = clonePlanSlides(slides)
 	m.AlignmentStatus = "aligned"
 	m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(slides)), map[string]any{
-		"slides": m.PlanSlides,
+		"slide_count": len(m.PlanSlides),
+		"slides":      m.PlanSlides,
 	})
 }
 
@@ -281,7 +282,10 @@ func (m *RuntimeMeta) ComparePlan(observed []PlanSlide, missingFiles []string) {
 	if len(m.PlanSlides) == 0 {
 		m.PlanSlides = clonePlanSlides(observed)
 		m.AlignmentStatus = "aligned"
-		m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{"slides": m.PlanSlides})
+		m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{
+			"slide_count": len(m.PlanSlides),
+			"slides":      m.PlanSlides,
+		})
 		return
 	}
 
@@ -880,6 +884,7 @@ func compactToolMetadata(name, args, result string) map[string]any {
 	if strings.TrimSpace(result) != "" {
 		metadata["result_preview"] = truncateString(strings.TrimSpace(result), 220)
 	}
+	addToolObservationFields(metadata, name, args, result)
 	if strings.EqualFold(strings.TrimSpace(name), "generate_slide") {
 		addJSONField(metadata, args, "task_id")
 		addJSONField(metadata, result, "task_id")
@@ -892,7 +897,34 @@ func compactToolMetadata(name, args, result string) map[string]any {
 	return metadata
 }
 
+func addToolObservationFields(metadata map[string]any, name, args, result string) {
+	if metadata == nil {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "search":
+		addJSONFieldAs(metadata, args, "query", "search_query")
+		addJSONFieldAs(metadata, args, "reason", "search_reason")
+		if urls := extractSearchURLs(result, 5); len(urls) > 0 {
+			metadata["source_urls"] = urls
+		}
+	case "read_file":
+		addJSONFieldAs(metadata, args, "path", "file_path")
+	case "update_tasks_manifest":
+		if count := countManifestTasks(args); count > 0 {
+			metadata["slide_count"] = count
+		}
+		addJSONFieldAs(metadata, args, "template", "template")
+		addJSONFieldAs(metadata, args, "theme", "theme")
+		addJSONFieldAs(metadata, args, "background", "background")
+	}
+}
+
 func addJSONField(metadata map[string]any, raw, key string) {
+	addJSONFieldAs(metadata, raw, key, key)
+}
+
+func addJSONFieldAs(metadata map[string]any, raw, key, target string) {
 	if strings.TrimSpace(raw) == "" || metadata == nil {
 		return
 	}
@@ -901,8 +933,56 @@ func addJSONField(metadata map[string]any, raw, key string) {
 		return
 	}
 	if value, ok := parsed[key]; ok {
-		metadata[key] = value
+		metadata[target] = value
 	}
+}
+
+func countManifestTasks(raw string) int {
+	if strings.TrimSpace(raw) == "" {
+		return 0
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return 0
+	}
+	if tasks, ok := parsed["tasks"].([]any); ok {
+		return len(tasks)
+	}
+	if tasks, ok := parsed["slides"].([]any); ok {
+		return len(tasks)
+	}
+	return 0
+}
+
+func extractSearchURLs(raw string, limit int) []string {
+	if strings.TrimSpace(raw) == "" || limit <= 0 {
+		return nil
+	}
+	var parsed struct {
+		Results []struct {
+			URL string `json:"url"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil
+	}
+	urls := make([]string, 0, minInt(len(parsed.Results), limit))
+	seen := map[string]struct{}{}
+	for _, result := range parsed.Results {
+		url := truncateString(strings.TrimSpace(result.URL), 240)
+		if url == "" {
+			continue
+		}
+		if _, ok := seen[url]; ok {
+			continue
+		}
+		seen[url] = struct{}{}
+		urls = append(urls, url)
+		if len(urls) >= limit {
+			break
+		}
+	}
+	return urls
 }
 
 func compactRuntimeMetadata(metadata map[string]any, depth int) map[string]any {

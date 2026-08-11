@@ -29,7 +29,7 @@ import SlidePreviewCard from '../components/SlidePreviewCard.vue';
 import ConversationComposer from '../components/ConversationComposer.vue';
 import RuntimeEventDetail from '../components/RuntimeEventDetail.vue';
 import {
-  compactRuntimeEvents, deriveLiveActivity, mergeConversationMessages, mergeRuntimeMeta, mergeSlideDeliveries,
+  compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages, mergeRuntimeMeta, mergeSlideDeliveries,
   nextReplayCursor, recoverConversationMessages, runtimeEventDetailLabel, runtimeEventKindLabel,
   runtimeEventNameLabel, runtimeEventStatusLabel, summarizeTaskTitle,
 } from '../utils/workbench';
@@ -253,6 +253,7 @@ const selectedRuntimeCategory = ref<RuntimeCategory>('all');
 const runtimeTimelineAll = computed(() => compactRuntimeEvents(
   (runtimeMeta.value?.recent_events || []).slice().reverse(),
 ));
+const observableSteps = computed(() => deriveObservableSteps(runtimeTimelineAll.value, 6));
 const runtimeTimeline = computed(() => (
   selectedRuntimeCategory.value === 'all'
     ? runtimeTimelineAll.value
@@ -272,13 +273,13 @@ const runtimeCategoryOptions = computed(() => {
   for (const evt of runtimeTimelineAll.value) counts[runtimeEventCategory(evt)] += 1;
   return ([
     ['all', '全部'],
-    ['llm', 'ChatModel'],
-    ['tool', 'ToolCall'],
-    ['compression', 'Compression'],
-    ['phase', 'Phase'],
-    ['delivery', 'Delivery'],
-    ['error', 'Error'],
-    ['other', 'Other'],
+    ['llm', '模型'],
+    ['tool', '工具'],
+    ['compression', '压缩'],
+    ['phase', '阶段'],
+    ['delivery', '交付'],
+    ['error', '错误'],
+    ['other', '其他'],
   ] as Array<[RuntimeCategory, string]>).map(([key, label]) => ({ key, label, count: counts[key] }));
 });
 const liveActivity = computed(() => deriveLiveActivity({
@@ -299,7 +300,7 @@ function runtimeEventCategory(evt: RuntimeEvent): RuntimeCategory {
   if (status === 'error' || status === 'failed' || kind.includes('error')) return 'error';
   if (kind.startsWith('llm') || name.includes('chatmodel') || name.includes('chat_model')) return 'llm';
   if (kind.startsWith('tool') || name === 'toolnode') return 'tool';
-  if (kind === 'compression') return 'compression';
+  if (kind === 'compression' || kind === 'planner_context_compressed') return 'compression';
   if (kind.includes('manifest') || kind.includes('file') || kind.includes('terminal') || kind.includes('delivery') || kind.includes('plan') || kind.includes('intent')) return 'delivery';
   if (kind.includes('phase') || kind.includes('progress')) return 'phase';
   return 'other';
@@ -308,13 +309,13 @@ function runtimeEventCategory(evt: RuntimeEvent): RuntimeCategory {
 function runtimeEventCategoryLabel(evt: RuntimeEvent): string {
   const labels: Record<RuntimeCategory, string> = {
     all: '全部',
-    llm: 'ChatModel',
-    tool: 'ToolCall',
-    compression: 'Compression',
-    phase: 'Phase',
-    delivery: 'Delivery',
-    error: 'Error',
-    other: 'Other',
+    llm: '模型',
+    tool: '工具',
+    compression: '压缩',
+    phase: '阶段',
+    delivery: '交付',
+    error: '错误',
+    other: '其他',
   };
   return labels[runtimeEventCategory(evt)];
 }
@@ -358,6 +359,11 @@ async function selectRuntimeEvent(evt: RuntimeEvent) {
       selectedRuntimeEventLoading.value = false;
     }
   }
+}
+
+function selectRuntimeEventById(id: number) {
+  const event = runtimeTimelineAll.value.find(evt => evt.id === id);
+  if (event) selectRuntimeEvent(event);
 }
 
 const sampleQueries = [
@@ -1128,6 +1134,46 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 		  :created-at="selectedTask?.created_at"
 		/>
 
+        <section v-if="observableSteps.length > 0" class="execution-watch" aria-label="执行观察">
+          <div class="watch-head">
+            <span>
+              <Activity :size="15" />
+              执行观察
+            </span>
+            <small>最近 {{ observableSteps.length }} 步 · 可展开诊断查看完整事件</small>
+          </div>
+          <div class="watch-list">
+            <article
+              v-for="step in observableSteps"
+              :key="step.id"
+              role="button"
+              tabindex="0"
+              class="watch-step"
+              :class="[step.status, step.category, { selected: selectedRuntimeEvent?.id === step.id }]"
+              @click="selectRuntimeEventById(step.id)"
+              @keydown.enter="selectRuntimeEventById(step.id)"
+              @keydown.space.prevent="selectRuntimeEventById(step.id)"
+            >
+              <span class="watch-time">{{ fmtElapsed(step.elapsed_ms) }}</span>
+              <span class="watch-dot" aria-hidden="true"></span>
+              <span class="watch-copy">
+                <strong>{{ step.label }}</strong>
+                <small>{{ step.detail }}</small>
+                <span v-if="step.urls.length" class="watch-sources">
+                  <a
+                    v-for="url in step.urls.slice(0, 3)"
+                    :key="url"
+                    :href="url"
+                    target="_blank"
+                    rel="noreferrer"
+                    @click.stop
+                  >{{ url }}</a>
+                </span>
+              </span>
+            </article>
+          </div>
+        </section>
+
         <details v-if="runtimeMeta" class="dev-status-panel">
           <summary class="dev-status-summary">
             <span class="dev-status-title">运行诊断</span>
@@ -1534,13 +1580,15 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 }
 .main > .dash-header { order: 1; }
 .main > :deep(.progress-panel) { order: 2; }
-.main > .split-layout { order: 3; }
-.main > .final-message { order: 4; }
-.main > .dev-status-panel { order: 5; }
-.main > .workspace-composer { order: 6; }
+.main > .execution-watch { order: 3; }
+.main > .split-layout { order: 4; }
+.main > .final-message { order: 5; }
+.main > .dev-status-panel { order: 6; }
+.main > .workspace-composer { order: 7; }
 .main > .welcome { order: 1; }
 .main > .dash-header,
 .main > :deep(.progress-panel),
+.main > .execution-watch,
 .main > .split-layout,
 .main > .final-message,
 .main > .dev-status-panel,
@@ -1564,6 +1612,120 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .dash-status { display: none; }
 
 .main > :deep(.progress-panel) { margin-bottom: 18px; }
+
+.execution-watch {
+  margin: 0 0 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.watch-head {
+  min-height: 42px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--divider);
+}
+.watch-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+.watch-head small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.watch-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.watch-step {
+  min-width: 0;
+  min-height: 72px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 46px 12px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  border-right: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+  background: var(--surface);
+  cursor: pointer;
+}
+.watch-step:hover,
+.watch-step.selected { background: var(--surface-muted); }
+.watch-step:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: -2px;
+}
+.watch-step.error,
+.watch-step.failed { background: var(--danger-soft); }
+.watch-step.warning { background: var(--warning-soft); }
+.watch-time {
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+.watch-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.watch-step.planner .watch-dot,
+.watch-step.search .watch-dot { background: var(--info); }
+.watch-step.render .watch-dot { background: var(--success); }
+.watch-step.delivery .watch-dot { background: var(--accent); }
+.watch-step.error .watch-dot,
+.watch-step.failed .watch-dot { background: var(--danger); }
+.watch-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.watch-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.watch-sources {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.watch-sources a {
+  max-width: 180px;
+  padding: 2px 5px;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  color: var(--info);
+  background: var(--info-soft);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .split-layout {
   min-height: 0;
@@ -1709,6 +1871,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
   .dash-header { margin-bottom: 12px; }
   .dash-title { font-size: 16px; }
   .token-detail { display: none; }
+  .watch-head { align-items: flex-start; flex-direction: column; padding: 10px 12px; }
+  .watch-list { grid-template-columns: 1fr; }
+  .watch-step { grid-template-columns: 42px 12px minmax(0, 1fr); border-right: 0; }
   .slides-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
   .slides-toolbar { align-items: flex-start; }
   .toolbar-actions { width: auto; display: flex; flex-wrap: wrap; }

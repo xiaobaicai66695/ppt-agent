@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem } from '../types';
 import {
-  canonicalOutputFile, compactRuntimeEvents, deriveLiveActivity, mergeConversationMessages,
+  canonicalOutputFile, compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages,
   mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
   runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
   summarizeTaskTitle,
@@ -121,12 +121,32 @@ describe('workbench utilities', () => {
   it('labels compression as an observable before-after event', () => {
 	const event: RuntimeEvent = {
 	  id: 9, timestamp: '2026-08-05T00:00:09Z', elapsed_ms: 9000,
-	  kind: 'compression', name: 'context_compressor', status: 'ok',
+	  kind: 'planner_context_compressed', name: 'context_compressor', status: 'ok',
 	  metadata: { before_tokens: 42000, after_tokens: 11000, saved_pct: '73.8%' },
 	};
 	expect(runtimeEventKindLabel(event)).toBe('上下文压缩');
 	expect(runtimeEventNameLabel(event)).toBe('对话上下文');
 	expect(runtimeEventDetailLabel(event)).toContain('42,000 → 11,000');
+  });
+
+  it('derives observable steps with search query and source urls', () => {
+    const steps = deriveObservableSteps([{
+      id: 12,
+      timestamp: '2026-08-05T00:00:12Z',
+      elapsed_ms: 12000,
+      kind: 'tool_end',
+      name: 'search',
+      status: 'ok',
+      metadata: {
+        search_query: '延安 红色旅游 数据',
+        source_urls: ['https://www.yanan.gov.cn/a', 'https://example.com/b'],
+      },
+    }]);
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].label).toBe('搜索完成：延安 红色旅游 数据');
+    expect(steps[0].detail).toContain('2 个来源');
+    expect(steps[0].urls).toEqual(['https://www.yanan.gov.cn/a', 'https://example.com/b']);
   });
 
   it('escapes raw html while rendering markdown blocks', () => {

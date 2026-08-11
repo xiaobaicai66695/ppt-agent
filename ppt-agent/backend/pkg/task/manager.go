@@ -1033,7 +1033,11 @@ func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
 		phaseDetail = "正在写入 DeckSpec"
 	case event.ToolName == "search":
 		phase = "planning"
-		phaseDetail = "正在检索并核实资料"
+		if query := extractToolStringArg(event.ToolArgs, "query"); query != "" {
+			phaseDetail = "正在搜索：" + query
+		} else {
+			phaseDetail = "正在检索并核实资料"
+		}
 	case strings.Contains(detail, "tasks.json") || strings.Contains(detail, "TasksJSON"):
 		phase = "planning"
 		phaseDetail = "读取任务清单"
@@ -1053,6 +1057,15 @@ func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
 		Phase:       phase,
 		PhaseDetail: phaseDetail,
 	})
+}
+
+func extractToolStringArg(raw, key string) string {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return ""
+	}
+	value, _ := parsed[key].(string)
+	return strings.TrimSpace(value)
 }
 
 func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir string, onDeliveryComplete func(DeliverySnapshot)) {

@@ -22,7 +22,34 @@ const eventSummary = computed(() => {
   return summary;
 });
 
-const isCompression = computed(() => props.event.kind === 'compression');
+const isCompression = computed(() => props.event.kind === 'compression' || props.event.kind === 'planner_context_compressed');
+const sourceUrls = computed(() => (
+  Array.isArray(metadata.value.source_urls)
+    ? metadata.value.source_urls.map(item => String(item).trim()).filter(Boolean).slice(0, 5)
+    : []
+));
+const observationRows = computed(() => {
+  const rows: Array<{ label: string; value: string }> = [];
+  const fields: Array<[string, string]> = [
+    ['search_query', '搜索关键词'],
+    ['search_reason', '搜索原因'],
+    ['file_path', '读取文件'],
+    ['slide_count', '规划页数'],
+    ['template', '模板'],
+    ['theme', '配色'],
+    ['background', '背景'],
+    ['task_id', '页面任务'],
+    ['content_type', '页面类型'],
+    ['output_file', '输出文件'],
+  ];
+  for (const [key, label] of fields) {
+    const value = metadata.value[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      rows.push({ label, value: String(value).trim() });
+    }
+  }
+  return rows;
+});
 
 function metadataNumber(key: string): number {
   const value = Number(metadata.value[key] ?? 0);
@@ -205,6 +232,26 @@ function escapeHtml(value: string): string {
     <div v-if="loading" class="runtime-detail-state">正在加载完整事件...</div>
     <div v-else-if="error" class="runtime-detail-state error">{{ error }}</div>
 
+    <section v-if="observationRows.length || sourceUrls.length" class="runtime-detail-section observation-section">
+      <h4>观察摘要</h4>
+      <div v-if="observationRows.length" class="observation-grid">
+        <div v-for="row in observationRows" :key="row.label" class="observation-row">
+          <span>{{ row.label }}</span>
+          <strong>{{ row.value }}</strong>
+        </div>
+      </div>
+      <div v-if="sourceUrls.length" class="source-list">
+        <span>来源 URL</span>
+        <a
+          v-for="url in sourceUrls"
+          :key="url"
+          :href="url"
+          target="_blank"
+          rel="noreferrer"
+        >{{ url }}</a>
+      </div>
+    </section>
+
     <section v-if="isCompression" class="runtime-detail-section compression-section">
       <h4>压缩前后</h4>
       <div class="compression-diff">
@@ -383,6 +430,53 @@ function escapeHtml(value: string): string {
 }
 .metadata-section {
   border-top: 2px solid var(--divider);
+}
+.observation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  border-top: 1px solid var(--divider);
+}
+.observation-row {
+  min-width: 0;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+  border-right: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+}
+.observation-row span,
+.source-list > span {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+}
+.observation-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-list {
+  padding: 9px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--divider);
+}
+.source-list a {
+  max-width: 100%;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  color: var(--info);
+  background: var(--info-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .compression-diff { display: grid; }
 .compression-head,

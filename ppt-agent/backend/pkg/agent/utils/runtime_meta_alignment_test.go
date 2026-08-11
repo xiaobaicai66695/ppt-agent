@@ -157,6 +157,29 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetaExtractsObservableSearchAndManifestFields(t *testing.T) {
+	meta := NewRuntimeMeta("task-observe-fields", t.TempDir())
+	var events []RuntimeEvent
+	meta.SetEventSink(func(event RuntimeEvent) {
+		events = append(events, event)
+	})
+
+	meta.RecordToolStart("search", `{"query":"延安 红色旅游 数据","reason":"核实最新文旅资料"}`)
+	meta.RecordToolEnd("search", "", `{"results":[{"title":"延安市人民政府","url":"https://www.yanan.gov.cn/a"},{"title":"百科","url":"https://baike.baidu.com/b"}]}`)
+	meta.RecordToolStart("update_tasks_manifest", `{"template":"generic","theme":"government_red","background":"party_government","tasks":[{"task_id":"slide-1"},{"task_id":"slide-2"}]}`)
+
+	if events[0].Metadata["search_query"] != "延安 红色旅游 数据" || events[0].Metadata["search_reason"] != "核实最新文旅资料" {
+		t.Fatalf("search args were not extracted: %#v", events[0].Metadata)
+	}
+	urls, ok := events[1].Metadata["source_urls"].([]string)
+	if !ok || len(urls) != 2 || urls[0] != "https://www.yanan.gov.cn/a" {
+		t.Fatalf("search urls were not extracted: %#v", events[1].Metadata)
+	}
+	if events[2].Metadata["slide_count"] != 2 || events[2].Metadata["template"] != "generic" {
+		t.Fatalf("manifest fields were not extracted: %#v", events[2].Metadata)
+	}
+}
+
 func TestRuntimeMetaDeduplicatesManifestValidationAndUsesProgressStatus(t *testing.T) {
 	meta := NewRuntimeMeta("task-manifest", t.TempDir())
 	var events []RuntimeEvent

@@ -166,6 +166,16 @@ export interface LiveActivityInput {
   error?: string;
 }
 
+export interface ObservableRuntimeStep {
+  id: number;
+  label: string;
+  detail: string;
+  status: string;
+  elapsed_ms: number;
+  category: string;
+  urls: string[];
+}
+
 export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
   if (input.connectionInterrupted) {
     return { label: '正在恢复实时连接', detail: '任务仍在服务器继续执行', state: 'running' };
@@ -248,8 +258,8 @@ export function compactRuntimeEvents(events: RuntimeEvent[]): RuntimeEvent[] {
   for (const event of events) {
     const previous = compacted[compacted.length - 1];
     if (
-      event.kind === 'manifest_validated'
-      && previous?.kind === 'manifest_validated'
+      (event.kind === 'manifest_validated' || event.kind === 'deck_spec_validated')
+      && event.kind === previous?.kind
       && runtimeEventFingerprint(event) === runtimeEventFingerprint(previous)
     ) {
       continue;
@@ -262,18 +272,38 @@ export function compactRuntimeEvents(events: RuntimeEvent[]): RuntimeEvent[] {
 export function runtimeEventKindLabel(event: RuntimeEvent): string {
   const labels: Record<string, string> = {
     manifest_validated: '交付进度核对',
+    deck_spec_validated: 'DeckSpec 校验',
+    deck_spec_frozen: '页面计划冻结',
+    deck_spec_alignment: '计划对齐检查',
+    intent_classified: '意图分类',
     phase_changed: '阶段切换',
     slide_progress: '页面生成进度',
+    delivery_progress: '交付进度',
+    delivery_file_created: '文件已生成',
+    slide_render_start: '开始渲染页面',
+    slide_render_end: '页面渲染完成',
+    slide_render_error: '页面渲染失败',
     task_terminal: '任务结束',
     file_created: '文件已生成',
     compression: '上下文压缩',
+    planner_context_compressed: '上下文压缩',
+    llm_start: '模型调用开始',
+    llm_end: '模型调用完成',
+    llm_error: '模型调用失败',
+    tool_start: '工具调用开始',
+    tool_end: '工具调用完成',
+    tool_error: '工具调用失败',
   };
   return labels[event.kind] || event.kind;
 }
 
 export function runtimeEventNameLabel(event: RuntimeEvent): string {
-  if (event.kind === 'manifest_validated' && event.name === 'tasks.json') return 'PPT 页清单';
-  if (event.kind === 'compression') return '对话上下文';
+  if ((event.kind === 'manifest_validated' || event.kind === 'deck_spec_validated') && event.name === 'tasks.json') return 'PPT 页清单';
+  if (event.kind === 'compression' || event.kind === 'planner_context_compressed') return '对话上下文';
+  if (event.name === 'search') return '资料搜索';
+  if (event.name === 'read_file') return '读取文件';
+  if (event.name === 'update_tasks_manifest') return '写入 DeckSpec';
+  if (event.name === 'generate_slide') return '页面渲染器';
   return event.name || event.phase || '任务';
 }
 
@@ -291,8 +321,12 @@ export function runtimeEventStatusLabel(status?: string): string {
 
 export function runtimeEventDetailLabel(event: RuntimeEvent): string {
   if (event.detail) return event.detail;
-  if (event.kind === 'manifest_validated') return 'PPT 页清单状态已核对';
-  if (event.kind === 'compression') {
+  if (event.kind === 'manifest_validated' || event.kind === 'deck_spec_validated') return 'PPT 页清单状态已核对';
+  if (event.kind === 'deck_spec_frozen') {
+    const count = Number((event.metadata || {}).slides_count || (event.metadata || {}).slide_count || 0);
+    return count > 0 ? `已冻结 ${count} 页计划` : '页面计划已冻结';
+  }
+  if (event.kind === 'compression' || event.kind === 'planner_context_compressed') {
     const metadata = event.metadata || {};
     const before = Number(metadata.before_tokens || 0);
     const after = Number(metadata.after_tokens || 0);
@@ -300,7 +334,100 @@ export function runtimeEventDetailLabel(event: RuntimeEvent): string {
     if (before > 0 || after > 0) return `Token ${before.toLocaleString()} → ${after.toLocaleString()}${saved ? `，节省 ${saved}` : ''}`;
     return '用户要求已锚定，早期轨迹已压缩';
   }
+  if (event.name === 'search') {
+    const metadata = event.metadata || {};
+    const query = String(metadata.search_query || '').trim();
+    const urls = metadataArray(metadata.source_urls);
+    if (query && event.kind === 'tool_start') return `搜索关键词：${query}`;
+    if (query && urls.length > 0) return `搜索完成：${query}，${urls.length} 个来源`;
+    if (query) return `搜索关键词：${query}`;
+  }
+  if (event.name === 'update_tasks_manifest') {
+    const count = Number((event.metadata || {}).slide_count || 0);
+    return count > 0 ? `正在整理 ${count} 页 DeckSpec` : '正在整理 DeckSpec';
+  }
+  if (event.name === 'read_file') {
+    const path = String((event.metadata || {}).file_path || '').split(/[/\\]/).pop();
+    return path ? `读取 ${path}` : '读取项目文件';
+  }
   return '可展开查看详情';
+}
+
+export function deriveObservableSteps(events: RuntimeEvent[], limit = 6): ObservableRuntimeStep[] {
+  return events
+    .filter(isObservableEvent)
+    .slice(0, limit)
+    .map(event => {
+      const metadata = event.metadata || {};
+      return {
+        id: event.id,
+        label: observableEventLabel(event),
+        detail: runtimeEventDetailLabel(event),
+        status: event.status || 'ok',
+        elapsed_ms: event.elapsed_ms,
+        category: observableEventCategory(event),
+        urls: metadataArray(metadata.source_urls),
+      };
+    });
+}
+
+function isObservableEvent(event: RuntimeEvent): boolean {
+  const kind = (event.kind || '').toLowerCase();
+  const name = (event.name || '').toLowerCase();
+  return kind.includes('intent')
+    || kind.includes('phase')
+    || kind.includes('llm')
+    || kind.includes('tool')
+    || kind.includes('compress')
+    || kind.includes('deck_spec')
+    || kind.includes('delivery')
+    || kind.includes('slide_render')
+    || kind.includes('terminal')
+    || name === 'search'
+    || name === 'update_tasks_manifest'
+    || name === 'read_file'
+    || name === 'generate_slide';
+}
+
+function observableEventLabel(event: RuntimeEvent): string {
+  const kind = (event.kind || '').toLowerCase();
+  const name = (event.name || '').toLowerCase();
+  const metadata = event.metadata || {};
+  if (kind === 'intent_classified') return '已完成意图分类';
+  if (kind === 'llm_start') return 'Planner 正在规划';
+  if (kind === 'llm_end') return 'Planner 输出完成';
+  if (kind === 'llm_error') return 'Planner 调用失败';
+  if (kind === 'compression' || kind === 'planner_context_compressed') return '正在压缩上下文';
+  if (name === 'search') {
+    const query = String(metadata.search_query || '').trim();
+    if (kind === 'tool_start') return query ? `正在搜索：${query}` : '正在搜索资料';
+    return query ? `搜索完成：${query}` : '搜索完成';
+  }
+  if (name === 'update_tasks_manifest') return kind === 'tool_end' ? 'DeckSpec 已写入' : '正在写入 DeckSpec';
+  if (name === 'read_file') return '正在读取规范';
+  if (name === 'generate_slide' || kind.startsWith('slide_render')) return runtimeEventKindLabel(event);
+  if (kind === 'deck_spec_frozen') return '页面计划已冻结';
+  if (kind === 'deck_spec_validated') return '正在核对交付进度';
+  if (kind === 'delivery_file_created') return '检测到新文件';
+  if (kind === 'task_terminal') return '任务进入终态';
+  return runtimeEventKindLabel(event);
+}
+
+function observableEventCategory(event: RuntimeEvent): string {
+  const kind = (event.kind || '').toLowerCase();
+  const name = (event.name || '').toLowerCase();
+  if (kind.includes('error') || event.status === 'error' || event.status === 'failed') return 'error';
+  if (name === 'search') return 'search';
+  if (kind.includes('llm')) return 'planner';
+  if (kind.includes('compress')) return 'delivery';
+  if (kind.includes('slide_render') || name === 'generate_slide') return 'render';
+  if (kind.includes('delivery') || kind.includes('deck_spec') || name === 'update_tasks_manifest') return 'delivery';
+  return 'step';
+}
+
+function metadataArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => String(item).trim()).filter(Boolean).slice(0, 5);
 }
 
 function escapeHtml(value: string): string {
