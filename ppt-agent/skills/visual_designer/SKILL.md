@@ -93,14 +93,15 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 | 类型 | 推荐容量 | 超出时处理 |
 |------|----------|------------|
-| `content_slide` | 4-6 条 bullet，每条 25-35 中文字 | 拆成概述页 + 详解页，或改用 `deep_dive` |
-| `card_grid` | 4-6 张卡片，header 8-15 字，body 40-60 字 | 拆成两页卡片，或提炼为 4 张重点卡 |
-| `two_column` | 左右各 3-5 条，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
+| `content_slide` | 4-6 条 bullet，目标每条 35-60 字，可渲染上限 80 字 | 拆成概述页 + 详解页，或改用 `deep_dive` |
+| `card_grid` | 4-6 张卡片，header 6-16 字，body 目标 60-100 字 | 拆成两页卡片，或提炼为 4 张重点卡 |
+| `two_column` | 左右各 3-5 条，每条目标 30-55 字，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
+| `three_column` | 每栏 2-4 条，每条目标 24-45 字 | 改用 `card_grid` 或按主题拆页 |
 | `image_text` | 300-450 字自然段，不拆 bullet | 过长拆为两页图文叙事 |
 | `kpi_dashboard` | 固定最多 4 个 KPI | 多指标拆成多页或改 `chart_slide` |
 | `chart_slide` | 1 个主图表，1-3 个 dataset | 多图表拆页 |
 | `timeline` / `process_flow` | 4-6 个节点 | 超过 6 个拆页或按阶段聚合 |
-| `summary_slide` | 最多 4 条总结 | 合并相似结论 |
+| `summary_slide` | 3-5 条总结，每条目标 35-60 字 | 合并相似结论或拆出行动页 |
 
 ### 拆页判断
 
@@ -178,10 +179,10 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 ### 使用规则
 
-- 标题页、章节页、视觉冲击页、金句页、总结页：默认可使用背景图片。
-- 图文叙事页、内容要点页：可使用背景图片，但正文容量较高时仍优先保证可读性。
-- 图表、表格、KPI、强数据页：优先留空 `background`，使用干净背景。
-- 相邻视觉页尽量不要重复同一张具体背景图。
+- 用户或推荐策略启用背景时，整套 PPT 的每一页都应填写同一个背景主题下的图片引用。
+- 不要跨主题混用背景；同一套 PPT 中 `party_government`、`minimalist_blue` 等主题只能选择一个。
+- 相邻页面尽量不要重复同一张具体背景图；每个背景主题至少维护 4 张可轮换图片。
+- 图表、表格、KPI、强数据页也保留同主题背景，由 generator 使用局部面板、磨砂蒙版和内容区域对比度保证可读性。
 - 如果后端或模板已分配具体图片引用，原样保留。
 
 ### 可用背景主题
@@ -189,11 +190,15 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 | 主题标识 | 主题名称 | 适用场景 |
 |----------|----------|----------|
 | `party_government` | 党政办公 | 党建、政府汇报 |
-| `ink_wash_mountain` | 水墨山水 | 中国风、文艺 |
+| `minimalist_blue` | 商务科技蓝 | 商务、科技 |
+| `business_gradient` | 商务渐变 | 经营、咨询、投标 |
+| `ink_wash_mountain` | 彩墨山水 | 中国风、文艺 |
 | `vintage_chinese` | 复古中国风 | 传统文化 |
-| `minimalist_blue` | 简约蓝白 | 商务、科技 |
+| `education_warm` | 教育暖阳 | 课程、培训 |
+| `medical_clean` | 医疗清新 | 医疗、健康 |
+| `eco_nature` | 生态自然 | 环保、可持续 |
 | `snowy_mountain` | 雪山风景 | 自然、户外 |
-| `artistic` | 艺术涂鸦 | 艺术、创意、时尚 |
+| `artistic` | 艺术创意 | 艺术、创意、时尚 |
 
 ### 字段形式
 

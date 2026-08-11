@@ -167,7 +167,7 @@ generate_comparison_table(
 
 ### 背景图片（常态化执行）
 
-背景图片由任务规划阶段决定，用于强化封面、章节页、图文页、内容要点页和少量氛围页；图表页、表格页、KPI 页应优先保证留白、对比度和可读性。
+背景图片由任务规划阶段决定。启用背景时，整套 PPT 每页都会使用同一背景主题目录下的图片；图表页、表格页、KPI 页也必须原样传入 task.background，并由生成器的局部面板、磨砂蒙版和对比度规则保证可读性。
 
 task.background 非空时必须原样传给 `background` 参数。它可能是主题 id，也可能是主题内具体图片引用：
 
@@ -185,11 +185,15 @@ generate_title_slide(
 
 **可用背景主题：**
 - `party_government` - 党政办公
-- `minimalist_blue` - 简约蓝白（商务、科技）
-- `ink_wash_mountain` - 水墨山水（文艺、中国风）
+- `minimalist_blue` - 商务科技蓝（商务、科技）
+- `business_gradient` - 商务渐变（经营、咨询、投标）
+- `ink_wash_mountain` - 彩墨山水（文艺、中国风）
 - `vintage_chinese` - 复古中国风
+- `education_warm` - 教育暖阳（课程、培训）
+- `medical_clean` - 医疗清新（医疗、健康）
+- `eco_nature` - 生态自然（环保、可持续）
 - `snowy_mountain` - 雪山风景
-- `artistic` - 艺术涂鸦（创意、时尚）
+- `artistic` - 艺术创意（创意、时尚）
 
 **背景不得覆盖整套配色（重要！必须遵循）：**
 

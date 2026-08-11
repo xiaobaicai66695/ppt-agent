@@ -9,8 +9,8 @@
   "thumbnail": "/templates/thumbs/generic.jpg",
   "slide_count": 23,
   "background_options": {
-    "themes": ["", "party_government", "minimalist_blue", "ink_wash_mountain", "vintage_chinese", "snowy_mountain", "artistic"],
-    "labels": ["不使用背景", "党政办公", "简约蓝白", "水墨山水", "复古中国风", "雪山风景", "艺术涂鸦"]
+    "themes": ["", "party_government", "minimalist_blue", "business_gradient", "ink_wash_mountain", "vintage_chinese", "education_warm", "medical_clean", "eco_nature", "snowy_mountain", "artistic"],
+    "labels": ["不使用背景", "党政办公", "商务科技蓝", "商务渐变", "彩墨山水", "复古中国风", "教育暖阳", "医疗清新", "生态自然", "雪山风景", "艺术创意"]
   },
   "default_slides": [
     {"title": "封面页", "content_type": "title_slide", "description": "开场封面，标题简洁有力"},

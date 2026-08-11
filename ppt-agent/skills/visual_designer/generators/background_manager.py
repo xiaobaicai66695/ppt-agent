@@ -139,6 +139,9 @@ def validate_background_manifest(min_images_per_theme: int = 4) -> list[str]:
             errors.append(f"missing_palette:{theme_id}")
         for record in images:
             relative = str(record.get("path", ""))
+            filename = Path(relative).name
+            if not Path(filename).stem.isdigit():
+                errors.append(f"non_numeric_filename:{theme_id}:{relative}")
             target = _safe_background_path(relative)
             if not target or not target.is_file():
                 errors.append(f"missing:{theme_id}:{relative or '<empty>'}")

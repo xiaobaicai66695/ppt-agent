@@ -13,12 +13,12 @@ func TestMainAgentPromptDistinguishesTemplateScaffold(t *testing.T) {
 		Slides:        []SlideOutline{{Title: "模板示例", ContentType: "title_slide"}},
 	}
 	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
-	for _, want := range []string{"模板脚手架模式", "重写 title、description", "禁止再启动独立的“填充模板”阶段", "不自动添加背景", "原本为空的 background 必须继续为空", "theme=ocean_soft"} {
+	for _, want := range []string{"模板脚手架", "逐页围绕用户主题重写模板示例", "现有页数、顺序和 `content_type`", "theme=ocean_soft"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
-	for _, want := range []string{"update_tasks_manifest", "一次批量提交", "页面完成状态由后端根据输出文件自动更新"} {
+	for _, want := range []string{"update_tasks_manifest", "一次 `update_tasks_manifest", "页面完成状态由后端依据代码元数据维护"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing fast-loop contract %q", want)
 		}
@@ -36,7 +36,7 @@ func TestMainAgentPromptUsesOnlyRecommendedBackground(t *testing.T) {
 		Slides: []SlideOutline{{Title: "封面", ContentType: "title_slide"}},
 	}
 	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5)
-	for _, want := range []string{"仅使用 `party_government`", "只允许将该值补到", "不得选择其他背景", "不得根据 `party_government` 改写 `theme=charcoal_light`"} {
+	for _, want := range []string{"整套每页使用 `party_government` 同一主题目录", "`party_government` 是首选背景主题", "为每一页主动填写该主题或其具体图片引用", "`theme=charcoal_light` 是整套配色锚点"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
@@ -50,7 +50,7 @@ func TestMainAgentPromptPreservesPopulatedUserOutline(t *testing.T) {
 		Slides:      []SlideOutline{{Title: "用户标题", ContentType: "content_slide", Description: "用户内容"}},
 	}
 	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
-	for _, want := range []string{"用户大纲模式", "非空的 title、description、content_plan", "只对空字段"} {
+	for _, want := range []string{"用户大纲", "非空的 `title`、`description`、`content_plan`", "补齐空字段"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
@@ -60,9 +60,9 @@ func TestMainAgentPromptPreservesPopulatedUserOutline(t *testing.T) {
 func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *testing.T) {
 	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", nil, "介绍大兴安岭", false, 5)
 	for _, want := range []string{
-		"页面交付状态由后端代码维护",
-		"不要使用任何工具或额外模型轮次验证文件",
-		"任务管理器会在元数据达到 N/N 时自动完成交付",
+		"页面完成状态由后端依据代码元数据维护",
+		"根据代码元数据的 `done/total` 继续下一窗口",
+		"达到 N/N 后结束",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
@@ -71,6 +71,25 @@ func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *tes
 	for _, forbidden := range []string{"Reviewer", "Fixer", "QA 质检", "bash(command=", "文件落地确认"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("prompt still contains removed stage/tool %q", forbidden)
+		}
+	}
+}
+
+func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) {
+	outline := &TaskOutline{
+		Template: "research-report", Theme: "report_green", Title: "主题",
+		ContentMode: OutlineContentModeRecommendedStyle, SuggestedPageCount: 11,
+		UseBackground: true, RecommendedBackground: "snowy_mountain",
+	}
+	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5)
+	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "推荐背景：`snowy_mountain`", "重新设计叙事结构"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q", want)
+		}
+	}
+	for _, negativePatch := range []string{"禁止", "不得", "不要"} {
+		if strings.Contains(prompt, negativePatch) {
+			t.Fatalf("prompt should use positive decision contracts, found %q", negativePatch)
 		}
 	}
 }

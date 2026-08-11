@@ -57,7 +57,7 @@ from generators import (
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `contract.capacity` | object | 容量约束，例如 `max_items`、`max_chars_per_item`、`max_labels`、`density` |
+| `contract.capacity` | object | 容量契约；`target_*_min/max` 表示正常内容密度，`max_*` 表示生成器可渲染的安全上限，另可声明 `min_items`、`max_items`、`density` |
 | `contract.required_fields` | string[] | 生成器参数维度的必填字段，例如 `title`、`bullets`、`data` |
 | `contract.best_for` | string[] | 最适合的内容场景 |
 | `contract.avoid_for` | string[] | 应避免使用的内容场景 |
@@ -71,9 +71,9 @@ from generators import (
 
 ## 背景与素材策略
 
-- 标题页、章节分隔页、图文叙事页、金句页、总结页和视觉冲击页默认使用背景图，背景必须服务标题识别和主题氛围。
-- 任务规划阶段会优先写入主题内具体图片引用，以随机选择图片并避免同一主题相邻视觉页重复同一张图；若只收到主题名，生成器仍会随机解析该主题下的图片。
-- 信息密集页默认使用干净背景：`content_slide`、`card_grid`、`two_column`、`kpi_dashboard`、`chart_slide`、`comparison_table` 等不应默认叠复杂背景图。
+- 启用背景时，整套 PPT 每一页都应使用同一个背景主题目录下的图片，避免跨主题混用造成风格漂移。
+- 任务规划阶段会优先写入主题内具体图片引用，以随机选择图片并避免相邻页重复同一张图；若只收到主题名，生成器仍会解析该主题下的图片。
+- 信息密集页、图表页、KPI 页和表格页也保留同主题背景，由生成器通过局部信息面板、浅色磨砂蒙版和对比度控制保证可读性。
 - 所有图片背景都会在生成器内叠加浅色磨砂玻璃蒙版；不要在 Agent 代码里额外压暗图片、改写 palette 或手工叠遮罩。
 - 当前阶段优先使用本地图标、文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素。
 - 不默认使用外部图片搜索或生成式图片资产；确需真实照片、产品图、人物图时，应作为单独需求确认来源、授权和成本。
@@ -171,10 +171,10 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 |------|------|------|
 | title | str | `"深度学习发展历程"` |
 | section_header | str | `"核心机制"` (可选；必须是真实小标题，禁止 `{小节标题}` 等占位符) |
-| bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据", ...]` (4-6条，每条≤35中文字符) |
+| bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据，并为后续神经网络研究提供了可训练范式", ...]` (4-6条，目标每条35-60字，可渲染上限80字) |
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
 | lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
-| background | str | `"minimalist_blue/background.jpg"` (可选，内容要点页可使用背景，生成器会加局部玻璃面板保证正文可读) |
+| background | str | `"minimalist_blue/images/1.jpg"` (可选，内容要点页可使用背景，生成器会加局部玻璃面板保证正文可读) |
 
 #### generate_quote_slide — 金句/引言页
 | 参数 | 类型 | 示例 |
@@ -236,7 +236,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | title | str | `"六大核心能力"` |
 | layout | str | `"2x2"` 或 `"2x3"` 或 `"3x2"` |
 | layout_variant | str | `"equal_grid"`、`"featured_card_plus_grid"` 或 `"masonry_cards"` |
-| cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话..."}, ...]` ×4-8 (body 为 100-120 字) |
+| cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话，并结合企业知识库提供可追溯答案..."}, ...]` ×4-6 (body 目标60-100字，可渲染上限120字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |
 | background | str | `"artistic"` (可选，背景图片主题) |

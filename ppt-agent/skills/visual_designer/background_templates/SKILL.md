@@ -6,18 +6,24 @@
 
 `manifest.json` 是主题、场景、推荐 palette、图片路径、来源和许可的唯一元数据来源；`generators/background_manager.py` 只在 manifest 缺失时进行旧目录扫描。
 
+每个主题目录下的图片统一放在 `images/`，命名为数字文件名，例如 `1.jpg`、`2.jpg`。每类至少 4 张，可超过 4 张；图片内容必须与目录主题一致、同目录内风格相近，并避免黑白配色图片进入 manifest。
+
 ## 目录结构
 
 ```
 background_templates/
 ├── SKILL.md                    # 本文件
 ├── manifest.json               # 主题和图片元数据
-├── party_government/           # 党政办公 (5张)
-├── ink_wash_mountain/          # 水墨山水 (4张)
-├── vintage_chinese/            # 复古中国风 (4张)
-├── minimalist_blue/            # 简约蓝白 (4张)
-├── snowy_mountain/             # 雪山风景 (4张)
-└── artistic/                   # 艺术创意 (4张)
+├── party_government/           # 党政办公
+├── minimalist_blue/            # 商务科技蓝
+├── business_gradient/          # 商务渐变
+├── ink_wash_mountain/          # 彩墨山水
+├── vintage_chinese/            # 复古中国风
+├── education_warm/             # 教育暖阳
+├── medical_clean/              # 医疗清新
+├── eco_nature/                 # 生态自然
+├── snowy_mountain/             # 雪山风景
+└── artistic/                   # 艺术创意
 ```
 
 ## 主题说明
@@ -25,11 +31,15 @@ background_templates/
 | 主题标识 | 主题名称 | 适用场景 |
 |----------|----------|----------|
 | `party_government` | 党政办公 | 党建、政府汇报 |
-| `ink_wash_mountain` | 水墨山水 | 中国风、文艺 |
+| `minimalist_blue` | 商务科技蓝 | 商务、科技 |
+| `business_gradient` | 商务渐变 | 经营、咨询、投标 |
+| `ink_wash_mountain` | 彩墨山水 | 中国风、文艺 |
 | `vintage_chinese` | 复古中国风 | 传统文化 |
-| `minimalist_blue` | 简约蓝白 | 商务、科技 |
+| `education_warm` | 教育暖阳 | 课程、培训 |
+| `medical_clean` | 医疗清新 | 医疗、健康 |
+| `eco_nature` | 生态自然 | 环保、可持续 |
 | `snowy_mountain` | 雪山风景 | 自然、户外 |
-| `artistic` | 艺术涂鸦 | 艺术、创意、时尚 |
+| `artistic` | 艺术创意 | 艺术、创意、时尚 |
 
 ## 使用方式
 
@@ -47,8 +57,8 @@ background_templates/
      "options": [
        {"value": "", "label": "不使用背景"},
        {"value": "party_government", "label": "党政办公"},
-       {"value": "minimalist_blue", "label": "简约蓝白"},
-       {"value": "ink_wash_mountain", "label": "水墨山水"}
+       {"value": "minimalist_blue", "label": "商务科技蓝"},
+       {"value": "ink_wash_mountain", "label": "彩墨山水"}
      ]}
   ]
 }
@@ -63,8 +73,8 @@ background_templates/
   "name": "generic",
   "display_name": "通用模板",
   "background_options": {
-    "themes": ["", "party_government", "minimalist_blue"],
-    "labels": ["不使用背景", "党政办公", "简约蓝白"]
+    "themes": ["", "party_government", "minimalist_blue", "business_gradient"],
+    "labels": ["不使用背景", "党政办公", "商务科技蓝", "商务渐变"]
   },
   "default_slides": [...]
 }
@@ -92,7 +102,7 @@ get_background(scenario="党建汇报")
 }
 ```
 
-同一主题连续出现在多个视觉页时，必须随机选择图片，并避免相邻视觉页重复同一张。当前每个主题至少 4 张图片，规划阶段仍应写入具体图片引用以保证跨进程防重复。
+启用背景时，整套 PPT 必须使用同一个主题目录下的图片；不同页面可以在该目录内轮换具体图片，避免跨主题混用造成风格漂移。每个主题至少 4 张图片，规划阶段应尽量避免相邻页面重复。
 
 生成器仍兼容旧写法：
 
@@ -118,9 +128,9 @@ set_image_background(slide, bg_path, brightness=0.98)  # 明亮清晰
 
 添加新背景：
 
-1. 优先在 `scripts/sync_external_assets.py` 中登记原始页面、下载地址、作者和许可。
-2. 运行同步脚本，将图片归一化到 `<theme>/images/` 并重建 manifest。
-3. 运行背景 manifest 校验和代表性页面 smoke test。
+1. 确认图片内容与目录名一致、同目录内风格相近，不使用黑白配色图。
+2. 将图片归一化到 `<theme>/images/<数字>.jpg`，每类至少保留 4 张可用图片。
+3. 重建 manifest，并运行背景 manifest 校验和代表性页面 smoke test。
 
 ```powershell
 python scripts/sync_external_assets.py

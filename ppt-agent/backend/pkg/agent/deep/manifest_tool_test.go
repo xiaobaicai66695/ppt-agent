@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 	result, err := tool.InvokableRun(context.Background(), `{
 		"mode":"patch",
 		"tasks":[
-			{"task_id":"1","title":"两会工作报告","description":"概括年度目标","content_plan":{"summary":"年度目标","elements":[{"type":"bullet_list","items":["目标一","目标二"]}]}},
+			{"task_id":"1","title":"两会工作报告","description":"概括年度目标","layout_variant":"statement_cards","content_plan":{"summary":"年度目标","visual_intent":{"role":"cards","preferred_variant":"statement_cards"},"elements":[{"type":"bullet_list","items":["目标一","目标二"]}]}},
 			{"task_id":"2","title":"核心议程","description":"列出四项议程"}
 		]
 	}`)
@@ -43,6 +44,12 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 	}
 	if got.Tasks[0].ContentPlan == nil || len(got.Tasks[0].ContentPlan.Elements) != 1 {
 		t.Fatalf("content plan missing: %#v", got.Tasks[0].ContentPlan)
+	}
+	if got.Tasks[0].LayoutVariant != "statement_cards" {
+		t.Fatalf("layout_variant = %q", got.Tasks[0].LayoutVariant)
+	}
+	if got.Tasks[0].ContentPlan.VisualIntent == nil || got.Tasks[0].ContentPlan.VisualIntent.Role != "cards" {
+		t.Fatalf("visual intent missing: %#v", got.Tasks[0].ContentPlan.VisualIntent)
 	}
 	if got.Tasks[0].Status != StatusPending || got.Tasks[1].OutputFile != "2_agenda.pptx" {
 		t.Fatalf("runtime fields were not preserved: %#v", got.Tasks)
@@ -74,5 +81,254 @@ func TestManifestToolLeavesFileUnchangedOnInvalidPatch(t *testing.T) {
 	}
 	if string(after) != string(before) {
 		t.Fatalf("manifest changed after invalid patch\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
+func TestManifestToolPatchesOrderedTasksWithoutIDs(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &TasksManifest{
+		Title: "示例",
+		Tasks: []*TaskItem{
+			{TaskID: "slide-1", PageIndex: 1, Title: "封面", ContentType: "title_slide", Description: "旧描述", OutputFile: "1_cover.pptx", Status: StatusPending},
+			{TaskID: "slide-2", PageIndex: 2, Title: "内容", ContentType: "content_slide", Description: "旧描述", OutputFile: "2_content.pptx", Status: StatusPending},
+		},
+	}
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	tool := newManifestTool(workDir)
+	tasks := `[
+		{"background":"","content_plan":{"summary":"封面新规划"}},
+		{"background":"","content_plan":{"summary":"内容新规划"}}
+	]`
+	args := `{"mode":"patch","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].ContentPlan == nil || got.Tasks[0].ContentPlan.Summary != "封面新规划" {
+		t.Fatalf("first patch not applied: %#v", got.Tasks[0].ContentPlan)
+	}
+	if got.Tasks[1].ContentPlan == nil || got.Tasks[1].ContentPlan.Summary != "内容新规划" {
+		t.Fatalf("second patch not applied: %#v", got.Tasks[1].ContentPlan)
+	}
+}
+
+func TestManifestToolAcceptsTasksAsJSONArrayString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `[
+		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
+		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
+	]`
+	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 2 || got.Tasks[0].Title != "封面" || got.Tasks[1].ContentType != "agenda" {
+		t.Fatalf("unexpected manifest: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolAcceptsLooseTaskObjectString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
+		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}`
+	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
+		t.Fatalf("unexpected manifest: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolAcceptsTaskStringWithExtraDelimiters(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `[
+		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"}
+	]},
+	[
+		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
+	]}`
+	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
+		t.Fatalf("unexpected manifest: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolRecoversTasksFromWrappedArgumentString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `{
+		"mode":"initialize",
+		"title":"被错误嵌套的参数",
+		"tasks":[
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
+			{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
+		]
+	}}`
+	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
+		t.Fatalf("unexpected manifest: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolRecoversTaskStringWithTopLevelFieldFragments(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `[
+		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"}
+	],
+	"background":"minimalist_blue",
+	"content_plan":{"summary":"这个对象不是任务"},
+	[
+		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
+	]`
+	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
+		t.Fatalf("unexpected manifest: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolRecoversObservedMalformedTaskString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `[
+		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"核心信息"}}},
+		{"task_id":"2","page_index":2,"title":"未来展望","content_type":"content_slide","description":"介绍新疆在"一带一路"倡议下的发展机遇。","output_file":"2_future.pptx","status":"pending","content_plan":{"summary":"新疆是"一带一路"核心区。","elements":[{"type":"point","title":"发展机遇","text":["国际物流枢纽","清洁能源基地"],"description":["深化区域合作"]}]}}}
+	]}`
+	args := `{"mode":"initialize","title":"介绍新疆","theme":"ocean_soft","template":"product-intro","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 2 {
+		t.Fatalf("task count = %d, want 2", len(got.Tasks))
+	}
+	if got.Tasks[1].Description != `介绍新疆在"一带一路"倡议下的发展机遇。` {
+		t.Fatalf("description = %q", got.Tasks[1].Description)
+	}
+	element := got.Tasks[1].ContentPlan.Elements[0]
+	if element.Text != "国际物流枢纽\n清洁能源基地" || element.Description != "深化区域合作" {
+		t.Fatalf("element was not normalized: %#v", element)
+	}
+}
+
+func TestManifestToolDoesNotRecoverPartialTaskString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	tasks := `[{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},{"task_id":"2"`
+	args := `{"mode":"initialize","title":"示例","tasks":` + strconv.Quote(tasks) + `}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err == nil {
+		t.Fatal("expected truncated task string error")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
+		t.Fatalf("partial manifest should not be written, stat err=%v", err)
+	}
+}
+
+func TestManifestToolRejectsInvalidTasksString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+
+	if _, err := tool.InvokableRun(context.Background(), `{"mode":"initialize","title":"示例","tasks":"not-json"}`); err == nil {
+		t.Fatal("expected invalid tasks string error")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
+		t.Fatalf("manifest should not be written, stat err=%v", err)
+	}
+}
+
+func TestRecommendedManifestNormalizesEveryTaskToSameBackgroundTheme(t *testing.T) {
+	backgroundRoot := filepath.Join(t.TempDir(), "background_templates")
+	imageDir := filepath.Join(backgroundRoot, "minimalist_blue", "images")
+	if err := os.MkdirAll(imageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"1.jpg", "2.jpg", "3.jpg"} {
+		if err := os.WriteFile(filepath.Join(imageDir, name), []byte("image"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := &TasksManifest{Title: "推荐背景", Tasks: []*TaskItem{
+		{TaskID: "1", PageIndex: 1, ContentType: "title_slide"},
+		{TaskID: "2", PageIndex: 2, ContentType: "agenda"},
+		{TaskID: "3", PageIndex: 3, ContentType: "content_slide"},
+		{TaskID: "4", PageIndex: 4, ContentType: "section_divider"},
+		{TaskID: "5", PageIndex: 5, ContentType: "card_grid"},
+		{TaskID: "6", PageIndex: 6, ContentType: "image_text"},
+		{TaskID: "7", PageIndex: 7, ContentType: "chart_slide"},
+		{TaskID: "8", PageIndex: 8, ContentType: "kpi_dashboard"},
+		{TaskID: "9", PageIndex: 9, ContentType: "summary_slide"},
+		{TaskID: "10", PageIndex: 10, ContentType: "comparison_table", Background: "missing/images/1.jpg"},
+		{TaskID: "11", PageIndex: 11, ContentType: "content_slide", Background: "minimalist_blue/images/2.jpg"},
+	}}
+	tool := &manifestTool{
+		backgroundRoot: backgroundRoot, recommendedBackground: "minimalist_blue", normalizeBackgrounds: true,
+	}
+	if err := tool.normalizeManifestBackgrounds(manifest); err != nil {
+		t.Fatal(err)
+	}
+	previous := ""
+	for _, item := range manifest.Tasks {
+		if item.Background == "" {
+			t.Fatalf("task %q missing background", item.TaskID)
+		}
+		if !tool.validBackgroundReference(item.Background) {
+			t.Fatalf("invalid background remained: %q", item.Background)
+		}
+		if backgroundTheme(item.Background) != "minimalist_blue" {
+			t.Fatalf("background = %q, want minimalist_blue theme", item.Background)
+		}
+		if previous == item.Background {
+			t.Fatalf("adjacent assigned backgrounds repeated: %q", item.Background)
+		}
+		previous = item.Background
 	}
 }

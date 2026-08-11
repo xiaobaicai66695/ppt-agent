@@ -142,6 +142,20 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	taskID := s.taskIDGen()
 	cfg := s.makeTaskConfig(taskID)
 	cfg.Query = req.Query
+	uid := userIDGin(c)
+
+	// 推荐模式需要先拿到结构化意图结果，模板选择与 TaskManager 共用这一次分类。
+	if req.Outline == nil && req.TemplateSelection != nil && strings.EqualFold(strings.TrimSpace(req.TemplateSelection.Mode), "recommended") {
+		routingCtx, cancel := context.WithTimeout(c.Request.Context(),
+			time.Duration(agentutils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 12))*time.Second)
+		intentCfg, err := deep.ProcessUserIntent(routingCtx, req.Query, uid)
+		cancel()
+		if err != nil {
+			logger.Warn("template_recommendation_intent_failed", "error", err.Error())
+		} else if intentCfg != nil {
+			mergeIntentTaskConfig(cfg, intentCfg)
+		}
+	}
 
 	// 如果有 outline，先做服务端兜底校验/补齐，再写入 tasks.json。
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
@@ -152,7 +166,7 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		}
 		cfg.Outline = outline
 	} else if req.TemplateSelection != nil {
-		outline, _, err := s.resolveTemplateSelection(req.Query, req.TemplateSelection)
+		outline, _, err := s.resolveTemplateSelectionWithIntent(req.Query, req.TemplateSelection, cfg.IntentResult)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "模板选择失败: " + err.Error()})
 			return
@@ -160,7 +174,6 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		cfg.Outline = outline
 	}
 
-	uid := userIDGin(c)
 	// 用户偏好由意图识别后的 domain-aware 路径统一注入，避免在未知领域时提前强绑定历史风格。
 
 	info, err := s.tasks.CreateTask(c.Request.Context(), req.Query, uid, s.agentFactory, cfg)
@@ -178,6 +191,23 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	sess.AddUserMessage(req.Query)
 
 	c.JSON(http.StatusCreated, info)
+}
+
+func mergeIntentTaskConfig(target, source *deep.PPTTaskConfig) {
+	if target == nil || source == nil {
+		return
+	}
+	target.UserID = source.UserID
+	target.IntentResult = source.IntentResult
+	target.RoutingDecision = source.RoutingDecision
+	target.EnhancedProfile = source.EnhancedProfile
+	if strings.TrimSpace(source.StyleContext) != "" {
+		if strings.TrimSpace(target.StyleContext) != "" {
+			target.StyleContext += "\n" + source.StyleContext
+		} else {
+			target.StyleContext = source.StyleContext
+		}
+	}
 }
 
 func (s *Server) handleGetTask(c *gin.Context) {
@@ -327,6 +357,10 @@ func (s *Server) handleBackgroundPreview(c *gin.Context) {
 				c.File(previewPath)
 				return
 			}
+			if refs := s.backgroundImageRefs(name); len(refs) > 0 {
+				c.File(filepath.Join(s.templateLoader.GetBackgroundTemplatesDir(), filepath.FromSlash(refs[0])))
+				return
+			}
 			c.JSON(http.StatusNotFound, gin.H{"error": "preview not found"})
 			return
 		}
@@ -382,7 +416,7 @@ func (s *Server) handleAIExpand(c *gin.Context) {
 5. 中文输出
 6. 描述应该包含该页面的具体内容要点，供AI直接使用生成PPT内容
 
-只返回内容描述，不要返回其他信息。字数严格遵守容量要求。`, req.Title, layoutName, req.Description, themeName, layoutDescriptionTarget(req.ContentType), layoutName)
+输出只包含内容描述。容量要求表示正常信息密度目标，可根据事实完整性在可渲染范围内适度调整。`, req.Title, layoutName, req.Description, themeName, layoutDescriptionTarget(req.ContentType), layoutName)
 
 	resp, err := model.Generate(ctx, []*schema.Message{
 		schema.UserMessage(prompt),
@@ -534,15 +568,23 @@ func layoutDescriptionTarget(contentType string) string {
 	case "title_slide", "section_divider":
 		return "40-80字，给标题、副标题、讲述角度，不写长段落"
 	case "content_slide":
-		return "80-140字，拆成3-5条要点，每条不超过35字"
-	case "two_column", "three_column", "card_grid", "process_flow", "summary_slide":
-		return "100-180字，拆成短标题和短说明，严格控制单项长度"
+		return "4-6条要点，每条目标35-60字，事实、解释和结论组合完整"
+	case "two_column":
+		return "左右各3-5条，每条目标30-55字，体现可比较的共同维度"
+	case "three_column":
+		return "每栏2-4条，每条目标24-45字，三栏粒度保持一致"
+	case "card_grid":
+		return "4-6张卡片，header 6-16字，body目标60-100字"
+	case "process_flow":
+		return "4-6个步骤，每步包含动作、对象和结果"
+	case "summary_slide":
+		return "3-5条总结，每条目标35-60字，可附行动建议或展望"
 	case "kpi_dashboard", "stat_slide", "chart_slide", "comparison_table":
 		return "120-220字，必须包含可结构化的数据、指标、分类或表格字段"
 	case "image_text", "case_study", "example_detail", "deep_dive":
 		return "180-320字，允许稍长，但必须分清段落、案例、数据和结论"
 	case "quote_slide":
-		return "60-120字，必须包含 quote、attribution、kicker 字段含义"
+		return "quote目标35-110字，attribution目标8-32字，保留完整观点与出处"
 	default:
 		return "100-180字，内容密度匹配页面容量"
 	}
@@ -581,13 +623,13 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
 ## 配色方案
 %s
 
-## 可用背景主题（background 只能从以下 id 中选择；如果页面不适合图片背景，可沿用空值）
+## 可用背景主题
 %s
 
 ## 页面结构
 %s
 
-## 输出格式（严格返回JSON，不要任何解释）
+## 输出格式
 {
   "slides": [
     {
@@ -605,14 +647,14 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
   ]
 }
 
-## 强制要求
-- 返回 slides 数量必须与页面结构数量一致，顺序也必须一致
-- content_type 必须原样使用页面结构中的英文 id，禁止改成中文显示名或新名字
-- background 只能使用可用背景主题中的 id；信息密集页可以留空，封面/章节页优先选择合适背景
-- description 长度必须遵守每页容量要求，禁止统一生成300-400字长段落
-- content_plan 要为后续生成器提供结构化字段：bullet_list、numbered_list、key_point_card、table、chart_placeholder、callout、quote 等
-- 每页至少包含一个具体实体、数据、场景或案例；确需真实数据时写明需要搜索的数据项和来源方向
-- 只输出JSON`, query, themeName, s.backgroundCatalog(), slideContexts.String())
+## 生成契约
+- slides 数量和顺序与页面结构保持一致。
+- content_type 使用页面结构中的稳定英文 id。
+- background 从可用背景 id 中选择；视觉叙事页优先，数据密集页使用清晰信息表面。
+- description 以各页容量目标为正常密度，内容完整性与版式容量共同决定最终长度。
+- content_plan 使用 bullet_list、numbered_list、key_point_card、table、chart_placeholder、callout、quote 等结构化字段。
+- 每页包含具体实体、数据、场景或案例；真实数据明确搜索项和来源方向。
+- 输出为一个 JSON 对象。`, query, themeName, s.backgroundCatalog(), slideContexts.String())
 
 	resp, err := model.Generate(ctx, []*schema.Message{
 		schema.UserMessage(prompt),
@@ -1427,8 +1469,9 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 
 	ts := s.tasks.GetTaskState(taskID)
 
-	// 任务在内存中，直接返回实时会话数据（包含累计的 full_answer）。
-	if ts != nil {
+	// 只有运行中的任务需要读取内存态实时会话。终态任务即使仍暂存在内存
+	// map 中，也走持久化快照，避免被收尾 goroutine 的 TaskState.Mu 牵住。
+	if ts != nil && ts.Info.Status == task.TaskStatusRunning {
 		fullAnswer := ts.FullAnswer()
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 		snapshot := sess.Snapshot()

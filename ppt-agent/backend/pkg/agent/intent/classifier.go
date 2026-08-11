@@ -124,17 +124,20 @@ func normalizeLLMClassification(result *ClassificationResult) *ClassificationRes
 }
 
 func fallbackClassification(reason string) *ClassificationResult {
+	useBackground := true
 	return &ClassificationResult{
-		Intent:             IntentCreate,
-		IntentReasoning:    "模型路由不可用，使用固定的深度生成流程：" + truncate(reason, 160),
-		Domain:             DomainUnknown,
-		Complexity:         Complexity{Level: 5, TopicComplexity: 5, PageCountEstimate: 12},
-		Confidence:         0,
-		SuggestedPageCount: 12,
-		AgentType:          "deep",
-		Pipeline:           []string{"plan", "generate"},
-		Concurrency:        5,
-		RoutingSource:      "fallback",
+		Intent:              IntentCreate,
+		IntentReasoning:     "模型路由不可用，使用固定的深度生成流程：" + truncate(reason, 160),
+		Domain:              DomainUnknown,
+		Complexity:          Complexity{Level: 5, TopicComplexity: 5, PageCountEstimate: 12},
+		Confidence:          0,
+		SuggestedPageCount:  12,
+		SuggestedBackground: "minimalist_blue",
+		UseBackground:       &useBackground,
+		AgentType:           "deep",
+		Pipeline:            []string{"plan", "generate"},
+		Concurrency:         5,
+		RoutingSource:       "fallback",
 	}
 }
 
@@ -554,13 +557,20 @@ func (c *Classifier) suggestActions(intent Intent, complexity Complexity) []stri
 	}
 }
 
-const routingSystemPrompt = `你是 PPT Agent 的任务路由器。直接理解用户请求，不使用关键词规则，返回一次完整的意图与执行路由决策。
+const routingSystemPrompt = `你是 PPT Agent 的任务路由器。请基于用户请求的完整语义，返回一次完整的意图、执行路由和视觉推荐决策。
 
 当前新建 PPT 任务只有 deep Agent 是可执行的首次生成 Agent；因此 agent_type 必须为 deep，pipeline 必须为 ["plan", "generate"]。QA 和自动修复已停用。
 
 意图类型：create、edit、extend、regenerate、customize、query、continue。
 领域类型：business、technical、academic、government、personal、creative、unknown。
 复杂度为 1-10；预估页数必须大于 0；并发数为 1-10，普通任务建议 5。
+
+视觉推荐从以下合法 id 中选择：
+- template：tech-intro、tech-sharing、product-launch、weekly-report、pitch-deck、course-module、current-affairs、politics-ideology、design-defense、innovation-compete、research-report、activity-plan、personal-summary、short-class-talk、meeting-minutes、product-intro、training-course、project-proposal、generic
+- theme：government_red、patriotic_blue、debate_purple、civic_gold、activity_orange、report_green、simple_gray、ocean_soft、sage_calm、warm_terracotta、charcoal_light、berry_cream、lavender_mist、medical_blue、finance_gold、education_blue
+- background：party_government、minimalist_blue、business_gradient、ink_wash_mountain、vintage_chinese、education_warm、medical_clean、eco_nature、snowy_mountain、artistic
+
+结合主题、受众、信息密度和视觉气质给出首选 template、theme、background。use_background 表示整套演示是否使用同一个背景主题；用户明确要求纯色或无背景时设为 false，其他场景优先设为 true。启用背景时，整套 PPT 必须只使用同一 background id 下的图片，不跨目录混用。
 
 只返回 JSON，不要返回 Markdown：
 {
@@ -572,23 +582,27 @@ const routingSystemPrompt = `你是 PPT Agent 的任务路由器。直接理解�
   "confidence": 0.9,
   "suggested_theme": "",
   "suggested_templates": [],
+  "suggested_background": "minimalist_blue",
+  "use_background": true,
   "agent_type": "deep",
   "pipeline": ["plan", "generate"],
   "concurrency": 5
 }`
 
 type llmRoutingResult struct {
-	Intent             string   `json:"intent"`
-	IntentReasoning    string   `json:"intent_reasoning"`
-	Domain             string   `json:"domain"`
-	ComplexityLevel    int      `json:"complexity_level"`
-	PageCountEstimate  int      `json:"page_count_estimate"`
-	Confidence         float64  `json:"confidence"`
-	SuggestedTheme     string   `json:"suggested_theme"`
-	SuggestedTemplates []string `json:"suggested_templates"`
-	AgentType          string   `json:"agent_type"`
-	Pipeline           []string `json:"pipeline"`
-	Concurrency        int      `json:"concurrency"`
+	Intent              string   `json:"intent"`
+	IntentReasoning     string   `json:"intent_reasoning"`
+	Domain              string   `json:"domain"`
+	ComplexityLevel     int      `json:"complexity_level"`
+	PageCountEstimate   int      `json:"page_count_estimate"`
+	Confidence          float64  `json:"confidence"`
+	SuggestedTheme      string   `json:"suggested_theme"`
+	SuggestedTemplates  []string `json:"suggested_templates"`
+	SuggestedBackground string   `json:"suggested_background"`
+	UseBackground       *bool    `json:"use_background"`
+	AgentType           string   `json:"agent_type"`
+	Pipeline            []string `json:"pipeline"`
+	Concurrency         int      `json:"concurrency"`
 }
 
 func classificationFromLLM(raw llmRoutingResult) *ClassificationResult {
@@ -600,12 +614,14 @@ func classificationFromLLM(raw llmRoutingResult) *ClassificationResult {
 			Level:             raw.ComplexityLevel,
 			PageCountEstimate: raw.PageCountEstimate,
 		},
-		Confidence:         raw.Confidence,
-		SuggestedTheme:     raw.SuggestedTheme,
-		SuggestedTemplates: raw.SuggestedTemplates,
-		AgentType:          raw.AgentType,
-		Pipeline:           raw.Pipeline,
-		Concurrency:        raw.Concurrency,
+		Confidence:          raw.Confidence,
+		SuggestedTheme:      raw.SuggestedTheme,
+		SuggestedTemplates:  raw.SuggestedTemplates,
+		SuggestedBackground: raw.SuggestedBackground,
+		UseBackground:       raw.UseBackground,
+		AgentType:           raw.AgentType,
+		Pipeline:            raw.Pipeline,
+		Concurrency:         raw.Concurrency,
 	}
 }
 

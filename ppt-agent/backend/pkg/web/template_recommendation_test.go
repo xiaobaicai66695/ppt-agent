@@ -3,9 +3,11 @@ package web
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deep"
+	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
@@ -29,7 +31,14 @@ func testTemplateServer(t *testing.T) *Server {
 
 func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	server := testTemplateServer(t)
-	strategy, preset, err := server.recommendTemplateStrategy("制作新能源汽车行业市场调研和可行性研究报告")
+	useBackground := true
+	intent := &agentintent.ClassificationResult{
+		IntentReasoning:    "行业研究需要数据驱动的叙事结构",
+		SuggestedTemplates: []string{"missing", "research-report"},
+		SuggestedTheme:     "report_green", SuggestedBackground: "minimalist_blue",
+		SuggestedPageCount: 13, UseBackground: &useBackground,
+	}
+	strategy, preset, err := server.recommendTemplateStrategyWithIntent(intent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +50,9 @@ func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	}
 	if _, err := server.getTheme(strategy.Theme); err != nil {
 		t.Fatalf("recommended missing theme %q", strategy.Theme)
+	}
+	if strategy.PageCount != 13 || strategy.Background != "minimalist_blue" {
+		t.Fatalf("recommendation did not reuse LLM result: %#v", strategy)
 	}
 }
 
@@ -55,21 +67,118 @@ func TestRecommendTemplateStrategyFallsBackToGeneric(t *testing.T) {
 	}
 }
 
-func TestRecommendationAppliesBackgroundOnlyToVisualPages(t *testing.T) {
+func TestRecommendationProducesStyleGuidanceWithoutPresetSlides(t *testing.T) {
 	server := testTemplateServer(t)
-	outline, strategy, err := server.resolveTemplateSelection("中国风传统文化主题分享", &TemplateSelection{Mode: "recommended"})
+	useBackground := true
+	intent := &agentintent.ClassificationResult{
+		SuggestedTemplates: []string{"course-module"}, SuggestedTheme: "sage_calm",
+		SuggestedBackground: "vintage_chinese", SuggestedPageCount: 9, UseBackground: &useBackground,
+	}
+	outline, strategy, err := server.resolveTemplateSelectionWithIntent("中国风传统文化主题分享", &TemplateSelection{Mode: "recommended"}, intent)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strategy.UseBackground || strategy.Background == "" {
 		t.Fatalf("strategy = %#v, want background", strategy)
 	}
+	if outline.ContentMode != deep.OutlineContentModeRecommendedStyle || len(outline.Slides) != 0 {
+		t.Fatalf("recommended outline copied preset slides: %#v", outline)
+	}
+	if outline.SuggestedPageCount != 9 || outline.Template != "course-module" || outline.Theme != "sage_calm" {
+		t.Fatalf("recommended style guidance = %#v", outline)
+	}
+}
+
+func TestRecommendationUsesExplicitUserPageCountBeforeLLMSuggestion(t *testing.T) {
+	server := testTemplateServer(t)
+	useBackground := true
+	intent := &agentintent.ClassificationResult{
+		SuggestedTemplates: []string{"generic"}, SuggestedTheme: "ocean_soft",
+		SuggestedPageCount: 5, UseBackground: &useBackground,
+	}
+
+	outline, strategy, err := server.resolveTemplateSelectionWithIntent(
+		"请生成2页关于绿色数据中心节能实践的PPT", &TemplateSelection{Mode: "recommended"}, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strategy.PageCount != 2 || outline.SuggestedPageCount != 2 {
+		t.Fatalf("explicit page count was not preserved: strategy=%#v outline=%#v", strategy, outline)
+	}
+}
+
+func TestExplicitPageCountDoesNotTreatPageReferenceAsDeckSize(t *testing.T) {
+	if pageCount, ok := explicitRequestedPageCount("修改第3页的数据，并保持原有页数"); ok {
+		t.Fatalf("page reference was treated as deck size: %d", pageCount)
+	}
+	if pageCount, ok := explicitRequestedPageCount("Create a 7-slide presentation about renewable energy"); !ok || pageCount != 7 {
+		t.Fatalf("english page count = %d, %v", pageCount, ok)
+	}
+}
+
+func TestPresetSelectionAssignsBackgroundToEverySlide(t *testing.T) {
+	server := testTemplateServer(t)
+	outline, _, err := server.resolveTemplateSelection("说明一些尚未分类的新想法", &TemplateSelection{Mode: "preset", Template: "generic"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, slide := range outline.Slides {
-		if isVisualBackgroundPage(slide.ContentType) && slide.Background == "" {
-			t.Fatalf("visual slide %q has no background", slide.ContentType)
+		if slide.Background == "" {
+			t.Fatalf("slide %q should receive a background", slide.ContentType)
 		}
-		if !isVisualBackgroundPage(slide.ContentType) && slide.Background == strategy.Background {
-			t.Fatalf("dense slide %q received recommended background", slide.ContentType)
+		if backgroundTheme(slide.Background) != outline.RecommendedBackground {
+			t.Fatalf("slide background = %q, want theme %q", slide.Background, outline.RecommendedBackground)
+		}
+	}
+}
+
+func TestRecommendationAvoidsAdjacentDuplicateBackgroundImages(t *testing.T) {
+	server := testTemplateServer(t)
+	outline, strategy, err := server.resolveTemplateSelection("党建政府工作汇报", &TemplateSelection{Mode: "preset", Template: "generic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strategy.Background != "party_government" {
+		t.Fatalf("background = %q, want party_government", strategy.Background)
+	}
+	previous := ""
+	for _, slide := range outline.Slides {
+		if !strings.HasPrefix(slide.Background, "party_government/") {
+			t.Fatalf("slide background = %q, want concrete party_government image ref", slide.Background)
+		}
+		if previous != "" && backgroundTheme(previous) == backgroundTheme(slide.Background) && previous == slide.Background {
+			t.Fatalf("adjacent visual backgrounds repeated: %q", slide.Background)
+		}
+		previous = slide.Background
+	}
+}
+
+func TestPresetSelectionUsesDefaultBackgroundUnlessSuppressed(t *testing.T) {
+	server := testTemplateServer(t)
+	outline, strategy, err := server.resolveTemplateSelection("说明一些尚未分类的新想法", &TemplateSelection{Mode: "preset", Template: "generic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strategy.UseBackground || strategy.Background != "minimalist_blue" {
+		t.Fatalf("strategy = %#v, want default minimalist background", strategy)
+	}
+	if outline.Slides[0].Background == "" {
+		t.Fatal("expected title slide to receive background")
+	}
+}
+
+func TestPresetSelectionCanSuppressBackground(t *testing.T) {
+	server := testTemplateServer(t)
+	outline, strategy, err := server.resolveTemplateSelection("说明一些尚未分类的新想法，不要背景", &TemplateSelection{Mode: "preset", Template: "generic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strategy.UseBackground {
+		t.Fatalf("strategy = %#v, want background suppressed", strategy)
+	}
+	for _, slide := range outline.Slides {
+		if slide.Background != "" {
+			t.Fatalf("slide %q unexpectedly has background %q", slide.ContentType, slide.Background)
 		}
 	}
 }

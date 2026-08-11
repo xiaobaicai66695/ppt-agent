@@ -95,6 +95,16 @@ type BackgroundThemeInfo struct {
 	PreviewPath string   `json:"preview_path"`
 }
 
+type backgroundManifest struct {
+	Themes []struct {
+		ID          string   `json:"id"`
+		NameCN      string   `json:"name_cn"`
+		Description string   `json:"description"`
+		Scenarios   []string `json:"scenarios"`
+		Priority    int      `json:"priority"`
+	} `json:"themes"`
+}
+
 // Loader 模板加载器
 type Loader struct {
 	presetsDir     string
@@ -256,6 +266,9 @@ func (l *Loader) GetBackgroundTemplatesDir() string {
 }
 
 func (l *Loader) loadBackgrounds() []BackgroundThemeInfo {
+	if backgrounds := l.loadManifestBackgrounds(); len(backgrounds) > 0 {
+		return backgrounds
+	}
 	themes := []struct {
 		Name        string
 		DisplayName string
@@ -270,14 +283,14 @@ func (l *Loader) loadBackgrounds() []BackgroundThemeInfo {
 		},
 		{
 			Name:        "minimalist_blue",
-			DisplayName: "简约蓝白",
-			Description: "简洁现代的蓝白配色，适合商务、科技、产品演示",
+			DisplayName: "商务科技蓝",
+			Description: "蓝青色现代科技风格，适合商务、科技、产品演示",
 			Scenarios:   []string{"商务", "企业", "科技", "现代", "简约", "专业", "会议", "方案", "产品"},
 		},
 		{
 			Name:        "ink_wash_mountain",
-			DisplayName: "水墨山水",
-			Description: "水墨画风格，清雅脱俗，适合文化艺术类演示",
+			DisplayName: "彩墨山水",
+			Description: "青绿彩墨山水风格，适合文化艺术类演示",
 			Scenarios:   []string{"水墨", "山水", "艺术", "自然", "中国风", "文艺"},
 		},
 		{
@@ -298,6 +311,30 @@ func (l *Loader) loadBackgrounds() []BackgroundThemeInfo {
 			Description: "充满创意的艺术风格，适合时尚、创意类展示",
 			Scenarios:   []string{"艺术", "创意", "涂鸦", "个性", "时尚", "现代艺术"},
 		},
+		{
+			Name:        "business_gradient",
+			DisplayName: "商务渐变",
+			Description: "企业级蓝紫渐变与几何光带，适合方案汇报、经营分析、投标材料",
+			Scenarios:   []string{"商务", "企业", "经营", "管理", "咨询", "投标", "汇报"},
+		},
+		{
+			Name:        "education_warm",
+			DisplayName: "教育暖阳",
+			Description: "暖色知识卡片和学习氛围，适合课程、培训、教学和校园主题",
+			Scenarios:   []string{"教育", "课程", "培训", "教学", "学习", "校园", "课件"},
+		},
+		{
+			Name:        "medical_clean",
+			DisplayName: "医疗清新",
+			Description: "薄荷绿、青蓝和珊瑚点缀的清洁医疗风格，适合健康、医院和科普",
+			Scenarios:   []string{"医疗", "健康", "医院", "护理", "医药", "科普", "生命科学"},
+		},
+		{
+			Name:        "eco_nature",
+			DisplayName: "生态自然",
+			Description: "绿色生态、叶片和自然光感，适合环保、可持续发展和农业能源主题",
+			Scenarios:   []string{"生态", "环保", "绿色", "可持续", "农业", "能源", "自然"},
+		},
 	}
 	var result []BackgroundThemeInfo
 	for _, t := range themes {
@@ -310,4 +347,51 @@ func (l *Loader) loadBackgrounds() []BackgroundThemeInfo {
 		})
 	}
 	return result
+}
+
+func (l *Loader) loadManifestBackgrounds() []BackgroundThemeInfo {
+	data, err := os.ReadFile(filepath.Join(l.bgTemplatesDir, "manifest.json"))
+	if err != nil {
+		return nil
+	}
+	var manifest backgroundManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil
+	}
+	type rankedBackground struct {
+		BackgroundThemeInfo
+		priority int
+	}
+	var ranked []rankedBackground
+	for _, theme := range manifest.Themes {
+		name := strings.TrimSpace(theme.ID)
+		if name == "" {
+			continue
+		}
+		displayName := strings.TrimSpace(theme.NameCN)
+		if displayName == "" {
+			displayName = name
+		}
+		ranked = append(ranked, rankedBackground{
+			BackgroundThemeInfo: BackgroundThemeInfo{
+				Name:        name,
+				DisplayName: displayName,
+				Description: strings.TrimSpace(theme.Description),
+				Scenarios:   theme.Scenarios,
+				PreviewPath: "/api/backgrounds/" + name + "/preview",
+			},
+			priority: theme.Priority,
+		})
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].priority == ranked[j].priority {
+			return ranked[i].Name < ranked[j].Name
+		}
+		return ranked[i].priority > ranked[j].priority
+	})
+	backgrounds := make([]BackgroundThemeInfo, 0, len(ranked))
+	for _, item := range ranked {
+		backgrounds = append(backgrounds, item.BackgroundThemeInfo)
+	}
+	return backgrounds
 }
