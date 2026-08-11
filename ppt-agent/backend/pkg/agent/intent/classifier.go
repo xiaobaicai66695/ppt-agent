@@ -127,7 +127,7 @@ func fallbackClassification(reason string) *ClassificationResult {
 	useBackground := true
 	return &ClassificationResult{
 		Intent:              IntentCreate,
-		IntentReasoning:     "模型路由不可用，使用固定的深度生成流程：" + truncate(reason, 160),
+		IntentReasoning:     "模型路由不可用，使用固定的 Planner 生成流程：" + truncate(reason, 160),
 		Domain:              DomainUnknown,
 		Complexity:          Complexity{Level: 5, TopicComplexity: 5, PageCountEstimate: 12},
 		Confidence:          0,

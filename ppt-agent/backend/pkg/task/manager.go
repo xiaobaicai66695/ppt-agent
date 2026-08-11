@@ -481,7 +481,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	// 如果配置中没有意图结果，进行意图识别
 	if cfg.IntentResult == nil {
 		routingCtx, cancelRouting := context.WithTimeout(ctx,
-			time.Duration(utils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 12))*time.Second)
+			time.Duration(utils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 30))*time.Second)
 		intentCfg, err := deck.ProcessUserIntent(routingCtx, query, userID)
 		cancelRouting()
 		if err != nil {

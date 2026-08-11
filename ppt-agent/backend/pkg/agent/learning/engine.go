@@ -53,8 +53,8 @@ type EngineConfig struct {
 // NewEngine 创建智能学习引擎
 // modelFactory 用于创建 LLM 实例（用于意图分类等辅助任务）
 // textModelFactory 用于创建轻量级 LLM 实例（优先使用，节省成本）
-// 支持两种签名：func(ctx context.Context) (model.ChatModel, error) 或
-// func(ctx context.Context) (interface{ Generate(...) }, error)
+// 路由分类只需要 Generate 能力；只有明确传入 ToolCallingChatModel 工厂时，
+// 才启用工具模型兜底，避免把 Web 层的 Generate-only adapter 误转为 ToolCalling。
 // 如果传入 nil，则意图分类器只使用规则匹配
 func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory interface{}) *Engine {
 	if cfg == nil {
@@ -72,7 +72,11 @@ func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory int
 	e.textModelFactory = textModelFactory
 
 	// 初始化意图分类器（可选择是否启用 LLM）
-	e.classifier = intent.NewClassifier(e.makeClassifierFactory(modelFactory), e.makeTextModelFactory(textModelFactory))
+	routingTextFactory := e.makeTextModelFactory(textModelFactory)
+	if routingTextFactory == nil {
+		routingTextFactory = e.makeTextModelFactory(modelFactory)
+	}
+	e.classifier = intent.NewClassifier(e.makeClassifierFactory(modelFactory), routingTextFactory)
 
 	// 初始化路由引擎
 	e.router = router.NewEngine(e.classifier)
@@ -104,26 +108,8 @@ func (e *Engine) makeClassifierFactory(modelFactory interface{}) func(ctx contex
 	switch f := modelFactory.(type) {
 	case func(ctx context.Context) (model.ToolCallingChatModel, error):
 		return f
-	case func(ctx context.Context) (model.ChatModel, error):
-		// ChatModel 已废弃且不实现 ToolCallingChatModel，不可直接转型
-		return nil
 	default:
-		return func(ctx context.Context) (model.ToolCallingChatModel, error) {
-			result, err := callModelFactory(f, ctx)
-			if err != nil {
-				return nil, err
-			}
-			if tcm, ok := result.(model.ToolCallingChatModel); ok {
-				return tcm, nil
-			}
-			if cm, ok := result.(model.ChatModel); ok {
-				// 尝试通过嵌入 ChatModel 实现 ToolCallingChatModel
-				if tcm, ok := any(cm).(model.ToolCallingChatModel); ok {
-					return tcm, nil
-				}
-			}
-			return nil, fmt.Errorf("modelFactory 返回值无法转换为 model.ToolCallingChatModel: %T", result)
-		}
+		return nil
 	}
 }
 

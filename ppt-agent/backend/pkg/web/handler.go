@@ -147,7 +147,7 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	// 推荐模式需要先拿到结构化意图结果，模板选择与 TaskManager 共用这一次分类。
 	if req.Outline == nil && req.TemplateSelection != nil && strings.EqualFold(strings.TrimSpace(req.TemplateSelection.Mode), "recommended") {
 		routingCtx, cancel := context.WithTimeout(c.Request.Context(),
-			time.Duration(agentutils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 12))*time.Second)
+			time.Duration(agentutils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 30))*time.Second)
 		intentCfg, err := deck.ProcessUserIntent(routingCtx, req.Query, uid)
 		cancel()
 		if err != nil {

@@ -220,8 +220,8 @@ func modelInputDetails(input callbacks.CallbackInput, agentName, runName string)
 		"stage":             inferCallbackStage(agentName, runName),
 		"message_count":     len(mi.Messages),
 		"tool_names":        toolNames,
-		"last_user_preview": lastMessagePreview(mi.Messages, string(schema.User), 300),
-		"system_preview":    firstMessagePreview(mi.Messages, string(schema.System), 300),
+		"last_user_preview": lastMessagePreview(mi.Messages, string(schema.User), 180),
+		"system_preview":    firstMessagePreview(mi.Messages, string(schema.System), 180),
 	}
 }
 
@@ -285,11 +285,16 @@ func firstMessagePreview(messages []*schema.Message, role string, maxLen int) st
 func lastMessagePreview(messages []*schema.Message, role string, maxLen int) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
-		if message != nil && string(message.Role) == role {
+		if message != nil && string(message.Role) == role && !isAgentProgressMessage(message.Content) {
 			return truncate(strings.TrimSpace(message.Content), maxLen)
 		}
 	}
 	return ""
+}
+
+func isAgentProgressMessage(content string) bool {
+	content = strings.TrimSpace(content)
+	return strings.HasPrefix(content, "<agent_progress>") && strings.Contains(content, "</agent_progress>")
 }
 
 // StreamEvent 打印流式事件信息（从 MessageStream 中读取并消费）
