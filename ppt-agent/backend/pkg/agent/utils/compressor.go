@@ -76,17 +76,26 @@ func WithToolResultPreserveCount(n int) CompressorOption {
 
 // DefaultCompressorConfig 返回默认压缩配置。
 // 可以通过环境变量覆盖：
-//   - MASTER_COMPRESSOR_MESSAGE_THRESHOLD: 消息数量阈值（默认 60）
-//   - MASTER_COMPRESSOR_TOKEN_THRESHOLD: token 估算阈值（默认 200000）
-//   - MASTER_COMPRESSOR_PRESERVE_COUNT: 保留的消息对数量（默认 8）
-//   - MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT: 每个留边 pair 保留的 tool result 条数（默认 0，不限制）
+//   - PLANNER_COMPRESSOR_MESSAGE_THRESHOLD: 消息数量阈值（默认 60）
+//   - PLANNER_COMPRESSOR_TOKEN_THRESHOLD: token 估算阈值（默认 200000）
+//   - PLANNER_COMPRESSOR_PRESERVE_COUNT: 保留的消息对数量（默认 8）
+//   - PLANNER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT: 每个留边 pair 保留的 tool result 条数（默认 0，不限制）
+//
+// 旧的 MASTER_COMPRESSOR_* 环境变量仍作为 fallback 读取。
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold:        EnvInt("MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
-		TokenThreshold:          EnvInt("MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
-		PreserveCount:           EnvInt("MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
-		ToolResultPreserveCount: EnvInt("MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", 0),
+		MessageThreshold:        envIntWithFallback("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", "MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
+		TokenThreshold:          envIntWithFallback("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", "MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
+		PreserveCount:           envIntWithFallback("PLANNER_COMPRESSOR_PRESERVE_COUNT", "MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
+		ToolResultPreserveCount: envIntWithFallback("PLANNER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", "MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", 0),
 	}
+}
+
+func envIntWithFallback(primary, legacy string, defaultVal int) int {
+	if value := EnvInt(primary, -1); value > 0 {
+		return value
+	}
+	return EnvInt(legacy, defaultVal)
 }
 
 // ── 结构化摘要 ────────────────────────────────────────────────────────────────
@@ -109,7 +118,7 @@ type CompressionSummary struct {
 		OtherDecisions []string `json:"other_decisions,omitempty"` // 其他关键决策
 	} `json:"key_decisions"`
 
-	// ProgressSummary 进度摘要：已完成的任务、当前状态
+	// ProgressSummary 规划摘要：DeckSpec 当前状态与仍需补齐的字段
 	ProgressSummary string `json:"progress_summary"`
 
 	// ConversationSummary 自由格式对话摘要，描述中间轮次的交互过程
@@ -209,19 +218,19 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 
 	baseJSON, _ := json.Marshal(base)
 
-	summaryPrompt := fmt.Sprintf(`你是 PPT Agent 的上下文压缩助手。请以用户原始目标和后续明确要求为最高优先级，将早期执行轨迹压缩为结构化交接。
+	summaryPrompt := fmt.Sprintf(`你是 PPT Planner 的上下文压缩助手。请以用户原始目标和后续明确要求为最高优先级，将早期规划上下文压缩为结构化交接。
 
 【用户目标、明确要求与代码提取的关键决策】：
 %s
 
-【待压缩的早期执行轨迹】：
+【待压缩的早期规划上下文】：
 %s
 
 输出一个 JSON 对象：
 {
 	"user_intent_summary": "一句话重述用户最终要完成的目标",
 	"preserved_requirements": ["仍然生效的用户要求，保持原意和优先级"],
-  "progress_summary": "简要描述已完成的工作和当前进度（50字以内）",
+  "progress_summary": "简要描述 DeckSpec 已确定内容和待补字段（50字以内）",
   "conversation_summary": "用50字以内概括中间轮次的交互过程"
 }`, baseJSON, conversationText)
 
@@ -229,7 +238,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 	defer cancel()
 
 	resp, err := summarizer.Generate(sumCtx, []*schema.Message{
-		schema.SystemMessage("你负责生成结构化上下文交接。用户原始目标与后续明确要求拥有最高保留优先级，输出为 JSON 对象。"),
+		schema.SystemMessage("你负责生成 PPT Planner 的结构化上下文交接。保留用户目标、DeckSpec 决策和有效约束，输出 JSON 对象。"),
 		schema.UserMessage(summaryPrompt),
 	})
 	if err != nil {
@@ -486,9 +495,9 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		if p.assistant != nil {
 			convText.WriteString(fmt.Sprintf("[assistant]: %s\n", p.assistant.Content))
 		}
-		// tool result 只记录数量，不展开全文（避免太长）
+		// Planner 工具结果只记录数量，不展开全文。
 		if len(p.toolResults) > 0 {
-			convText.WriteString(fmt.Sprintf("[tool_results]: %d 个工具调用结果（已省略详情）\n", len(p.toolResults)))
+			convText.WriteString(fmt.Sprintf("[planner_tool_results]: %d 个工具调用结果（已省略详情）\n", len(p.toolResults)))
 		}
 	}
 
@@ -510,15 +519,15 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	if err != nil {
 		logger.Warn("conversation_summary_failed", "error", err.Error())
 		handoff = keyDecisions
-		handoff.ProgressSummary = fmt.Sprintf("已压缩 %d 轮早期轨迹，保留 %d 轮近期上下文", len(headPairs), preservePairs)
-		handoff.ConversationSummary = "早期工具轨迹已压缩，用户目标与明确要求由确定性锚点保留"
+		handoff.ProgressSummary = fmt.Sprintf("已压缩 %d 轮早期规划上下文，保留 %d 轮近期上下文", len(headPairs), preservePairs)
+		handoff.ConversationSummary = "早期规划上下文已压缩，用户目标与明确要求由确定性锚点保留"
 	}
 
 	// 第三步：构建以用户意图为锚点的结构化摘要消息。
 	summaryJSON, _ := json.Marshal(handoff)
 	progressPart := handoff.ProgressSummary
 	if progressPart == "" {
-		progressPart = fmt.Sprintf("已完成 %d/%d 对话轮次，保留 %d 轮近期待查",
+		progressPart = fmt.Sprintf("已压缩 %d/%d 轮规划上下文，保留 %d 轮近期待查",
 			len(headPairs), len(pairs), preservePairs)
 	}
 

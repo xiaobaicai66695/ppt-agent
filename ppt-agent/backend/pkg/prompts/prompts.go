@@ -19,12 +19,8 @@
 //
 //	prompts/
 //	├── prompts.go                       # 本文件，通用加载函数
-//	├── deep/                            # DeepAgent 模式模板
-//	│   ├── master_instruction.tmpl
-//	│   ├── slide_executor_instruction.tmpl
-//	│   ├── reviewer_instruction.tmpl
-//	│   ├── fixer_instruction.tmpl
-//	│   └── slide_executor_continue_instruction.tmpl
+//	├── deep/                            # PPT Planner 模板（保留目录名兼容旧调用）
+//	│   └── master_instruction.tmpl
 //	└── style/                          # Style extraction templates
 //
 // 每个模板通过 Render*(data) 系列函数加载并渲染。
@@ -69,7 +65,7 @@ type TemplateData struct {
 	SkillsDir              string           // Skills 目录绝对路径
 	TmplDir                string           // 模板目录绝对路径
 	TasksJSON              string           // tasks.json 绝对路径
-	TemplateCatalog        string           // 内联模板目录表（用于 deep agent）
+	TemplateCatalog        string           // 内联模板目录表（用于 PPT Planner）
 	UserQuery              string           // 用户查询（用于 planner/replanner）
 	CurrentTime            string           // 当前时间
 	ExecutedCount          string           // 已执行的幻灯片数量
@@ -88,10 +84,8 @@ type TemplateData struct {
 	SuggestedPageCount     int              // 智能推荐的目标页数
 	AvailableBackgrounds   string           // 当前本地可用背景主题及图片数量
 	StyleContext           string           // 用户风格偏好上下文，用于个性化生成
-	EnableQA               bool             // 是否启用 QA 质量检查
-	Concurrency            int              // 每批最大并发页数（来自路由决策，默认 5）
-	UserMessage            string           // 用户修复请求消息（用于 Fixer agent）
-	TargetPages            []int            // 要处理的特定页面索引（用于继续模式）
+	EnableQA               bool             // 兼容字段；新链路默认不在 Planner 阶段做 QA
+	Concurrency            int              // 渲染 worker pool 并发数（来自路由决策，默认 5）
 	UserPreferences        *UserPreferences // 用户学习到的偏好，用于个性化生成
 }
 
@@ -146,14 +140,9 @@ func Render(name string, data *TemplateData) (string, error) {
 	return buf.String(), nil
 }
 
-// RenderDeepAgent 渲染 deep agent 模板。
-func RenderDeepAgent(name string, data *TemplateData) (string, error) {
+// RenderPlanner 渲染 PPT Planner 模板。
+func RenderPlanner(name string, data *TemplateData) (string, error) {
 	return Render("deep/"+name, data)
-}
-
-// RenderSlideExecutorContinueInstruction 渲染继续模式的幻灯片执行器指令。
-func RenderSlideExecutorContinueInstruction(data *TemplateData) (string, error) {
-	return Render("deep/slide_executor_continue_instruction", data)
 }
 
 // RenderLogAnalysis 渲染日志分析模板。

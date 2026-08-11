@@ -827,7 +827,9 @@ func (s *Server) startContinue(taskID string, ts *task.TaskState, message string
 		}
 		fullAnswer := ts.FullAnswer()
 		ts.Mu.Lock()
-		ts.Info.Status = task.TaskStatusCompleted
+		if ts.Info.Status == task.TaskStatusRunning {
+			ts.Info.Status = task.TaskStatusCompleted
+		}
 		ts.Info.FullAnswer = fullAnswer
 		ts.Mu.Unlock()
 		ts.Persist()
@@ -840,7 +842,6 @@ func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, 
 
 	ctx := context.Background()
 
-	// Step 1: Route intent - Fixer vs DeepAgent vs add_page
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在分析您的请求...\n"}
 
 	route := s.routeContinueIntent(ctx, message, ts.Info.WorkDir)
@@ -848,10 +849,6 @@ func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, 
 	ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("识别意图: %s (%s)\n", route.Intent, route.Reason)}
 
 	switch route.Intent {
-	case "fix":
-		s.runFixerContinue(taskID, ts, &route, message, ch)
-	case "regenerate", "regenerate_all", "add_page", "unknown":
-		s.runDeepAgentContinue(taskID, ts, &route, message, ch)
 	case "needs_clarification":
 		question := route.ClarificationQuestion
 		if question == "" {
@@ -860,6 +857,8 @@ func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, 
 		ch <- task.SSERichEvent{Type: "clarification", Content: question}
 		ch <- task.SSERichEvent{Type: "continue_complete", Message: question}
 		return
+	default:
+		s.runWorkflowContinue(taskID, ts, &route, message, ch)
 	}
 
 	ch <- task.SSERichEvent{Type: "continue_complete", Message: "修改处理完成"}
@@ -1111,221 +1110,65 @@ func extractTargetPages(message string) []int {
 	return pages
 }
 
-func (s *Server) runFixerContinue(taskID string, ts *task.TaskState, route *RouteResult, fixMessage string, ch chan task.SSERichEvent) {
-	ch <- task.SSERichEvent{Type: "answer", Content: "检测到是定点修复请求，将使用 Fixer 进行调整...\n"}
-
-	// 读取 manifest 获取任务信息
-	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
-	if err != nil || manifest == nil {
-		ch <- task.SSERichEvent{Type: "error", Error: "无法读取任务清单: " + err.Error()}
-		return
-	}
-
-	// 使用 LLM 结果中的页面，fallback 到 inferPagesFromMessage
-	pagesToFix := route.TargetPages
-	if len(pagesToFix) == 0 {
-		pagesToFix = inferPagesFromMessage(fixMessage, len(manifest.Tasks))
-	}
-
-	if len(pagesToFix) == 0 {
-		// 如果没有指定具体页面，修复所有已完成的页面
-		for _, t := range manifest.Tasks {
-			if t.Status == deep.StatusDone || t.Status == deep.StatusQADone || t.Status == deep.StatusFixed {
-				pagesToFix = append(pagesToFix, t.PageIndex)
-			}
-		}
-	}
-
-	if len(pagesToFix) == 0 {
-		ch <- task.SSERichEvent{Type: "answer", Content: "未找到需要修复的页面，跳过。\n"}
-		return
-	}
-
-	// 根据 LLM 修复详情构建 QA 报告
-	var qaReport strings.Builder
-	qaReport.WriteString("用户请求修复（LLM 意图分析）：")
-	if route.FixDetails != nil {
-		qaReport.WriteString(fmt.Sprintf("调整方面=%s, 具体要求=%s, 目标元素=%s",
-			route.FixDetails.Aspect, route.FixDetails.Detail, route.FixDetails.TargetElements))
-	} else {
-		qaReport.WriteString(route.Reason)
-	}
-
-	// 处理每个页面
-	for _, pageIdx := range pagesToFix {
-		var targetTask *deep.TaskItem
-		for _, t := range manifest.Tasks {
-			if t.PageIndex == pageIdx {
-				targetTask = t
-				break
-			}
-		}
-
-		if targetTask == nil {
-			ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页不存在，跳过\n", pageIdx)}
-			continue
-		}
-
-		ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("正在修复第%d页: %s (%s)\n", pageIdx, targetTask.Title, targetTask.ContentType)}
-
-		// 读取输出文件以验证它存在
-		outputFile := filepath.Join(ts.Info.WorkDir, targetTask.OutputFile)
-		if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-			ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("文件 %s 不存在，无法修复", targetTask.OutputFile)}
-			continue
-		}
-
-		// 修复前更新任务状态
-		targetTask.Status = deep.StatusQADone
-		targetTask.QAReport = qaReport.String()
-		targetTask.FixAttempts++
-		deep.WriteTasksManifest(ts.Info.WorkDir, manifest)
-
-		// 使用完整的 tasks.json 构建修复请求上下文
-		manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
-		fixRequest := fmt.Sprintf(`用户修复请求：%s
-
-当前 PPT 的 tasks.json 完整内容如下，请从中找到对应页面进行修复：
-%s
-
-请读取 tasks.json 后，对第 %d 页（task_id=%s, output_file=%s, content_type=%s）执行修复。
-`,
-			fixMessage,
-			string(manifestJSON),
-			targetTask.PageIndex,
-			targetTask.TaskID,
-			targetTask.OutputFile,
-			targetTask.ContentType,
-		)
-
-		// 使用 SSE 事件转发运行 Fixer Agent
-		fixErr := deep.RunFixerAgentWithCallback(context.Background(),
-			ts.Info.WorkDir,
-			s.skillDir,
-			s.operator,
-			fixRequest,
-			func(event deep.AgentEvent) {
-				switch event.Type {
-				case deep.AgentEventAnswer:
-					ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
-				case deep.AgentEventError:
-					ch <- task.SSERichEvent{Type: "error", Error: event.Error}
-				}
-			},
-		)
-
-		if fixErr != nil {
-			ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页 Fixer 执行出错: %v\n", pageIdx, fixErr)}
-		}
-
-		// 检查文件是否实际被更新了（fixer 会重写它）
-		if _, err := os.Stat(outputFile); err == nil {
-			targetTask.Status = deep.StatusFixed
-		}
-		deep.WriteTasksManifest(ts.Info.WorkDir, manifest)
-	}
-
-	// 刷新文件列表
-	s.refreshFileList(ts, ch)
-
-	// 更新最终文件列表
-	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
-	var progressTasks []*deep.TaskItem
-	if manifest != nil {
-		progressTasks = manifest.Tasks
-		ts.Mu.Lock()
-		ts.Info.Files = task.ManifestOutputFiles(manifest)
-		ts.Info.DoneCount = manifest.CompletedCount()
-		ts.Info.TotalCount = len(manifest.Tasks)
-		ts.Mu.Unlock()
-	}
-
-	ch <- task.SSERichEvent{
-		Type:   "progress",
-		Status: ts.Info.Status,
-		Tasks:  progressTasks,
-		Done:   ts.Info.DoneCount,
-		Total:  ts.Info.TotalCount,
-		Files:  ts.Info.Files,
-	}
-}
-
-// FixResult 保存修复操作的结果。
-type FixResult struct {
-	Success bool
-	Message string
-}
-
-func (s *Server) runFixerForTask(workDir string, task *deep.TaskItem, qaReport string) FixResult {
-	if task.FixAttempts >= 2 {
-		return FixResult{
-			Success: false,
-			Message: fmt.Sprintf("任务 %s 已达到最大修复次数（2次），跳过修复", task.TaskID),
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	fixRequest := fmt.Sprintf("请修复 PPT 任务 %s（第 %d 页: %s）中的以下问题：\n%s\n工作目录: %s",
-		task.TaskID, task.PageIndex+1, task.Title, qaReport, workDir)
-
-	var fixErr error
-	err := deep.RunFixerAgentWithCallback(ctx, workDir, s.skillDir, s.operator, fixRequest, func(event deep.AgentEvent) {
-		// Fixer 事件可通过日志记录，暂不向客户端推送
-		if event.Type == deep.AgentEventError {
-			fixErr = fmt.Errorf("Fixer 错误: %s", event.Error)
-		}
-	})
-
-	if err != nil {
-		return FixResult{
-			Success: false,
-			Message: fmt.Sprintf("修复失败: %v", err),
-		}
-	}
-	if fixErr != nil {
-		return FixResult{
-			Success: false,
-			Message: fmt.Sprintf("修复执行出错: %v", fixErr),
-		}
-	}
-
-	return FixResult{
-		Success: true,
-		Message: fmt.Sprintf("任务 %s 修复完成", task.TaskID),
-	}
-}
-
-func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *RouteResult, continueMessage string, ch chan task.SSERichEvent) {
-	ch <- task.SSERichEvent{Type: "answer", Content: "正在重新处理您的请求...\n"}
+func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *RouteResult, continueMessage string, ch chan task.SSERichEvent) {
+	ch <- task.SSERichEvent{Type: "answer", Content: "正在更新页面计划并重新渲染...\n"}
 
 	manifest, err := deep.ReadTasksManifest(ts.Info.WorkDir)
 	if err != nil || manifest == nil {
 		ch <- task.SSERichEvent{Type: "error", Error: "无法读取任务清单"}
+		markTaskFailed(ts, "无法读取任务清单")
 		return
 	}
 
-	var targetPages []int
-
-	// 处理 add_page 意图
-	if route.Intent == "add_page" {
+	switch route.Intent {
+	case "add_page":
+		nextPage := len(manifest.Tasks) + 1
+		title := "新增页面"
+		if strings.TrimSpace(route.Reason) != "" {
+			title = "补充说明"
+		}
 		newTask := &deep.TaskItem{
-			TaskID:      fmt.Sprintf("slide-%d", len(manifest.Tasks)+1),
-			PageIndex:   len(manifest.Tasks) + 1,
-			Title:       "新页面",
+			TaskID:      fmt.Sprint(nextPage),
+			PageIndex:   nextPage,
+			Title:       title,
 			ContentType: "content_slide",
-			Description: fmt.Sprintf("用户新增页面（来自对话：%s）", route.Reason),
-			OutputFile:  fmt.Sprintf("%d_%s.pptx", len(manifest.Tasks)+1, "新页面"),
+			Description: fmt.Sprintf("根据用户继续请求新增页面：%s", continueMessage),
+			OutputFile:  fmt.Sprintf("%d_%s.pptx", nextPage, title),
 			Status:      deep.StatusPending,
+			ContentPlan: &deep.ContentPlan{
+				Summary: fmt.Sprintf("补充说明用户要求：%s", continueMessage),
+				Elements: []deep.ContentElement{{
+					Type:  "bullet_list",
+					Items: []string{continueMessage, "围绕原演示主题补充新的信息点", "保持与前后页面一致的叙事和视觉风格"},
+				}},
+			},
 		}
 		manifest.Tasks = append(manifest.Tasks, newTask)
-		targetPages = []int{newTask.PageIndex}
 		ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("新增第%d页: %s\n", newTask.PageIndex, newTask.Title)}
-	}
-
-	// Handle regenerate intent (specific pages)
-	if route.Intent == "regenerate" {
+	case "fix":
+		pages := route.TargetPages
+		if len(pages) == 0 {
+			pages = inferPagesFromMessage(continueMessage, len(manifest.Tasks))
+		}
+		if len(pages) == 0 {
+			for _, item := range manifest.Tasks {
+				if item != nil && (item.Status == deep.StatusDone || item.Status == deep.StatusQADone || item.Status == deep.StatusFixed) {
+					pages = append(pages, item.PageIndex)
+				}
+			}
+		}
+		if len(pages) == 0 {
+			ch <- task.SSERichEvent{Type: "answer", Content: "未找到需要调整的页面，跳过。\n"}
+			return
+		}
+		instruction := buildContinueInstruction(route, continueMessage)
+		for _, pageIdx := range pages {
+			if item := findManifestTaskByPage(manifest, pageIdx); item != nil {
+				markTaskForRerender(ts.Info.WorkDir, item, instruction, true)
+				ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页 '%s' 已加入重渲染队列\n", pageIdx, item.Title)}
+			}
+		}
+	case "regenerate":
 		pages := route.TargetPages
 		if len(pages) == 0 && len(route.RegenerateScope) > 0 {
 			pages = route.RegenerateScope
@@ -1334,65 +1177,44 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 			ch <- task.SSERichEvent{Type: "answer", Content: "未找到需要重新生成的页面\n"}
 		} else {
 			for _, pageIdx := range pages {
-				for _, t := range manifest.Tasks {
-					if t.PageIndex == pageIdx {
-						t.Status = deep.StatusPending
-						ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页 '%s' 已标记为待重新生成\n", pageIdx, t.Title)}
-						break
-					}
+				if item := findManifestTaskByPage(manifest, pageIdx); item != nil {
+					markTaskForRerender(ts.Info.WorkDir, item, continueMessage, false)
+					ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页 '%s' 已标记为待重新生成\n", pageIdx, item.Title)}
 				}
 			}
-			targetPages = pages
 		}
-	}
-
-	// 处理 regenerate_all 意图
-	if route.Intent == "regenerate_all" {
-		for _, t := range manifest.Tasks {
-			t.Status = deep.StatusPending
+	case "regenerate_all", "unknown":
+		for _, item := range manifest.Tasks {
+			markTaskForRerender(ts.Info.WorkDir, item, continueMessage, false)
 		}
 		ch <- task.SSERichEvent{Type: "answer", Content: "所有页面已标记为待重新生成\n"}
-		targetPages = nil // nil 表示所有待处理页面
 	}
 
-	// 处理 unknown 意图 — 尝试重新生成所有页面
-	if route.Intent == "unknown" {
-		for _, t := range manifest.Tasks {
-			t.Status = deep.StatusPending
-		}
-		ch <- task.SSERichEvent{Type: "answer", Content: "重新处理所有页面\n"}
-		targetPages = nil
+	if err := deep.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
+		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("更新任务清单失败: %v", err)}
+		markTaskFailed(ts, err.Error())
+		return
 	}
 
-	deep.WriteTasksManifest(ts.Info.WorkDir, manifest)
-
-	// 调用 SlideExecutor 实际生成待处理的页面
-	ch <- task.SSERichEvent{Type: "answer", Content: "正在调用幻灯片生成器...\n"}
-
-	execErr := deep.RunSlideExecutorContinueWithCallback(context.Background(),
-		ts.Info.WorkDir,
-		s.skillDir,
-		s.operator,
-		continueMessage,
-		targetPages,
-		func(event deep.AgentEvent) {
-			switch event.Type {
-			case deep.AgentEventAnswer:
-				ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
-			case deep.AgentEventError:
-				ch <- task.SSERichEvent{Type: "error", Error: event.Error}
-			}
-		},
-	)
-
-	if execErr != nil {
-		ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("幻灯片生成出错: %v\n", execErr)}
+	runtimeMeta := agentutils.NewRuntimeMeta(taskID, ts.Info.WorkDir)
+	runtimeMeta.RecordPhase("rendering", "继续请求已写入 DeckSpec，开始并发渲染")
+	cfg := &deep.PPTTaskConfig{
+		WorkDir:     ts.Info.WorkDir,
+		TaskID:      taskID,
+		SkillsDir:   s.skillDir,
+		Operator:    s.operator,
+		RuntimeMeta: runtimeMeta,
+		Concurrency: 5,
+	}
+	if _, err := deep.RenderDeckByTaskIDWorkflow(context.Background(), cfg, func(event deep.DeckRenderEvent) {
+		ch <- deckRenderSSE(event)
+	}); err != nil {
+		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("幻灯片生成出错: %v", err)}
+		markTaskFailed(ts, err.Error())
 	}
 
-	// 刷新文件列表
 	s.refreshFileList(ts, ch)
 
-	// 更新任务状态：将成功生成的页面标记为完成
 	manifest, _ = deep.ReadTasksManifest(ts.Info.WorkDir)
 	var progressTasks []*deep.TaskItem
 	if manifest != nil {
@@ -1412,6 +1234,71 @@ func (s *Server) runDeepAgentContinue(taskID string, ts *task.TaskState, route *
 		Total:  ts.Info.TotalCount,
 		Files:  ts.Info.Files,
 	}
+}
+
+func findManifestTaskByPage(manifest *deep.TasksManifest, pageIdx int) *deep.TaskItem {
+	if manifest == nil {
+		return nil
+	}
+	for _, item := range manifest.Tasks {
+		if item != nil && item.PageIndex == pageIdx {
+			return item
+		}
+	}
+	return nil
+}
+
+func markTaskForRerender(workDir string, item *deep.TaskItem, instruction string, isFix bool) {
+	if item == nil {
+		return
+	}
+	if strings.TrimSpace(instruction) != "" {
+		item.QAReport = instruction
+		if isFix {
+			item.Description = strings.TrimSpace(item.Description + "\n继续修改要求：" + instruction)
+			item.FixAttempts++
+		}
+	}
+	item.Status = deep.StatusPending
+	if item.OutputFile != "" {
+		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
+	}
+}
+
+func buildContinueInstruction(route *RouteResult, message string) string {
+	if route != nil && route.FixDetails != nil {
+		return fmt.Sprintf("用户继续请求：%s；调整方面=%s；具体要求=%s；目标元素=%s",
+			message, route.FixDetails.Aspect, route.FixDetails.Detail, route.FixDetails.TargetElements)
+	}
+	if route != nil && strings.TrimSpace(route.Reason) != "" {
+		return fmt.Sprintf("用户继续请求：%s；意图判断：%s", message, route.Reason)
+	}
+	return "用户继续请求：" + message
+}
+
+func deckRenderSSE(event deep.DeckRenderEvent) task.SSERichEvent {
+	switch event.Type {
+	case "workflow_start":
+		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail}
+	case "slide_start":
+		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: fmt.Sprintf("开始生成第 %d 页：%s", event.PageIndex, event.Detail)}
+	case "slide_done":
+		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: fmt.Sprintf("第 %d 页生成完成：%s", event.PageIndex, event.OutputFile)}
+	case "slide_error":
+		return task.SSERichEvent{Type: "error", Error: fmt.Sprintf("第 %d 页生成失败：%s", event.PageIndex, event.Error), Phase: "rendering", PhaseDetail: event.OutputFile}
+	default:
+		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail}
+	}
+}
+
+func markTaskFailed(ts *task.TaskState, message string) {
+	if ts == nil {
+		return
+	}
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	ts.Info.Status = task.TaskStatusFailed
+	ts.Info.Error = message
 }
 
 func inferPagesFromMessage(message string, maxPage int) []int {

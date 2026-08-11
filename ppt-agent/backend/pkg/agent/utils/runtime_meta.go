@@ -235,7 +235,7 @@ func (m *RuntimeMeta) RecordIntent(anchor IntentAnchor) {
 	defer m.mu.Unlock()
 	anchor.Summary = truncateString(strings.TrimSpace(anchor.Summary), 160)
 	m.IntentAnchor = anchor
-	m.recordEventLocked("intent_captured", "user_intent", "ok", anchor.Summary, map[string]any{
+	m.recordEventLocked("intent_classified", "user_intent", "ok", anchor.Summary, map[string]any{
 		"intent": anchor.Intent, "domain": anchor.Domain, "suggested_pages": anchor.SuggestedPages,
 		"template": anchor.Template, "theme": anchor.Theme, "background": anchor.Background,
 		"use_background": anchor.UseBackground, "recommendation": anchor.Recommendation,
@@ -253,7 +253,7 @@ func (m *RuntimeMeta) FreezePlan(slides []PlanSlide) {
 	}
 	m.PlanSlides = clonePlanSlides(slides)
 	m.AlignmentStatus = "aligned"
-	m.recordEventLocked("plan_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(slides)), map[string]any{
+	m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(slides)), map[string]any{
 		"slides": m.PlanSlides,
 	})
 }
@@ -281,7 +281,7 @@ func (m *RuntimeMeta) ComparePlan(observed []PlanSlide, missingFiles []string) {
 	if len(m.PlanSlides) == 0 {
 		m.PlanSlides = clonePlanSlides(observed)
 		m.AlignmentStatus = "aligned"
-		m.recordEventLocked("plan_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{"slides": m.PlanSlides})
+		m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{"slides": m.PlanSlides})
 		return
 	}
 
@@ -299,7 +299,7 @@ func (m *RuntimeMeta) ComparePlan(observed []PlanSlide, missingFiles []string) {
 	if len(warnings) > 0 {
 		status = "warning"
 	}
-	m.recordEventLocked("intent_alignment", "plan_vs_execution", status, fmt.Sprintf("%d deviations", len(warnings)), map[string]any{
+	m.recordEventLocked("deck_spec_alignment", "plan_vs_render", status, fmt.Sprintf("%d deviations", len(warnings)), map[string]any{
 		"warnings": warnings,
 	})
 }
@@ -361,10 +361,7 @@ func (m *RuntimeMeta) RecordToolStart(name, args string) {
 	m.LastTool = name
 	m.LastToolArgs = args
 	m.refreshBudgetWarningsLocked()
-	m.recordEventLocked("tool_start", name, "running", "", map[string]any{
-		"args_preview": truncateString(args, 220),
-		"args":         args,
-	})
+	m.recordEventLocked(runtimeToolEventKind(name, "start"), name, "running", "", compactToolMetadata(name, args, ""))
 }
 
 func (m *RuntimeMeta) RecordToolEnd(name, args, result string) {
@@ -377,12 +374,7 @@ func (m *RuntimeMeta) RecordToolEnd(name, args, result string) {
 	if name == "" {
 		name = "unknown"
 	}
-	m.recordEventLocked("tool_end", name, "ok", "", map[string]any{
-		"args_preview":   truncateString(args, 220),
-		"args":           args,
-		"result_preview": truncateString(strings.TrimSpace(result), 220),
-		"result":         result,
-	})
+	m.recordEventLocked(runtimeToolEventKind(name, "end"), name, "ok", "", compactToolMetadata(name, args, result))
 }
 
 func (m *RuntimeMeta) RecordToolError(name, errText string) {
@@ -398,7 +390,7 @@ func (m *RuntimeMeta) RecordToolError(name, errText string) {
 	m.ToolErrors[name]++
 	m.LastError = truncateString(strings.TrimSpace(errText), 240)
 	m.refreshBudgetWarningsLocked()
-	m.recordEventLocked("tool_error", name, "error", m.LastError, nil)
+	m.recordEventLocked(runtimeToolEventKind(name, "error"), name, "error", m.LastError, nil)
 }
 
 func (m *RuntimeMeta) RecordLLMStart(name string) {
@@ -492,7 +484,7 @@ func (m *RuntimeMeta) RecordToolErrorDetails(name, errText string, metadata map[
 		metadata = map[string]any{}
 	}
 	metadata["error"] = errText
-	m.recordEventLocked("tool_error", name, "error", m.LastError, metadata)
+	m.recordEventLocked(runtimeToolEventKind(name, "error"), name, "error", m.LastError, metadata)
 }
 
 func (m *RuntimeMeta) RecordLLMTokensLegacy(prompt, completion, total int64) {
@@ -550,7 +542,7 @@ func (m *RuntimeMeta) RecordCompressionDetails(beforeMessages, afterMessages, be
 		savedPct = fmt.Sprintf("%.1f%%", 100*(1-float64(afterTokens)/float64(beforeTokens)))
 	}
 	m.CompressionSavedPct = savedPct
-	m.recordEventLocked("compression", "context_compressor", "ok", "", map[string]any{
+	m.recordEventLocked("planner_context_compressed", "context_compressor", "ok", "", map[string]any{
 		"before_messages":        beforeMessages,
 		"after_messages":         afterMessages,
 		"removed_messages":       m.CompressionRemovedMessages,
@@ -575,7 +567,7 @@ func (m *RuntimeMeta) RecordSlideProgress(done, total, missing int) {
 	m.DoneSlides = done
 	m.TotalSlides = total
 	m.MissingFiles = missing
-	m.recordEventLocked("slide_progress", "tasks_manifest", "ok", "", map[string]any{
+	m.recordEventLocked("delivery_progress", "tasks_manifest", "ok", "", map[string]any{
 		"done":  done,
 		"total": total,
 	})
@@ -605,7 +597,7 @@ func (m *RuntimeMeta) RecordFileCreated(fileName string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.recordEventLocked("file_created", filepath.Base(fileName), "ok", fileName, nil)
+	m.recordEventLocked("delivery_file_created", filepath.Base(fileName), "ok", fileName, nil)
 }
 
 func (m *RuntimeMeta) RecordManifestValidation(done, total int, missingFiles, pendingTasks []string) {
@@ -638,7 +630,7 @@ func (m *RuntimeMeta) RecordManifestValidation(done, total int, missingFiles, pe
 	} else if len(pendingTasks) > 0 {
 		detail += fmt.Sprintf("，还有 %d 页待生成", len(pendingTasks))
 	}
-	m.recordEventLocked("manifest_validated", "tasks.json", status, detail, map[string]any{
+	m.recordEventLocked("deck_spec_validated", "tasks.json", status, detail, map[string]any{
 		"done":  done,
 		"total": total,
 	})
@@ -858,7 +850,7 @@ func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metad
 		Name:      truncateString(strings.TrimSpace(name), 80),
 		Status:    status,
 		Detail:    truncateString(strings.TrimSpace(detail), 240),
-		Metadata:  metadata,
+		Metadata:  compactRuntimeMetadata(metadata, 0),
 	}
 	if m.EventCounts == nil {
 		m.EventCounts = map[string]int{}
@@ -870,6 +862,113 @@ func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metad
 	}
 	if m.EventSink != nil {
 		m.EventSink(event)
+	}
+}
+
+func runtimeToolEventKind(name, suffix string) string {
+	if strings.EqualFold(strings.TrimSpace(name), "generate_slide") {
+		return "slide_render_" + suffix
+	}
+	return "tool_" + suffix
+}
+
+func compactToolMetadata(name, args, result string) map[string]any {
+	metadata := map[string]any{}
+	if strings.TrimSpace(args) != "" {
+		metadata["args_preview"] = truncateString(strings.TrimSpace(args), 220)
+	}
+	if strings.TrimSpace(result) != "" {
+		metadata["result_preview"] = truncateString(strings.TrimSpace(result), 220)
+	}
+	if strings.EqualFold(strings.TrimSpace(name), "generate_slide") {
+		addJSONField(metadata, args, "task_id")
+		addJSONField(metadata, result, "task_id")
+		addJSONField(metadata, result, "content_type")
+		addJSONField(metadata, result, "output_file")
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
+}
+
+func addJSONField(metadata map[string]any, raw, key string) {
+	if strings.TrimSpace(raw) == "" || metadata == nil {
+		return
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return
+	}
+	if value, ok := parsed[key]; ok {
+		metadata[key] = value
+	}
+}
+
+func compactRuntimeMetadata(metadata map[string]any, depth int) map[string]any {
+	if len(metadata) == 0 || depth > 2 {
+		return nil
+	}
+	out := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		key = strings.TrimSpace(key)
+		if key == "" || shouldDropRuntimeMetadataKey(key) {
+			continue
+		}
+		if compacted, ok := compactRuntimeValue(value, depth); ok {
+			out[key] = compacted
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func shouldDropRuntimeMetadataKey(key string) bool {
+	switch strings.ToLower(key) {
+	case "history", "output", "config", "extra", "tools", "output_config", "output_extra", "reasoning_content":
+		return true
+	default:
+		return false
+	}
+}
+
+func compactRuntimeValue(value any, depth int) (any, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, false
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return "", false
+		}
+		return truncateString(v, 500), true
+	case int, int64, float64, bool:
+		return v, true
+	case []string:
+		return boundedStrings(v, 12, 160), len(v) > 0
+	case []any:
+		limit := len(v)
+		if limit > 12 {
+			limit = 12
+		}
+		items := make([]any, 0, limit)
+		for i := 0; i < limit; i++ {
+			if item, ok := compactRuntimeValue(v[i], depth+1); ok {
+				items = append(items, item)
+			}
+		}
+		return items, len(items) > 0
+	case map[string]any:
+		nested := compactRuntimeMetadata(v, depth+1)
+		return nested, len(nested) > 0
+	default:
+		text := fmt.Sprint(v)
+		if strings.TrimSpace(text) == "" {
+			return nil, false
+		}
+		return truncateString(text, 240), true
 	}
 }
 

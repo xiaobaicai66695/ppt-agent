@@ -28,7 +28,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "task",
 			Name:      "total",
-			Help:     "Total number of PPT generation tasks created.",
+			Help:      "Total number of PPT generation tasks created.",
 		},
 		[]string{"status"}, // running, completed, failed, cancelled
 	)
@@ -39,7 +39,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "task",
 			Name:      "duration_seconds",
-			Help:     "Duration of each PPT generation task in seconds.",
+			Help:      "Duration of each PPT generation task in seconds.",
 			Buckets:   []float64{10, 30, 60, 120, 300, 600, 1200, 1800, 3600},
 		},
 		[]string{"status"},
@@ -51,7 +51,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "task",
 			Name:      "slides_generated",
-			Help:     "Number of slides generated per task.",
+			Help:      "Number of slides generated per task.",
 			Buckets:   []float64{1, 5, 10, 15, 20, 30, 50},
 		},
 		[]string{"status"},
@@ -63,7 +63,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "qa",
 			Name:      "issues_total",
-			Help:     "Total number of QA issues found.",
+			Help:      "Total number of QA issues found.",
 		},
 		[]string{"severity"}, // high, medium, low
 	)
@@ -74,7 +74,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "qa",
 			Name:      "slide_score",
-			Help:     "Per-slide visual quality score (1=unusable, 5=excellent).",
+			Help:      "Per-slide visual quality score (1=unusable, 5=excellent).",
 			Buckets:   []float64{1, 2, 3, 4, 5, 6}, // 6 catches any score>5
 		},
 		[]string{"content_type"}, // title_slide, content_slide, two_column, ...
@@ -86,7 +86,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "qa",
 			Name:      "fixes_total",
-			Help:     "Total number of QA issues fixed.",
+			Help:      "Total number of QA issues fixed.",
 		},
 		[]string{"result"}, // success, failed
 	)
@@ -97,7 +97,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "llm",
 			Name:      "tokens_total",
-			Help:     "Total number of LLM tokens consumed.",
+			Help:      "Total number of LLM tokens consumed.",
 		},
 		[]string{"type"}, // prompt, completion, total
 	)
@@ -108,7 +108,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "llm",
 			Name:      "calls_total",
-			Help:     "Total number of LLM API calls.",
+			Help:      "Total number of LLM API calls.",
 		},
 		[]string{"status"}, // success, error, rate_limit
 	)
@@ -119,9 +119,9 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "agent",
 			Name:      "calls_total",
-			Help:     "Total number of agent invocations.",
+			Help:      "Total number of agent invocations.",
 		},
-		[]string{"agent"}, // master, slide_executor, reviewer, fixer, planner, executor
+		[]string{"agent"}, // planner, renderer, workflow
 	)
 
 	// ToolCallsTotal 追踪每种工具类型的调用次数
@@ -130,7 +130,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "tool",
 			Name:      "calls_total",
-			Help:     "Total number of tool invocations.",
+			Help:      "Total number of tool invocations.",
 		},
 		[]string{"tool", "status"}, // python3, search, read_file, edit_file, etc. + success/error
 	)
@@ -141,7 +141,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "task",
 			Name:      "active",
-			Help:     "Number of currently running PPT generation tasks.",
+			Help:      "Number of currently running PPT generation tasks.",
 		},
 	)
 
@@ -151,7 +151,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "http",
 			Name:      "requests_total",
-			Help:     "Total number of HTTP requests.",
+			Help:      "Total number of HTTP requests.",
 		},
 		[]string{"method", "path", "status_code"},
 	)
@@ -162,7 +162,7 @@ var (
 			Namespace: "ppt_agent",
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
-			Help:     "HTTP request latency in seconds.",
+			Help:      "HTTP request latency in seconds.",
 			Buckets:   []float64{0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 		},
 		[]string{"method", "path"},

@@ -247,9 +247,9 @@ func buildFallbackPrompt(skillsDir string) string {
 ## 项目背景
 
 ppt-agent 是一个 AI PPT 生成系统：
-- Go 后端使用 Eino 框架的多 Agent 架构（DeepAgent 模式）
+- Go 后端使用“意图分类 → Planner LLM → DeckSpec/tasks.json → Eino workflow → renderer worker pool”的生成链路
 - Python PPT 生成使用 python-pptx 库，代码位于 skills/visual_designer/generators/ 目录
-- Agent 通过 ReAct 循环调用工具完成任务，工具包括：read_file、edit_file、python_runner、bash 等
+- Planner 只调用 read_file、update_tasks_manifest、search 准备 DeckSpec；页面渲染由 render_task.py 按 task_id 确定性完成
 
 ## 日志分析方法
 
@@ -500,7 +500,7 @@ func (s *Service) runAnalysis(req taskRequest) {
 		logs = req.Logs
 	} else {
 		// 读取 ERROR + DEBUG + INFO，以覆盖 bug 日志和 user_feedback 等诊断信息
-	logs, err = logger.ReadLastNLogLinesByLevel(s.logLines, logger.LogLevelError|logger.LogLevelDebug|logger.LogLevelInfo)
+		logs, err = logger.ReadLastNLogLinesByLevel(s.logLines, logger.LogLevelError|logger.LogLevelDebug|logger.LogLevelInfo)
 		if err != nil {
 			logger.Error("log_analysis_read_failed", "task_id", req.TaskID, "error", err.Error())
 			return

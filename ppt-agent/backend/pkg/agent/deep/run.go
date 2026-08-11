@@ -25,17 +25,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/components/tool"
-	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/human"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/prompts"
-	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
 // AgentEventType 流式事件类型常量
@@ -113,7 +107,7 @@ type AgentEvent struct {
 // AgentEventCallback 在代理执行期间每个事件被调用
 type AgentEventCallback func(event AgentEvent)
 
-func StartPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskStart, error) {
+func StartPPTPlanner(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskStart, error) {
 	startTime := time.Now()
 
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{
@@ -133,10 +127,10 @@ func StartPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	}, nil
 }
 
-func RunPPTTaskDeepAgentWithHuman(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
+func RunPPTPlannerWithHuman(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
 	userQuery string, hm *human.Manager) (*PPTTaskResult, error) {
 
-	start, err := StartPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
+	start, err := StartPPTPlanner(ctx, agent, cfg, userQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -172,18 +166,18 @@ func RunPPTTaskDeepAgentWithHuman(ctx context.Context, agent adk.Agent, cfg *PPT
 	return result, nil
 }
 
-func RunPPTTaskDeepAgent(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskResult, error) {
-	return runPPTTaskDeepAgentInternal(ctx, agent, cfg, userQuery, makePrintCallback())
+func RunPPTPlanner(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userQuery string) (*PPTTaskResult, error) {
+	return runPPTPlannerInternal(ctx, agent, cfg, userQuery, makePrintCallback())
 }
 
-// RunPPTTaskDeepAgentWithCallback 运行代理并为每个流式事件调用 onEvent
+// RunPPTPlannerWithCallback 运行 Planner 并为每个流式事件调用 onEvent
 // 回调是同步调用的 — 调用者应转发事件或快速缓冲
-func RunPPTTaskDeepAgentWithCallback(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
+func RunPPTPlannerWithCallback(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
 	userQuery string, onEvent AgentEventCallback) (*PPTTaskResult, error) {
-	return runPPTTaskDeepAgentInternal(ctx, agent, cfg, userQuery, onEvent)
+	return runPPTPlannerInternal(ctx, agent, cfg, userQuery, onEvent)
 }
 
-func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
+func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
 	userQuery string, onEvent AgentEventCallback) (result *PPTTaskResult, err error) {
 
 	defer func() {
@@ -193,7 +187,7 @@ func runPPTTaskDeepAgentInternal(ctx context.Context, agent adk.Agent, cfg *PPTT
 		}
 	}()
 
-	start, err := StartPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
+	start, err := StartPPTPlanner(ctx, agent, cfg, userQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -367,185 +361,6 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 			Content: chunk.Content,
 		})
 	}
-}
-
-// RunFixerAgentWithCallback 运行单个 Fixer 代理任务并通过 onEvent 流式传输事件
-// 它创建一个新的 Fixer 代理，将修复请求作为用户消息发送
-// 并消费所有代理事件直到完成
-func RunFixerAgentWithCallback(ctx context.Context, workDir, skillsDir string,
-	operator commandline.Operator, fixRequest string, onEvent AgentEventCallback) error {
-
-	cfg := &PPTTaskConfig{
-		WorkDir:     workDir,
-		SkillsDir:   skillsDir,
-		Operator:    operator,
-		RuntimeMeta: agentutils.RuntimeMetaFromContext(ctx),
-	}
-
-	agent, err := newFixerAgent(ctx, cfg, fixRequest)
-	if err != nil {
-		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 Fixer Agent 失败: " + err.Error()})
-		return err
-	}
-
-	startTime := time.Now()
-
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{
-		Agent:           agent,
-		EnableStreaming: adkStreamingEnabled(),
-	})
-
-	iter := runner.Run(ctx, []adk.Message{
-		schema.UserMessage(fixRequest),
-	})
-
-	var lastMessage adk.Message
-	var lastMessageStream *schema.StreamReader[adk.Message]
-	answerBuf := strings.Builder{}
-
-	for {
-		if ctx.Err() != nil {
-			if lastMessageStream != nil {
-				lastMessageStream.Close()
-			}
-			return ctx.Err()
-		}
-
-		event, ok, timedOut := nextWithTimeout(ctx, iter)
-		if ctx.Err() != nil {
-			if lastMessageStream != nil {
-				lastMessageStream.Close()
-			}
-			return ctx.Err()
-		}
-
-		if timedOut {
-			logger.Error("fixer_stream_timeout", "timeout", streamTimeout().String())
-			if lastMessageStream != nil {
-				lastMessageStream.Close()
-			}
-			return fmt.Errorf("LLM 流式输出超时（%s）", streamTimeout())
-		}
-
-		if !ok {
-			break
-		}
-
-		if event.Output != nil && event.Output.MessageOutput != nil {
-			if lastMessageStream != nil {
-				lastMessageStream.Close()
-			}
-
-			if event.Output.MessageOutput.IsStreaming {
-				cpStream := event.Output.MessageOutput.MessageStream.Copy(2)
-				event.Output.MessageOutput.MessageStream = cpStream[0]
-				lastMessage = nil
-				lastMessageStream = cpStream[1]
-				processStreamingMessage(lastMessageStream, onEvent, &answerBuf)
-			} else {
-				lastMessage = event.Output.MessageOutput.Message
-				lastMessageStream = nil
-				// 仅对非工具结果消息发出文本内容
-				// 工具结果消息（Role==tool 或 ToolCallID!=""）的输出由 ToolCalls 字段承载；发出 Content 会导致重复
-				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
-					onEvent(AgentEvent{
-						Type:    AgentEventAnswer,
-						Content: lastMessage.Content,
-					})
-				}
-			}
-
-			if m := event.Output.MessageOutput.Message; m != nil {
-				for _, tc := range m.ToolCalls {
-					onEvent(AgentEvent{
-						Type:     AgentEventToolCall,
-						ToolName: tc.Function.Name,
-						ToolArgs: tc.Function.Arguments,
-					})
-				}
-			}
-		}
-
-		if event.Err != nil {
-			onEvent(AgentEvent{
-				Type:  AgentEventError,
-				Error: event.Err.Error(),
-			})
-		}
-	}
-
-	if lastMessageStream != nil {
-		lastMessageStream.Close()
-	}
-
-	logger.Info("fixer_agent_completed", "duration", time.Since(startTime).String())
-	return nil
-}
-
-// RunSlideExecutorContinueWithCallback 在继续模式下运行 SlideExecutor 以生成指定的待处理页面
-// 它创建一个带有继续特定提示的新代理，处理给定页面
-// 并通过 onEvent 流式传输事件
-func RunSlideExecutorContinueWithCallback(ctx context.Context, workDir, skillsDir string,
-	operator commandline.Operator, userMessage string, targetPages []int, onEvent AgentEventCallback) error {
-
-	cfg := &PPTTaskConfig{
-		WorkDir:     workDir,
-		SkillsDir:   skillsDir,
-		Operator:    operator,
-		RuntimeMeta: agentutils.RuntimeMetaFromContext(ctx),
-	}
-
-	cm, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithMaxTokens(32768),
-		agentutils.WithTemperature(0),
-		agentutils.WithTopP(0),
-	)
-	if err != nil {
-		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 SlideExecutor 模型失败: " + err.Error()})
-		return err
-	}
-	cm = wrapSlideExecutorCompressor(ctx, cm)
-	if cfg.RuntimeMeta != nil {
-		if compressor, ok := cm.(*agentutils.ChatModelCompressor); ok {
-			compressor.SetRuntimeMeta(cfg.RuntimeMeta)
-		}
-	}
-	cm = agentutils.NewRuntimeStatusChatModel(cm, cfg.RuntimeMeta)
-
-	pythonTool := tools.NewPythonRunnerTool(cfg.Operator)
-	readTool := tools.NewReadFileTool(cfg.Operator)
-	searchTool := tools.NewSearchTool()
-
-	promptData := &prompts.TemplateData{
-		WorkDir:     workDir,
-		SkillsDir:   skillsDir,
-		UserMessage: userMessage,
-		TargetPages: targetPages,
-	}
-	instruction, err := prompts.RenderSlideExecutorContinueInstruction(promptData)
-	if err != nil {
-		onEvent(AgentEvent{Type: AgentEventError, Error: "渲染 SlideExecutor continue prompt 失败: " + err.Error()})
-		return err
-	}
-
-	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "SlideExecutor",
-		Description: "幻灯片生成专家，负责读取任务清单并生成指定页码的 PPT 幻灯片。",
-		Instruction: instruction,
-		Model:       cm,
-		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: []tool.BaseTool{pythonTool, readTool, searchTool},
-			},
-		},
-		MaxIterations: agentutils.EnvInt("SLIDE_EXECUTOR_MAX_ITERATIONS", 50),
-	})
-	if err != nil {
-		onEvent(AgentEvent{Type: AgentEventError, Error: "创建 SlideExecutor Agent 失败: " + err.Error()})
-		return err
-	}
-
-	return runAgentWithCallback(ctx, agent, "", onEvent)
 }
 
 // runAgentWithCallback 是通用代理运行器，通过 onEvent 流式传输事件

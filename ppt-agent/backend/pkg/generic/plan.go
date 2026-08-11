@@ -829,7 +829,7 @@ func GetCompletedCountFromCheckpoint(workDir string) (int, error) {
 // QAAttemptFileName 是 QA 尝试次数文件名
 const QAAttemptFileName = ".qa_attempts.json"
 
-// qaFileMu 保护 QA 相关文件的并发读写，防止 Reviewer 和 Fixer 的竞态条件
+// qaFileMu 保护 QA 相关文件的并发读写，防止并发读写产生竞态条件
 var qaFileMu sync.Mutex
 
 // QAAttempts 记录每张幻灯片的 QA 尝试次数，key 为 PPTX 文件名
@@ -874,7 +874,7 @@ func GetQAAttempt(workDir string, pptxFilename string) (int, error) {
 }
 
 // IncrementQAAttempt 增加某页的 QA 尝试次数，返回增加后的值。
-// 使用互斥锁保证 load-increment-save 的原子性，避免 Reviewer/Fixer 并发竞争。
+// 使用互斥锁保证 load-increment-save 的原子性，避免并发竞争。
 func IncrementQAAttempt(workDir string, pptxFilename string) (int, error) {
 	qaFileMu.Lock()
 	defer qaFileMu.Unlock()

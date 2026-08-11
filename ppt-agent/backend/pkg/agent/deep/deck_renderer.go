@@ -200,6 +200,11 @@ func tasksNeedingRender(workDir string, tasks []*TaskItem) []*TaskItem {
 		if task == nil {
 			continue
 		}
+		switch strings.TrimSpace(task.Status) {
+		case StatusPending, StatusGenerating, StatusFailed:
+			result = append(result, task)
+			continue
+		}
 		if task.OutputFile != "" {
 			if _, err := os.Stat(filepath.Join(workDir, task.OutputFile)); err == nil {
 				continue

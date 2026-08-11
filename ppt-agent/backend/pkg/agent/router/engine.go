@@ -72,8 +72,8 @@ func (e *Engine) makeRoutingDecision(classification *intent.ClassificationResult
 	}
 	decision.Reason = classification.IntentReasoning
 
-	// DeepAgent is currently the only executable initial PPT generator. The
-	// model still owns the decision; code rejects labels that cannot run.
+	// The executable path is Planner + renderer workflow. The external
+	// agent_type value remains "deep" as a compatibility enum.
 	if strings.EqualFold(strings.TrimSpace(classification.AgentType), "deep") {
 		decision.AgentType = "deep"
 	} else {

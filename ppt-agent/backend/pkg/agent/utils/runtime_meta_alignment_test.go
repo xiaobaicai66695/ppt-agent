@@ -103,7 +103,7 @@ func TestRuntimeMetaReportsStructuralAndDeliveryDeviations(t *testing.T) {
 	}
 }
 
-func TestRuntimeMetaEmitsFullEventDetailsToSink(t *testing.T) {
+func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	workDir := t.TempDir()
 	meta := NewRuntimeMeta("task-observe", workDir)
 	var events []RuntimeEvent
@@ -130,15 +130,20 @@ func TestRuntimeMetaEmitsFullEventDetailsToSink(t *testing.T) {
 		t.Fatalf("events = %d, want 4: %#v", len(events), events)
 	}
 	toolEnd := events[1]
-	if toolEnd.Metadata["args"] != fullArgs || toolEnd.Metadata["result"] != fullResult {
-		t.Fatalf("tool detail not persisted: %#v", toolEnd.Metadata)
+	if toolEnd.Metadata["args"] != nil || toolEnd.Metadata["result"] != nil {
+		t.Fatalf("tool metadata should not persist full payloads: %#v", toolEnd.Metadata)
+	}
+	if toolEnd.Metadata["args_preview"] == "" || toolEnd.Metadata["result_preview"] == "" {
+		t.Fatalf("tool previews missing: %#v", toolEnd.Metadata)
 	}
 	llmStart := events[2]
-	history, ok := llmStart.Metadata["history"].([]map[string]any)
-	if !ok || len(history) != 2 {
-		t.Fatalf("llm history missing: %#v", llmStart.Metadata["history"])
+	if llmStart.Metadata["history"] != nil {
+		t.Fatalf("llm history should be omitted: %#v", llmStart.Metadata)
 	}
 	llmEnd := events[3]
+	if llmEnd.Metadata["output"] != nil {
+		t.Fatalf("llm full output should be omitted: %#v", llmEnd.Metadata)
+	}
 	if llmEnd.Metadata["prompt_tokens"].(int64) != 11 || llmEnd.Metadata["total_tokens"].(int64) != 18 {
 		t.Fatalf("token detail missing: %#v", llmEnd.Metadata)
 	}
@@ -176,7 +181,7 @@ func TestRuntimeMetaDeduplicatesManifestValidationAndUsesProgressStatus(t *testi
 	if events[1].Detail != "已完成 1/2 页，还有 1 页待生成" {
 		t.Fatalf("unexpected progress detail: %q", events[1].Detail)
 	}
-	if got := meta.Snapshot().EventCounts["manifest_validated"]; got != 3 {
+	if got := meta.Snapshot().EventCounts["deck_spec_validated"]; got != 3 {
 		t.Fatalf("manifest event count = %d, want 3", got)
 	}
 	for _, event := range events {
@@ -203,8 +208,8 @@ func TestSlideProgressEventMetadataOnlyContainsGeneratedAndTotalSlides(t *testin
 
 	meta.RecordSlideProgress(3, 9, 2)
 
-	if event.Kind != "slide_progress" {
-		t.Fatalf("event kind = %q, want slide_progress", event.Kind)
+	if event.Kind != "delivery_progress" {
+		t.Fatalf("event kind = %q, want delivery_progress", event.Kind)
 	}
 	if len(event.Metadata) != 2 || event.Metadata["done"] != 3 || event.Metadata["total"] != 9 {
 		t.Fatalf("slide progress metadata should contain only done/total: %#v", event.Metadata)
@@ -231,7 +236,7 @@ func TestCompressionEventIncludesDifferenceAndUserAnchor(t *testing.T) {
 	var event RuntimeEvent
 	meta.SetEventSink(func(recorded RuntimeEvent) { event = recorded })
 	meta.RecordCompressionDetails(120, 28, 42000, 11000, "生成一套生态报告", []string{"使用智能推荐", "突出背景图片"})
-	if event.Kind != "compression" || event.Metadata["removed_messages"] != 92 || event.Metadata["saved_tokens"] != 31000 {
+	if event.Kind != "planner_context_compressed" || event.Metadata["removed_messages"] != 92 || event.Metadata["saved_tokens"] != 31000 {
 		t.Fatalf("compression diff missing: %#v", event)
 	}
 	requirements, ok := event.Metadata["preserved_requirements"].([]string)

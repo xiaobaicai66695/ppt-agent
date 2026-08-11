@@ -23,12 +23,22 @@ import (
 )
 
 // GetPythonBinary 返回配置的 Python 二进制文件路径。
-// 如果设置了 PYTHON_BIN 环境变量则使用该值，否则回退到 Linux venv 默认值。
+// 如果设置了 PYTHON_BIN 环境变量则使用该值；否则按常见 Linux 部署路径探测。
 func GetPythonBinary() string {
 	if bin := os.Getenv("PYTHON_BIN"); bin != "" {
 		return bin
 	}
-	return "/root/pptx_env/bin/python"
+	candidates := []string{
+		"/root/pptx_env/bin/python",
+		"/home/ubuntu/.openclaw/workspace/venvs/pptx-env/bin/python",
+		"/usr/bin/python3",
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return candidates[0]
 }
 
 // FindConverterPy 搜索 pptx_qa_converter.py 脚本。

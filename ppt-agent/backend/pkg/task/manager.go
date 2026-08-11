@@ -444,9 +444,6 @@ type AgentFactory func(ctx context.Context, cfg *deep.PPTTaskConfig) (adk.Agent,
 // ErrTaskAlreadyRunning 当尝试创建任务时如果另一个任务正在运行，则返回此错误。
 var ErrTaskAlreadyRunning = fmt.Errorf("已有任务正在执行，请等待当前任务完成后再创建新任务")
 
-// regexpTaskID 用于从 task() 调用的参数中提取 task_id
-var regexpTaskID = regexp.MustCompile(`task_id[=\s]*["']?(\d+)`)
-
 // HasRunningTask 如果给定用户已有运行中的任务则返回 true。
 func (tm *TaskManager) HasRunningTask(userID int) bool {
 	tm.mu.RLock()
@@ -696,7 +693,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		cancelRun(errDeliveryMetadataComplete)
 	})
 
-	result, err := deep.RunPPTTaskDeepAgentWithCallback(runCtx, agent, cfg, query, func(event deep.AgentEvent) {
+	result, err := deep.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event deep.AgentEvent) {
 		if event.Type == deep.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
 				Type:        "progress",
@@ -1010,8 +1007,7 @@ func durationFromResult(result *deep.PPTTaskResult) time.Duration {
 	return result.Duration
 }
 
-// detectAndBroadcastPhase 从 tool_call 事件推断当前执行阶段并广播进度事件。
-// 通过检测 task() 调用的 description 内容来确定阶段。
+// detectAndBroadcastPhase 从 Planner 工具事件推断当前阶段并广播进度事件。
 func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
 	detail := event.PhaseDetail
 	if detail == "" {
@@ -1022,35 +1018,12 @@ func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
 	phaseDetail := ""
 
 	switch {
-	case strings.Contains(detail, "SlideExecutor") && strings.Contains(detail, "task_id="):
-		phase = "generating"
-		// 从 task_id 提取页码
-		if matches := regexpTaskID.FindStringSubmatch(event.ToolArgs); len(matches) > 1 {
-			phaseDetail = "生成第" + matches[1] + "页"
-		} else {
-			phaseDetail = "生成幻灯片"
-		}
-	case strings.Contains(detail, "SlideExecutor") && !strings.Contains(detail, "task_id="):
-		phase = "generating"
-		phaseDetail = "生成幻灯片"
-	case strings.Contains(detail, "Reviewer") || strings.Contains(detail, "reviewer"):
-		phase = "qa"
-		phaseDetail = "质检中"
-	case strings.Contains(detail, "Fixer") || strings.Contains(detail, "fix"):
-		phase = "fixing"
-		phaseDetail = "修复中"
 	case event.ToolName == "update_tasks_manifest":
 		phase = "planning"
-		phaseDetail = "正在整理页面内容"
+		phaseDetail = "正在写入 DeckSpec"
 	case event.ToolName == "search":
 		phase = "planning"
 		phaseDetail = "正在检索并核实资料"
-	case event.ToolName == "batch_convert":
-		phase = "generating"
-		phaseDetail = "正在整理演示文件"
-	case event.ToolName == "bash":
-		phase = "generating"
-		phaseDetail = "正在执行生成工具"
 	case strings.Contains(detail, "tasks.json") || strings.Contains(detail, "TasksJSON"):
 		phase = "planning"
 		phaseDetail = "读取任务清单"
@@ -1060,12 +1033,6 @@ func detectAndBroadcastPhase(ts *TaskState, event deep.AgentEvent) {
 	case strings.Contains(detail, ".py") && strings.Contains(detail, "read_file"):
 		phase = "preparing"
 		phaseDetail = "读取模板"
-	case regexpTaskID.MatchString(event.ToolArgs):
-		// 有 task_id 的 task 调用，说明在生成阶段
-		phase = "generating"
-		if matches := regexpTaskID.FindStringSubmatch(event.ToolArgs); len(matches) > 1 {
-			phaseDetail = "生成第" + matches[1] + "页"
-		}
 	}
 
 	if ts.runtimeMeta != nil {

@@ -208,27 +208,20 @@ func modelInputDetails(input callbacks.CallbackInput, agentName, runName string)
 	if mi == nil {
 		return map[string]any{"agent": agentName, "name": runName}
 	}
-	history := serializeMessages(mi.Messages)
-	history = append(history, map[string]any{
-		"role":    "meta",
-		"content": "llm_call_metadata",
-		"metadata": map[string]any{
-			"agent":       agentName,
-			"name":        runName,
-			"config":      mi.Config,
-			"tool_choice": mi.ToolChoice,
-			"tools":       serializeTools(mi.Tools),
-			"extra":       mi.Extra,
-		},
-	})
+	toolNames := make([]string, 0, len(mi.Tools))
+	for _, toolInfo := range mi.Tools {
+		if toolInfo != nil && strings.TrimSpace(toolInfo.Name) != "" {
+			toolNames = append(toolNames, toolInfo.Name)
+		}
+	}
 	return map[string]any{
-		"agent":       agentName,
-		"name":        runName,
-		"history":     history,
-		"tools":       serializeTools(mi.Tools),
-		"tool_choice": mi.ToolChoice,
-		"config":      mi.Config,
-		"extra":       mi.Extra,
+		"agent":             agentName,
+		"name":              runName,
+		"stage":             inferCallbackStage(agentName, runName),
+		"message_count":     len(mi.Messages),
+		"tool_names":        toolNames,
+		"last_user_preview": lastMessagePreview(mi.Messages, string(schema.User), 300),
+		"system_preview":    firstMessagePreview(mi.Messages, string(schema.System), 300),
 	}
 }
 
@@ -239,7 +232,14 @@ func modelOutputDetails(output callbacks.CallbackOutput) map[string]any {
 	}
 	details := map[string]any{}
 	if mo.Message != nil {
-		details["output"] = serializeMessage(mo.Message)
+		details["output_preview"] = truncate(strings.TrimSpace(mo.Message.Content), 500)
+		if len(mo.Message.ToolCalls) > 0 {
+			toolNames := make([]string, 0, len(mo.Message.ToolCalls))
+			for _, tc := range mo.Message.ToolCalls {
+				toolNames = append(toolNames, tc.Function.Name)
+			}
+			details["tool_calls"] = toolNames
+		}
 	}
 	if mo.TokenUsage != nil {
 		details["token_usage"] = map[string]any{
@@ -261,75 +261,35 @@ func modelOutputDetails(output callbacks.CallbackOutput) map[string]any {
 	return details
 }
 
-func serializeMessages(messages []*schema.Message) []map[string]any {
-	out := make([]map[string]any, 0, len(messages))
+func inferCallbackStage(agentName, runName string) string {
+	joined := strings.ToLower(agentName + " " + runName)
+	switch {
+	case strings.Contains(joined, "planner"):
+		return "planner"
+	case strings.Contains(joined, "workflow"), strings.Contains(joined, "render"):
+		return "workflow"
+	default:
+		return "model"
+	}
+}
+
+func firstMessagePreview(messages []*schema.Message, role string, maxLen int) string {
 	for _, message := range messages {
-		out = append(out, serializeMessage(message))
+		if message != nil && string(message.Role) == role {
+			return truncate(strings.TrimSpace(message.Content), maxLen)
+		}
 	}
-	return out
+	return ""
 }
 
-func serializeMessage(message *schema.Message) map[string]any {
-	if message == nil {
-		return map[string]any{"role": "meta", "content": "<nil message>"}
-	}
-	item := map[string]any{
-		"role":    string(message.Role),
-		"content": message.Content,
-	}
-	if message.Name != "" {
-		item["name"] = message.Name
-	}
-	if message.ToolCallID != "" {
-		item["tool_call_id"] = message.ToolCallID
-	}
-	if message.ToolName != "" {
-		item["tool_name"] = message.ToolName
-	}
-	if len(message.ToolCalls) > 0 {
-		item["tool_calls"] = message.ToolCalls
-	}
-	if message.ReasoningContent != "" {
-		item["reasoning_content"] = message.ReasoningContent
-	}
-	if message.ResponseMeta != nil {
-		item["response_meta"] = message.ResponseMeta
-	}
-	if len(message.MultiContent) > 0 {
-		item["multi_content"] = message.MultiContent
-	}
-	if len(message.UserInputMultiContent) > 0 {
-		item["user_input_multi_content"] = message.UserInputMultiContent
-	}
-	if len(message.AssistantGenMultiContent) > 0 {
-		item["assistant_output_multi_content"] = message.AssistantGenMultiContent
-	}
-	if message.Extra != nil {
-		item["extra"] = message.Extra
-	}
-	return item
-}
-
-func serializeTools(tools []*schema.ToolInfo) []map[string]any {
-	out := make([]map[string]any, 0, len(tools))
-	for _, toolInfo := range tools {
-		if toolInfo == nil {
-			continue
+func lastMessagePreview(messages []*schema.Message, role string, maxLen int) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if message != nil && string(message.Role) == role {
+			return truncate(strings.TrimSpace(message.Content), maxLen)
 		}
-		var params any
-		if toolInfo.ParamsOneOf != nil {
-			if schemaParams, err := toolInfo.ParamsOneOf.ToJSONSchema(); err == nil {
-				params = schemaParams
-			}
-		}
-		out = append(out, map[string]any{
-			"name":   toolInfo.Name,
-			"desc":   toolInfo.Desc,
-			"params": params,
-			"extra":  toolInfo.Extra,
-		})
 	}
-	return out
+	return ""
 }
 
 // StreamEvent 打印流式事件信息（从 MessageStream 中读取并消费）

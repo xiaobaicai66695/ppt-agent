@@ -131,7 +131,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 	operator := &command.LocalOperator{}
 
 	concurrency := 5
-	if c := os.Getenv("DEEP_AGENT_CONCURRENCY"); c != "" {
+	if c := firstNonEmptyEnv("PLANNER_CONCURRENCY", "DEEP_AGENT_CONCURRENCY"); c != "" {
 		if v, err := strconv.Atoi(c); err == nil && v > 0 {
 			concurrency = v
 		}
@@ -149,7 +149,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		cfg.Skills = skillsContent
 		cfg.SkillsDir = skillsDir
 		cfg.EnableQA = false
-		return deep.NewPPTTaskDeepAgent(ctx, cfg)
+		return deep.NewPPTPlannerAgent(ctx, cfg)
 	}
 
 	srv := web.NewServer(&web.ServerConfig{
@@ -257,28 +257,28 @@ func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
 	fmt.Println("========================================")
 	fmt.Println()
 
-	logger.Info("agent_mode_selected", "mode", "deep")
+	logger.Info("agent_mode_selected", "mode", "planner")
 	hm := human.NewManager(interactive)
-	runDeepAgentCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
+	runPlannerCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
 }
 
-func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
+func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	operator *command.LocalOperator, skillsContent, skillsDir string, interactive bool, hm *human.Manager) {
 
 	concurrency := 5
-	if envConcurrency := os.Getenv("DEEP_AGENT_CONCURRENCY"); envConcurrency != "" {
+	if envConcurrency := firstNonEmptyEnv("PLANNER_CONCURRENCY", "DEEP_AGENT_CONCURRENCY"); envConcurrency != "" {
 		if c, err := strconv.Atoi(envConcurrency); err == nil && c > 0 {
 			concurrency = c
 		}
 	}
-	logger.Info("cli_deep_agent_config", "concurrency", concurrency)
+	logger.Info("cli_planner_config", "concurrency", concurrency)
 
 	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
 		return agentutils.NewQAModel(ctx)
 	}
 
-	logger.Info("deep_agent_creating")
-	agent, err := deep.NewPPTTaskDeepAgent(ctx, &deep.PPTTaskConfig{
+	logger.Info("planner_creating")
+	agent, err := deep.NewPPTPlannerAgent(ctx, &deep.PPTTaskConfig{
 		WorkDir:     outputDir,
 		TaskID:      taskID,
 		Concurrency: concurrency,
@@ -288,10 +288,10 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 		SkillsDir:   skillsDir,
 	})
 	if err != nil {
-		logger.Error("deep_agent_creation_failed", "error", err.Error())
+		logger.Error("planner_creation_failed", "error", err.Error())
 		return
 	}
-	logger.Info("deep_agent_created")
+	logger.Info("planner_created")
 
 	cfg := &deep.PPTTaskConfig{
 		WorkDir:  outputDir,
@@ -301,9 +301,9 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 
 	var result *deep.PPTTaskResult
 	if interactive && hm != nil {
-		result, err = deep.RunPPTTaskDeepAgentWithHuman(ctx, agent, cfg, userQuery, hm)
+		result, err = deep.RunPPTPlannerWithHuman(ctx, agent, cfg, userQuery, hm)
 	} else {
-		result, err = deep.RunPPTTaskDeepAgent(ctx, agent, cfg, userQuery)
+		result, err = deep.RunPPTPlanner(ctx, agent, cfg, userQuery)
 	}
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -323,6 +323,15 @@ func runDeepAgentCLI(ctx context.Context, userQuery, taskID, outputDir string,
 
 // ---------------------------------------------------------------------------
 // Shared helpers
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
 
 type aiModelAdapter struct {
 	model model.ToolCallingChatModel

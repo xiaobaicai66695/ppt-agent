@@ -37,7 +37,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
 
-func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
+func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
 	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx,
 		agentutils.WithMaxTokens(32768),
 		agentutils.WithTemperature(0),
@@ -80,7 +80,7 @@ func NewPPTTaskDeepAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, er
 		Name:        "PPTPlanner",
 		Description: "PPT 规划代理，负责在意图分类后生成可执行的 DeckSpec/tasks.json，不负责渲染页面。",
 		Model:       chatModel,
-		Instruction: buildDeepAgentInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision)),
+		Instruction: buildPlannerInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision)),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: []tool.BaseTool{manifestTool, readFileTool, searchTool},
@@ -107,11 +107,11 @@ func getConcurrency(route *agentintent.RoutingDecision) int {
 	return 5
 }
 
-// buildDeepAgentInstruction 从模板加载深度代理的主指令
-// 当提供大纲时，tasks.json 已经预填充了用户的幻灯片计划
-// query 提供用户原始主题描述用于内容生成
-// concurrency 每批最大并发页数（来自路由决策）
-func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int) string {
+// buildPlannerInstruction 从模板加载 Planner 指令。
+// 当提供大纲时，tasks.json 已经预填充了用户的幻灯片计划。
+// query 提供用户原始主题描述用于内容生成。
+// concurrency 是后续渲染 worker pool 的并发提示。
+func buildPlannerInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int) string {
 	tmplDir := filepath.Join(skillsDir, "visual_designer", "templates", "full-decks")
 	tasksJSON := filepath.Join(workDir, "tasks.json")
 
@@ -181,9 +181,9 @@ func buildDeepAgentInstruction(workDir string, skillsDir string, styleContext st
 		Concurrency:            concurrency,
 	}
 
-	instruction, err := prompts.RenderDeepAgent("master_instruction", data)
+	instruction, err := prompts.RenderPlanner("master_instruction", data)
 	if err != nil {
-		panic("failed to render deep agent master instruction template: " + err.Error())
+		panic("failed to render planner instruction template: " + err.Error())
 	}
 	return instruction
 }

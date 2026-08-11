@@ -12,7 +12,7 @@ func TestMainAgentPromptDistinguishesTemplateScaffold(t *testing.T) {
 		UseBackground: false,
 		Slides:        []SlideOutline{{Title: "模板示例", ContentType: "title_slide"}},
 	}
-	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
 	for _, want := range []string{"模板脚手架", "逐页围绕用户主题重写模板示例", "现有页数、顺序和 `content_type`", "theme=ocean_soft"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
@@ -35,7 +35,7 @@ func TestMainAgentPromptUsesOnlyRecommendedBackground(t *testing.T) {
 		UseBackground: true, RecommendedBackground: "party_government",
 		Slides: []SlideOutline{{Title: "封面", ContentType: "title_slide"}},
 	}
-	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5)
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5)
 	for _, want := range []string{"整套每页使用 `party_government` 同一主题目录", "`party_government` 是首选背景主题", "为每一页主动填写该主题或其具体图片引用", "`theme=charcoal_light` 是整套配色锚点"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
@@ -49,7 +49,7 @@ func TestMainAgentPromptPreservesPopulatedUserOutline(t *testing.T) {
 		ContentMode: OutlineContentModeUserOutline,
 		Slides:      []SlideOutline{{Title: "用户标题", ContentType: "content_slide", Description: "用户内容"}},
 	}
-	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
 	for _, want := range []string{"用户大纲", "非空的 `title`、`description`、`content_plan`", "补齐空字段"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
@@ -58,7 +58,7 @@ func TestMainAgentPromptPreservesPopulatedUserOutline(t *testing.T) {
 }
 
 func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *testing.T) {
-	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "", nil, "介绍大兴安岭", false, 5)
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", nil, "介绍大兴安岭", false, 5)
 	for _, want := range []string{
 		"页面完成状态由后端依据代码元数据维护",
 		"Planner 完成 `tasks.json` 后立即结束",
@@ -81,7 +81,7 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 		ContentMode: OutlineContentModeRecommendedStyle, SuggestedPageCount: 11,
 		UseBackground: true, RecommendedBackground: "snowy_mountain",
 	}
-	prompt := buildDeepAgentInstruction("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5)
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5)
 	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "推荐背景：`snowy_mountain`", "重新设计叙事结构"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)

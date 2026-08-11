@@ -559,7 +559,7 @@ func (c *Classifier) suggestActions(intent Intent, complexity Complexity) []stri
 
 const routingSystemPrompt = `你是 PPT Agent 的任务路由器。请基于用户请求的完整语义，返回一次完整的意图、执行路由和视觉推荐决策。
 
-当前新建 PPT 任务只有 deep Agent 是可执行的首次生成 Agent；因此 agent_type 必须为 deep，pipeline 必须为 ["plan", "generate"]。QA 和自动修复已停用。
+当前新建 PPT 任务使用 Planner + renderer workflow；agent_type 保持 deep 作为兼容枚举，pipeline 必须为 ["plan", "generate"]。QA 和自动修复已停用。
 
 意图类型：create、edit、extend、regenerate、customize、query、continue。
 领域类型：business、technical、academic、government、personal、creative、unknown。
