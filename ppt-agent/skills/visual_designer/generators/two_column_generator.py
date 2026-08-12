@@ -139,7 +139,7 @@ def generate(
     add_glass_panel(
         slide,
         left=start_x, top=start_y, width=col_w, height=col_h,
-        fill_color="light_bg", alpha=84, palette=palette,
+        fill_color="light_bg", alpha=206, palette=palette,
     )
     # Left column top accent bar
     add_rect(
@@ -152,7 +152,7 @@ def generate(
     add_glass_panel(
         slide,
         left=start_x + col_w + gap, top=start_y, width=col_w, height=col_h,
-        fill_color="light_bg", alpha=84, palette=palette,
+        fill_color="light_bg", alpha=206, palette=palette,
     )
     # Right column top accent bar
     add_rect(
@@ -299,7 +299,7 @@ def _render_split_table(
     rows = max(len(left_bullets), len(right_bullets), 3)
     for i in range(min(rows, 6)):
         y = table_y + 0.58 + i * row_h
-        add_glass_panel(slide, left=table_x, top=y, width=table_w, height=row_h - 0.02, fill_color="light_bg", alpha=92, palette=palette)
+        add_glass_panel(slide, left=table_x, top=y, width=table_w, height=row_h - 0.02, fill_color="light_bg", alpha=208, palette=palette)
         add_rect(slide, left=table_x + 5.95, top=y, width=0.02, height=row_h - 0.02, fill_color="divider", palette=palette)
         left = left_bullets[i] if i < len(left_bullets) else ""
         right = right_bullets[i] if i < len(right_bullets) else ""
@@ -323,8 +323,8 @@ def _render_mirror_emphasis(
     start_y: float,
 ) -> Presentation:
     center_x = 6.666
-    add_glass_panel(slide, left=0.66, top=start_y + 0.02, width=5.58, height=5.42, fill_color="light_bg", alpha=92, palette=palette)
-    add_glass_panel(slide, left=7.08, top=start_y + 0.02, width=5.58, height=5.42, fill_color="light_bg", alpha=92, palette=palette)
+    add_glass_panel(slide, left=0.66, top=start_y + 0.02, width=5.58, height=5.42, fill_color="light_bg", alpha=208, palette=palette)
+    add_glass_panel(slide, left=7.08, top=start_y + 0.02, width=5.58, height=5.42, fill_color="light_bg", alpha=208, palette=palette)
     add_rect(slide, left=center_x - 0.03, top=start_y + 0.25, width=0.06, height=5.15, fill_color="accent", palette=palette)
     add_text(slide, text=left_header, left=0.7, top=start_y + 0.15, width=5.2, height=0.5, font_size=22, bold=True, color="primary", alignment="right", palette=palette, colors=colors)
     add_text(slide, text=right_header, left=7.42, top=start_y + 0.15, width=5.2, height=0.5, font_size=22, bold=True, color="accent", alignment="left", palette=palette, colors=colors)

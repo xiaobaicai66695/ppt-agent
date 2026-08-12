@@ -365,6 +365,9 @@ func TestManifestToolBackfillsLayoutVariantsAndUsesOneSectionVariant(t *testing.
 	if got.Tasks[1].LayoutVariant == "" || got.Tasks[2].LayoutVariant == "" || got.Tasks[1].LayoutVariant != got.Tasks[2].LayoutVariant {
 		t.Fatalf("section variants should be consistent: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[2].LayoutVariant)
 	}
+	if got.Tasks[1].LayoutVariant != "number_sidebar" {
+		t.Fatalf("default section variant = %q, want number_sidebar", got.Tasks[1].LayoutVariant)
+	}
 	if got.Tasks[3].LayoutVariant == "" || got.Tasks[4].LayoutVariant == "" || got.Tasks[3].LayoutVariant == got.Tasks[4].LayoutVariant {
 		t.Fatalf("image_text variants were not rotated: %q %q", got.Tasks[3].LayoutVariant, got.Tasks[4].LayoutVariant)
 	}

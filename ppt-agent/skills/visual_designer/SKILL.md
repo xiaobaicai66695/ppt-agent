@@ -219,7 +219,7 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 | content_type | layout_variant 示例 |
 |--------------|---------------------|
 | `title_slide` | `photo_full_bleed_center` / `photo_full_bleed_left` / `editorial_split` |
-| `section_divider` | `photo_band` / `number_sidebar` / `quiet_title`，同一套 PPT 固定一种 |
+| `section_divider` | `number_sidebar` / `quiet_title` / `photo_band`，同一套 PPT 固定一种；默认左右结构 |
 | `content_slide` | `classic_bullets` / `numbered_cards` / `side_panel` |
 | `two_column` | `balanced_cards` / `split_table` / `mirror_emphasis` |
 | `image_text` | `left_photo` / `right_photo` / `photo_strip` |

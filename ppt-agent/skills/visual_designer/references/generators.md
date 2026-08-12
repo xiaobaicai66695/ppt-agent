@@ -143,7 +143,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | title | str | `"技术背景"` |
 | subtitle | str | `"从感知机到大模型"` |
 | kicker | str | `"第三章"` (可选，编号上方小标签) |
-| layout_variant | str | `"photo_band"`、`"number_sidebar"` 或 `"quiet_title"` |
+| layout_variant | str | `"number_sidebar"`、`"quiet_title"` 或 `"photo_band"`；默认左右结构 |
 | background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_agenda — 目录页

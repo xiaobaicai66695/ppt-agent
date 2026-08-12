@@ -139,7 +139,7 @@
 - `image_position` 可用 `background`、`left`、`right`、`strip`、`inline`。
 - `preferred_variant` 与同页 `layout_variant` 保持一致。
 - 视觉字段服务于叙事：视觉页填写具体意图，数据页使用 `chart` 或 `cards`，纯文字留白页可保持精简。
-- 章节分割页在同一套 PPT 中固定一个 `layout_variant`，优先选择适合主题的 `photo_band/quiet_title/number_sidebar` 之一；所有 `section_divider` 保持同一选择。
+- 章节分割页在同一套 PPT 中固定一个 `layout_variant`，默认使用左右结构的 `number_sidebar`；仅当用户明确要求弱化章节感或照片横幅时，才选择 `quiet_title` 或 `photo_band`。所有 `section_divider` 保持同一选择。
 - 其他支持 `layout_variant` 的内容页在同类型内尽量轮换：`title_slide` 使用 `photo_full_bleed_center/photo_full_bleed_left/editorial_split`；`content_slide` 使用 `classic_bullets/numbered_cards/side_panel`；`two_column` 使用 `balanced_cards/split_table/mirror_emphasis`；`image_text` 使用 `right_photo/left_photo/photo_strip`；`card_grid` 使用 `equal_grid/featured_card_plus_grid/masonry_cards`。
 - `section_divider.content_plan.section_number` 必须是大章节序号（01、02、03），不是 `page_index`。例如第 6 页如果是第二个章节页，显示 `02`。
 

@@ -148,7 +148,7 @@ def generate(
         add_glass_panel(
             slide,
             left=x, top=y, width=card_w, height=card_h,
-            fill_color="light_bg", alpha=82, palette=palette,
+            fill_color="light_bg", alpha=204, palette=palette,
         )
 
         # Card left accent bar
@@ -240,7 +240,7 @@ def _draw_card(
         slide,
         left=left, top=top, width=width, height=height,
         fill_color=fill,
-        alpha=76 if featured else 86,
+        alpha=214 if featured else 204,
         palette=palette,
         line_color="divider",
         line_width=0.6,

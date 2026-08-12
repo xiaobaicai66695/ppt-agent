@@ -125,7 +125,7 @@ def generate(
             start_x = (13.333 - total_w) / 2
             for i, item in enumerate(bullets[:3]):
                 x = start_x + i * (box_w + 0.25)
-                add_glass_panel(slide, left=x, top=4.75, width=box_w, height=0.95, fill_color="light_bg", alpha=86, palette=palette)
+                add_glass_panel(slide, left=x, top=4.75, width=box_w, height=0.95, fill_color="light_bg", alpha=204, palette=palette)
                 add_text(
                     slide,
                     text=item,
@@ -178,14 +178,14 @@ def generate(
             row = i // cols
             x = start_x + col * (card_w + gap_x)
             y = start_y + row * (card_h + gap_y)
-            add_glass_panel(slide, left=x, top=y, width=card_w, height=card_h, fill_color="light_bg", alpha=84, palette=palette)
+            add_glass_panel(slide, left=x, top=y, width=card_w, height=card_h, fill_color="light_bg", alpha=204, palette=palette)
             add_text(slide, text=f"{i + 1:02d}", left=x + 0.18, top=y + 0.18, width=0.58, height=0.28, font_size=13, bold=True, color="primary", alignment="left", palette=palette, colors=colors)
             add_text(slide, text=item, left=x + 0.86, top=y + 0.16, width=card_w - 1.1, height=card_h - 0.22, font_size=12 if len(item) > 42 else 13, color="text", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
         add_source_line(slide, source, palette)
         return prs
 
     if variant == "side_panel":
-        add_glass_panel(slide, left=0.22, top=0.24, width=3.08, height=6.98, fill_color="light_bg", alpha=84, palette=palette)
+        add_glass_panel(slide, left=0.22, top=0.24, width=3.08, height=6.98, fill_color="light_bg", alpha=210, palette=palette)
         add_rect(slide, left=3.55, top=0.0, width=0.08, height=7.5, fill_color="accent", palette=palette)
         if kicker:
             add_text(slide, text=kicker, left=0.52, top=0.58, width=2.45, height=0.32, font_size=12, color="secondary", alignment="left", palette=palette, colors=colors)
@@ -221,7 +221,7 @@ def generate(
             slide,
             left=0.55, top=1.38, width=panel_width, height=4.72,
             fill_color="background",
-            alpha=92,
+            alpha=208,
             line_color="divider",
             line_width=0.4,
             palette=palette,
@@ -315,7 +315,7 @@ def generate(
             add_glass_panel(
                 slide,
                 left=stats_x, top=y, width=3.3, height=1.4,
-                fill_color="light_bg", alpha=84, palette=palette,
+                fill_color="light_bg", alpha=204, palette=palette,
             )
             # Left accent bar
             add_rect(
@@ -350,7 +350,7 @@ def generate(
     add_glass_panel(
         slide,
         left=11.8, top=6.5, width=1.2, height=0.8,
-        fill_color="light_bg", alpha=122, palette=palette,
+        fill_color="light_bg", alpha=176, palette=palette,
     )
 
     add_source_line(slide, source, palette)

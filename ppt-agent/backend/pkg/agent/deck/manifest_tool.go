@@ -317,7 +317,7 @@ func preferredSectionDividerVariant(manifest *TasksManifest) string {
 			}
 		}
 	}
-	return "photo_band"
+	return "number_sidebar"
 }
 
 func supportedLayoutVariants(contentType string) []string {
@@ -325,7 +325,7 @@ func supportedLayoutVariants(contentType string) []string {
 	case "title_slide":
 		return []string{"photo_full_bleed_center", "photo_full_bleed_left", "editorial_split"}
 	case "section_divider":
-		return []string{"photo_band", "quiet_title", "number_sidebar"}
+		return []string{"number_sidebar", "quiet_title", "photo_band"}
 	case "image_text":
 		return []string{"right_photo", "left_photo", "photo_strip"}
 	case "card_grid":
