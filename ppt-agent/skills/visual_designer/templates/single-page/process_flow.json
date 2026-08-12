@@ -1,11 +1,90 @@
 {
   "name": "process_flow",
-  "display_name": "流程图页",
-  "type": "atomic",
-  "description": "流程步骤图，展示工作流程或操作步骤",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "education_blue", "warm_terracotta", "charcoal_light", "report_green"],
+  "display_name": "???",
+  "type": "component_page",
+  "description": "?????????????????????????????",
+  "contract": {
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "process_step"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
+    },
+    "capacity": {
+      "max_components": 8,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "process",
+      "???",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "process_step"
+    ]
+  },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "steps", "label": "步骤列表", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

@@ -1,50 +1,94 @@
 {
   "name": "content_slide",
-  "display_name": "内容页",
-  "type": "atomic",
-  "description": "标准内容页，包含标题和正文要点列表",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta", "berry_cream", "lavender_mist", "civic_gold", "debate_purple", "activity_orange", "report_green", "simple_gray", "medical_blue", "finance_gold"],
+  "display_name": "???",
+  "type": "component_page",
+  "description": "?????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items": 6,
-      "min_items": 4,
-      "target_chars_per_item_min": 45,
-      "target_chars_per_item_max": 85,
-      "max_chars_per_item": 100,
-      "density": "normal"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "paragraph",
+        "bullet_list",
+        "callout"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "bullets"],
-    "best_for": ["核心要点", "分组说明", "轻量结论"],
-    "avoid_for": ["300字长段落", "多系列数据", "左右强对比"],
-    "overflow_strategy": "split_slide",
-    "background_policy": "clean_default",
-    "visual_primitives": ["bullet_markers", "accent_blocks", "local_icons"]
+    "capacity": {
+      "max_components": 7,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "content",
+      "???",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "paragraph",
+      "bullet_list",
+      "callout"
+    ]
   },
   "variants": [
     {
-      "id": "classic_bullets",
-      "display_name": "经典要点列表",
-      "description": "左对齐标题和要点列表，适合常规说明页。",
-      "best_for": ["核心要点", "常规解释", "内容承接"],
-      "visual_intent": {"role": "icon", "image_position": "inline"}
+      "id": "narrative_stack",
+      "display_name": "narrative_stack",
+      "description": "??????????????????????"
     },
     {
-      "id": "numbered_cards",
-      "display_name": "数字卡片列表",
-      "description": "用编号卡片组织要点，适合步骤、原则和多条并列结论。",
-      "best_for": ["步骤原则", "并列结论", "方法清单"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "id": "evidence_cards",
+      "display_name": "evidence_cards",
+      "description": "??????????????????????"
     },
     {
-      "id": "side_panel",
-      "display_name": "侧栏摘要",
-      "description": "左侧摘要区加右侧正文列表，适合强调一个章节内的核心观点。",
-      "best_for": ["章节摘要", "观点解释", "结构化说明"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "id": "side_focus",
+      "display_name": "side_focus",
+      "description": "??????????????????????"
     }
   ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "bullets", "label": "内容要点", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

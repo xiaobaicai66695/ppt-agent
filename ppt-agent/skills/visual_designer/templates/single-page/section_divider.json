@@ -1,51 +1,92 @@
 {
   "name": "section_divider",
-  "display_name": "章节分隔页",
-  "type": "atomic",
-  "description": "章节过渡页，标识新的内容板块开始",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "government_red", "education_blue", "civic_gold"],
+  "display_name": "?????",
+  "type": "component_page",
+  "description": "???????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items": 3,
-      "max_title_chars": 24,
-      "max_subtitle_chars": 36,
-      "density": "low"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "section_marker",
+        "headline",
+        "subheadline"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title"],
-    "best_for": ["章节过渡", "叙事分段", "议程推进"],
-    "avoid_for": ["列表正文", "指标看板", "细节说明"],
-    "overflow_strategy": "move_details_to_following_slide",
-    "background_policy": "image_recommended",
-    "visual_primitives": ["section_number", "background_image", "large_type"]
+    "capacity": {
+      "max_components": 4,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "section",
+      "?????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "section_marker",
+      "headline",
+      "subheadline"
+    ]
   },
   "variants": [
     {
       "id": "number_sidebar",
-      "display_name": "章节编号侧栏",
-      "description": "强化章节编号和标题层级，使用纯色或轻纹理背景，适合结构化报告。",
-      "best_for": ["正式汇报", "课程章节", "方案分段"],
-      "avoid_for": ["需要强照片氛围的旅游/地域主题"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "display_name": "number_sidebar",
+      "description": "??????????????????????"
     },
     {
       "id": "quiet_title",
-      "display_name": "安静标题过渡",
-      "description": "保留大量留白，只突出章节标题和一句副标题，适合降低视觉噪音。",
-      "best_for": ["知识讲解", "总结过渡", "严肃报告"],
-      "avoid_for": ["需要制造强烈第一眼冲击"],
-      "visual_intent": {"role": "icon", "image_position": "inline"}
+      "display_name": "quiet_title",
+      "description": "??????????????????????"
     },
     {
       "id": "photo_band",
-      "display_name": "主题照片横幅",
-      "description": "用横向主题图形成章节氛围，标题保持高对比，仅适合明确需要强照片转场的场景。",
-      "best_for": ["章节开场", "场景切换", "叙事转场"],
-      "avoid_for": ["章节标题过长", "结构化报告", "后续内容非常数据密集"],
-      "visual_intent": {"role": "hero_photo", "image_position": "background"}
+      "display_name": "photo_band",
+      "description": "??????????????????????"
     }
   ],
   "fields": [
-    {"name": "title", "label": "章节标题", "type": "text", "required": true},
-    {"name": "subtitle", "label": "章节副标题", "type": "text", "required": false}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

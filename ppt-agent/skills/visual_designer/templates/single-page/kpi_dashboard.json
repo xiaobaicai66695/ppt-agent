@@ -1,25 +1,90 @@
 {
   "name": "kpi_dashboard",
-  "display_name": "仪表盘页",
-  "type": "atomic",
-  "description": "关键绩效指标仪表盘，展示核心业务指标",
-  "allowed_palettes": ["ocean_soft", "charcoal_light", "warm_terracotta", "report_green", "finance_gold"],
+  "display_name": "????",
+  "type": "component_page",
+  "description": "??????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items": 4,
-      "min_items": 2,
-      "max_label_chars": 18,
-      "density": "high"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "kpi_metric"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "kpis"],
-    "best_for": ["核心指标", "经营看板", "结果对比"],
-    "avoid_for": ["无数字内容", "长段解释", "多维明细表"],
-    "overflow_strategy": "split_metrics_or_use_chart_slide",
-    "background_policy": "clean_default",
-    "visual_primitives": ["stat_cards", "trend_badges", "shape_sparklines"]
+    "capacity": {
+      "max_components": 6,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "metrics",
+      "????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "kpi_metric"
+    ]
   },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "metrics", "label": "指标数据", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

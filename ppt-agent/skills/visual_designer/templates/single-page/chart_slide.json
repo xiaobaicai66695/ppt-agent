@@ -1,29 +1,94 @@
 {
   "name": "chart_slide",
-  "display_name": "图表专页",
-  "type": "atomic",
-  "description": "专业数据可视化页面，支持柱状图、饼图、折线图、环形图等多种图表类型",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "warm_terracotta", "report_green", "finance_gold"],
+  "display_name": "???",
+  "type": "component_page",
+  "description": "?????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_labels": 8,
-      "max_datasets": 3,
-      "max_analysis_chars": 120,
-      "density": "high"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "chart",
+        "callout",
+        "source_note"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "chart_type", "data"],
-    "best_for": ["趋势数据", "占比结构", "多组指标对比"],
-    "avoid_for": ["无结构化数据", "纯观点", "超长分类"],
-    "overflow_strategy": "split_chart_or_reduce_series",
-    "background_policy": "clean_default",
-    "visual_primitives": ["charts", "legend", "analysis_panel"]
+    "capacity": {
+      "max_components": 6,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "data",
+      "???",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "chart",
+      "callout",
+      "source_note"
+    ]
   },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
-    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
-    {"name": "chart_type", "label": "图表类型", "type": "select", "required": true, "options": ["bar", "pie", "line", "doughnut", "stacked_bar"]},
-    {"name": "chart_data", "label": "图表数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "{\"labels\":[\"Q1\",\"Q2\",\"Q3\"],\"datasets\":[{\"name\":\"2025年\",\"values\":[1200,1500,1800]}]}"},
-    {"name": "analysis", "label": "数据分析文字", "type": "textarea", "required": false, "placeholder": "分析文字将显示在图表右侧，为数据提供解读和洞察"}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

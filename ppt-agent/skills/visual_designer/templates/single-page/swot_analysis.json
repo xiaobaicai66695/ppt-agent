@@ -1,16 +1,90 @@
 {
   "name": "swot_analysis",
-  "display_name": "SWOT分析页",
-  "type": "atomic",
-  "description": "经典四象限 SWOT 分析布局，适合战略分析、项目评估、个人规划等场景",
-  "allowed_palettes": ["ocean_soft", "charcoal_light", "warm_terracotta"],
+  "display_name": "SWOT??",
+  "type": "component_page",
+  "description": "SWOT????????????????????????????",
+  "contract": {
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "feature_card"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
+    },
+    "capacity": {
+      "max_components": 8,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "analysis",
+      "SWOT??",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "feature_card"
+    ]
+  },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
-    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
-    {"name": "strengths", "label": "优势(每行一条)", "type": "textarea", "required": true, "placeholder": "技术领先，算法准确率高\n团队经验丰富，研发效率高"},
-    {"name": "weaknesses", "label": "劣势(每行一条)", "type": "textarea", "required": true, "placeholder": "成本高，定价缺乏竞争力\n品牌知名度不足"},
-    {"name": "opportunities", "label": "机会(每行一条)", "type": "textarea", "required": true, "placeholder": "市场需求快速增长\n政策支持AI发展"},
-    {"name": "threats", "label": "威胁(每行一条)", "type": "textarea", "required": true, "placeholder": "大厂入局，竞争加剧\n技术迭代快，研发压力大"}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

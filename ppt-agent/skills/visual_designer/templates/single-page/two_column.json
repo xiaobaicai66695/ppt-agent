@@ -1,56 +1,92 @@
 {
   "name": "two_column",
-  "display_name": "双栏对比页",
-  "type": "atomic",
-  "description": "左右两栏布局，适合对比分析或并列展示",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta", "berry_cream", "civic_gold"],
+  "display_name": "????",
+  "type": "component_page",
+  "description": "??????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items_per_column": 5,
-      "min_items_per_column": 3,
-      "target_chars_per_item_min": 45,
-      "target_chars_per_item_max": 80,
-      "max_chars_per_item": 96,
-      "target_intro_chars_min": 70,
-      "target_intro_chars_max": 130,
-      "max_intro_chars": 180,
-      "density": "normal"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "feature_card",
+        "key_point"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "left_header", "right_header"],
-    "best_for": ["双方案对比", "左右并列分析", "利弊权衡"],
-    "avoid_for": ["三项以上对比", "指标仪表盘", "单栏叙事"],
-    "overflow_strategy": "split_by_dimension_or_use_comparison_table",
-    "background_policy": "clean_default",
-    "visual_primitives": ["column_panels", "comparison_markers", "local_icons"]
+    "capacity": {
+      "max_components": 8,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "comparison",
+      "????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "feature_card",
+      "key_point"
+    ]
   },
   "variants": [
     {
       "id": "balanced_cards",
-      "display_name": "均衡双卡片",
-      "description": "左右等宽卡片承载对比内容，适合正式报告中的稳态对比。",
-      "best_for": ["双方案对比", "利弊权衡", "并列分析"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "display_name": "balanced_cards",
+      "description": "??????????????????????"
     },
     {
       "id": "split_table",
-      "display_name": "分栏表格",
-      "description": "用表格行对齐左右信息，适合逐项对比和维度检查。",
-      "best_for": ["逐项对比", "维度检查", "参数对照"],
-      "visual_intent": {"role": "chart", "image_position": "inline"}
+      "display_name": "split_table",
+      "description": "??????????????????????"
     },
     {
       "id": "mirror_emphasis",
-      "display_name": "镜像强调",
-      "description": "围绕中线镜像排布，适合强调两组观点的张力和差异。",
-      "best_for": ["观点对照", "冲突分析", "前后对比"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "display_name": "mirror_emphasis",
+      "description": "??????????????????????"
     }
   ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "left_title", "label": "左栏标题", "type": "text", "required": true},
-    {"name": "left_content", "label": "左栏内容", "type": "textarea", "required": true},
-    {"name": "right_title", "label": "右栏标题", "type": "text", "required": true},
-    {"name": "right_content", "label": "右栏内容", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

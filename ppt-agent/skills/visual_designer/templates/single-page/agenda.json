@@ -1,24 +1,90 @@
 {
   "name": "agenda",
-  "display_name": "目录页",
-  "type": "atomic",
-  "description": "演示文稿目录，列出各章节标题和内容概览",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue"],
+  "display_name": "???",
+  "type": "component_page",
+  "description": "?????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items": 6,
-      "max_chars_per_item": 24,
-      "density": "normal"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "feature_card"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "items"],
-    "best_for": ["目录", "章节清单", "演讲路径"],
-    "avoid_for": ["长段解释", "数据图表", "案例细节"],
-    "overflow_strategy": "split_agenda_or_group_items",
-    "background_policy": "clean_default",
-    "visual_primitives": ["number_markers", "divider_shapes", "local_icons"]
+    "capacity": {
+      "max_components": 6,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "overview",
+      "???",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "feature_card"
+    ]
   },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "目录标题", "type": "text", "required": true},
-    {"name": "items", "label": "目录项", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

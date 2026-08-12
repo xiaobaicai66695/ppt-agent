@@ -1,54 +1,94 @@
 {
   "name": "image_text",
-  "display_name": "图文排版页",
-  "type": "atomic",
-  "description": "使用可替换真实图片与文字说明组成的图文布局；缺图时自动选择本地默认图片",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta"],
+  "display_name": "????",
+  "type": "component_page",
+  "description": "??????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_paragraph_chars": 450,
-      "min_paragraph_chars": 260,
-      "density": "normal"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "image",
+        "paragraph",
+        "callout"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "paragraph"],
-    "best_for": ["图文解释", "案例叙事", "产品或场景说明"],
-    "avoid_for": ["纯 bullet 列表", "复杂数据", "明确要求纯文字页面"],
-    "overflow_strategy": "split_text_or_use_deep_dive",
-    "background_policy": "content_photo_fallback",
-    "visual_primitives": ["replaceable_picture", "caption"]
+    "capacity": {
+      "max_components": 6,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "narrative",
+      "????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "image",
+      "paragraph",
+      "callout"
+    ]
   },
   "variants": [
     {
-      "id": "left_photo",
-      "display_name": "左图右文",
-      "description": "视觉对象在左，正文说明在右，适合先看场景再读解释。",
-      "best_for": ["场景说明", "案例背景", "产品/地点介绍"],
-      "avoid_for": ["图片主体靠右且会被裁切"],
-      "generator_hints": {"layout": "left-image"},
-      "visual_intent": {"role": "supporting_photo", "image_position": "left"}
+      "id": "media_left",
+      "display_name": "media_left",
+      "description": "??????????????????????"
     },
     {
-      "id": "right_photo",
-      "display_name": "左文右图",
-      "description": "正文在左，视觉对象在右，适合先给观点再展示场景或图示。",
-      "best_for": ["观点解释", "技术说明", "案例结果"],
-      "avoid_for": ["图片主体靠左且会被裁切"],
-      "generator_hints": {"layout": "right-image"},
-      "visual_intent": {"role": "supporting_photo", "image_position": "right"}
+      "id": "media_right",
+      "display_name": "media_right",
+      "description": "??????????????????????"
     },
     {
-      "id": "photo_strip",
-      "display_name": "照片条带叙事",
-      "description": "使用横向或多图条带形成场景节奏，正文保持独立阅读区。",
-      "best_for": ["旅游路线", "生态场景", "产品使用流程"],
-      "avoid_for": ["只有单一抽象概念", "正文超过容量上限"],
-      "visual_intent": {"role": "supporting_photo", "image_position": "strip"}
+      "id": "media_strip",
+      "display_name": "media_strip",
+      "description": "??????????????????????"
     }
   ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "image_path", "label": "本地图片或素材 ID", "type": "text", "required": false},
-    {"name": "image_desc", "label": "图片描述", "type": "text", "required": false},
-    {"name": "text_content", "label": "文字内容", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

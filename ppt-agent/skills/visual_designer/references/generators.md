@@ -1,6 +1,6 @@
 # Generators 参考文档
 
-本文档是 SlideExecutor 生成 PPT 时的生成器函数参考。
+本文档是 SlideExecutor 生成 PPT 时的生成器函数参考。当前生成器已切换为组件式布局：各 `generate_xxx` 函数保留兼容入口，但内部统一把参数和 `content_plan.components` 转成语义组件，再由 `generators/component_layout.py` 决定页面结构。
 
 ## 导入方式
 
@@ -67,7 +67,7 @@ from generators import (
 | `variants` | object[] | 同一 `content_type` 下的版式候选，例如 `photo_full_bleed_center`、`left_photo`、`equal_grid`；这是规划/selector 元数据，不是 generator 参数 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `layout_variant` 只写入 tasks.json 作为设计意图。`generate_title_slide`、`generate_section_divider`、`generate_content_slide`、`generate_two_column`、`generate_image_text`、`generate_card_grid` 已显式支持 `layout_variant`；其他生成器只有在源码显式支持时才传入该字段。同一套 PPT 的 `section_divider` 固定一种 `layout_variant`，内容页才按同类型轮换变体。
+> 当前阶段 `layout_variant` 是组件布局倾向，而非固定坐标模板。所有生成器统一接受 `components` 兼容参数；旧参数会被包装成 `headline`、`feature_card`、`kpi_metric`、`chart`、`process_step` 等组件。同一套 PPT 的 `section_divider` 固定一种 `layout_variant`，内容页可按组件密度自适配。
 
 ## 背景与素材策略
 

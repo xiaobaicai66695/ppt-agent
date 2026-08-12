@@ -1,63 +1,92 @@
 {
   "name": "title_slide",
-  "display_name": "封面页",
-  "type": "atomic",
-  "description": "演示文稿封面，包含主标题、副标题和演讲者信息",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "government_red", "education_blue"],
+  "display_name": "???",
+  "type": "component_page",
+  "description": "?????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items": 4,
-      "max_title_chars": 28,
-      "max_subtitle_chars": 42,
-      "density": "low"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "subheadline",
+        "callout"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title"],
-    "best_for": ["封面", "主题开场", "品牌或报告标题"],
-    "avoid_for": ["正文要点", "复杂数据", "多维对比"],
-    "overflow_strategy": "shorten_title_or_split_to_agenda",
-    "background_policy": "image_recommended",
-    "visual_primitives": ["background_image", "title_lockup", "subtle_overlay"]
+    "capacity": {
+      "max_components": 4,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "hero",
+      "???",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "subheadline",
+      "callout"
+    ]
   },
   "variants": [
     {
-      "id": "photo_full_bleed_center",
-      "display_name": "全幅照片居中标题",
-      "description": "使用主题背景图铺满画布，标题组居中，适合地域、自然、活动、品牌开场。",
-      "best_for": ["强主题封面", "自然地理", "活动开场", "品牌发布"],
-      "avoid_for": ["标题超过 28 字", "需要展示大量副信息"],
-      "visual_intent": {"role": "hero_photo", "image_position": "background"}
+      "id": "editorial_focus",
+      "display_name": "editorial_focus",
+      "description": "??????????????????????"
     },
     {
-      "id": "photo_full_bleed_left",
-      "display_name": "全幅照片左侧标题",
-      "description": "背景图铺满画布，标题组靠左并留出主体图片区，适合图片主体在右侧或中远景的封面。",
-      "best_for": ["人物或场景封面", "产品/地点首屏", "有明显画面主体"],
-      "avoid_for": ["背景主体在左侧", "标题和副标题都很长"],
-      "visual_intent": {"role": "hero_photo", "image_position": "background"}
+      "id": "hero_statement",
+      "display_name": "hero_statement",
+      "description": "??????????????????????"
     },
     {
-      "id": "editorial_split",
-      "display_name": "编辑式图文分屏",
-      "description": "标题区与视觉区分屏，保持清爽留白，适合没有强照片但需要高级感的报告开场。",
-      "best_for": ["商务报告", "学术分享", "课程封面"],
-      "avoid_for": ["需要沉浸式实景氛围"],
-      "visual_intent": {"role": "supporting_photo", "image_position": "right"}
+      "id": "signal_cards",
+      "display_name": "signal_cards",
+      "description": "??????????????????????"
     }
   ],
   "fields": [
-    {"name": "title", "label": "主标题", "type": "text", "required": true},
-    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
-    {"name": "presenter", "label": "演讲者", "type": "text", "required": false},
-    {"name": "date", "label": "日期", "type": "text", "required": false},
-    {"name": "background", "label": "背景图片", "type": "select", "required": false,
-     "options": [
-       {"value": "", "label": "不使用背景"},
-       {"value": "party_government", "label": "党政办公"},
-       {"value": "minimalist_blue", "label": "简约蓝白"},
-       {"value": "ink_wash_mountain", "label": "水墨山水"},
-       {"value": "vintage_chinese", "label": "复古中国风"},
-       {"value": "snowy_mountain", "label": "雪山风景"},
-       {"value": "artistic", "label": "艺术涂鸦"}
-     ]}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

@@ -1,57 +1,90 @@
 {
   "name": "card_grid",
-  "display_name": "卡片网格页",
-  "type": "atomic",
-  "description": "多卡片网格布局，适合展示多个并列特性或优势",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta", "berry_cream", "civic_gold", "government_red"],
+  "display_name": "????",
+  "type": "component_page",
+  "description": "??????????????????????????????",
   "contract": {
-    "capacity": {
-      "max_items": 6,
-      "min_items": 4,
-      "target_header_chars_min": 6,
-      "target_header_chars_max": 18,
-      "max_header_chars": 20,
-      "target_body_chars_min": 80,
-      "target_body_chars_max": 140,
-      "max_body_chars": 160,
-      "density": "normal"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "feature_card"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "cards"],
-    "best_for": ["并列能力", "模块说明", "优势列表"],
-    "avoid_for": ["强时间顺序", "复杂表格", "单一长论述"],
-    "overflow_strategy": "split_to_multiple_grids",
-    "background_policy": "clean_default",
-    "visual_primitives": ["cards", "local_icons", "accent_chips"]
+    "capacity": {
+      "max_components": 8,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "cards",
+      "????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "feature_card"
+    ]
   },
   "variants": [
     {
-      "id": "equal_grid",
-      "display_name": "均等卡片网格",
-      "description": "所有卡片同等权重，适合平行要点、能力模块和优势列表。",
-      "best_for": ["4-6 个并列要点", "模块说明", "能力矩阵"],
-      "avoid_for": ["存在一个核心重点需要突出"],
-      "generator_hints": {"layout": "2x3"},
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "id": "adaptive_grid",
+      "display_name": "adaptive_grid",
+      "description": "??????????????????????"
     },
     {
-      "id": "featured_card_plus_grid",
-      "display_name": "重点卡片加网格",
-      "description": "突出一个主卡片，其余卡片作为支撑，适合有主次关系的能力或策略页。",
-      "best_for": ["一个核心观点 + 多个支撑点", "主策略拆解", "重点成果展示"],
-      "avoid_for": ["所有要点完全平权"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "id": "featured_plus_grid",
+      "display_name": "featured_plus_grid",
+      "description": "??????????????????????"
     },
     {
-      "id": "masonry_cards",
-      "display_name": "错落卡片阵列",
-      "description": "通过不同高度或错位形成更自然的扫描节奏，适合故事性强的多卡片内容。",
-      "best_for": ["创意方案", "旅游/生态亮点", "多场景展示"],
-      "avoid_for": ["严肃对账表", "严格同权评分"],
-      "visual_intent": {"role": "cards", "image_position": "inline"}
+      "id": "compact_masonry",
+      "display_name": "compact_masonry",
+      "description": "??????????????????????"
     }
   ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "cards", "label": "卡片内容", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

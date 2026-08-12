@@ -1,28 +1,90 @@
 {
   "name": "quote_slide",
-  "display_name": "引用金句页",
-  "type": "atomic",
-  "description": "展示引用语或金句，配合大字号和简洁背景",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "berry_cream", "lavender_mist", "charcoal_light", "civic_gold"],
+  "display_name": "????",
+  "type": "component_page",
+  "description": "??????????????????????????????",
   "contract": {
-    "capacity": {
-      "target_quote_chars_min": 35,
-      "target_quote_chars_max": 110,
-      "max_quote_chars": 140,
-      "target_attribution_chars_min": 8,
-      "target_attribution_chars_max": 32,
-      "max_attribution_chars": 40,
-      "density": "low"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "quote_block",
+        "source_note"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["quote"],
-    "best_for": ["金句", "核心观点", "章节收束"],
-    "avoid_for": ["多条要点", "数据展示", "长段引用"],
-    "overflow_strategy": "shorten_quote_or_split_context",
-    "background_policy": "image_optional",
-    "visual_primitives": ["large_type", "quote_mark", "subtle_overlay"]
+    "capacity": {
+      "max_components": 4,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "quote",
+      "????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "quote_block",
+      "source_note"
+    ]
   },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "quote", "label": "引用内容", "type": "textarea", "required": true},
-    {"name": "author", "label": "出处/作者", "type": "text", "required": false}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

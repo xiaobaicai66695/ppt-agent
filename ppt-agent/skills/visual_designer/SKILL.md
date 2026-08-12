@@ -26,6 +26,7 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 ### Python generators 负责
 
+- 使用统一组件式布局引擎消费 `content_plan.components`，按组件密度选择布局区域。
 - 字号、行距、文本框宽高、换行、垂直居中、内容带居中。
 - 背景图片解析、亮度处理、磨砂玻璃蒙版、文字对比度。
 - 本地图标/图片/纹理选择，缺图时的默认图片或省略策略。
@@ -324,7 +325,7 @@ takeaway: 1 句可迁移启示
 
 ## 变更纪律
 
-- 常规页面生成必须复用 `skills/visual_designer/generators` 包。
+- 常规页面生成必须复用 `skills/visual_designer/generators` 包，内部优先走 `component_layout.py` 组件式布局引擎。
 - 修改 generator 函数签名时，同步 `references/generators.md`、SlideExecutor prompt、模板 JSON 和相关测试。
 - 只调整 tasks.json 规划规则时，优先修改本文件和主 Agent prompt，不改 generator。
 - 视觉实现细节应沉淀到 `generators/base.py`、具体 generator 或 `references/generators.md`，不要混入本文件作为 LLM 手工排版指令。

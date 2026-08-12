@@ -1,32 +1,90 @@
 {
   "name": "three_column",
-  "display_name": "三栏布局页",
-  "type": "atomic",
-  "description": "三栏并列布局，适合展示三个方面或三个案例",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "education_blue", "warm_terracotta", "berry_cream"],
+  "display_name": "????",
+  "type": "component_page",
+  "description": "??????????????????????????????",
   "contract": {
-    "capacity": {
-      "min_items_per_column": 2,
-      "max_items_per_column": 4,
-      "target_chars_per_item_min": 35,
-      "target_chars_per_item_max": 65,
-      "max_chars_per_item": 80,
-      "density": "normal"
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "feature_card"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
     },
-    "required_fields": ["title", "columns"],
-    "best_for": ["三个并列维度", "三类方案", "阶段性观点"],
-    "avoid_for": ["长篇叙事", "四项以上对比", "复杂数据表"],
-    "overflow_strategy": "split_columns_or_use_card_grid",
-    "background_policy": "clean_default",
-    "visual_primitives": ["column_panels", "local_icons", "accent_headers"]
+    "capacity": {
+      "max_components": 8,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "comparison",
+      "????",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "feature_card"
+    ]
   },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "col1_title", "label": "第一栏标题", "type": "text", "required": true},
-    {"name": "col1_content", "label": "第一栏内容", "type": "textarea", "required": true},
-    {"name": "col2_title", "label": "第二栏标题", "type": "text", "required": true},
-    {"name": "col2_content", "label": "第二栏内容", "type": "textarea", "required": true},
-    {"name": "col3_title", "label": "第三栏标题", "type": "text", "required": true},
-    {"name": "col3_content", "label": "第三栏内容", "type": "textarea", "required": true}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

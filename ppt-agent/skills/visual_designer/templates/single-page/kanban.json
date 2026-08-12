@@ -1,14 +1,92 @@
 {
   "name": "kanban",
-  "display_name": "看板进度页",
-  "type": "atomic",
-  "description": "三列看板布局，适合展示项目进度、任务状态或流程阶段",
-  "allowed_palettes": ["ocean_soft", "sage_calm", "charcoal_light", "warm_terracotta"],
+  "display_name": "???",
+  "type": "component_page",
+  "description": "?????????????????????????????",
+  "contract": {
+    "planning_model": "component_first",
+    "required_fields": [
+      "title",
+      "content_plan.components"
+    ],
+    "component_schema": {
+      "allowed_types": [
+        "headline",
+        "feature_card",
+        "kpi_metric"
+      ],
+      "required_component_fields": [
+        "type"
+      ],
+      "forbidden_fields": [
+        "x",
+        "y",
+        "left",
+        "top",
+        "width",
+        "height",
+        "font_size",
+        "color",
+        "margin",
+        "opacity"
+      ]
+    },
+    "capacity": {
+      "max_components": 8,
+      "target_density": "normal",
+      "overflow_strategy": "split_slide_or_change_content_type"
+    },
+    "best_for": [
+      "operations",
+      "???",
+      "???????"
+    ],
+    "avoid_for": [
+      "??????",
+      "?????????"
+    ],
+    "background_policy": "image_supported_with_readability_panel",
+    "visual_primitives": [
+      "headline",
+      "feature_card",
+      "kpi_metric"
+    ]
+  },
+  "variants": [
+    {
+      "id": "adaptive_components",
+      "display_name": "adaptive_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "dense_components",
+      "display_name": "dense_components",
+      "description": "??????????????????????"
+    },
+    {
+      "id": "sparse_focus",
+      "display_name": "sparse_focus",
+      "description": "??????????????????????"
+    }
+  ],
   "fields": [
-    {"name": "title", "label": "页面标题", "type": "text", "required": true},
-    {"name": "subtitle", "label": "副标题", "type": "text", "required": false},
-    {"name": "kicker", "label": "领域标签", "type": "text", "required": false},
-    {"name": "columns", "label": "看板列数据(JSON格式)", "type": "textarea", "required": true, "placeholder": "[{\"title\":\"待办\",\"color\":\"text_muted\",\"cards\":[{\"text\":\"任务1\",\"tag\":\"需求\",\"priority\":\"high\"}]},...]"},
-    {"name": "progress", "label": "整体进度(百分比)", "type": "number", "required": false}
+    {
+      "name": "title",
+      "label": "????",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "content_plan.components",
+      "label": "????",
+      "type": "component_array",
+      "required": true
+    },
+    {
+      "name": "content_plan.capacity_hint",
+      "label": "????",
+      "type": "object",
+      "required": false
+    }
   ]
 }

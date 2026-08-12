@@ -134,6 +134,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
     source = extract_source(plan)
     items = extract_items(plan, task)
     cards = extract_cards(plan, items)
+    components = semantic_components(plan)
     layout_variant = task.get("layout_variant") or nested_get(plan, "visual_intent", "preferred_variant") or ""
 
     if content_type == "title_slide":
@@ -145,6 +146,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "date": plan.get("date", ""),
             "source": source,
             "layout_variant": layout_variant,
+            "components": components,
         }
     if content_type == "section_divider":
         return {
@@ -154,6 +156,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "kicker": plan.get("kicker", "章节"),
             "source": source,
             "layout_variant": layout_variant,
+            "components": components,
         }
     if content_type == "agenda":
         agenda_items = items or [
@@ -161,7 +164,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             for i, t in enumerate(manifest.get("tasks", [])[1:7])
             if t.get("title")
         ]
-        return {"title": title, "items": agenda_items[:8], "kicker": "目录", "source": source}
+        return {"title": title, "items": agenda_items[:8], "kicker": "目录", "source": source, "components": components}
     if content_type == "summary_slide":
         return {
             "title": title,
@@ -170,6 +173,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "contact": plan.get("contact", ""),
             "kicker": plan.get("kicker", "总结"),
             "source": source,
+            "components": components,
         }
     if content_type == "quote_slide":
         quote = first_by_type(plan, "quote") or summary
@@ -178,6 +182,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "attribution": plan.get("attribution") or " ",
             "kicker": plan.get("kicker", "观点"),
             "source": source,
+            "components": components,
         }
     if content_type == "card_grid":
         return {
@@ -188,6 +193,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "subtitle": summary,
             "kicker": plan.get("kicker", "要点"),
             "source": source,
+            "components": components,
         }
     if content_type == "two_column":
         left, right = split_items(items, summary)
@@ -201,6 +207,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "layout_variant": layout_variant,
             "kicker": plan.get("kicker", "对比"),
             "source": source,
+            "components": components,
         }
     if content_type == "three_column":
         groups = split_three(items, summary)
@@ -214,6 +221,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             ],
             "kicker": plan.get("kicker", "三维分析"),
             "source": source,
+            "components": components,
         }
     if content_type == "image_text":
         return {
@@ -225,6 +233,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "kicker": plan.get("kicker", "图文解读"),
             "sub_header": plan.get("sub_header", ""),
             "source": source,
+            "components": components,
         }
     if content_type == "chart_slide":
         return {
@@ -236,6 +245,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "show_legend": True,
             "kicker": plan.get("kicker", "数据"),
             "source": source,
+            "components": components,
         }
     if content_type == "kpi_dashboard":
         return {
@@ -244,11 +254,16 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "kpis": kpis(plan, cards),
             "kicker": plan.get("kicker", "指标"),
             "source": source,
+            "components": components,
         }
     if content_type == "comparison_table":
-        return comparison_params(title, summary, plan, items, source)
+        params = comparison_params(title, summary, plan, items, source)
+        params["components"] = components
+        return params
     if content_type in {"process_flow", "timeline", "icon_grid", "stat_slide", "case_study"}:
-        return generic_structured_params(content_type, title, summary, plan, items, cards, source)
+        params = generic_structured_params(content_type, title, summary, plan, items, cards, source)
+        params["components"] = components
+        return params
     return {
         "title": title,
         "section_header": first_card_title(cards) or "核心要点",
@@ -257,6 +272,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         "layout_variant": layout_variant,
         "kicker": plan.get("kicker", "要点"),
         "source": source,
+        "components": components,
     }
 
 
