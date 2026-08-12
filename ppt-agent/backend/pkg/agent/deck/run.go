@@ -299,9 +299,25 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	}
 	if manifestErr != nil {
 		if os.IsNotExist(manifestErr) {
-			return result, fmt.Errorf("Planner 未生成 DeckSpec/tasks.json，无法进入渲染: %w", manifestErr)
+			recovered, recoverErr := recoverMissingPlannerManifest(cfg, userQuery, lastMsg)
+			if recoverErr != nil {
+				return result, fmt.Errorf("Planner 未生成 DeckSpec/tasks.json，恢复失败: %w", recoverErr)
+			}
+			manifest = recovered
+			onEvent(AgentEvent{
+				Type:    AgentEventAnswer,
+				Content: fmt.Sprintf("Planner 已完成结构判断但未写入 DeckSpec，系统已根据现有规划摘要恢复 %d 页页面计划，继续进入并发渲染。\n", len(manifest.Tasks)),
+			})
+			if cfg.RuntimeMeta != nil {
+				cfg.RuntimeMeta.RecordEvent("deck_spec_recovered", "tasks.json", "warning", fmt.Sprintf("recovered %d slides from planner output", len(manifest.Tasks)), map[string]any{
+					"slide_count": len(manifest.Tasks),
+					"template":    manifest.Template,
+					"theme":       manifest.Theme,
+				})
+			}
+		} else {
+			return result, fmt.Errorf("读取 Planner DeckSpec/tasks.json 失败: %w", manifestErr)
 		}
-		return result, fmt.Errorf("读取 Planner DeckSpec/tasks.json 失败: %w", manifestErr)
 	}
 	if manifest == nil || len(manifest.Tasks) == 0 {
 		return result, fmt.Errorf("Planner 生成的 DeckSpec 为空，无法进入渲染")
@@ -345,6 +361,9 @@ func isChunkEmittable(chunk *schema.Message) bool {
 		return false
 	}
 	if len(chunk.ToolCalls) > 0 {
+		return false
+	}
+	if isPlannerScratchThought(chunk.Content) {
 		return false
 	}
 	return true
