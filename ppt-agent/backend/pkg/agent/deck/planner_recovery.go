@@ -138,6 +138,33 @@ func plannerScratchText(output string) string {
 	return output
 }
 
+func plannerVisibleThought(content string) string {
+	thought := plannerScratchText(content)
+	if thought == "" || thought == strings.TrimSpace(content) && !isPlannerScratchThought(content) {
+		return ""
+	}
+	lines := strings.Split(thought, "\n")
+	var out []string
+	out = append(out, "规划草案：")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if plannerSlideLinePattern.MatchString(line) {
+			out = append(out, line)
+			continue
+		}
+		if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "•") {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, "- "+line)
+	}
+	out = append(out, "正在写入 DeckSpec，校验通过后会进入并发渲染。")
+	return strings.Join(out, "\n") + "\n"
+}
+
 func isPlannerScratchThought(content string) bool {
 	content = strings.TrimSpace(content)
 	if content == "" || !strings.HasPrefix(content, "{") {

@@ -1172,6 +1172,19 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
               </span>
             </article>
           </div>
+          <div v-if="selectedRuntimeEvent" class="watch-detail-panel">
+            <div class="timeline-detail-head">
+              <strong>{{ runtimeEventKindLabel(selectedRuntimeEvent) }} · {{ runtimeEventNameLabel(selectedRuntimeEvent) }}</strong>
+              <button type="button" class="timeline-close" @click="selectedRuntimeEvent = null">
+                <X :size="14" />
+              </button>
+            </div>
+            <RuntimeEventDetail
+              :event="selectedRuntimeEvent"
+              :loading="selectedRuntimeEventLoading"
+              :error="selectedRuntimeEventError"
+            />
+          </div>
         </section>
 
         <details v-if="runtimeMeta" class="dev-status-panel">
@@ -1403,6 +1416,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
         :error="composerError || (!selectedTask ? loadError : '')"
         :notice="composerNotice"
         :activity="selectedTask ? liveActivity : undefined"
+        :runtime-events="runtimeTimelineAll"
         @submit="submitComposer"
       />
     </main>
@@ -1725,6 +1739,13 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.watch-detail-panel {
+  border-top: 1px solid var(--divider);
+  background: var(--surface);
+}
+.watch-detail-panel :deep(.runtime-event-detail) {
+  border-top: 0;
 }
 
 .split-layout {

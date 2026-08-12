@@ -823,9 +823,22 @@ def add_round_rect(
         Inches(left), Inches(top), Inches(width), Inches(height),
     )
     fill = shape.fill
-    fill.solid()
     colors = PALETTES.get(palette, PALETTES["ocean_soft"])
-    fill.fore_color.rgb = rgb(colors.get(fill_color, fill_color))
+    if isinstance(fill_color, tuple) and len(fill_color) == 4:
+        r, g, b, a = fill_color
+        fill.solid()
+        fill.fore_color.rgb = RGBColor(r, g, b)
+        from pptx.oxml.ns import qn
+        spPr = shape.element.find(qn("p:spPr"))
+        solidFill = spPr.find(qn("a:solidFill"))
+        if solidFill is not None:
+            srgbClr = solidFill.find(qn("a:srgbClr"))
+            if srgbClr is not None:
+                alpha = etree.SubElement(srgbClr, qn("a:alpha"))
+                alpha.set("val", str(int(a / 255 * 100000)))
+    else:
+        fill.solid()
+        fill.fore_color.rgb = rgb(colors.get(fill_color, fill_color))
 
     line = shape.line
     if line_color:
@@ -835,6 +848,35 @@ def add_round_rect(
         line.fill.background()
 
     return shape
+
+
+def add_glass_panel(
+    slide,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    palette: str = "ocean_soft",
+    fill_color: str = "background",
+    alpha: int = 96,
+    line_color: str = "divider",
+    line_width: float = 0.5,
+) -> "pptx.shapes.shapetree.Shape":
+    """Add a semi-transparent content panel over image backgrounds."""
+    colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    base = colors.get(fill_color, fill_color)
+    color = rgb(base)
+    return add_round_rect(
+        slide,
+        left=left,
+        top=top,
+        width=width,
+        height=height,
+        fill_color=(color[0], color[1], color[2], alpha),
+        palette=palette,
+        line_color=line_color,
+        line_width=line_width,
+    )
 
 
 def add_ellipse(

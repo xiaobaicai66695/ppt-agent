@@ -3,6 +3,7 @@ package deck
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
@@ -71,11 +72,20 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	}
 }
 
-func TestPlannerScratchThoughtIsNotEmittable(t *testing.T) {
+func TestPlannerScratchThoughtFormatsForUser(t *testing.T) {
 	if !isPlannerScratchThought(`{"thought":"内部规划"}`) {
 		t.Fatal("expected thought JSON to be classified as scratch")
 	}
 	if isPlannerScratchThought(`{"message":"用户可见内容"}`) {
 		t.Fatal("ordinary JSON should remain visible")
+	}
+	visible := plannerVisibleThought(`{"thought":"规划 3 页延安介绍 PPT：\n1. 封面页 (title_slide)\n2. 革命历史 (image_text)\n3. 总结 (summary_slide)\n\n背景主题：party_government\n配色：red_gold"}`)
+	if visible == "" || visible == `{"thought":"内部规划"}` {
+		t.Fatalf("thought should be formatted for the user, got %q", visible)
+	}
+	for _, want := range []string{"规划草案", "1. 封面页 (title_slide)", "- 背景主题：party_government", "正在写入 DeckSpec"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible thought missing %q: %s", want, visible)
+		}
 	}
 }

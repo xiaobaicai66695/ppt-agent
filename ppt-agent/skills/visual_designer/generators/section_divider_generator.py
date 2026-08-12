@@ -6,7 +6,7 @@ from pptx import Presentation
 from .base import (
     add_source_line,
     new_presentation,
-    PALETTES, rgb, add_text, add_rect, add_round_rect,
+    PALETTES, rgb, add_text, add_rect, add_round_rect, add_glass_panel,
     set_slide_background,
     resolve_background, set_image_background,
 )
@@ -63,11 +63,13 @@ def generate(
     if variant == "quiet_title":
         return _render_quiet_title(prs, slide, palette, colors, source, number, title, subtitle, kicker)
 
-    # Large background color block (left 40% of slide)
-    add_rect(
+    # Large section block as a translucent panel over the deck background.
+    add_glass_panel(
         slide,
-        left=0, top=0, width=5.2, height=7.5,
-        fill_color="primary", palette=palette,
+        left=0.24, top=0.26, width=4.72, height=6.98,
+        fill_color="primary", alpha=82, palette=palette,
+        line_color="primary",
+        line_width=0.5,
     )
     add_local_icon(
         slide,
@@ -160,12 +162,12 @@ def _render_photo_band(
 ) -> Presentation:
     """Render a section divider with a strong horizontal visual band."""
     band_y, band_h = 1.05, 2.15
-    add_rect(slide, left=0, top=band_y, width=13.333, height=band_h, fill_color="light_bg", palette=palette)
+    add_glass_panel(slide, left=0.38, top=band_y, width=12.58, height=band_h, fill_color="light_bg", alpha=94, palette=palette)
     add_pattern_overlay(slide, "pattern_grid", left=0.2, top=band_y + 0.12, width=12.9, height=band_h - 0.24, opacity_backdrop=False, palette=palette)
     add_rect(slide, left=0, top=band_y, width=13.333, height=0.08, fill_color="primary", palette=palette)
     add_rect(slide, left=0, top=band_y + band_h - 0.08, width=13.333, height=0.08, fill_color="accent", palette=palette)
 
-    add_round_rect(slide, left=0.78, top=band_y + 0.5, width=1.35, height=0.78, fill_color="background", palette=palette, line_color="divider", line_width=0.6)
+    add_glass_panel(slide, left=0.78, top=band_y + 0.5, width=1.35, height=0.78, fill_color="background", alpha=76, palette=palette, line_color="divider", line_width=0.6)
     add_text(slide, text=number, left=0.86, top=band_y + 0.62, width=1.18, height=0.42, font_size=24, bold=True, color="primary", alignment="center", palette=palette, colors=colors)
     add_local_icon(slide, icon_id_from_text(title + " " + subtitle, fallback="section"), left=11.45, top=band_y + 0.58, size=0.82, palette=palette, with_badge=True)
 

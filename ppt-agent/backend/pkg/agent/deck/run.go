@@ -246,9 +246,10 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
 				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
+					content := visibleMessageContent(lastMessage.Content)
 					onEvent(AgentEvent{
 						Type:    AgentEventAnswer,
-						Content: lastMessage.Content,
+						Content: content,
 					})
 				}
 			}
@@ -363,10 +364,14 @@ func isChunkEmittable(chunk *schema.Message) bool {
 	if len(chunk.ToolCalls) > 0 {
 		return false
 	}
-	if isPlannerScratchThought(chunk.Content) {
-		return false
-	}
 	return true
+}
+
+func visibleMessageContent(content string) string {
+	if visible := plannerVisibleThought(content); visible != "" {
+		return visible
+	}
+	return content
 }
 
 func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent AgentEventCallback, buf *strings.Builder) {
@@ -388,10 +393,11 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 		if chunk.Content == "" {
 			continue
 		}
-		buf.WriteString(chunk.Content)
+		content := visibleMessageContent(chunk.Content)
+		buf.WriteString(content)
 		onEvent(AgentEvent{
 			Type:    AgentEventAnswer,
-			Content: chunk.Content,
+			Content: content,
 		})
 	}
 }
@@ -450,7 +456,7 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 			} else {
 				if msg := event.Output.MessageOutput.Message; msg != nil {
 					if isChunkEmittable(msg) && msg.Content != "" {
-						onEvent(AgentEvent{Type: AgentEventAnswer, Content: msg.Content})
+						onEvent(AgentEvent{Type: AgentEventAnswer, Content: visibleMessageContent(msg.Content)})
 					}
 					for _, tc := range msg.ToolCalls {
 						onEvent(AgentEvent{

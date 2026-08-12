@@ -6,7 +6,7 @@ from pptx import Presentation
 from .base import (
     add_source_line,
     new_presentation,
-    PALETTES, add_text, add_rect, add_round_rect,
+    PALETTES, add_text, add_rect, add_round_rect, add_glass_panel,
     set_slide_background, add_text_in_shape,
     resolve_background, set_image_background,
 )
@@ -145,10 +145,10 @@ def generate(
         footer = card.get("footer", "")
 
         # Card background
-        add_rect(
+        add_glass_panel(
             slide,
             left=x, top=y, width=card_w, height=card_h,
-            fill_color="light_bg", palette=palette,
+            fill_color="light_bg", alpha=82, palette=palette,
         )
 
         # Card left accent bar
@@ -236,10 +236,11 @@ def _draw_card(
     icon = card.get("icon", f"{idx+1:02d}")
     footer = card.get("footer", "")
     fill = "background" if featured else "light_bg"
-    add_round_rect(
+    add_glass_panel(
         slide,
         left=left, top=top, width=width, height=height,
         fill_color=fill,
+        alpha=76 if featured else 86,
         palette=palette,
         line_color="divider",
         line_width=0.6,

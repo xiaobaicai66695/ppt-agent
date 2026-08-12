@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
-import type { ConversationMessage, LiveActivity } from '../types';
+import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert, Wrench } from 'lucide-vue-next';
+import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
 import { renderSafeMarkdown } from '../utils/workbench';
+import RuntimeJsonTree from './RuntimeJsonTree.vue';
 
 const props = defineProps<{
   modelValue: string;
@@ -15,6 +16,7 @@ const props = defineProps<{
   error?: string;
   notice?: string;
   activity?: LiveActivity;
+  runtimeEvents?: RuntimeEvent[];
 }>();
 
 const emit = defineEmits<{
@@ -38,6 +40,13 @@ const helper = computed(() => ({
 const placeholder = computed(() => props.mode === 'create'
   ? '例如：为产品评审制作 10 页演示，面向研发负责人，重点说明架构与风险'
   : '描述希望如何改进这套演示');
+const traceEvents = computed(() => (props.runtimeEvents || [])
+  .filter(event => {
+    const kind = (event.kind || '').toLowerCase();
+    const name = (event.name || '').toLowerCase();
+    return kind.includes('llm') || kind.includes('tool') || name === 'search' || name === 'read_file' || name === 'update_tasks_manifest';
+  })
+  .slice(0, 10));
 
 watch(() => [props.messages.length, props.streamingContent], async () => {
   if (props.messages.length > 0 || props.streamingContent) showHistory.value = true;
@@ -50,6 +59,36 @@ function handleKeydown(event: KeyboardEvent) {
     event.preventDefault();
     if (props.modelValue.trim() && !props.submitting) emit('submit');
   }
+}
+
+function traceTitle(event: RuntimeEvent): string {
+  const kind = (event.kind || '').toLowerCase();
+  const name = event.name || '';
+  if (name === 'search') return '搜索资料';
+  if (name === 'read_file') return '读取文件';
+  if (name === 'update_tasks_manifest') return '写入 DeckSpec';
+  if (kind.includes('llm')) return '模型思考';
+  if (kind.includes('tool')) return name ? `调用工具：${name}` : '调用工具';
+  return name || '执行步骤';
+}
+
+function traceDetail(event: RuntimeEvent): string {
+  if (event.detail) return event.detail;
+  const metadata = event.metadata || {};
+  if (event.name === 'search' && typeof metadata.search_query === 'string') return `关键词：${metadata.search_query}`;
+  if (event.name === 'read_file' && typeof metadata.file_path === 'string') return `文件：${metadata.file_path}`;
+  if (event.name === 'update_tasks_manifest' && metadata.slide_count) return `规划 ${metadata.slide_count} 页`;
+  return '展开查看参数、结果或上下文摘要';
+}
+
+function compactMetadata(event: RuntimeEvent): Record<string, unknown> {
+  const metadata = event.metadata || {};
+  const preferred = ['search_query', 'search_reason', 'source_urls', 'file_path', 'slide_count', 'template', 'theme', 'args', 'result', 'output_preview', 'reasoning_preview', 'error'];
+  const compact: Record<string, unknown> = {};
+  for (const key of preferred) {
+    if (metadata[key] !== undefined && metadata[key] !== null && metadata[key] !== '') compact[key] = metadata[key];
+  }
+  return Object.keys(compact).length ? compact : metadata;
 }
 </script>
 
@@ -102,6 +141,23 @@ function handleKeydown(event: KeyboardEvent) {
         <span class="message-role">AI</span>
         <div class="markdown-body" v-html="renderSafeMarkdown(streamingContent)"></div>
       </article>
+      <section v-if="traceEvents.length" class="agent-trace" aria-label="AI 过程与工具调用">
+        <div class="trace-head">
+          <Wrench :size="14" />
+          <span>AI 过程与工具调用</span>
+        </div>
+        <details
+          v-for="event in traceEvents"
+          :key="event.id"
+          class="trace-event"
+        >
+          <summary>
+            <span>{{ traceTitle(event) }}</span>
+            <small>{{ traceDetail(event) }}</small>
+          </summary>
+          <RuntimeJsonTree label="details" :value="compactMetadata(event)" />
+        </details>
+      </section>
       <div v-if="historyLoading && messages.length > 0" class="history-refresh">
         <LoaderCircle :size="14" class="spin" />同步历史中
       </div>
@@ -162,6 +218,15 @@ function handleKeydown(event: KeyboardEvent) {
 .markdown-body { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
 .message.user .markdown-body { border-color: #bdd7d3; background: var(--action-soft); }
 .message.streaming .markdown-body { border-left: 3px solid var(--info); }
+.agent-trace { margin-left: 36px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.trace-head { min-height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 7px; color: var(--text-secondary); border-bottom: 1px solid var(--divider); background: var(--surface-muted); font-size: 11px; font-weight: 800; }
+.trace-event { border-top: 1px solid var(--divider); }
+.trace-event:first-of-type { border-top: 0; }
+.trace-event summary { min-height: 34px; padding: 7px 10px; display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--text-secondary); cursor: pointer; list-style: none; font-size: 11px; }
+.trace-event summary::-webkit-details-marker { display: none; }
+.trace-event summary span { color: var(--text); font-weight: 750; }
+.trace-event summary small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.trace-event :deep(.json-tree) { padding: 8px 10px 10px; border-top: 1px solid var(--divider); background: var(--surface); }
 .markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3), .markdown-body :deep(h4) { margin: 0 0 7px; font-size: 14px; line-height: 1.4; }
 .markdown-body :deep(p) { margin: 0 0 7px; }.markdown-body :deep(p:last-child) { margin-bottom: 0; }
 .markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 4px 0 8px; padding-left: 22px; }
@@ -187,6 +252,8 @@ function handleKeydown(event: KeyboardEvent) {
   .composer-identity small { white-space: normal; }
   .conversation-thread { max-height: 46dvh; }
   .markdown-body { font-size: 12px; }
+  .agent-trace { margin-left: 0; }
+  .trace-event summary { grid-template-columns: 1fr; }
   .input-shell textarea { font-size: 16px; }
 }
 
