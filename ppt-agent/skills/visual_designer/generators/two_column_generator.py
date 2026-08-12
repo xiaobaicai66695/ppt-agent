@@ -29,6 +29,7 @@ def generate(
     right_sections: Dict[str, List[str]] = None,
     left_items: List[Dict[str, Any]] = None,
     right_items: List[Dict[str, Any]] = None,
+    layout_variant: str = "",
     background: str = None,
     glass_colors: dict = None,
 ) -> Presentation:
@@ -59,6 +60,7 @@ def generate(
             - desc: Item description (normal)
             - metric: Optional highlighted metric/value
         right_items: Right column rich items. Same structure as left_items.
+        layout_variant: "balanced_cards", "split_table", or "mirror_emphasis".
 
     Returns:
         The Presentation object.
@@ -89,6 +91,7 @@ def generate(
     else:
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    variant = _resolve_layout_variant(layout_variant)
 
     # Kicker (above title)
     y_title = 0.4
@@ -120,6 +123,17 @@ def generate(
     gap = 0.7
     start_x = 0.5
     start_y = 1.25 if not kicker else 1.2
+
+    if variant == "split_table":
+        return _render_split_table(
+            prs, slide, palette, colors, source, title, left_header, right_header,
+            left_bullets or [], right_bullets or [], start_y,
+        )
+    if variant == "mirror_emphasis":
+        return _render_mirror_emphasis(
+            prs, slide, palette, colors, source, title, left_header, right_header,
+            left_bullets or [], right_bullets or [], start_y,
+        )
 
     # Left column background
     add_rect(
@@ -251,6 +265,75 @@ def generate(
                 colors=colors,
             )
 
+    add_source_line(slide, source, palette)
+    return prs
+
+
+def _resolve_layout_variant(layout_variant: str = "") -> str:
+    key = (layout_variant or "").strip().lower().replace("-", "_")
+    if key in {"split_table", "table"}:
+        return "split_table"
+    if key in {"mirror_emphasis", "mirror"}:
+        return "mirror_emphasis"
+    return "balanced_cards"
+
+
+def _render_split_table(
+    prs: Presentation,
+    slide,
+    palette: str,
+    colors: dict,
+    source: str,
+    title: str,
+    left_header: str,
+    right_header: str,
+    left_bullets: List[str],
+    right_bullets: List[str],
+    start_y: float,
+) -> Presentation:
+    table_x, table_y, table_w = 0.72, start_y + 0.15, 11.9
+    row_h = 0.78
+    add_rect(slide, left=table_x, top=table_y, width=table_w, height=0.58, fill_color="primary", palette=palette)
+    add_text(slide, text=left_header, left=table_x + 0.24, top=table_y + 0.12, width=5.35, height=0.28, font_size=14, bold=True, color="background", alignment="left", palette=palette, colors=colors)
+    add_text(slide, text=right_header, left=table_x + 6.12, top=table_y + 0.12, width=5.35, height=0.28, font_size=14, bold=True, color="background", alignment="left", palette=palette, colors=colors)
+    rows = max(len(left_bullets), len(right_bullets), 3)
+    for i in range(min(rows, 6)):
+        y = table_y + 0.58 + i * row_h
+        add_rect(slide, left=table_x, top=y, width=table_w, height=row_h - 0.02, fill_color="light_bg", palette=palette)
+        add_rect(slide, left=table_x + 5.95, top=y, width=0.02, height=row_h - 0.02, fill_color="divider", palette=palette)
+        left = left_bullets[i] if i < len(left_bullets) else ""
+        right = right_bullets[i] if i < len(right_bullets) else ""
+        add_text(slide, text=left, left=table_x + 0.24, top=y + 0.12, width=5.35, height=0.46, font_size=12, color="text", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
+        add_text(slide, text=right, left=table_x + 6.12, top=y + 0.12, width=5.35, height=0.46, font_size=12, color="text", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
+    add_source_line(slide, source, palette)
+    return prs
+
+
+def _render_mirror_emphasis(
+    prs: Presentation,
+    slide,
+    palette: str,
+    colors: dict,
+    source: str,
+    title: str,
+    left_header: str,
+    right_header: str,
+    left_bullets: List[str],
+    right_bullets: List[str],
+    start_y: float,
+) -> Presentation:
+    center_x = 6.666
+    add_rect(slide, left=center_x - 0.03, top=start_y + 0.25, width=0.06, height=5.15, fill_color="accent", palette=palette)
+    add_text(slide, text=left_header, left=0.7, top=start_y + 0.15, width=5.2, height=0.5, font_size=22, bold=True, color="primary", alignment="right", palette=palette, colors=colors)
+    add_text(slide, text=right_header, left=7.42, top=start_y + 0.15, width=5.2, height=0.5, font_size=22, bold=True, color="accent", alignment="left", palette=palette, colors=colors)
+    for i, item in enumerate(left_bullets[:5]):
+        y = start_y + 0.9 + i * 0.86
+        add_text(slide, text=item, left=0.95, top=y, width=4.85, height=0.58, font_size=12, color="text", alignment="right", vertical_alignment="middle", palette=palette, colors=colors)
+        add_rect(slide, left=6.1, top=y + 0.18, width=0.16, height=0.16, fill_color="primary", palette=palette)
+    for i, item in enumerate(right_bullets[:5]):
+        y = start_y + 0.9 + i * 0.86
+        add_rect(slide, left=7.08, top=y + 0.18, width=0.16, height=0.16, fill_color="accent", palette=palette)
+        add_text(slide, text=item, left=7.42, top=y, width=4.85, height=0.58, font_size=12, color="text", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
     add_source_line(slide, source, palette)
     return prs
 

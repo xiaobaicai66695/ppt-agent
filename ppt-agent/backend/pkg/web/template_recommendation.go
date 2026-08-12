@@ -118,19 +118,18 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 		preset = &presets[0]
 	}
 
-	theme := preset.DefaultPalette
-	if intent != nil && strings.TrimSpace(intent.SuggestedTheme) != "" {
-		theme = intent.SuggestedTheme
-	}
 	useBackground := true
 	if intent != nil && intent.UseBackground != nil {
 		useBackground = *intent.UseBackground
 	}
 
+	theme := preset.DefaultPalette
+	if intent != nil && strings.TrimSpace(intent.SuggestedTheme) != "" {
+		theme = intent.SuggestedTheme
+	}
 	strategy := TemplateStrategy{
 		Mode:      "recommended",
 		Template:  preset.Name,
-		Theme:     s.validThemeOrFallback(theme),
 		PageCount: normalizedRecommendedPageCount(intent),
 	}
 	if useBackground {
@@ -141,6 +140,10 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 			strategy.Background = s.defaultBackgroundForPreset(preset)
 		}
 	}
+	if palette := s.recommendedPaletteForBackground(strategy.Background); palette != "" {
+		theme = palette
+	}
+	strategy.Theme = s.validThemeOrFallback(theme)
 	if intent != nil && strings.TrimSpace(intent.IntentReasoning) != "" {
 		strategy.Reason = strings.TrimSpace(intent.IntentReasoning)
 	} else {
@@ -148,6 +151,9 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 	}
 	if strategy.UseBackground {
 		strategy.Reason += "；整套页面使用同一背景主题并轮换同目录图片"
+		if palette := s.recommendedPaletteForBackground(strategy.Background); palette != "" {
+			strategy.Reason += "；配色优先匹配当前背景主题"
+		}
 	} else {
 		strategy.Reason += "；整套采用清晰的纯色信息表面"
 	}
@@ -181,6 +187,19 @@ func (s *Server) validThemeOrFallback(name string) string {
 	themes := s.templateLoader.ListThemes()
 	if len(themes) > 0 {
 		return themes[0].Name
+	}
+	return ""
+}
+
+func (s *Server) recommendedPaletteForBackground(background string) string {
+	theme := backgroundTheme(background)
+	if theme == "" {
+		return ""
+	}
+	for _, candidate := range s.templateLoader.ListBackgrounds() {
+		if candidate.Name == theme && strings.TrimSpace(candidate.RecommendedPalette) != "" {
+			return candidate.RecommendedPalette
+		}
 	}
 	return ""
 }

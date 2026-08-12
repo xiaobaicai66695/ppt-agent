@@ -20,6 +20,29 @@
     "background_policy": "clean_default",
     "visual_primitives": ["bullet_markers", "accent_blocks", "local_icons"]
   },
+  "variants": [
+    {
+      "id": "classic_bullets",
+      "display_name": "经典要点列表",
+      "description": "左对齐标题和要点列表，适合常规说明页。",
+      "best_for": ["核心要点", "常规解释", "内容承接"],
+      "visual_intent": {"role": "icon", "image_position": "inline"}
+    },
+    {
+      "id": "numbered_cards",
+      "display_name": "数字卡片列表",
+      "description": "用编号卡片组织要点，适合步骤、原则和多条并列结论。",
+      "best_for": ["步骤原则", "并列结论", "方法清单"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    },
+    {
+      "id": "side_panel",
+      "display_name": "侧栏摘要",
+      "description": "左侧摘要区加右侧正文列表，适合强调一个章节内的核心观点。",
+      "best_for": ["章节摘要", "观点解释", "结构化说明"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    }
+  ],
   "fields": [
     {"name": "title", "label": "页面标题", "type": "text", "required": true},
     {"name": "bullets", "label": "内容要点", "type": "textarea", "required": true}

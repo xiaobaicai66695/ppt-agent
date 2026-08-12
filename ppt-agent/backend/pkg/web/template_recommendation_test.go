@@ -56,6 +56,30 @@ func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	}
 }
 
+func TestRecommendedTemplateUsesBackgroundPaletteOverIntentTheme(t *testing.T) {
+	server := testTemplateServer(t)
+	useBackground := true
+	intent := &agentintent.ClassificationResult{
+		Intent:              agentintent.IntentCreate,
+		Domain:              agentintent.DomainGovernment,
+		SuggestedTemplates:  []string{"current-affairs"},
+		SuggestedTheme:      "patriotic_blue",
+		SuggestedBackground: "party_government",
+		SuggestedPageCount:  10,
+		UseBackground:       &useBackground,
+	}
+	outline, strategy, err := server.resolveTemplateSelectionWithIntent("介绍延安", &TemplateSelection{Mode: "recommended"}, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strategy.Theme != "government_red" || outline.Theme != "government_red" {
+		t.Fatalf("theme = %q outline=%q, want government_red", strategy.Theme, outline.Theme)
+	}
+	if strategy.Background != "party_government" {
+		t.Fatalf("background = %q, want party_government", strategy.Background)
+	}
+}
+
 func TestRecommendTemplateStrategyFallsBackToGeneric(t *testing.T) {
 	server := testTemplateServer(t)
 	strategy, _, err := server.recommendTemplateStrategy("说明一些尚未分类的新想法")
@@ -84,7 +108,7 @@ func TestRecommendationProducesStyleGuidanceWithoutPresetSlides(t *testing.T) {
 	if outline.ContentMode != deck.OutlineContentModeRecommendedStyle || len(outline.Slides) != 0 {
 		t.Fatalf("recommended outline copied preset slides: %#v", outline)
 	}
-	if outline.SuggestedPageCount != 9 || outline.Template != "course-module" || outline.Theme != "sage_calm" {
+	if outline.SuggestedPageCount != 9 || outline.Template != "course-module" || outline.Theme != "warm_terracotta" {
 		t.Fatalf("recommended style guidance = %#v", outline)
 	}
 }

@@ -137,8 +137,9 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 		t.Fatalf("tool previews missing: %#v", toolEnd.Metadata)
 	}
 	llmStart := events[2]
-	if llmStart.Metadata["history"] != nil {
-		t.Fatalf("llm history should be omitted: %#v", llmStart.Metadata)
+	history, ok := llmStart.Metadata["history"].([]any)
+	if !ok || len(history) != 2 {
+		t.Fatalf("llm compact history missing: %#v", llmStart.Metadata)
 	}
 	llmEnd := events[3]
 	if llmEnd.Metadata["output"] != nil {

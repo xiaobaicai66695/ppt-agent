@@ -29,7 +29,8 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 		Type: schema.Object,
 		Desc: "结构化页面内容规划",
 		SubParams: map[string]*schema.ParameterInfo{
-			"summary": {Type: schema.String, Desc: "页面核心摘要"},
+			"summary":        {Type: schema.String, Desc: "页面核心摘要"},
+			"section_number": {Type: schema.String, Desc: "章节分隔页的大章节编号，如 01/02；仅 section_divider 使用，不得写页码"},
 			"visual_intent": {
 				Type: schema.Object,
 				Desc: "页面视觉意图，用于规划图片、图表、地图、卡片等视觉角色",
@@ -154,6 +155,7 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 	if err := t.normalizeManifestBackgrounds(manifest); err != nil {
 		return "", err
 	}
+	normalizeManifestLayoutVariants(manifest)
 	if err := validateManifestForWrite(manifest); err != nil {
 		return "", err
 	}
@@ -255,6 +257,76 @@ func backgroundTheme(background string) string {
 		return ""
 	}
 	return strings.Split(background, "/")[0]
+}
+
+func normalizeManifestLayoutVariants(manifest *TasksManifest) {
+	if manifest == nil {
+		return
+	}
+	counts := map[string]int{}
+	sectionCount := 0
+	for _, item := range manifest.Tasks {
+		if item == nil {
+			continue
+		}
+		contentType := strings.TrimSpace(item.ContentType)
+		if contentType == "" {
+			continue
+		}
+		if contentType == "section_divider" {
+			sectionCount++
+			ensureSectionNumber(item, sectionCount)
+		}
+		if strings.TrimSpace(item.LayoutVariant) != "" {
+			continue
+		}
+		if variants := supportedLayoutVariants(contentType); len(variants) > 0 {
+			index := counts[contentType] % len(variants)
+			item.LayoutVariant = variants[index]
+			ensurePreferredVariant(item, item.LayoutVariant)
+			counts[contentType]++
+		}
+	}
+}
+
+func supportedLayoutVariants(contentType string) []string {
+	switch strings.TrimSpace(contentType) {
+	case "title_slide":
+		return []string{"photo_full_bleed_center", "photo_full_bleed_left", "editorial_split"}
+	case "section_divider":
+		return []string{"photo_band", "quiet_title", "number_sidebar"}
+	case "image_text":
+		return []string{"right_photo", "left_photo", "photo_strip"}
+	case "card_grid":
+		return []string{"equal_grid", "featured_card_plus_grid", "masonry_cards"}
+	case "content_slide":
+		return []string{"classic_bullets", "numbered_cards", "side_panel"}
+	case "two_column":
+		return []string{"balanced_cards", "split_table", "mirror_emphasis"}
+	default:
+		return nil
+	}
+}
+
+func ensurePreferredVariant(item *TaskItem, variant string) {
+	if item == nil || strings.TrimSpace(variant) == "" || item.ContentPlan == nil || item.ContentPlan.VisualIntent == nil {
+		return
+	}
+	if strings.TrimSpace(item.ContentPlan.VisualIntent.PreferredVariant) == "" {
+		item.ContentPlan.VisualIntent.PreferredVariant = variant
+	}
+}
+
+func ensureSectionNumber(item *TaskItem, sectionCount int) {
+	if item == nil || sectionCount <= 0 {
+		return
+	}
+	if item.ContentPlan == nil {
+		item.ContentPlan = &ContentPlan{}
+	}
+	if strings.TrimSpace(item.ContentPlan.SectionNumber) == "" {
+		item.ContentPlan.SectionNumber = fmt.Sprintf("%02d", sectionCount)
+	}
 }
 
 func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {

@@ -32,6 +32,7 @@ def generate(
     kicker: str = "",
     lede: str = "",
     highlight_stats: List[dict] = None,
+    layout_variant: str = "",
     background: str = None,
     glass_colors: dict = None,
 ) -> Presentation:
@@ -71,6 +72,7 @@ def generate(
     bullets = short_items(bullets, 6)
     level = density_level(bullets, title=title, body=lede)
     is_sparse = level == "sparse" and not highlight_stats
+    variant = _resolve_layout_variant(layout_variant, level, bool(highlight_stats))
 
     if prs is None:
         prs = new_presentation(palette=palette)
@@ -84,7 +86,7 @@ def generate(
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])
 
-    if is_sparse:
+    if is_sparse or variant == "icon_focus":
         icon_id = icon_id_from_text(" ".join([title, section_header, lede] + bullets), fallback="overview")
         add_local_icon(slide, icon_id, left=5.78, top=1.32, size=1.35, palette=palette, with_badge=True)
         if kicker:
@@ -133,6 +135,69 @@ def generate(
                     palette=palette,
                     colors=colors,
                 )
+        add_source_line(slide, source, palette)
+        return prs
+
+    if variant == "numbered_cards" and bullets:
+        if kicker:
+            add_text(
+                slide,
+                text=kicker,
+                left=0.72, top=0.35, width=11.8, height=0.3,
+                font_size=12, color="secondary", alignment="left",
+                palette=palette,
+                colors=colors,
+            )
+        add_text(
+            slide,
+            text=title,
+            left=0.7, top=0.78, width=11.8, height=0.65,
+            font_size=title_font_size(title, base=34, sparse_boost=4, max_size=42), bold=True,
+            color="text", alignment="left",
+            palette=palette,
+            colors=colors,
+        )
+        if lede:
+            add_text(
+                slide,
+                text=lede,
+                left=0.72, top=1.42, width=10.8, height=0.45,
+                font_size=13, color="text_muted", alignment="left",
+                palette=palette,
+                colors=colors,
+            )
+        cols = 2
+        card_w = 5.82
+        card_h = 1.06 if len(bullets) <= 4 else 0.88
+        start_x = 0.74
+        start_y = 2.08
+        gap_x = 0.25
+        gap_y = 0.22
+        for i, item in enumerate(bullets[:6]):
+            col = i % cols
+            row = i // cols
+            x = start_x + col * (card_w + gap_x)
+            y = start_y + row * (card_h + gap_y)
+            add_rect(slide, left=x, top=y, width=card_w, height=card_h, fill_color="light_bg", palette=palette)
+            add_text(slide, text=f"{i + 1:02d}", left=x + 0.18, top=y + 0.18, width=0.58, height=0.28, font_size=13, bold=True, color="primary", alignment="left", palette=palette, colors=colors)
+            add_text(slide, text=item, left=x + 0.86, top=y + 0.16, width=card_w - 1.1, height=card_h - 0.22, font_size=12 if len(item) > 42 else 13, color="text", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
+        add_source_line(slide, source, palette)
+        return prs
+
+    if variant == "side_panel":
+        add_rect(slide, left=0.0, top=0.0, width=3.55, height=7.5, fill_color="light_bg", palette=palette)
+        add_rect(slide, left=3.55, top=0.0, width=0.08, height=7.5, fill_color="accent", palette=palette)
+        if kicker:
+            add_text(slide, text=kicker, left=0.52, top=0.58, width=2.45, height=0.32, font_size=12, color="secondary", alignment="left", palette=palette, colors=colors)
+        add_text(slide, text=section_header or "核心要点", left=0.5, top=1.34, width=2.45, height=1.3, font_size=title_font_size(section_header or title, base=28, sparse_boost=4, max_size=34), bold=True, color="primary", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
+        if lede:
+            add_text(slide, text=lede, left=0.52, top=3.0, width=2.35, height=1.15, font_size=12, color="text_muted", alignment="left", palette=palette, colors=colors)
+        add_text(slide, text=title, left=4.15, top=0.72, width=8.35, height=0.72, font_size=title_font_size(title, base=34, sparse_boost=4, max_size=42), bold=True, color="text", alignment="left", palette=palette, colors=colors)
+        y_offset = balanced_band_top(1.78, 4.9, len(bullets[:6]) * 0.58, min_top=1.78)
+        for i, item in enumerate(bullets[:6]):
+            y = y_offset + i * 0.72
+            add_rect(slide, left=4.18, top=y + 0.12, width=0.11, height=0.11, fill_color="secondary", palette=palette)
+            add_text(slide, text=item, left=4.46, top=y, width=7.55, height=0.5, font_size=body_font_size(bullets, base=15), color="text", alignment="left", vertical_alignment="middle", palette=palette, colors=colors)
         add_source_line(slide, source, palette)
         return prs
 
@@ -326,3 +391,16 @@ def _infer_section_header(title: str, bullets: List[str], lede: str) -> str:
         if keyword in lower or keyword in text:
             return header
     return "核心观点"
+
+
+def _resolve_layout_variant(layout_variant: str, level: str, has_highlight_stats: bool) -> str:
+    key = (layout_variant or "").strip().lower().replace("-", "_")
+    if key in {"numbered_cards", "cards", "card_list"}:
+        return "numbered_cards"
+    if key in {"side_panel", "sidebar", "left_panel"}:
+        return "side_panel"
+    if key in {"icon_focus", "focus", "center_focus"}:
+        return "icon_focus"
+    if level == "sparse" and not has_highlight_stats:
+        return "icon_focus"
+    return "classic_bullets"

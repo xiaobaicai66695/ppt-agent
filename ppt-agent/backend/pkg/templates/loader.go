@@ -88,20 +88,22 @@ type ThemeInfo struct {
 
 // BackgroundThemeInfo 背景图片主题信息
 type BackgroundThemeInfo struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
-	Description string   `json:"description"`
-	Scenarios   []string `json:"scenarios"`
-	PreviewPath string   `json:"preview_path"`
+	Name               string   `json:"name"`
+	DisplayName        string   `json:"display_name"`
+	Description        string   `json:"description"`
+	Scenarios          []string `json:"scenarios"`
+	RecommendedPalette string   `json:"recommended_palette,omitempty"`
+	PreviewPath        string   `json:"preview_path"`
 }
 
 type backgroundManifest struct {
 	Themes []struct {
-		ID          string   `json:"id"`
-		NameCN      string   `json:"name_cn"`
-		Description string   `json:"description"`
-		Scenarios   []string `json:"scenarios"`
-		Priority    int      `json:"priority"`
+		ID                 string   `json:"id"`
+		NameCN             string   `json:"name_cn"`
+		Description        string   `json:"description"`
+		Scenarios          []string `json:"scenarios"`
+		Priority           int      `json:"priority"`
+		RecommendedPalette string   `json:"recommended_palette"`
 	} `json:"themes"`
 }
 
@@ -374,11 +376,12 @@ func (l *Loader) loadManifestBackgrounds() []BackgroundThemeInfo {
 		}
 		ranked = append(ranked, rankedBackground{
 			BackgroundThemeInfo: BackgroundThemeInfo{
-				Name:        name,
-				DisplayName: displayName,
-				Description: strings.TrimSpace(theme.Description),
-				Scenarios:   theme.Scenarios,
-				PreviewPath: "/api/backgrounds/" + name + "/preview",
+				Name:               name,
+				DisplayName:        displayName,
+				Description:        strings.TrimSpace(theme.Description),
+				Scenarios:          theme.Scenarios,
+				RecommendedPalette: strings.TrimSpace(theme.RecommendedPalette),
+				PreviewPath:        "/api/backgrounds/" + name + "/preview",
 			},
 			priority: theme.Priority,
 		})

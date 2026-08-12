@@ -332,3 +332,43 @@ func TestRecommendedManifestNormalizesEveryTaskToSameBackgroundTheme(t *testing.
 		previous = item.Background
 	}
 }
+
+func TestManifestToolBackfillsLayoutVariantsAndSectionNumbers(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"介绍延安",
+		"theme":"government_red",
+		"template":"current-affairs",
+		"tasks":[
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"封面"}},
+			{"task_id":"2","page_index":2,"title":"历史篇","content_type":"section_divider","description":"历史章节","output_file":"2_history.pptx","status":"pending","content_plan":{"summary":"历史章节"}},
+			{"task_id":"3","page_index":3,"title":"文化篇","content_type":"section_divider","description":"文化章节","output_file":"3_culture.pptx","status":"pending","content_plan":{"summary":"文化章节"}},
+			{"task_id":"4","page_index":4,"title":"文化说明","content_type":"image_text","description":"说明","output_file":"4_image.pptx","status":"pending","content_plan":{"summary":"说明","visual_intent":{"role":"supporting_photo"}}},
+			{"task_id":"5","page_index":5,"title":"文化说明二","content_type":"image_text","description":"说明二","output_file":"5_image.pptx","status":"pending","content_plan":{"summary":"说明二","visual_intent":{"role":"supporting_photo"}}}
+		]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[1].ContentPlan == nil || got.Tasks[1].ContentPlan.SectionNumber != "01" {
+		t.Fatalf("first section number = %#v", got.Tasks[1].ContentPlan)
+	}
+	if got.Tasks[2].ContentPlan == nil || got.Tasks[2].ContentPlan.SectionNumber != "02" {
+		t.Fatalf("second section number = %#v", got.Tasks[2].ContentPlan)
+	}
+	if got.Tasks[1].LayoutVariant == "" || got.Tasks[2].LayoutVariant == "" || got.Tasks[1].LayoutVariant == got.Tasks[2].LayoutVariant {
+		t.Fatalf("section variants were not rotated: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[2].LayoutVariant)
+	}
+	if got.Tasks[3].LayoutVariant == "" || got.Tasks[4].LayoutVariant == "" || got.Tasks[3].LayoutVariant == got.Tasks[4].LayoutVariant {
+		t.Fatalf("image_text variants were not rotated: %q %q", got.Tasks[3].LayoutVariant, got.Tasks[4].LayoutVariant)
+	}
+	if got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != got.Tasks[3].LayoutVariant {
+		t.Fatalf("visual_intent preferred variant not synced: %#v", got.Tasks[3].ContentPlan.VisualIntent)
+	}
+}

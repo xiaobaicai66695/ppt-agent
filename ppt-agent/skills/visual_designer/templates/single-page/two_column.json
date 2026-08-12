@@ -23,6 +23,29 @@
     "background_policy": "clean_default",
     "visual_primitives": ["column_panels", "comparison_markers", "local_icons"]
   },
+  "variants": [
+    {
+      "id": "balanced_cards",
+      "display_name": "均衡双卡片",
+      "description": "左右等宽卡片承载对比内容，适合正式报告中的稳态对比。",
+      "best_for": ["双方案对比", "利弊权衡", "并列分析"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    },
+    {
+      "id": "split_table",
+      "display_name": "分栏表格",
+      "description": "用表格行对齐左右信息，适合逐项对比和维度检查。",
+      "best_for": ["逐项对比", "维度检查", "参数对照"],
+      "visual_intent": {"role": "chart", "image_position": "inline"}
+    },
+    {
+      "id": "mirror_emphasis",
+      "display_name": "镜像强调",
+      "description": "围绕中线镜像排布，适合强调两组观点的张力和差异。",
+      "best_for": ["观点对照", "冲突分析", "前后对比"],
+      "visual_intent": {"role": "cards", "image_position": "inline"}
+    }
+  ],
   "fields": [
     {"name": "title", "label": "页面标题", "type": "text", "required": true},
     {"name": "left_title", "label": "左栏标题", "type": "text", "required": true},

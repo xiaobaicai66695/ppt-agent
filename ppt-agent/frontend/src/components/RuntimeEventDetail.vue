@@ -83,13 +83,22 @@ const historyMessages = computed(() => {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 });
 
+const reasoningPreview = computed(() => String(metadata.value.reasoning_preview || '').trim());
+const toolCallDetails = computed(() => {
+  const value = metadata.value.tool_call_details;
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+});
+const assistantMessage = computed(() => (
+  isRecord(metadata.value.assistant_message) ? metadata.value.assistant_message : null
+));
+
 const readableSections = computed(() => {
   const sections: Array<{ key: string; title: string; value: unknown; mode: 'markdown' | 'json' }> = [];
   const candidates: Array<[string, string]> = [
-    ['args', 'Tool Args'],
-    ['result', 'Tool Result'],
-    ['output', 'LLM Output'],
-    ['error', 'Error'],
+    ['args', '工具参数'],
+    ['result', '工具结果'],
+    ['output_preview', '模型输出摘要'],
+    ['error', '错误'],
   ];
   for (const [key, title] of candidates) {
     if (metadata.value[key] !== undefined && metadata.value[key] !== null && metadata.value[key] !== '') {
@@ -135,12 +144,21 @@ function messageTitle(message: RuntimeRecord, index: number): string {
 }
 
 function messageContent(message: RuntimeRecord): string {
+  if (typeof message.content_preview === 'string') return normalizeNewlines(message.content_preview);
   return typeof message.content === 'string' ? normalizeNewlines(message.content) : '';
 }
 
 function messageExtra(message: RuntimeRecord): RuntimeRecord {
-  const { content: _content, role: _role, ...rest } = message;
+  const { content: _content, content_preview: _contentPreview, role: _role, ...rest } = message;
   return rest;
+}
+
+function toolCallTitle(call: RuntimeRecord, index: number): string {
+  return `#${index + 1} ${String(call.name || 'tool')}`;
+}
+
+function toolCallArguments(call: RuntimeRecord): string {
+  return normalizeNewlines(String(call.arguments_preview || '').trim());
 }
 
 function hasExtra(message: RuntimeRecord): boolean {
@@ -275,8 +293,36 @@ function escapeHtml(value: string): string {
       <RuntimeJsonTree label="event" :value="eventSummary" :default-open="true" />
     </section>
 
+    <section v-if="reasoningPreview || toolCallDetails.length || assistantMessage" class="runtime-detail-section model-observation-section">
+      <h4>模型思考与调用</h4>
+      <div v-if="reasoningPreview" class="model-reasoning">
+        <strong>显式思考摘要</strong>
+        <p>{{ reasoningPreview }}</p>
+      </div>
+      <details v-if="assistantMessage" class="history-message" open>
+        <summary>
+          <span class="history-role">assistant output</span>
+          <span v-if="messageContent(assistantMessage)" class="history-preview">{{ messageContent(assistantMessage).slice(0, 90) }}</span>
+        </summary>
+        <div v-if="messageContent(assistantMessage)" class="markdown-body" v-html="renderMarkdown(messageContent(assistantMessage))"></div>
+      </details>
+      <details
+        v-for="(call, index) in toolCallDetails"
+        :key="index"
+        class="history-message"
+        :open="index < 2"
+      >
+        <summary>
+          <span class="history-role">{{ toolCallTitle(call, index) }}</span>
+          <span v-if="toolCallArguments(call)" class="history-preview">{{ toolCallArguments(call).slice(0, 90) }}</span>
+        </summary>
+        <div v-if="toolCallArguments(call)" class="markdown-body" v-html="renderMarkdown(toolCallArguments(call))"></div>
+        <RuntimeJsonTree label="工具调用元数据" :value="call" />
+      </details>
+    </section>
+
     <section v-if="historyMessages.length" class="runtime-detail-section">
-      <h4>History</h4>
+      <h4>模型上下文</h4>
       <details
         v-for="(message, index) in historyMessages"
         :key="index"
@@ -290,7 +336,7 @@ function escapeHtml(value: string): string {
         <div v-if="messageContent(message)" class="markdown-body" v-html="renderMarkdown(messageContent(message))"></div>
         <RuntimeJsonTree
           v-if="hasExtra(message)"
-          label="message metadata"
+          label="消息元数据"
           :value="messageExtra(message)"
         />
       </details>
@@ -316,7 +362,7 @@ function escapeHtml(value: string): string {
     </section>
 
     <section class="runtime-detail-section metadata-section">
-      <h4>Metadata</h4>
+      <h4>原始元数据</h4>
       <RuntimeJsonTree label="metadata" :value="metadata" />
     </section>
   </div>
@@ -430,6 +476,21 @@ function escapeHtml(value: string): string {
 }
 .metadata-section {
   border-top: 2px solid var(--divider);
+}
+.model-reasoning {
+  padding: 10px;
+  border-top: 1px solid var(--divider);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.model-reasoning strong {
+  color: var(--text);
+  font-size: 10px;
+}
+.model-reasoning p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 .observation-grid {
   display: grid;

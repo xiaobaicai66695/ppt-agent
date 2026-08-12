@@ -492,9 +492,10 @@ func decodeContentElementText(data json.RawMessage) (string, error) {
 // ContentPlan 描述单页幻灯片的内容结构化布局
 // 是 free-text Description 字段的结构化对应物
 type ContentPlan struct {
-	Summary      string           `json:"summary,omitempty"`       // one-sentence core summary
-	VisualIntent *VisualIntent    `json:"visual_intent,omitempty"` // visual role and asset intent for this slide
-	Elements     []ContentElement `json:"elements,omitempty"`      // content elements list
+	Summary       string           `json:"summary,omitempty"`        // one-sentence core summary
+	SectionNumber string           `json:"section_number,omitempty"` // section_divider chapter number, not page index
+	VisualIntent  *VisualIntent    `json:"visual_intent,omitempty"`  // visual role and asset intent for this slide
+	Elements      []ContentElement `json:"elements,omitempty"`       // content elements list
 }
 
 // VisualIntent describes why a slide should use a given visual treatment.

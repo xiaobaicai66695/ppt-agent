@@ -1007,7 +1007,7 @@ func compactRuntimeMetadata(metadata map[string]any, depth int) map[string]any {
 
 func shouldDropRuntimeMetadataKey(key string) bool {
 	switch strings.ToLower(key) {
-	case "history", "output", "config", "extra", "tools", "output_config", "output_extra", "reasoning_content":
+	case "output", "config", "extra", "tools", "output_config", "output_extra", "reasoning_content":
 		return true
 	default:
 		return false
@@ -1028,6 +1028,18 @@ func compactRuntimeValue(value any, depth int) (any, bool) {
 		return v, true
 	case []string:
 		return boundedStrings(v, 12, 160), len(v) > 0
+	case []map[string]any:
+		limit := len(v)
+		if limit > 12 {
+			limit = 12
+		}
+		items := make([]any, 0, limit)
+		for i := 0; i < limit; i++ {
+			if item, ok := compactRuntimeValue(v[i], depth+1); ok {
+				items = append(items, item)
+			}
+		}
+		return items, len(items) > 0
 	case []any:
 		limit := len(v)
 		if limit > 12 {

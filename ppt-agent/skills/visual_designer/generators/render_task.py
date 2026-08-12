@@ -148,7 +148,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         }
     if content_type == "section_divider":
         return {
-            "number": f"{int(task.get('page_index') or 1):02d}",
+            "number": section_number(task, manifest),
             "title": title,
             "subtitle": summary,
             "kicker": plan.get("kicker", "章节"),
@@ -198,6 +198,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "right_header": headers[1],
             "left_bullets": left,
             "right_bullets": right,
+            "layout_variant": layout_variant,
             "kicker": plan.get("kicker", "对比"),
             "source": source,
         }
@@ -253,6 +254,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         "section_header": first_card_title(cards) or "核心要点",
         "bullets": ensure_items(items, summary, 5),
         "lede": summary,
+        "layout_variant": layout_variant,
         "kicker": plan.get("kicker", "要点"),
         "source": source,
     }
@@ -365,6 +367,36 @@ def nested_get(value: dict[str, Any], *keys: str) -> str:
             return ""
         current = current.get(key)
     return clean_text(current)
+
+
+def section_number(task: dict[str, Any], manifest: dict[str, Any]) -> str:
+    plan = task.get("content_plan") or {}
+    explicit = (
+        task.get("section_number")
+        or plan.get("section_number")
+        or plan.get("number")
+        or nested_get(plan if isinstance(plan, dict) else {}, "visual_intent", "section_number")
+    )
+    if clean_text(explicit):
+        return normalize_section_number(clean_text(explicit))
+
+    current_page = int(task.get("page_index") or 0)
+    count = 0
+    for candidate in sorted(manifest.get("tasks", []), key=lambda item: int(item.get("page_index") or 0)):
+        if normalize_content_type(candidate.get("content_type", "")) != "section_divider":
+            continue
+        count += 1
+        if str(candidate.get("task_id")) == str(task.get("task_id")) or int(candidate.get("page_index") or 0) == current_page:
+            return f"{count:02d}"
+    return "01"
+
+
+def normalize_section_number(value: str) -> str:
+    value = clean_text(value)
+    match = re.search(r"\d+", value)
+    if match:
+        return f"{int(match.group(0)):02d}"
+    return value[:4] or "01"
 
 
 def clean_text(value: Any) -> str:

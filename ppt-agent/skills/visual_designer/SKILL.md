@@ -220,6 +220,8 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 |--------------|---------------------|
 | `title_slide` | `photo_full_bleed_center` / `photo_full_bleed_left` / `editorial_split` |
 | `section_divider` | `photo_band` / `number_sidebar` / `quiet_title` |
+| `content_slide` | `classic_bullets` / `numbered_cards` / `side_panel` |
+| `two_column` | `balanced_cards` / `split_table` / `mirror_emphasis` |
 | `image_text` | `left_photo` / `right_photo` / `photo_strip` |
 | `card_grid` | `equal_grid` / `featured_card_plus_grid` / `masonry_cards` |
 

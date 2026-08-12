@@ -67,7 +67,7 @@ from generators import (
 | `variants` | object[] | 同一 `content_type` 下的版式候选，例如 `photo_full_bleed_center`、`left_photo`、`equal_grid`；这是规划/selector 元数据，不是 generator 参数 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `layout_variant` 只写入 tasks.json 作为设计意图。`generate_title_slide`、`generate_section_divider`、`generate_image_text`、`generate_card_grid` 已显式支持 `layout_variant`；其他生成器禁止把 `layout_variant` 或 `visual_intent` 直接传入，除非对应源码已显式支持。
+> 当前阶段 `layout_variant` 只写入 tasks.json 作为设计意图。`generate_title_slide`、`generate_section_divider`、`generate_content_slide`、`generate_two_column`、`generate_image_text`、`generate_card_grid` 已显式支持 `layout_variant`；其他生成器只有在源码显式支持时才传入该字段。
 
 ## 背景与素材策略
 
@@ -174,6 +174,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据，并为后续神经网络研究提供了可训练范式", ...]` (4-6条，目标每条35-60字，可渲染上限80字) |
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
 | lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
+| layout_variant | str | `"classic_bullets"`、`"numbered_cards"` 或 `"side_panel"` |
 | background | str | `"minimalist_blue/images/1.jpg"` (可选，内容要点页可使用背景，生成器会加局部玻璃面板保证正文可读) |
 
 #### generate_quote_slide — 金句/引言页
@@ -218,6 +219,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | right_sections | `Dict[str, List[str]]` | 同上 (可选，多区块结构) |
 | left_items | `List[dict]` | `[{"title": "...", "desc": "...", "metric": "↑ 30%"}, ...]` (可选，逐项卡片模式) |
 | right_items | `List[dict]` | 同上 (可选，逐项卡片模式) |
+| layout_variant | str | `"balanced_cards"`、`"split_table"` 或 `"mirror_emphasis"` |
 | background | str | `"artistic"` (可选，背景图片主题) |
 
 > **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。

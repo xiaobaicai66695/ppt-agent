@@ -48,6 +48,12 @@ const maxToolOutputLen = 500
 // maxToolArgsLen tool 参数截断阈值
 const maxToolArgsLen = 300
 
+// maxModelMessagePreviewLen limits observable model context shown in the UI.
+const maxModelMessagePreviewLen = 600
+
+// maxModelHistoryMessages keeps the latest model context compact enough for SSE.
+const maxModelHistoryMessages = 14
+
 // keyToAgentName 是用于在 context 中存储 agent 名称的 key
 const keyToAgentName = "eino.callback.agent.name"
 
@@ -222,6 +228,7 @@ func modelInputDetails(input callbacks.CallbackInput, agentName, runName string)
 		"tool_names":        toolNames,
 		"last_user_preview": lastMessagePreview(mi.Messages, string(schema.User), 180),
 		"system_preview":    firstMessagePreview(mi.Messages, string(schema.System), 180),
+		"history":           compactModelHistory(mi.Messages),
 	}
 }
 
@@ -233,12 +240,19 @@ func modelOutputDetails(output callbacks.CallbackOutput) map[string]any {
 	details := map[string]any{}
 	if mo.Message != nil {
 		details["output_preview"] = truncate(strings.TrimSpace(mo.Message.Content), 500)
+		details["assistant_message"] = compactModelMessage(mo.Message, 0)
+		if reasoning := compactReasoningPreview(mo.Message); reasoning != "" {
+			details["reasoning_preview"] = reasoning
+		}
 		if len(mo.Message.ToolCalls) > 0 {
 			toolNames := make([]string, 0, len(mo.Message.ToolCalls))
+			toolCalls := make([]any, 0, len(mo.Message.ToolCalls))
 			for _, tc := range mo.Message.ToolCalls {
 				toolNames = append(toolNames, tc.Function.Name)
+				toolCalls = append(toolCalls, compactToolCall(tc))
 			}
 			details["tool_calls"] = toolNames
+			details["tool_call_details"] = toolCalls
 		}
 	}
 	if mo.TokenUsage != nil {
@@ -256,9 +270,113 @@ func modelOutputDetails(output callbacks.CallbackOutput) map[string]any {
 		details["output_config"] = mo.Config
 	}
 	if mo.Extra != nil {
+		if reasoning := compactReasoningFromAny(mo.Extra); reasoning != "" && details["reasoning_preview"] == nil {
+			details["reasoning_preview"] = reasoning
+		}
 		details["output_extra"] = mo.Extra
 	}
 	return details
+}
+
+func compactModelHistory(messages []*schema.Message) []any {
+	if len(messages) == 0 {
+		return nil
+	}
+	start := 0
+	if len(messages) > maxModelHistoryMessages {
+		start = len(messages) - maxModelHistoryMessages
+	}
+	history := make([]any, 0, len(messages)-start)
+	for i := start; i < len(messages); i++ {
+		if compacted := compactModelMessage(messages[i], i); compacted != nil {
+			history = append(history, compacted)
+		}
+	}
+	return history
+}
+
+func compactModelMessage(message *schema.Message, index int) map[string]any {
+	if message == nil {
+		return nil
+	}
+	role := string(message.Role)
+	result := map[string]any{
+		"index": index,
+		"role":  role,
+	}
+	if strings.TrimSpace(message.Name) != "" {
+		result["name"] = message.Name
+	}
+	if role == string(schema.System) {
+		result["content_preview"] = "[系统指令已隐藏，仅保留下方 system_preview 摘要]"
+	} else if content := truncate(strings.TrimSpace(message.Content), maxModelMessagePreviewLen); content != "" {
+		result["content_preview"] = content
+	}
+	if reasoning := compactReasoningPreview(message); reasoning != "" {
+		result["reasoning_preview"] = reasoning
+	}
+	if len(message.ToolCalls) > 0 {
+		toolNames := make([]string, 0, len(message.ToolCalls))
+		toolCalls := make([]any, 0, len(message.ToolCalls))
+		for _, tc := range message.ToolCalls {
+			toolNames = append(toolNames, tc.Function.Name)
+			toolCalls = append(toolCalls, compactToolCall(tc))
+		}
+		result["tool_calls"] = strings.Join(toolNames, ", ")
+		result["tool_call_details"] = toolCalls
+	}
+	if strings.TrimSpace(message.ToolCallID) != "" {
+		result["tool_call_id"] = truncate(strings.TrimSpace(message.ToolCallID), 120)
+	}
+	if strings.TrimSpace(message.ToolName) != "" {
+		result["tool_name"] = truncate(strings.TrimSpace(message.ToolName), 120)
+	}
+	return result
+}
+
+func compactToolCall(tc schema.ToolCall) map[string]any {
+	return map[string]any{
+		"id":                truncate(strings.TrimSpace(tc.ID), 120),
+		"name":              truncate(strings.TrimSpace(tc.Function.Name), 120),
+		"arguments_preview": truncate(strings.TrimSpace(tc.Function.Arguments), maxToolArgsLen),
+	}
+}
+
+func compactReasoningPreview(message *schema.Message) string {
+	if message == nil {
+		return ""
+	}
+	if reasoning := strings.TrimSpace(message.ReasoningContent); reasoning != "" {
+		return truncate(reasoning, maxModelMessagePreviewLen)
+	}
+	return compactReasoningFromAny(message.Extra)
+}
+
+func compactReasoningFromAny(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return ""
+	case map[string]any:
+		for _, key := range []string{"reasoning_preview", "reasoning_content", "reasoning", "thinking", "thought"} {
+			if text := strings.TrimSpace(fmt.Sprint(typed[key])); text != "" && text != "<nil>" {
+				return truncate(text, maxModelMessagePreviewLen)
+			}
+		}
+		for _, child := range typed {
+			if text := compactReasoningFromAny(child); text != "" {
+				return text
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if text := compactReasoningFromAny(child); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
 }
 
 func inferCallbackStage(agentName, runName string) string {
