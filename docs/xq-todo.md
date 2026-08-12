@@ -11,3 +11,6 @@
 | XQ-005 | `content_plan` 强 schema 归属 | 倾向后端定义核心 schema，skill 模板声明容量和字段 | schema 是否需要由 OpenSpec 固化为长期契约 |
 | XQ-006 | 图标/图片资产 | 已确认：先做本地图标和形状 primitives，不接外部图片搜索 | 图片检索/生成式图片资产后续再议 |
 | XQ-007 | 质量评分方式 | 倾向轻量本地验证 + eval fixture，不默认 LLM judge | 是否需要保留可选的人工/LLM 评分入口 |
+| XQ-008 | 主流程规划质量门禁 | 倾向新增 Planner -> Reviewer -> Refiner 的渲染前循环，规划未通过结构、容量、场景匹配和用户画像门控前不进入生成 | 循环上限、失败降级策略和是否固化为 OpenSpec change |
+| XQ-009 | 组件级 DeckSpec | 倾向先在规划阶段引入组件级 `components`，渲染仍保持按页 worker pool；坐标、字号、颜色继续由 generator 控制 | 首批覆盖哪些 `content_type`，以及是否兼容现有 `content_plan.elements` |
+| XQ-010 | 组件级 QA / 局部修复 | 倾向作为第二阶段能力，只对结构化组件做内容修订或缩短，不在首版重构为组件级独立渲染任务 | 是否需要先建设组件 ID、QA issue schema 和局部 refiner |

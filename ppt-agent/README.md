@@ -1,6 +1,6 @@
 # PPT Agent 智能演示文稿生成系统
 
-PPT Agent 是一个面向中文演示文稿生产的多智能体系统。后端使用 Go 与 CloudWeGo Eino ADK，前端使用 Vue 3、TypeScript 与 Vite，PPT 生成器使用 Python 和 `python-pptx`。系统围绕任务规划、单页生成、素材管理、缩略图预览、会话记录和运行观测构建，目标是稳定生成结构清晰、风格统一、可交付的 PPT。
+PPT Agent 是一个面向中文演示文稿生产的多智能体系统。后端使用 Go 与 CloudWeGo Eino ADK，前端使用 Vue 3、TypeScript 与 Vite，PPT 生成器使用 Python 和 `python-pptx`。系统围绕意图识别、DeckSpec 规划、规划审查润色、按页渲染、素材管理、缩略图预览、会话记录和运行观测构建，目标是稳定生成结构清晰、风格统一、可交付的 PPT。
 
 本文档尽量使用中文描述。代码标识、环境变量、命令、文件名、接口路径和第三方库名称保留原文，避免影响复制执行和模型识别。
 
@@ -51,16 +51,18 @@ ppt-agent/
 
 ## 运行链路
 
-用户通过前端创建任务后，后端会先识别意图并选择模板、配色、页数和背景主题。随后 Planner 生成 `tasks.json`，每个页面被拆成独立任务，再由渲染工作池调用 Python 生成器生成单页 PPTX。任务管理器负责合并结果、记录进度、生成缩略图并通过 SSE 推送状态。
+用户通过前端创建任务后，后端会先识别意图并选择模板、配色、页数和背景主题。随后 Planner 生成 `tasks.json`。目标主流程会在渲染前加入 Plan Reviewer / Refiner：先审查整套 PPT 的叙事、信息密度、用户画像使用、模板容量和组件计划，修订到通过质量门后，再由渲染工作池调用 Python 生成器生成单页 PPTX。任务管理器负责合并结果、记录进度、生成缩略图并通过 SSE 推送状态。
 
 ```text
 用户请求
   ↓
 意图识别与模板推荐
   ↓
-Planner 规划 tasks.json
+Planner 规划 DeckSpec / tasks.json
   ↓
-SlideExecutor 分页生成 PPTX
+Plan Reviewer / Refiner 审查并润色结构化计划
+  ↓
+DeckRenderWorkflow 按页并发生成 PPTX
   ↓
 任务管理器校验产物与缩略图
   ↓
@@ -75,7 +77,7 @@ SlideExecutor 分页生成 PPTX
 
 - 提供任务创建、查询、下载、缩略图、会话和管理接口。
 - 管理任务目录、任务状态、输出文件和数据库记录。
-- 调用 Planner 完成页面规划，并由渲染工作池完成分页生成。
+- 调用 Planner 完成页面规划；目标态通过 Plan Reviewer / Refiner 做渲染前质量门，再由渲染工作池完成分页生成。
 - 维护运行元数据，记录模型调用、工具调用、错误和阶段耗时。
 - 加载模板、配色、背景主题和本地素材。
 
@@ -90,12 +92,14 @@ SlideExecutor 分页生成 PPTX
 
 ### Visual Designer
 
-`skills/visual_designer` 是 PPT 质量的核心契约层。它规定：
+`skills/visual_designer` 是 PPT 质量的核心契约层。它主要约束 Planner 如何填充 DeckSpec / `tasks.json`，并规定生成器如何消费结构化计划。字号、坐标、颜色、边距等底层绘制细节由 Python generator 和模板 contract 控制，不应交给 LLM 在 prompt 中直接决定。
+
+它规定：
 
 - 合法页面类型与字段结构。
 - 每种页面的内容容量和适用场景。
 - 背景图片、配色、素材和布局的使用方式。
-- SlideExecutor 如何调用 Python 生成器。
+- `render_task.py` 如何调用 Python 生成器。
 - 生成器如何保证文本不溢出、元素不重叠、背景可读。
 
 常见页面类型包括：
@@ -133,7 +137,7 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 
 ## 任务清单契约
 
-`tasks.json` 是 Planner 与渲染工作池之间的核心契约。Planner 只通过 `update_tasks_manifest` 初始化或更新任务清单，避免并发覆盖整个文件。
+`tasks.json` 是 Planner、规划审查/润色和渲染工作池之间的核心契约。Planner 只通过 `update_tasks_manifest` 初始化或更新任务清单，避免并发覆盖整个文件。目标态会把它升级为更强的 DeckSpec：页级计划之外，还包含组件级内容计划和容量提示。
 
 单页任务的关键字段：
 
@@ -149,7 +153,29 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
   "output_file": "1_cover.pptx",
   "status": "pending",
   "content_plan": {
-    "summary": "页面核心信息"
+    "summary": "页面核心信息",
+    "visual_intent": {
+      "role": "cards",
+      "preferred_variant": "numbered_cards"
+    },
+    "components": [
+      {
+        "component_id": "headline-1",
+        "type": "headline",
+        "text": "页面主论点"
+      },
+      {
+        "component_id": "card-1",
+        "type": "feature_card",
+        "title": "组件标题",
+        "body": "组件承载的事实、观点或案例",
+        "emphasis": "primary"
+      }
+    ],
+    "capacity_hint": {
+      "density": "normal",
+      "overflow_risk": "low"
+    }
   }
 }
 ```
@@ -159,8 +185,22 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 - `content_type` 必须是合法英文标识，不写中文布局名。
 - `theme` 是整套 PPT 的配色锚点，不因单页背景而变化。
 - `background` 只表示背景主题或具体图片，不用于改写 `theme`。
-- `description` 和 `content_plan` 描述内容语义，不写坐标、字号、透明度等实现细节。
+- `description` 和 `content_plan` 描述内容语义，不写坐标、字号、颜色、透明度等实现细节。
+- `components` 描述页内组件的类型、内容、关系和强调级别；底层布局仍由 generator 决定。
 - 数据页必须包含可结构化的数据和来源信息。
+
+## 规划质量门
+
+目标主流程中，Planner 输出不会直接进入渲染。Plan Reviewer 先检查 DeckSpec，Plan Refiner 根据问题结构化修订，直到通过质量门或达到循环上限。
+
+质量门重点检查：
+
+- 用户本次意图和受众是否被正确表达。
+- 用户画像是否发生跨场景过拟合；确定性信息可直接注入，风格偏好必须通过场景门控。
+- 整套 PPT 是否有清晰叙事和章节节奏。
+- 每页是否有足够信息密度，是否重复、空洞或超载。
+- `content_type`、`layout_variant`、组件计划和模板容量是否匹配。
+- 图表、KPI、案例页是否缺必要数据、事实或来源。
 
 ## 运行模式
 
@@ -170,7 +210,7 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 AGENT_MODE=planner
 ```
 
-Planner 负责整体规划，渲染工作池负责按页并发调用生成器。当前生成闭环主要依赖代码维护的任务状态和输出文件校验；QA 默认不作为低成本生成链路的必要步骤。
+Planner 负责整体规划，目标态的 Reviewer / Refiner 负责渲染前计划质量，渲染工作池负责按页并发调用生成器。当前生成闭环主要依赖代码维护的任务状态和输出文件校验；生成后视觉 QA 默认不作为低成本生成链路的必要步骤。
 
 ## 模型与回退
 

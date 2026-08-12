@@ -86,6 +86,9 @@ func validateDeckRenderInput(ctx context.Context, input *deckRenderInput) (*deck
 	if manifest == nil || len(manifest.Tasks) == 0 {
 		return nil, fmt.Errorf("tasks.json has no slides to render")
 	}
+	if err := validateManifestForWrite(manifest); err != nil {
+		return nil, fmt.Errorf("DeckSpec validation failed: %w", err)
+	}
 	if cfg.RuntimeMeta != nil {
 		cfg.RuntimeMeta.RecordPhase("compiling", "校验 DeckSpec 并准备按页渲染")
 		cfg.RuntimeMeta.FreezePlan(renderPlanSlides(manifest.Tasks))

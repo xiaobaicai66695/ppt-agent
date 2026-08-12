@@ -1,6 +1,6 @@
 # PPT Agent 架构与变更活动范围
 
-本文档基于 2026-08-03 对 `ppt-agent` 代码的阅读整理，目标是给后续变更定边界：改什么应该看哪些模块，哪些字段是跨层契约，验证应该落在哪里。
+本文档基于 2026-08-12 对 `ppt-agent` 代码的阅读整理，目标是给后续变更定边界：改什么应该看哪些模块，哪些字段是跨层契约，验证应该落在哪里。
 
 ## 1. 系统定位
 
@@ -8,22 +8,25 @@
 
 1. 前端选择模板/原子布局，形成 `TaskOutline`。
 2. Go Web API 校验并补齐 outline，创建任务工作目录。
-3. `TaskManager` 启动 Eino ADK 旧多子代理架构，并通过 SSE 推送进度。
-4. 主 Agent 生成/维护 `tasks.json`，按页调用 `SlideExecutor`。
-5. `SlideExecutor` 读取 `tasks.json`，调用 Python `generators` 包生成单页 `.pptx`。
-6. 后端轮询 `tasks.json` 和工作目录，发现 PPTX 后推送 `file_ready`，前端请求下载和缩略图。
+3. `TaskManager` 完成意图识别、用户画像门控和路由决策，并通过 SSE 推送进度。
+4. `PPTPlanner` 通过 `update_tasks_manifest` 生成/维护 `tasks.json`。
+5. 目标主流程在渲染前增加 Planner -> Reviewer -> Refiner 质量门，确保 DeckSpec 的结构、容量、场景匹配和组件计划可执行。
+6. `DeckRenderWorkflow` 按 `task_id` 并发调用 Python `render_task.py`，由 `generators` 包生成单页 `.pptx`。
+7. 后端轮询 `tasks.json` 和工作目录，发现 PPTX 后推送 `file_ready`，前端请求下载和缩略图。
 
 ```mermaid
 flowchart LR
   U["用户"] --> F["frontend<br/>Compose / Dashboard"]
   F --> W["backend/pkg/web<br/>REST + SSE"]
   W --> TM["backend/pkg/task<br/>TaskManager"]
-  TM --> DA["backend/pkg/agent/deck<br/>PPTTask旧多子代理架构"]
-  DA --> M["tasks.json<br/>TasksManifest"]
-  DA --> SE["SlideExecutor"]
-  DA --> R["Reviewer<br/>可选 QA"]
-  DA --> FX["Fixer"]
-  SE --> PY["tools/python3"]
+  TM --> PI["intent / learning / router<br/>意图与画像门控"]
+  PI --> PL["backend/pkg/agent/deck<br/>PPTPlanner"]
+  PL --> M["tasks.json<br/>DeckSpec / TasksManifest"]
+  M --> RV["Plan Reviewer<br/>结构/容量/场景审查"]
+  RV --> RF["Plan Refiner<br/>组件级润色与修订"]
+  RF --> M
+  M --> DR["DeckRenderWorkflow<br/>按 task_id 并发"]
+  DR --> PY["render_task.py"]
   PY --> G["skills/visual_designer/generators"]
   G --> O["weboutput/<user>-<task>/<page>.pptx"]
   W --> TH["thumbnail / qa_images"]
@@ -37,9 +40,9 @@ flowchart LR
 | Web 入口 | `ppt-agent/backend/main.go` | 读取 `.env`、初始化 logger/callback/skill/backend/db，组装 web/cli 两种启动模式 | 改服务启动、模型工厂、skill 路径、输出目录时看这里 |
 | HTTP API | `ppt-agent/backend/pkg/web` | Gin 路由、认证、任务接口、模板接口、AI 补全、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
 | 任务生命周期 | `ppt-agent/backend/pkg/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
-| 多 Agent 编排 | `ppt-agent/backend/pkg/agent/deck` | 主 旧多子代理架构、SlideExecutor、Reviewer、Fixer、`tasks.json` 类型与读写 | 改生成流程、任务清单契约、QA/Fix、outline 直通、Agent prompt 时看这里 |
-| Prompt 模板 | `ppt-agent/backend/pkg/prompts/planner` | 主 Agent、SlideExecutor、Reviewer、Fixer 指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
-| 工具层 | `ppt-agent/backend/pkg/tools` | `read_file`、`edit_file`、`python3`、`search`、`batch_convert`、QA 等 Eino tool | 改工具能力、安全边界、转换行为、搜索策略时看这里 |
+| 规划与渲染编排 | `ppt-agent/backend/pkg/agent/deck` | `PPTPlanner`、manifest 工具、`tasks.json` 类型、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、outline 直通、Agent prompt 时看这里 |
+| Prompt 模板 | `ppt-agent/backend/pkg/prompts/planner` | `PPTPlanner` 主指令；目标态会增加规划审查与润色指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
+| 工具层 | `ppt-agent/backend/pkg/tools` | `read_file`、`search`、`batch_convert`、QA 等 Eino tool，以及 Python 路径工具 | 改工具能力、安全边界、转换行为、搜索策略时看这里 |
 | 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 full-deck/single-page JSON，暴露 theme/background | 改模板元数据、前端模板列表、后端 outline 校验时看这里 |
 | 前端工作台 | `ppt-agent/frontend/src` | Vue 3 页面、API 类型、任务 Dashboard、模板编排、缩略图预览 | 改用户流程、展示状态、API 类型、SSE 消费时看这里 |
 | PPT 生成器 | `ppt-agent/skills/visual_designer` | skill 说明、模板、生成器、素材、背景、转换脚本 | 改页面视觉质量、布局容量、生成参数、素材体系时看这里 |
@@ -53,7 +56,7 @@ flowchart LR
 
 - `runWebMode` 将输出目录设为 `ppt-agent/weboutput`。
 - `skillsDir` 指向 `ppt-agent/skills`，供 Eino skill backend、prompt 和 Python 生成器共同使用。
-- `agentFactory` 为每个任务创建新的 `deck.PPTTask旧多子代理架构`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
+- `agentFactory` 为每个任务创建新的 `deck.NewPPTPlannerAgent`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
 - `web.NewServer` 负责路由、模板 loader、任务管理器、风格画像、日志分析服务。
 
 ### 3.2 模板编排到任务创建
@@ -91,7 +94,7 @@ interface TaskOutline {
 
 ### 3.3 `tasks.json` 是主协作契约
 
-`backend/pkg/agent/deck/types.go` 定义 `TasksManifest` 和 `TaskItem`。这是主 Agent、子 Agent、后端轮询、前端进度展示之间最重要的共享状态。
+`backend/pkg/agent/deck/types.go` 定义 `TasksManifest` 和 `TaskItem`。这是 Planner、规划审查/润色、渲染 workflow、后端轮询和前端进度展示之间最重要的共享状态。后续主流程优化会把它从页级清单升级为更接近 `DeckSpec` 的可校验计划。
 
 ```json
 {
@@ -108,21 +111,48 @@ interface TaskOutline {
       "content_plan": {},
       "background": "",
       "output_file": "1_页面标题.pptx",
-      "status": "pending"
+      "status": "pending",
+      "content_plan": {
+        "summary": "页面核心信息",
+        "visual_intent": {
+          "role": "cards",
+          "preferred_variant": "numbered_cards"
+        },
+        "components": [
+          {
+            "component_id": "headline-1",
+            "type": "headline",
+            "text": "页面主论点"
+          },
+          {
+            "component_id": "card-1",
+            "type": "feature_card",
+            "title": "组件标题",
+            "body": "组件承载的事实、观点或案例",
+            "emphasis": "primary"
+          }
+        ],
+        "capacity_hint": {
+          "density": "normal",
+          "overflow_risk": "low"
+        }
+      }
     }
   ]
 }
 ```
 
+上例中的 `components` 和 `capacity_hint` 是目标态字段，当前代码仍以 `summary`、`visual_intent`、`elements` 为主要结构。迁移时应保持兼容：旧 generator 可以继续消费 `description` / `elements`，新 generator 优先消费组件级计划。
+
 状态含义：
 
 | 状态 | 含义 | 谁写入/消费 |
 | --- | --- | --- |
-| `pending` | 等待生成 | outline 转 manifest、主 Agent、继续生成 |
-| `generating` | 生成中 | prompt 设计中有该状态，前端可展示 |
-| `done` | PPTX 已生成 | 主 Agent 根据 SlideExecutor 汇总写入，后端轮询统计 |
-| `qa_done` | 已质检且有 QA 报告 | Reviewer/主 Agent 写入 |
-| `fixed` | 已修复 | Fixer/主 Agent 写入 |
+| `pending` | 等待生成 | outline 转 manifest、Planner、继续生成 |
+| `generating` | 生成中 | 渲染 worker 写入，前端展示 |
+| `done` | PPTX 已生成 | 渲染 workflow 写入，后端轮询统计 |
+| `qa_done` | 已质检且有 QA 报告 | 可选视觉 QA 写入 |
+| `fixed` | 已修复 | 可选修复流程写入 |
 | `failed` | 失败 | 前端类型已支持，部分 prompt 也要求失败标记 |
 
 修改 `tasks.json` 相关逻辑时要同时看：
@@ -131,58 +161,68 @@ interface TaskOutline {
 - `backend/pkg/task/manager.go`
 - `backend/pkg/web/handler.go`
 - `backend/pkg/prompts/planner/master_instruction.tmpl`
-- `backend/pkg/prompts/planner/slide_executor_instruction.tmpl`
 - `frontend/src/types.ts`
 - `frontend/src/pages/DashboardPage.vue`
 - `frontend/src/api.ts`
 
-## 4. Agent 分工
+## 4. 规划、审查与渲染分工
 
-### 4.1 主 Agent：`PPTTask旧多子代理架构`
+### 4.1 `PPTPlanner`
 
 代码在 `backend/pkg/agent/deck/agent.go`，prompt 在 `backend/pkg/prompts/planner/master_instruction.tmpl`。
 
 职责：
 
-- 无 outline 时选 full-deck 模板并创建 `tasks.json`。
-- 有 outline 时忠实执行后端已写入的 `tasks.json`。
-- 按并发配置把页面分批调用 `SlideExecutor`。
-- 根据子 Agent 结果更新单页状态。
-- 可选调用 Reviewer/Fixer。
-- 通过工具检查文件落地。
+- 无 outline 时选择 full-deck 模板、页数、配色、背景策略，并创建 `tasks.json`。
+- 有 outline 时忠实补齐后端已写入的 `tasks.json`，避免改写用户明确编排。
+- 输出页级 DeckSpec：`content_type`、`layout_variant`、`description`、`content_plan`、`background`、`output_file`。
+- 目标态输出组件级 DeckSpec：每页包含 `components`、`capacity_hint`、`slide_intent` 和必要事实/数据来源。
+- 只负责规划和结构化内容，不负责坐标、字号、颜色、边距等底层绘制。
 
 工具：
 
 - `read_file`
-- `edit_file`
 - `search`
-- `bash`
-- `batch_convert`
-- `task` 子 Agent 调用
+- `update_tasks_manifest`
 
 风险点：
 
-- Prompt 明确要求“禁止覆盖整个 `tasks.json`”，但工具本身是覆盖写文件；因此变更时要优先强化结构化 patch/manifest API，而不是只补自然语言约束。
+- `tasks.json` 必须通过 `update_tasks_manifest` 写入，避免 LLM 直接覆盖 JSON 文件。
 - `content_type` 只能是生成器支持的英文 id。任何中文显示名都只能用于 UI。
-- `description` 和 `content_plan` 是 SlideExecutor 的输入，不应塞超出布局容量的长段落。
+- `description` 和 `content_plan` 是渲染器输入，不应塞超出布局容量的长段落。
+- 用户画像只应注入确定性信息和同场景偏好；跨场景历史风格应被 Reviewer 拦截，避免过拟合。
 
-### 4.2 SlideExecutor
+### 4.2 Plan Reviewer / Plan Refiner
 
-代码在 `backend/pkg/agent/deck/slide_executor.go`，prompt 在 `slide_executor_instruction.tmpl`。
+这是目标态主流程新增的渲染前质量门。它不是视觉 QA，也不读取生成后的截图；它审查的是 DeckSpec 本身是否值得进入渲染。
 
 职责：
 
-- 读取工作目录下的 `tasks.json`。
-- 按 `content_type` 选择 `generate_xxx` 函数。
-- 必须调用 `skills/visual_designer/generators` 包生成 PPT。
-- 每个输出文件应是“一个 Presentation + 一个 slide + `save_slide`”。
-- 不修改 `tasks.json` 状态，只报告成功/失败。
+- 检查整套 PPT 的叙事节奏、章节结构、页数和受众匹配。
+- 检查每页是否有明确 `role_in_deck`，是否重复、空洞或信息过载。
+- 检查 `content_type`、`layout_variant` 和组件计划是否符合模板容量。
+- 检查用户画像使用是否过拟合：确定性信息可直接使用，风格偏好必须经过场景相似度门控。
+- 输出结构化 issues，例如 `intent_mismatch`、`profile_overfit`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`。
+- Refiner 只根据 issues 修订 DeckSpec，不做文学化改写，也不改底层视觉参数。
 
-工具：
+循环策略：
 
-- `python3`
-- `read_file`
-- `search`
+- 默认最多 2 到 3 轮。
+- 通过后锁定 DeckSpec，再进入渲染。
+- 未通过时应返回可解释失败原因或降级为页级 `content_plan`，不得无声进入渲染。
+
+### 4.3 `DeckRenderWorkflow`
+
+代码在 `backend/pkg/agent/deck/deck_renderer.go`，入口是 `RenderDeckByTaskIDWorkflow`。
+
+职责：
+
+- 渲染前读取并校验工作目录下的 `tasks.json`。
+- 根据任务状态筛选需要生成的页面。
+- 按 `RoutingDecision` 和 `cfg.Concurrency` 决定并发数。
+- 每个 worker 调用 `skills/visual_designer/generators/render_task.py --task-id <id>`。
+- 渲染开始前把单页状态 patch 为 `generating`，成功后 patch 为 `done`，失败后 patch 为 `failed`。
+- 生成后 reconcile 输出文件和缩略图命名，形成最终交付结果。
 
 必须同步维护的权威资料：
 
@@ -191,20 +231,18 @@ interface TaskOutline {
 - 对应 `generators/*_generator.py`
 - 对应 `templates/single-page/*.json`
 
-### 4.3 Reviewer / Fixer
+### 4.4 Visual QA / Fixer
 
-Reviewer 是可选质量审查分支。当前 `newPPTTask旧多子代理架构` 以 `cfg.EnableQA` 和路由 `SkipQA` 决定是否创建 Reviewer；`isQAEnabled()` 读取 `ENABLE_QA=true`，但 web/cli 的任务工厂当前没有显式给 `cfg.EnableQA` 赋值，因此默认运行路径仍是关闭 QA。若后续要恢复在线 QA，需要同时检查配置注入、环境变量和路由决策。代码在：
+Visual QA 是生成后的可选质量审查分支，和渲染前 Plan Reviewer 分工不同。当前 web 主链路默认关闭在线 QA；若后续要恢复，需要同时检查 `cfg.EnableQA`、环境变量、路由决策和成本策略。相关代码在：
 
-- `backend/pkg/agent/deck/reviewer.go`
-- `backend/pkg/agent/deck/fixer.go`
 - `backend/pkg/tools/qa`
 - `backend/pkg/tools/batch_convert.go`
 
 活动范围：
 
-- 改视觉 QA 规则：看 Reviewer prompt、QA tool、PPTX 转 PDF/JPG 脚本。
-- 改修复策略：看 Fixer prompt、生成器参数、`tasks.json.qa_report` 和 `fix_attempts`。
-- 改默认成本策略：看 `isQAEnabled`、路由决策和环境变量。
+- 改视觉 QA 规则：看 QA tool、PPTX 转 PDF/JPG 脚本和截图判定 prompt。
+- 改修复策略：看生成器参数、`tasks.json.qa_report` 和 `fix_attempts`。
+- 改默认成本策略：看 `cfg.EnableQA`、路由决策和环境变量。
 
 ## 5. 前端架构
 
@@ -252,11 +290,11 @@ SSE 消费重点：
 
 | 路径 | 作用 |
 | --- | --- |
-| `SKILL.md` | 视觉原则、内容充实度、背景和素材策略 |
-| `references/generators.md` | SlideExecutor 调用生成器的参数权威来源 |
+| `SKILL.md` | Planner 填充 DeckSpec / `tasks.json` 的内容规划约束，不应承载底层字号、坐标和绘制细节 |
+| `references/generators.md` | `render_task.py` 和生成器参数权威来源 |
 | `references/palettes.md` | 配色说明 |
 | `templates/full-decks/*.json` | 前端预设模板列表和默认页面结构 |
-| `templates/full-decks/*.py` | 主 Agent 读取的模板结构/设计参考 |
+| `templates/full-decks/*.py` | Planner 读取的模板结构/设计参考 |
 | `templates/single-page/*.json` | 原子布局元数据、字段、容量 contract |
 | `templates/single-page/*.py` | 单页设计规范参考 |
 | `generators/__init__.py` | 生成器导出注册面 |
@@ -269,7 +307,7 @@ SSE 消费重点：
 生成器改动的同步规则：
 
 1. 新增 `content_type`：同步 `single-page/*.json`、`full-decks/*.json`、对应 generator、`generators/__init__.py`、`references/generators.md`、前端 `contentTypeLabels`。
-2. 改生成器参数：同步 `references/generators.md`、SlideExecutor prompt、模板 JSON contract、测试样例。
+2. 改生成器参数：同步 `references/generators.md`、Planner prompt、模板 JSON contract、测试样例。
 3. 改背景主题：同步 `templates.Loader.loadBackgrounds`、`background_templates` 资源、`background_manager.py` palette 映射、前端背景展示。
 4. 改视觉质量 helper：重点验证所有受影响模板，避免只看单页。
 
@@ -280,7 +318,9 @@ SSE 消费重点：
 | 新增/修改模板预设 | `skills/visual_designer/templates/full-decks/*.json`、对应 `.py`、`backend/pkg/templates/loader.go`、`frontend/src/pages/ComposePage.vue` | 模板 JSON 解析、前端模板加载 |
 | 新增原子布局 | `templates/single-page/*.json/.py`、`generators/*_generator.py`、`generators/__init__.py`、`references/generators.md`、`frontend/src/pages/ComposePage.vue` | `py_compile`、单页生成、前端 layout 列表 |
 | 改 PPT 视觉质量 | `SKILL.md`、`generators/base.py`、具体 generator、`layout_intelligence.py`、模板 contract | 相关模板 PPTX 生成、PDF/PNG 渲染检查 |
-| 改内容规划质量 | `pkg/web/handler.go` 的 outline 补齐、`pkg/prompts/planner/*.tmpl`、模板 contract | 后端相关测试、手工 outline JSON 样例 |
+| 改内容规划质量 | `pkg/web/handler.go` 的 outline 补齐、`pkg/prompts/planner/*.tmpl`、`pkg/agent/deck/manifest_tool.go`、模板 contract | 后端相关测试、手工 outline JSON 样例 |
+| 改规划审查/润色 | `pkg/agent/deck` 的规划流程、`pkg/prompts/planner` 新增 reviewer/refiner prompt、`tasks.json` schema、RuntimeMeta | DeckSpec fixture、无模型 schema 测试、低成本 1-2 页生成冒烟 |
+| 改组件级计划 | `pkg/agent/deck/types.go`、`manifest_tool.go`、`skills/visual_designer/templates/single-page/*.json`、相关 generator | schema 测试、组件容量测试、单页渲染样例 |
 | 改任务状态/进度 | `pkg/task/manager.go`、`pkg/agent/deck/types.go`、`pkg/web/streamer.go`、`frontend/src/types.ts`、`DashboardPage.vue` | Go 单元测试、SSE 手工/最小任务 |
 | 改下载/缩略图 | `pkg/web/handler.go`、`thumbnail.go`、`tools/batch_convert.go`、`SlidePreviewCard.vue` | 单文件下载、缩略图 404/503/成功路径 |
 | 改继续对话/再生成 | `pkg/web/handler.go` 的 continue 分支、`pkg/task/manager.go`、`pkg/agent/deck/run.go`、`DashboardPage.vue` | 运行中排队、完成后继续、指定页再生成 |
@@ -301,18 +341,38 @@ SSE 消费重点：
 
 不要把中文 display name 写入 `content_type`。新增 id 时必须从前端到生成器全链路同步。
 
-### 8.2 `description` 与 `content_plan`
+### 8.2 `description`、`content_plan` 与 `components`
 
-`description` 是自然语言内容输入，`content_plan` 是结构化辅助输入。两者应受模板容量控制：
+`description` 是自然语言内容输入，`content_plan` 是结构化辅助输入。目标态中，`content_plan.components` 是页面内部的语义组件计划。三者应受模板容量控制：
 
 - `content_slide`：4-6 条短要点。
 - `chart_slide`：必须有 labels/datasets。
 - `kpi_dashboard`：必须有 value/label/delta/baseline。
 - `image_text`：允许较长 paragraph。
 
-不要让 SlideExecutor 同时承担“搜索、长文抽取、结构化、排版、校验”全部压力。能在 outline 阶段结构化的内容，应尽早结构化。
+组件级计划只描述语义和内容，不描述底层绘制：
 
-### 8.3 背景与配色
+- 应描述：组件类型、标题、正文、数据、强调级别、组件关系、事实来源、图片意图。
+- 不应描述：x/y 坐标、字号、颜色、透明度、圆角、阴影、像素/英寸级尺寸。
+
+不要让渲染器同时承担“搜索、长文抽取、结构化、排版、校验”全部压力。能在规划阶段结构化的内容，应尽早结构化。
+
+### 8.3 规划质量门
+
+Planner 输出不得直接视为可渲染。目标主流程需要 Plan Reviewer / Refiner 形成渲染前质量门：
+
+- `intent_mismatch`：与用户本次输入不匹配。
+- `profile_overfit`：套用了不同场景下的历史偏好。
+- `weak_narrative`：章节节奏弱、页面角色不清。
+- `low_information_density`：页面空洞，缺事实、数据或观点。
+- `overload_capacity`：内容超过模板容量，应拆页或换布局。
+- `invalid_component_schema`：组件字段缺失或类型不合法。
+- `missing_data_or_fact`：图表、KPI、案例页缺必要数据。
+- `layout_mismatch`：内容类型和 `content_type` / `layout_variant` 不匹配。
+
+Reviewer 只输出问题和建议，Refiner 才修改 DeckSpec。通过后应锁定 DeckSpec，避免渲染阶段再发生无约束改写。
+
+### 8.4 背景与配色
 
 `background` 是可选主题 id，不是图片路径。它跨越：
 
@@ -324,7 +384,7 @@ SSE 消费重点：
 
 信息密集页默认保持干净背景；封面、章节、引用、总结等低密度页才优先使用背景。
 
-### 8.4 工作目录产物
+### 8.5 工作目录产物
 
 每个任务工作目录通常包含：
 
@@ -337,7 +397,7 @@ SSE 消费重点：
 
 不要在无关变更中清理或提交这些产物。前端下载和缩略图只依赖文件名与后端安全路径拼接。
 
-### 8.5 工具安全边界
+### 8.6 工具安全边界
 
 `python3` 工具会把模型生成代码写成临时 `.py` 并执行，已有大小、危险模式和超时限制，但它不是完整沙箱。涉及执行能力时要关注：
 
@@ -346,7 +406,7 @@ SSE 消费重点：
 - `backend/pkg/agent/command/operator.go`
 - 工作目录限制和输出文件检查
 
-`edit_file` 是覆盖写工具，当前依赖 prompt 约束避免整体覆盖 `tasks.json`。如果后续要提高可靠性，优先考虑专门的 manifest patch 工具。
+`tasks.json` 应通过 `update_tasks_manifest` 这类结构化工具写入。不要重新引入让 LLM 直接覆盖任务清单的通用写文件路径。
 
 ## 9. 验证矩阵
 
@@ -366,8 +426,9 @@ SSE 消费重点：
 
 ## 10. 后续演进建议
 
-1. 给 `tasks.json` 增加结构化 patch 工具，减少 LLM 直接覆盖 JSON 的风险。
-2. 将 `templates/single-page/*.json` 的 `contract` 用于后端 outline 补齐和布局选择，而不是只作为展示元数据。
-3. 统一 `content_type -> generator` 映射表，避免 prompt、文档和 Python 导出面分散维护。
-4. 为缩略图转换建立明确状态字段，让前端区分“PPTX 未生成”“缩略图转换中”“转换失败”“文件不存在”。
-5. 将生成器 smoke test 固化为脚本，覆盖所有 single-page 模板的 PPTX/PDF/PNG 视觉回归。
+1. 新增 Planner -> Reviewer -> Refiner 的渲染前质量门，规划未通过不进入 `DeckRenderWorkflow`。
+2. 将 `content_plan` 升级为组件级 DeckSpec，首批覆盖 `content_slide`、`card_grid`、`two_column`、`kpi_dashboard`、`chart_slide`。
+3. 将 `templates/single-page/*.json` 的 `contract` 用于后端 outline 补齐、Planner 审查和布局选择，而不是只作为展示元数据。
+4. 统一 `content_type -> generator -> component schema` 映射表，避免 prompt、文档、Go 校验和 Python 导出面分散维护。
+5. 为缩略图转换建立明确状态字段，让前端区分“PPTX 未生成”“缩略图转换中”“转换失败”“文件不存在”。
+6. 将生成器 smoke test 固化为脚本，覆盖所有 single-page 模板的 PPTX/PDF/PNG 视觉回归。

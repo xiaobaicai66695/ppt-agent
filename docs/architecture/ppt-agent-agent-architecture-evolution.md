@@ -14,6 +14,8 @@ Plan-Execute-Replan 串行规划执行
 旧多子代理架构 + tasks.json + SlideExecutor 子 Agent
   ↓
 Planner-Compiler-Renderer 工作流
+  ↓
+Planner-Reviewer-Refiner + Component DeckSpec
 ```
 
 这条路径不是简单追逐某个 Agent 框架，而是在逐步回答一个问题：**PPT 生成中哪些部分应该交给 LLM，哪些部分应该交给代码和工具链？**
@@ -207,7 +209,104 @@ tasks.json 引用具体背景或主题目录
 
 长期看，PPT Agent 应从“固定模板生成器”演进为“先构建专题素材包，再编译生成整套 PPT”的系统。
 
-## 7. 迁移原则
+## 7. 阶段五：规划审查润色与组件级编排
+
+Planner-Compiler-Renderer 把生成阶段稳定下来了，但仍然留下一个核心问题：如果进入渲染前的 `tasks.json` 只是页级大纲，生成器只能在有限信息中猜测页面内部结构。结果会表现为内容偏空、页面重复、信息密度不稳、图表/KPI 缺结构化数据，或者用户历史风格被不合场景地套用。
+
+因此下一阶段的重心不是重新让 Agent 参与绘制，而是把渲染前计划做成熟：
+
+```text
+用户输入
+  ↓
+意图识别 / 用户画像门控
+  ↓
+Deck Planner：整套 PPT 叙事规划
+  ↓
+Content Planner：页级内容规划
+  ↓
+Component Planner：页内组件编排
+  ↓
+Plan Reviewer：审查结构、密度、场景匹配、模板容量
+  ↓
+Plan Refiner：按审查意见修订 DeckSpec
+  ↓
+通过质量门后锁定 DeckSpec
+  ↓
+DeckRenderWorkflow：仍按页并发渲染
+  ↓
+Visual QA / 局部修复 / 交付
+```
+
+这里的 Reviewer 不是生成后视觉 QA，而是渲染前的计划审查。它检查：
+
+- 用户本次意图是否被正确表达。
+- 历史用户画像是否发生跨场景过拟合。
+- 整套 PPT 是否有清晰叙事节奏。
+- 每页是否有明确角色和足够信息密度。
+- 页面内容是否超过模板容量。
+- `content_type`、`layout_variant` 和组件计划是否匹配。
+- 图表、KPI、案例页是否缺必要数据、来源或事实。
+
+Refiner 也不是简单润色文案，而是结构化修订 DeckSpec。它应根据 Reviewer issues 做拆页、合并、换布局、补组件、缩短组件内容或增加事实来源。
+
+### 7.1 组件级 DeckSpec
+
+目标态中，`content_plan` 应从泛化 `summary + elements` 逐步升级为组件级计划：
+
+```json
+{
+  "slide_id": "3",
+  "title": "三层能力矩阵支撑端到端交付",
+  "role_in_deck": "说明产品能力结构",
+  "content_type": "card_grid",
+  "layout_variant": "featured_card_plus_grid",
+  "density": "normal",
+  "components": [
+    {
+      "component_id": "headline-1",
+      "type": "headline",
+      "text": "三层能力矩阵支撑端到端交付"
+    },
+    {
+      "component_id": "card-1",
+      "type": "feature_card",
+      "title": "数据接入",
+      "body": "统一连接业务库、文件和接口数据",
+      "emphasis": "primary"
+    }
+  ],
+  "capacity_hint": {
+    "overflow_risk": "low"
+  }
+}
+```
+
+组件级计划只解决“放什么、谁重要、关系是什么”，不解决“坐标是多少、字号多大、颜色是什么”。底层视觉决策继续由模板 contract、`layout_intelligence.py` 和各 generator 控制。
+
+### 7.2 为什么先按页渲染，不直接组件级渲染
+
+组件级编排应先发生在规划阶段，渲染阶段短期仍保持按页 worker pool。这是更稳的迁移路径：
+
+- 当前交付、状态、缩略图和下载都是按页组织的。
+- 一页内部组件之间有强布局关系，单独渲染组件再拼装会引入新的坐标和遮挡问题。
+- Python generator 已经沉淀了页面级容量和视觉规则，直接保留能降低回归风险。
+- 组件级计划可以先提升内容质量，同时为后续组件化 generator 铺路。
+
+后续再把 Python 内部拆成组件渲染器：
+
+```text
+page_generator
+  -> headline_component
+  -> feature_card_component
+  -> kpi_component
+  -> chart_component
+  -> timeline_component
+  -> image_component
+```
+
+最后才做组件级 QA 和局部修复，例如只缩短第 3 页第二张卡片的正文，而不是重写整页或整套 PPT。
+
+## 8. 迁移原则
 
 后续迁移应遵循以下原则：
 
@@ -216,10 +315,11 @@ tasks.json 引用具体背景或主题目录
 3. 每页生成必须可由 `task_id` 独立复现。
 4. 并发调度由代码控制，不依赖 Agent 自我调度。
 5. 背景、图片、案例和事实来源在准备阶段统一规划。
-6. QA 和 Fixer 从默认主链路中退出，只处理异常、高风险或显式启用场景。
-7. 所有跨层字段都必须有稳定语义，尤其是 `content_type`、`content_plan`、`background`、`theme`、`output_file`。
+6. 渲染前 Plan Reviewer / Refiner 进入主链路，生成后 Visual QA 和 Fixer 只处理异常、高风险或显式启用场景。
+7. 所有跨层字段都必须有稳定语义，尤其是 `content_type`、`layout_variant`、`content_plan.components`、`background`、`theme`、`output_file`。
+8. 组件级计划只描述语义内容和优先级，不描述坐标、字号、颜色、边距等绘制参数。
 
-## 8. 目标形态
+## 9. 目标形态
 
 最终目标不是“少用 Agent”，而是让 Agent 站在更合适的位置：
 

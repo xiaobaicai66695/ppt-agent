@@ -30,7 +30,36 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 		Desc: "结构化页面内容规划",
 		SubParams: map[string]*schema.ParameterInfo{
 			"summary":        {Type: schema.String, Desc: "页面核心摘要"},
+			"slide_intent":   {Type: schema.String, Desc: "本页在整套 PPT 中承担的语义目标"},
 			"section_number": {Type: schema.String, Desc: "章节分隔页的大章节编号，如 01/02；仅 section_divider 使用，不得写页码"},
+			"capacity_hint": {
+				Type: schema.Object,
+				Desc: "内容容量预估，只能表达密度和溢出风险，不得包含字号坐标",
+				SubParams: map[string]*schema.ParameterInfo{
+					"estimated_density": {Type: schema.String, Desc: "sparse、normal 或 dense"},
+					"overflow_risk":     {Type: schema.String, Desc: "low、medium 或 high"},
+					"component_count":   {Type: schema.Integer, Desc: "组件数量预估"},
+				},
+			},
+			"reviewer_status": {
+				Type: schema.Object,
+				Desc: "规划审查状态，记录轮次和问题；锁定由系统校验后确认",
+				SubParams: map[string]*schema.ParameterInfo{
+					"planner_round": {Type: schema.Integer, Desc: "规划/润色轮次"},
+					"locked":        {Type: schema.String, Desc: "是否已通过质量门，true 或 false"},
+					"locked_at":     {Type: schema.String, Desc: "锁定时间，由系统或规划器填写"},
+					"issues": {
+						Type: schema.Array,
+						ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: map[string]*schema.ParameterInfo{
+							"code":         {Type: schema.String},
+							"severity":     {Type: schema.String},
+							"message":      {Type: schema.String},
+							"page_index":   {Type: schema.Integer},
+							"component_id": {Type: schema.String},
+						}},
+					},
+				},
+			},
 			"visual_intent": {
 				Type: schema.Object,
 				Desc: "页面视觉意图，用于规划图片、图表、地图、卡片等视觉角色",
@@ -52,6 +81,24 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 					"title":       {Type: schema.String},
 					"description": {Type: schema.String},
 					"layout_hint": {Type: schema.String},
+				}},
+			},
+			"components": {
+				Type: schema.Array,
+				Desc: "页内语义组件计划；禁止写坐标、字号、颜色、边距等渲染参数",
+				ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: map[string]*schema.ParameterInfo{
+					"id":          {Type: schema.String},
+					"type":        {Type: schema.String},
+					"title":       {Type: schema.String},
+					"text":        {Type: schema.String},
+					"body":        {Type: schema.String},
+					"items":       {Type: schema.Array, ElemInfo: &schema.ParameterInfo{Type: schema.String}},
+					"emphasis":    {Type: schema.String},
+					"role":        {Type: schema.String},
+					"relation":    {Type: schema.String},
+					"source":      {Type: schema.String},
+					"description": {Type: schema.String},
+					"data":        {Type: schema.Object},
 				}},
 			},
 		},
@@ -681,6 +728,9 @@ func validateManifestForWrite(manifest *TasksManifest) error {
 		if !validTaskStatus(item.Status) {
 			return fmt.Errorf("task %q has invalid status %q", item.TaskID, item.Status)
 		}
+		if err := validateContentPlanContract(item); err != nil {
+			return fmt.Errorf("task %q has invalid content_plan: %w", item.TaskID, err)
+		}
 	}
 	return nil
 }
@@ -688,6 +738,87 @@ func validateManifestForWrite(manifest *TasksManifest) error {
 func validTaskStatus(status string) bool {
 	switch status {
 	case StatusPending, StatusGenerating, StatusDone, StatusQADone, StatusFixed, "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateContentPlanContract(item *TaskItem) error {
+	if item == nil || item.ContentPlan == nil {
+		return nil
+	}
+	plan := item.ContentPlan
+	for _, component := range plan.Components {
+		if !validPlanComponentType(component.Type) {
+			return fmt.Errorf("component %q has unsupported type %q", component.ID, component.Type)
+		}
+		if strings.TrimSpace(component.Type) == "" {
+			return fmt.Errorf("component %q missing type", component.ID)
+		}
+		if strings.TrimSpace(component.Title) == "" && strings.TrimSpace(component.Text) == "" &&
+			strings.TrimSpace(component.Body) == "" && len(component.Items) == 0 && len(component.Data) == 0 {
+			return fmt.Errorf("component %q has no content", component.ID)
+		}
+	}
+	if len(plan.Components) > maxComponentsForContentType(item.ContentType) {
+		return fmt.Errorf("too many components for %s: %d > %d", item.ContentType, len(plan.Components), maxComponentsForContentType(item.ContentType))
+	}
+	if plan.CapacityHint != nil {
+		if !validDensity(plan.CapacityHint.EstimatedDensity) {
+			return fmt.Errorf("invalid estimated_density %q", plan.CapacityHint.EstimatedDensity)
+		}
+		if !validOverflowRisk(plan.CapacityHint.OverflowRisk) {
+			return fmt.Errorf("invalid overflow_risk %q", plan.CapacityHint.OverflowRisk)
+		}
+		if plan.CapacityHint.ComponentCount > 0 && plan.CapacityHint.ComponentCount != len(plan.Components) {
+			plan.CapacityHint.ComponentCount = len(plan.Components)
+		}
+	}
+	if plan.ReviewerStatus != nil && plan.ReviewerStatus.PlannerRound > 3 {
+		return fmt.Errorf("planner_round exceeds max refinement rounds: %d", plan.ReviewerStatus.PlannerRound)
+	}
+	return nil
+}
+
+func validPlanComponentType(componentType string) bool {
+	switch strings.TrimSpace(componentType) {
+	case "", "headline", "subheadline", "paragraph", "bullet_list", "key_point", "feature_card",
+		"kpi_metric", "chart", "timeline_node", "process_step", "image", "quote_block",
+		"callout", "section_marker", "table", "source_note":
+		return true
+	default:
+		return false
+	}
+}
+
+func maxComponentsForContentType(contentType string) int {
+	switch strings.TrimSpace(contentType) {
+	case "title_slide", "section_divider", "quote_slide":
+		return 4
+	case "agenda", "summary_slide", "kpi_dashboard":
+		return 6
+	case "timeline", "process_flow", "card_grid", "icon_grid", "three_column":
+		return 8
+	case "chart_slide", "comparison_table", "two_column", "image_text", "case_study", "example_detail", "deep_dive":
+		return 10
+	default:
+		return 8
+	}
+}
+
+func validDensity(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "", "sparse", "normal", "dense":
+		return true
+	default:
+		return false
+	}
+}
+
+func validOverflowRisk(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "", "low", "medium", "high":
 		return true
 	default:
 		return false

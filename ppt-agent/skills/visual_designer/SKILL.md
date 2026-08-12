@@ -13,14 +13,14 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 - 选择合法 `content_type`，只使用 `references/slide_types.md` 中的英文 id。
 - 决定整套 `theme`、`template`、页数、页面顺序和每页标题。
-- 填写 `description`、`content_plan`、`layout_variant`、`background`、`source` 等 tasks.json 字段。
+- 填写 `description`、`content_plan.slide_intent`、`content_plan.components`、`layout_variant`、`background`、`source` 等 tasks.json 字段。
 - 判断内容是否需要拆页、合并、改用更合适的页面类型。
 - 为需要事实的数据页、案例页、图表页补充真实来源。
 
 ### SlideExecutor 负责
 
 - 读取 tasks.json。
-- 将 `description/content_plan` 转换为对应 generator 的 keyword 参数。
+- 将 `content_plan.components` 优先转换为对应 generator 的 keyword 参数；旧 `elements/summary/description` 只作为兼容兜底。
 - 保持 `palette=manifest.theme`，逐字符使用 `task.output_file`。
 - 将 `background`、`layout_variant`、`source` 等已规划字段原样传给支持它们的 generator。
 
@@ -113,7 +113,7 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 ---
 
-## description 与 content_plan
+## description 与组件级 content_plan
 
 ### description 写法
 
@@ -135,28 +135,69 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 ### content_plan 推荐字段
 
-`content_plan` 用来让结构化内容更稳定，优先写业务语义：
+`content_plan` 用来让结构化内容更稳定，优先写业务语义。新任务优先写 `components`，旧 `elements` 仅用于兼容：
 
 ```json
 {
   "summary": "本页核心结论",
-  "sections": [
-    {"title": "背景", "items": ["..."]},
-    {"title": "方案", "items": ["..."]}
+  "slide_intent": "说明产品能力矩阵",
+  "components": [
+    {"id": "headline_1", "type": "headline", "text": "三层能力矩阵支撑端到端交付", "role": "main_point"},
+    {"id": "feature_card_1", "type": "feature_card", "title": "数据接入", "body": "统一连接业务库、文件和接口数据", "emphasis": "primary"},
+    {"id": "feature_card_2", "type": "feature_card", "title": "智能分析", "body": "自动识别趋势、异常和关键指标", "emphasis": "normal"}
   ],
-  "chart_type": "bar",
-  "data": {
-    "labels": ["Q1", "Q2"],
-    "datasets": [{"name": "收入", "values": [120, 180]}]
-  },
+  "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 3},
+  "reviewer_status": {"planner_round": 1, "locked": true, "issues": []},
   "visual_intent": {
-    "role": "supporting_photo",
-    "asset_query": "企业服务场景",
-    "preferred_variant": "right_photo",
-    "image_position": "right"
+    "role": "cards",
+    "asset_query": "企业服务能力矩阵",
+    "preferred_variant": "featured_card_plus_grid",
+    "image_position": "inline"
   }
 }
 ```
+
+组件计划不是手工排版。它只能决定：
+
+- 这一页有哪些语义组件。
+- 每个组件承载什么信息。
+- 哪个组件是主视觉或主论点。
+- 组件之间是什么关系。
+- 内容密度是否超过模板容量。
+- 是否需要拆页、合并页或换布局。
+
+禁止在组件中写坐标、字号、颜色、边距、透明度、卡片尺寸等视觉实现参数。
+
+常用组件类型：
+
+| 组件类型 | 用途 |
+|----------|------|
+| `headline` / `subheadline` | 主论点和副标题 |
+| `paragraph` / `bullet_list` | 正文叙事或要点 |
+| `feature_card` / `key_point` | 能力卡片、特性卡片、重点块 |
+| `kpi_metric` | KPI 指标，`data` 中可放 value/label/delta/baseline |
+| `chart` | 图表，`data` 中放 labels/datasets/chart_type |
+| `timeline_node` / `process_step` | 时间线节点或流程步骤 |
+| `image` | 图片语义、caption、asset/source |
+| `quote_block` / `callout` | 引用或强调信息 |
+| `section_marker` | 章节标记 |
+| `table` | 表格，`data` 中放 headers/rows |
+| `source_note` | 来源说明 |
+
+### 计划审查与润色
+
+Planner 在写入 DeckSpec 前应做有上限的自检/润色，最多 3 轮。`reviewer_status.issues[].code` 使用固定枚举：
+
+- `intent_mismatch`
+- `profile_overfit`
+- `weak_narrative`
+- `low_information_density`
+- `overload_capacity`
+- `invalid_component_schema`
+- `missing_data_or_fact`
+- `layout_mismatch`
+
+通过质量门后设置 `reviewer_status.locked=true`。质量门包括：用户意图匹配、用户画像没有跨场景过拟合、页数合理、`content_type` 合法、组件合法、组件数量不超过模板容量、信息密度不空不爆、背景/模板/风格与主题一致。
 
 `visual_intent` 只表达“需要什么视觉语义”，不是绘图参数。
 

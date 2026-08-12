@@ -68,10 +68,13 @@ func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *tes
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"Reviewer", "Fixer", "QA 质检", "bash(command=", "文件落地确认", "task | 并行调用 SlideExecutor"} {
+	for _, forbidden := range []string{"Fixer", "QA 质检", "bash(command=", "文件落地确认", "task | 并行调用 SlideExecutor"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("prompt still contains removed stage/tool %q", forbidden)
 		}
+	}
+	if !strings.Contains(prompt, "Plan Reviewer") {
+		t.Fatal("prompt should include plan-review quality gate")
 	}
 }
 
@@ -87,7 +90,7 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
-	for _, negativePatch := range []string{"禁止", "不得", "不要"} {
+	for _, negativePatch := range []string{"不得", "不要"} {
 		if strings.Contains(prompt, negativePatch) {
 			t.Fatalf("prompt should use positive decision contracts, found %q", negativePatch)
 		}

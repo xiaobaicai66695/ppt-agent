@@ -35,7 +35,7 @@ export COZELOOP_WORKSPACE_ID=      # 可选: CozeLoop 工作区
 export LOG_FILE="./logs/app.log"   # 日志文件路径
 export LOG_ANALYSIS_IDLE_INTERVAL="5m"  # 空闲分析间隔 (0 禁用)
 export STREAM_TIMEOUT="3m"         # 单次 LLM 流式调用超时 (0 禁用)
-export ENABLE_QA="true"            # 是否启用 QA 质检 (默认 true)
+export ENABLE_QA="false"           # 是否启用生成后 Visual QA；web 主链路默认关闭
 ```
 
 ### 可观测性 (CozeLoop)
@@ -46,19 +46,21 @@ export ENABLE_QA="true"            # 是否启用 QA 质检 (默认 true)
 
 ### 执行模式
 
-当前默认链路是 `AGENT_MODE=planner`：先做意图分类和模板/背景推荐，再由 `PPTPlanner` 生成强 schema 的 `tasks.json`，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
+当前默认链路是 `AGENT_MODE=planner`：先做意图分类和模板/背景推荐，再由 `PPTPlanner` 生成 `tasks.json` / DeckSpec，目标态会通过 Plan Reviewer / Plan Refiner 做渲染前质量门，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
 
 ### QA 质检开关
 
-QA 质检可通过 `ENABLE_QA` 环境变量控制（默认 `true`）：
+生成后 Visual QA 可通过 `ENABLE_QA` 环境变量控制。当前 web 主链路默认关闭，以降低成本和延迟：
 
-- `ENABLE_QA=true`：启用 Reviewer 和 Fixer 子 Agent，进行完整的视觉质量审查
+- `ENABLE_QA=true`：启用生成后视觉质量审查和修复链路
 - `ENABLE_QA=false`：跳过 QA 步骤，直接将所有任务标记为 `done`
 
 相关代码：
 - `.env` 文件中的 `ENABLE_QA` 配置
 - `pkg/agent/deck/types.go` 中的 `PPTTaskConfig.EnableQA` 字段
 - `pkg/prompts/planner/master_instruction.tmpl` 中的 Planner 阶段约束
+
+渲染前 Plan Reviewer / Plan Refiner 与生成后 Visual QA 分工不同：前者审查 DeckSpec 的结构、容量、用户画像门控和组件计划；后者检查已生成 PPTX 的视觉结果。
 
 ### 模型 Fallback 链
 
@@ -116,7 +118,7 @@ Skills 从 `skills/` 目录（`SKILL.md` 文件）通过 `LoadSkillsFromDir` →
 
 ### Prompt 字符串模式
 
-Planner prompt 位于 `pkg/prompts/planner/master_instruction.tmpl`。Prompt 要保持结构化、短路径、少歧义，避免把具体坐标、字号和底层绘制细节交给 LLM。
+Planner prompt 位于 `pkg/prompts/planner/master_instruction.tmpl`。Prompt 要保持结构化、短路径、少歧义，避免把具体坐标、字号、颜色和底层绘制细节交给 LLM。后续主流程优化应让 LLM 负责组件级语义计划和审查润色，底层视觉执行继续交给 generator。
 
 ### 后台日志分析
 

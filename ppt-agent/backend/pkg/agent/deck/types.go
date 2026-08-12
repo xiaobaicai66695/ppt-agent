@@ -489,13 +489,127 @@ func decodeContentElementText(data json.RawMessage) (string, error) {
 	return strings.Join(parts, "\n"), nil
 }
 
+// PlanComponent is the executable semantic unit consumed by slide compilers.
+// It deliberately excludes coordinates, font sizes, colors, margins and other
+// rendering details; those stay in Python generators and template contracts.
+type PlanComponent struct {
+	ID          string         `json:"id,omitempty"`
+	Type        string         `json:"type"`
+	Title       string         `json:"title,omitempty"`
+	Text        string         `json:"text,omitempty"`
+	Body        string         `json:"body,omitempty"`
+	Items       []string       `json:"items,omitempty"`
+	Emphasis    string         `json:"emphasis,omitempty"`
+	Role        string         `json:"role,omitempty"`
+	Relation    string         `json:"relation,omitempty"`
+	Source      string         `json:"source,omitempty"`
+	Data        map[string]any `json:"data,omitempty"`
+	Description string         `json:"description,omitempty"`
+}
+
+func (c *PlanComponent) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID          string          `json:"id"`
+		Type        string          `json:"type"`
+		Title       string          `json:"title"`
+		Text        json.RawMessage `json:"text"`
+		Body        json.RawMessage `json:"body"`
+		Items       json.RawMessage `json:"items"`
+		Emphasis    string          `json:"emphasis"`
+		Role        string          `json:"role"`
+		Relation    string          `json:"relation"`
+		Source      string          `json:"source"`
+		Data        map[string]any  `json:"data"`
+		Description json.RawMessage `json:"description"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	items, err := agentcontentplan.DecodeItems(raw.Items)
+	if err != nil {
+		return fmt.Errorf("component items: %w", err)
+	}
+	text, err := decodeContentElementText(raw.Text)
+	if err != nil {
+		return fmt.Errorf("component text: %w", err)
+	}
+	body, err := decodeContentElementText(raw.Body)
+	if err != nil {
+		return fmt.Errorf("component body: %w", err)
+	}
+	description, err := decodeContentElementText(raw.Description)
+	if err != nil {
+		return fmt.Errorf("component description: %w", err)
+	}
+	if body == "" {
+		body = description
+	}
+	*c = PlanComponent{
+		ID: raw.ID, Type: raw.Type, Title: raw.Title, Text: text, Body: body,
+		Items: items, Emphasis: raw.Emphasis, Role: raw.Role, Relation: raw.Relation,
+		Source: raw.Source, Data: raw.Data, Description: description,
+	}
+	return nil
+}
+
+type CapacityHint struct {
+	EstimatedDensity string `json:"estimated_density,omitempty"`
+	OverflowRisk     string `json:"overflow_risk,omitempty"`
+	ComponentCount   int    `json:"component_count,omitempty"`
+}
+
+type PlanReviewIssue struct {
+	Code        string `json:"code"`
+	Severity    string `json:"severity,omitempty"`
+	Message     string `json:"message,omitempty"`
+	PageIndex   int    `json:"page_index,omitempty"`
+	ComponentID string `json:"component_id,omitempty"`
+}
+
+type PlanReviewerStatus struct {
+	PlannerRound int               `json:"planner_round,omitempty"`
+	Locked       bool              `json:"locked,omitempty"`
+	LockedAt     string            `json:"locked_at,omitempty"`
+	Issues       []PlanReviewIssue `json:"issues,omitempty"`
+}
+
+func (s *PlanReviewerStatus) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		PlannerRound int               `json:"planner_round"`
+		Locked       any               `json:"locked"`
+		LockedAt     string            `json:"locked_at"`
+		Issues       []PlanReviewIssue `json:"issues"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	locked := false
+	switch value := raw.Locked.(type) {
+	case bool:
+		locked = value
+	case string:
+		locked = strings.EqualFold(strings.TrimSpace(value), "true")
+	}
+	*s = PlanReviewerStatus{
+		PlannerRound: raw.PlannerRound,
+		Locked:       locked,
+		LockedAt:     raw.LockedAt,
+		Issues:       raw.Issues,
+	}
+	return nil
+}
+
 // ContentPlan 描述单页幻灯片的内容结构化布局
 // 是 free-text Description 字段的结构化对应物
 type ContentPlan struct {
-	Summary       string           `json:"summary,omitempty"`        // one-sentence core summary
-	SectionNumber string           `json:"section_number,omitempty"` // section_divider chapter number, not page index
-	VisualIntent  *VisualIntent    `json:"visual_intent,omitempty"`  // visual role and asset intent for this slide
-	Elements      []ContentElement `json:"elements,omitempty"`       // content elements list
+	Summary        string              `json:"summary,omitempty"`         // one-sentence core summary
+	SlideIntent    string              `json:"slide_intent,omitempty"`    // semantic goal of this page in the deck
+	SectionNumber  string              `json:"section_number,omitempty"`  // section_divider chapter number, not page index
+	VisualIntent   *VisualIntent       `json:"visual_intent,omitempty"`   // visual role and asset intent for this slide
+	Elements       []ContentElement    `json:"elements,omitempty"`        // legacy content elements list
+	Components     []PlanComponent     `json:"components,omitempty"`      // executable semantic component plan
+	CapacityHint   *CapacityHint       `json:"capacity_hint,omitempty"`   // planner-estimated density and overflow risk
+	ReviewerStatus *PlanReviewerStatus `json:"reviewer_status,omitempty"` // bounded plan-review/refine state
 }
 
 // VisualIntent describes why a slide should use a given visual treatment.

@@ -405,3 +405,81 @@ func TestManifestToolHonorsExplicitSectionVariantAcrossDeck(t *testing.T) {
 		t.Fatalf("section visual intent should match deck-wide section variant: %#v", got.Tasks[3].ContentPlan)
 	}
 }
+
+func TestManifestToolAcceptsComponentPlanContract(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"组件计划示例",
+		"theme":"ocean_soft",
+		"template":"generic",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"能力矩阵",
+			"content_type":"card_grid",
+			"layout_variant":"featured_card_plus_grid",
+			"description":"说明产品能力矩阵",
+			"output_file":"1_cards.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"三层能力矩阵支撑端到端交付",
+				"slide_intent":"说明产品能力矩阵",
+				"components":[
+					{"id":"headline_1","type":"headline","text":"三层能力矩阵支撑端到端交付","role":"main_point"},
+					{"id":"feature_card_1","type":"feature_card","title":"数据接入","body":"统一连接业务库、文件和接口数据","emphasis":"primary"},
+					{"id":"feature_card_2","type":"feature_card","title":"智能分析","body":"自动识别趋势、异常和关键指标","emphasis":"normal"}
+				],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":99},
+				"reviewer_status":{"planner_round":1,"locked":"true","issues":[]}
+			}
+		}]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := got.Tasks[0].ContentPlan
+	if plan == nil || plan.SlideIntent != "说明产品能力矩阵" || len(plan.Components) != 3 {
+		t.Fatalf("component plan missing: %#v", plan)
+	}
+	if plan.CapacityHint == nil || plan.CapacityHint.ComponentCount != 3 {
+		t.Fatalf("capacity hint not normalized: %#v", plan.CapacityHint)
+	}
+	if plan.ReviewerStatus == nil || !plan.ReviewerStatus.Locked {
+		t.Fatalf("reviewer status not parsed: %#v", plan.ReviewerStatus)
+	}
+}
+
+func TestManifestToolRejectsInvalidComponentPlan(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"坏组件",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"能力矩阵",
+			"content_type":"card_grid",
+			"description":"说明产品能力矩阵",
+			"output_file":"1_cards.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"摘要",
+				"components":[{"id":"absolute_box","type":"x_y_positioned_box","title":"非法组件"}],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low"}
+			}
+		}]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err == nil {
+		t.Fatal("expected invalid component type error")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
+		t.Fatalf("invalid component plan should not be written, stat err=%v", err)
+	}
+}

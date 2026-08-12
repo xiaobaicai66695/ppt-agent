@@ -130,7 +130,7 @@ def accepted_params(func: Callable[..., Any], params: dict[str, Any]) -> dict[st
 def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
     plan = task.get("content_plan") or {}
     title = task.get("title") or plan.get("summary") or "页面"
-    summary = plan.get("summary") or task.get("description") or title
+    summary = plan.get("summary") or plan.get("slide_intent") or task.get("description") or title
     source = extract_source(plan)
     items = extract_items(plan, task)
     cards = extract_cards(plan, items)
@@ -262,6 +262,18 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
 
 def extract_items(plan: dict[str, Any], task: dict[str, Any]) -> list[str]:
     result: list[str] = []
+    for component in semantic_components(plan):
+        component_type = component.get("type", "")
+        if component_type in {"feature_card", "kpi_metric", "chart", "table", "image"}:
+            continue
+        for item in component.get("items") or []:
+            text = clean_text(item)
+            if text:
+                result.append(text)
+        for key in ("text", "body", "description", "title"):
+            text = clean_text(component.get(key))
+            if text:
+                result.append(text)
     for element in plan.get("elements") or []:
         if not isinstance(element, dict):
             result.append(clean_text(element))
@@ -281,6 +293,16 @@ def extract_items(plan: dict[str, Any], task: dict[str, Any]) -> list[str]:
 
 def extract_cards(plan: dict[str, Any], items: list[str]) -> list[dict[str, str]]:
     cards: list[dict[str, str]] = []
+    for component in semantic_components(plan, {"feature_card", "key_point", "callout"}):
+        title = clean_text(component.get("title") or component.get("text"))
+        body = clean_text(component.get("body") or component.get("description") or component.get("text"))
+        if title or body:
+            cards.append({
+                "header": title or body[:16],
+                "body": body or title,
+                "icon": "",
+                "emphasis": clean_text(component.get("emphasis")),
+            })
     for element in plan.get("elements") or []:
         if not isinstance(element, dict):
             continue
@@ -293,6 +315,20 @@ def extract_cards(plan: dict[str, Any], items: list[str]) -> list[dict[str, str]
             header, body = split_header_body(item)
             cards.append({"header": header, "body": body, "icon": ""})
     return cards[:6] or [{"header": "核心要点", "body": plan.get("summary", "围绕主题展开分析"), "icon": ""}]
+
+
+def semantic_components(plan: dict[str, Any], types: set[str] | None = None) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for component in plan.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        component_type = clean_text(component.get("type"))
+        if types is not None and component_type not in types:
+            continue
+        normalized = dict(component)
+        normalized["type"] = component_type
+        result.append(normalized)
+    return result
 
 
 def split_header_body(text: str) -> tuple[str, str]:
@@ -417,12 +453,23 @@ def clean_text(value: Any) -> str:
 
 def extract_source(plan: dict[str, Any]) -> str:
     source = plan.get("source") or plan.get("sources") or ""
+    component_sources = [
+        clean_text(component.get("source"))
+        for component in semantic_components(plan)
+        if clean_text(component.get("source"))
+    ]
+    if component_sources:
+        return "；".join(component_sources)
     if isinstance(source, list):
         return "；".join(clean_text(x) for x in source if clean_text(x))
     return clean_text(source)
 
 
 def chart_data(plan: dict[str, Any], items: list[str]) -> dict[str, Any]:
+    for component in semantic_components(plan, {"chart"}):
+        data = component.get("data")
+        if isinstance(data, dict) and data.get("labels") and data.get("datasets"):
+            return data
     data = plan.get("data") or plan.get("chart_data")
     if isinstance(data, dict) and data.get("labels") and data.get("datasets"):
         return data
@@ -436,6 +483,18 @@ def chart_data(plan: dict[str, Any], items: list[str]) -> dict[str, Any]:
 
 
 def kpis(plan: dict[str, Any], cards: list[dict[str, str]]) -> list[dict[str, str]]:
+    metric_components = semantic_components(plan, {"kpi_metric"})
+    if metric_components:
+        result = []
+        for component in metric_components[:5]:
+            data = component.get("data") if isinstance(component.get("data"), dict) else {}
+            result.append({
+                "value": clean_text(data.get("value") or component.get("text") or component.get("title")),
+                "label": clean_text(data.get("label") or component.get("title") or component.get("body")),
+                "delta": clean_text(data.get("delta") or component.get("emphasis") or "稳步推进"),
+                "baseline": clean_text(data.get("baseline") or component.get("body") or component.get("description")),
+            })
+        return result
     raw = plan.get("kpis") or plan.get("metrics")
     if isinstance(raw, list) and raw:
         return raw[:5]
@@ -453,6 +512,12 @@ def kpis(plan: dict[str, Any], cards: list[dict[str, str]]) -> list[dict[str, st
 def comparison_params(title: str, summary: str, plan: dict[str, Any], items: list[str], source: str) -> dict[str, Any]:
     headers = plan.get("headers")
     rows = plan.get("rows")
+    for component in semantic_components(plan, {"table"}):
+        data = component.get("data")
+        if isinstance(data, dict) and isinstance(data.get("headers"), list) and isinstance(data.get("rows"), list):
+            headers = data.get("headers")
+            rows = data.get("rows")
+            break
     if not isinstance(headers, list) or not isinstance(rows, list):
         left, right = split_items(items, summary)
         headers = ["维度", "方案A", "方案B"]
