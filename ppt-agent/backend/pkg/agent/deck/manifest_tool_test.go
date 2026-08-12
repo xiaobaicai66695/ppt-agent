@@ -333,7 +333,7 @@ func TestRecommendedManifestNormalizesEveryTaskToSameBackgroundTheme(t *testing.
 	}
 }
 
-func TestManifestToolBackfillsLayoutVariantsAndSectionNumbers(t *testing.T) {
+func TestManifestToolBackfillsLayoutVariantsAndUsesOneSectionVariant(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newManifestTool(workDir)
 	args := `{
@@ -362,13 +362,43 @@ func TestManifestToolBackfillsLayoutVariantsAndSectionNumbers(t *testing.T) {
 	if got.Tasks[2].ContentPlan == nil || got.Tasks[2].ContentPlan.SectionNumber != "02" {
 		t.Fatalf("second section number = %#v", got.Tasks[2].ContentPlan)
 	}
-	if got.Tasks[1].LayoutVariant == "" || got.Tasks[2].LayoutVariant == "" || got.Tasks[1].LayoutVariant == got.Tasks[2].LayoutVariant {
-		t.Fatalf("section variants were not rotated: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[2].LayoutVariant)
+	if got.Tasks[1].LayoutVariant == "" || got.Tasks[2].LayoutVariant == "" || got.Tasks[1].LayoutVariant != got.Tasks[2].LayoutVariant {
+		t.Fatalf("section variants should be consistent: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[2].LayoutVariant)
 	}
 	if got.Tasks[3].LayoutVariant == "" || got.Tasks[4].LayoutVariant == "" || got.Tasks[3].LayoutVariant == got.Tasks[4].LayoutVariant {
 		t.Fatalf("image_text variants were not rotated: %q %q", got.Tasks[3].LayoutVariant, got.Tasks[4].LayoutVariant)
 	}
 	if got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != got.Tasks[3].LayoutVariant {
 		t.Fatalf("visual_intent preferred variant not synced: %#v", got.Tasks[3].ContentPlan.VisualIntent)
+	}
+}
+
+func TestManifestToolHonorsExplicitSectionVariantAcrossDeck(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"介绍桂林",
+		"theme":"sage_calm",
+		"template":"travel",
+		"tasks":[
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面","output_file":"1_cover.pptx","status":"pending"},
+			{"task_id":"2","page_index":2,"title":"山水格局","content_type":"section_divider","layout_variant":"quiet_title","description":"第一章","output_file":"2_section.pptx","status":"pending"},
+			{"task_id":"3","page_index":3,"title":"城市肌理","content_type":"content_slide","description":"内容","output_file":"3_content.pptx","status":"pending"},
+			{"task_id":"4","page_index":4,"title":"文化体验","content_type":"section_divider","description":"第二章","output_file":"4_section.pptx","status":"pending","content_plan":{"summary":"第二章","visual_intent":{"preferred_variant":"number_sidebar"}}}
+		]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[1].LayoutVariant != "quiet_title" || got.Tasks[3].LayoutVariant != "quiet_title" {
+		t.Fatalf("section variant should follow first explicit section variant: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[3].LayoutVariant)
+	}
+	if got.Tasks[3].ContentPlan == nil || got.Tasks[3].ContentPlan.VisualIntent == nil || got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != "quiet_title" {
+		t.Fatalf("section visual intent should match deck-wide section variant: %#v", got.Tasks[3].ContentPlan)
 	}
 }

@@ -8,12 +8,12 @@
     "capacity": {
       "max_items_per_column": 5,
       "min_items_per_column": 3,
-      "target_chars_per_item_min": 30,
-      "target_chars_per_item_max": 55,
-      "max_chars_per_item": 72,
-      "target_intro_chars_min": 50,
-      "target_intro_chars_max": 100,
-      "max_intro_chars": 140,
+      "target_chars_per_item_min": 45,
+      "target_chars_per_item_max": 80,
+      "max_chars_per_item": 96,
+      "target_intro_chars_min": 70,
+      "target_intro_chars_max": 130,
+      "max_intro_chars": 180,
       "density": "normal"
     },
     "required_fields": ["title", "left_header", "right_header"],

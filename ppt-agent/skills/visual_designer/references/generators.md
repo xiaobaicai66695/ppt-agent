@@ -67,7 +67,7 @@ from generators import (
 | `variants` | object[] | 同一 `content_type` 下的版式候选，例如 `photo_full_bleed_center`、`left_photo`、`equal_grid`；这是规划/selector 元数据，不是 generator 参数 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `layout_variant` 只写入 tasks.json 作为设计意图。`generate_title_slide`、`generate_section_divider`、`generate_content_slide`、`generate_two_column`、`generate_image_text`、`generate_card_grid` 已显式支持 `layout_variant`；其他生成器只有在源码显式支持时才传入该字段。
+> 当前阶段 `layout_variant` 只写入 tasks.json 作为设计意图。`generate_title_slide`、`generate_section_divider`、`generate_content_slide`、`generate_two_column`、`generate_image_text`、`generate_card_grid` 已显式支持 `layout_variant`；其他生成器只有在源码显式支持时才传入该字段。同一套 PPT 的 `section_divider` 固定一种 `layout_variant`，内容页才按同类型轮换变体。
 
 ## 背景与素材策略
 
@@ -171,7 +171,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 |------|------|------|
 | title | str | `"深度学习发展历程"` |
 | section_header | str | `"核心机制"` (可选；必须是真实小标题，禁止 `{小节标题}` 等占位符) |
-| bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据，并为后续神经网络研究提供了可训练范式", ...]` (4-6条，目标每条35-60字，可渲染上限80字) |
+| bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据，并为后续神经网络研究提供了可训练范式", ...]` (4-6条，目标每条45-85字，可渲染上限100字) |
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
 | lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
 | layout_variant | str | `"classic_bullets"`、`"numbered_cards"` 或 `"side_panel"` |
@@ -238,7 +238,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | title | str | `"六大核心能力"` |
 | layout | str | `"2x2"` 或 `"2x3"` 或 `"3x2"` |
 | layout_variant | str | `"equal_grid"`、`"featured_card_plus_grid"` 或 `"masonry_cards"` |
-| cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话，并结合企业知识库提供可追溯答案..."}, ...]` ×4-6 (body 目标60-100字，可渲染上限120字) |
+| cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话，并结合企业知识库提供可追溯答案..."}, ...]` ×4-6 (body 目标80-140字，可渲染上限160字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |
 | background | str | `"artistic"` (可选，背景图片主题) |

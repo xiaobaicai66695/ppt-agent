@@ -265,6 +265,7 @@ func normalizeManifestLayoutVariants(manifest *TasksManifest) {
 	}
 	counts := map[string]int{}
 	sectionCount := 0
+	sectionVariant := preferredSectionDividerVariant(manifest)
 	for _, item := range manifest.Tasks {
 		if item == nil {
 			continue
@@ -276,6 +277,9 @@ func normalizeManifestLayoutVariants(manifest *TasksManifest) {
 		if contentType == "section_divider" {
 			sectionCount++
 			ensureSectionNumber(item, sectionCount)
+			item.LayoutVariant = sectionVariant
+			setPreferredVariant(item, sectionVariant)
+			continue
 		}
 		if strings.TrimSpace(item.LayoutVariant) != "" {
 			continue
@@ -287,6 +291,33 @@ func normalizeManifestLayoutVariants(manifest *TasksManifest) {
 			counts[contentType]++
 		}
 	}
+}
+
+func preferredSectionDividerVariant(manifest *TasksManifest) string {
+	variants := supportedLayoutVariants("section_divider")
+	if len(variants) == 0 {
+		return ""
+	}
+	allowed := make(map[string]bool, len(variants))
+	for _, variant := range variants {
+		allowed[variant] = true
+	}
+	for _, item := range manifest.Tasks {
+		if item == nil || strings.TrimSpace(item.ContentType) != "section_divider" {
+			continue
+		}
+		variant := strings.TrimSpace(item.LayoutVariant)
+		if allowed[variant] {
+			return variant
+		}
+		if item.ContentPlan != nil && item.ContentPlan.VisualIntent != nil {
+			variant = strings.TrimSpace(item.ContentPlan.VisualIntent.PreferredVariant)
+			if allowed[variant] {
+				return variant
+			}
+		}
+	}
+	return "photo_band"
 }
 
 func supportedLayoutVariants(contentType string) []string {
@@ -315,6 +346,13 @@ func ensurePreferredVariant(item *TaskItem, variant string) {
 	if strings.TrimSpace(item.ContentPlan.VisualIntent.PreferredVariant) == "" {
 		item.ContentPlan.VisualIntent.PreferredVariant = variant
 	}
+}
+
+func setPreferredVariant(item *TaskItem, variant string) {
+	if item == nil || strings.TrimSpace(variant) == "" || item.ContentPlan == nil || item.ContentPlan.VisualIntent == nil {
+		return
+	}
+	item.ContentPlan.VisualIntent.PreferredVariant = variant
 }
 
 func ensureSectionNumber(item *TaskItem, sectionCount int) {

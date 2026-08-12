@@ -8,9 +8,9 @@
     "capacity": {
       "min_items": 3,
       "max_items": 5,
-      "target_chars_per_item_min": 35,
-      "target_chars_per_item_max": 60,
-      "max_chars_per_item": 80,
+      "target_chars_per_item_min": 45,
+      "target_chars_per_item_max": 80,
+      "max_chars_per_item": 100,
       "density": "normal"
     },
     "required_fields": ["title", "key_points"],

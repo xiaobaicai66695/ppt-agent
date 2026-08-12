@@ -93,15 +93,15 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 | 类型 | 推荐容量 | 超出时处理 |
 |------|----------|------------|
-| `content_slide` | 4-6 条 bullet，目标每条 35-60 字，可渲染上限 80 字 | 拆成概述页 + 详解页，或改用 `deep_dive` |
-| `card_grid` | 4-6 张卡片，header 6-16 字，body 目标 60-100 字 | 拆成两页卡片，或提炼为 4 张重点卡 |
-| `two_column` | 左右各 3-5 条，每条目标 30-55 字，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
-| `three_column` | 每栏 2-4 条，每条目标 24-45 字 | 改用 `card_grid` 或按主题拆页 |
+| `content_slide` | 4-6 条 bullet，目标每条 45-85 字，可渲染上限 100 字 | 拆成概述页 + 详解页，或改用 `deep_dive` |
+| `card_grid` | 4-6 张卡片，header 6-18 字，body 目标 80-140 字 | 拆成两页卡片，或提炼为 4 张重点卡 |
+| `two_column` | 左右各 3-5 条，每条目标 45-80 字，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
+| `three_column` | 每栏 2-4 条，每条目标 35-65 字 | 改用 `card_grid` 或按主题拆页 |
 | `image_text` | 300-450 字自然段，不拆 bullet | 过长拆为两页图文叙事 |
 | `kpi_dashboard` | 固定最多 4 个 KPI | 多指标拆成多页或改 `chart_slide` |
 | `chart_slide` | 1 个主图表，1-3 个 dataset | 多图表拆页 |
 | `timeline` / `process_flow` | 4-6 个节点 | 超过 6 个拆页或按阶段聚合 |
-| `summary_slide` | 3-5 条总结，每条目标 35-60 字 | 合并相似结论或拆出行动页 |
+| `summary_slide` | 3-5 条总结，每条目标 45-80 字 | 合并相似结论或拆出行动页 |
 
 ### 拆页判断
 
@@ -219,7 +219,7 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 | content_type | layout_variant 示例 |
 |--------------|---------------------|
 | `title_slide` | `photo_full_bleed_center` / `photo_full_bleed_left` / `editorial_split` |
-| `section_divider` | `photo_band` / `number_sidebar` / `quiet_title` |
+| `section_divider` | `photo_band` / `number_sidebar` / `quiet_title`，同一套 PPT 固定一种 |
 | `content_slide` | `classic_bullets` / `numbered_cards` / `side_panel` |
 | `two_column` | `balanced_cards` / `split_table` / `mirror_emphasis` |
 | `image_text` | `left_photo` / `right_photo` / `photo_strip` |

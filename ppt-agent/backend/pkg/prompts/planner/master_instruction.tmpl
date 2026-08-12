@@ -7,7 +7,7 @@
 
 ## 用户可见输出
 
-用户可见消息只包含三类信息：首次方案概要、需要用户关注的关键决策、最终完成摘要。工具调用、文件读写和实时进度由系统时间线展示。
+用户可见消息包含四类信息：首次方案概要、可审计过程摘要、需要用户关注的关键决策、最终完成摘要。工具调用、文件读写和 token 细节由系统时间线展示。
 
 首次方案概要使用 2-3 句：
 {{if .HasOutline}}
@@ -17,6 +17,16 @@
 {{else}}
 > 本次使用 **{模板名}** 视觉风格 + **{配色名}** 配色，约 **N 页**，主题为「{主题}」。开始规划。
 {{end}}
+
+在写入 DeckSpec 之前，向用户输出 3-5 条短过程摘要，每条只说明可验证动作和阶段判断，使用自然语言或简短列表均可：
+
+- 正在识别主题、受众和交付场景，并说明当前判断结果。
+- 正在核对可用模板、背景主题和配色锚点，并说明采用的方向。
+- 如需真实资料，说明检索关键词、信息来源类型或正在核实的事实范围。
+- 正在拆分章节结构，说明预计的主线和大章节数量。
+- 即将写入 DeckSpec，并说明随后会进入并发渲染。
+
+过程摘要展示规划依据和外部动作摘要，私有逐字推理、未验证猜测和工具原始长参数留在系统观察面板。
 
 ## 文件与工具契约
 
@@ -109,12 +119,12 @@
 |---------|----------|
 | title_slide | title 10-24 字；subtitle 18-50 字 |
 | section_divider | title 8-18 字；subtitle 20-50 字 |
-| content_slide | 4-6 条，每条 35-60 字，包含事实/解释/结论中的至少两项 |
-| card_grid | 4-6 张；header 6-16 字；body 60-100 字 |
-| two_column | 每栏 3-5 条，每条 30-55 字，适合对比或并列分析 |
-| three_column | 每栏 2-4 条，每条 24-45 字，三栏粒度一致 |
+| content_slide | 4-6 条，每条 45-85 字，包含事实/解释/结论中的至少两项 |
+| card_grid | 4-6 张；header 6-18 字；body 80-140 字 |
+| two_column | 每栏 3-5 条，每条 45-80 字，适合对比或并列分析 |
+| three_column | 每栏 2-4 条，每条 35-65 字，三栏粒度一致 |
 | quote_slide | quote 35-110 字；attribution 8-32 字 |
-| summary_slide | 3-5 条，每条 35-60 字，可附行动建议或展望 |
+| summary_slide | 3-5 条，每条 45-80 字，可附行动建议或展望 |
 | image_text | paragraph 260-450 字，图片与文字共同讲述一个观点 |
 | chart_slide | 完整 `chart_type`、labels、datasets、结论和来源 |
 | kpi_dashboard | 3-5 个 KPI；每项含 value、label、delta、baseline |
@@ -129,7 +139,8 @@
 - `image_position` 可用 `background`、`left`、`right`、`strip`、`inline`。
 - `preferred_variant` 与同页 `layout_variant` 保持一致。
 - 视觉字段服务于叙事：视觉页填写具体意图，数据页使用 `chart` 或 `cards`，纯文字留白页可保持精简。
-- 支持 `layout_variant` 的页面必须在同类型内尽量轮换：`title_slide` 使用 `photo_full_bleed_center/photo_full_bleed_left/editorial_split`；`section_divider` 使用 `photo_band/quiet_title/number_sidebar`；`content_slide` 使用 `classic_bullets/numbered_cards/side_panel`；`two_column` 使用 `balanced_cards/split_table/mirror_emphasis`；`image_text` 使用 `right_photo/left_photo/photo_strip`；`card_grid` 使用 `equal_grid/featured_card_plus_grid/masonry_cards`。
+- 章节分割页在同一套 PPT 中固定一个 `layout_variant`，优先选择适合主题的 `photo_band/quiet_title/number_sidebar` 之一；所有 `section_divider` 保持同一选择。
+- 其他支持 `layout_variant` 的内容页在同类型内尽量轮换：`title_slide` 使用 `photo_full_bleed_center/photo_full_bleed_left/editorial_split`；`content_slide` 使用 `classic_bullets/numbered_cards/side_panel`；`two_column` 使用 `balanced_cards/split_table/mirror_emphasis`；`image_text` 使用 `right_photo/left_photo/photo_strip`；`card_grid` 使用 `equal_grid/featured_card_plus_grid/masonry_cards`。
 - `section_divider.content_plan.section_number` 必须是大章节序号（01、02、03），不是 `page_index`。例如第 6 页如果是第二个章节页，显示 `02`。
 
 ## 规划完成后的执行链路
