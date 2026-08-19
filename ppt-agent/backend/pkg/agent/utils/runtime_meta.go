@@ -834,10 +834,36 @@ func runtimeEventSummaries(events []RuntimeEvent) []RuntimeEvent {
 	}
 	summaries := make([]RuntimeEvent, len(events))
 	for i, event := range events {
-		event.Metadata = nil
-		summaries[i] = event
+		summaries[i] = RuntimeEventSummary(event)
 	}
 	return summaries
+}
+
+// RuntimeEventSummary removes heavy/auditable payloads from timeline summaries while
+// preserving assistant-visible LLM output for the chat transcript.
+func RuntimeEventSummary(event RuntimeEvent) RuntimeEvent {
+	summary := event
+	summary.Metadata = nil
+	if safe := publicRuntimeEventMetadata(event); len(safe) > 0 {
+		summary.Metadata = safe
+	}
+	return summary
+}
+
+func publicRuntimeEventMetadata(event RuntimeEvent) map[string]any {
+	kind := strings.ToLower(strings.TrimSpace(event.Kind))
+	if !strings.Contains(kind, "llm") || strings.Contains(kind, "start") {
+		return nil
+	}
+	output, ok := event.Metadata["assistant_output"].(string)
+	if !ok {
+		return nil
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return nil
+	}
+	return map[string]any{"assistant_output": truncateString(redactRuntimeMetadataString("assistant_output", output), runtimeMetadataRawStringLimit)}
 }
 
 func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metadata map[string]any) {

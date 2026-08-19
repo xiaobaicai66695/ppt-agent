@@ -3,7 +3,7 @@ import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem }
 import {
   canonicalOutputFile, compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages,
   mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
-  runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
+  runtimeAssistantOutputMessages, runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
   summarizeTaskTitle,
 } from './workbench';
 
@@ -71,6 +71,88 @@ describe('workbench utilities', () => {
     expect(mergeConversationMessages(existing, incoming)).toEqual([
       existing[0], incoming[1],
     ]);
+  });
+
+  it('extracts assistant_output from model events as markdown assistant messages', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: '# 规划\n\n- 正在拆分章节' },
+      },
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'llm_start',
+        name: 'planner',
+        status: 'running',
+        metadata: { assistant_output: '不应展示模型输入' },
+      },
+    ];
+
+    expect(runtimeAssistantOutputMessages(events)).toEqual([{
+      role: 'assistant',
+      content: '# 规划\n\n- 正在拆分章节',
+      timestamp: '2026-08-05T00:00:02Z',
+    }]);
+  });
+
+  it('does not expose tool output previews as assistant chat content', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'tool_end',
+        name: 'update_tasks_manifest',
+        status: 'ok',
+        metadata: { assistant_output: '工具事件不应进入 AI 正文', output_preview: '{"tasks":[]}' },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { output_preview: '摘要不应兜底展示' },
+      },
+      {
+        id: 3,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:03Z',
+        elapsed_ms: 3000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: '## 可见规划\n\n继续执行。' },
+      },
+      {
+        id: 4,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:04Z',
+        elapsed_ms: 4000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: '## 可见规划\n\n继续执行。' },
+      },
+    ];
+
+    expect(runtimeAssistantOutputMessages(events)).toEqual([{
+      role: 'assistant',
+      content: '## 可见规划\n\n继续执行。',
+      timestamp: '2026-08-05T00:00:03Z',
+    }]);
   });
 
   it('derives concise live activity without exposing tool arguments', () => {

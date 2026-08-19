@@ -122,6 +122,7 @@ func TestHandleGetConversationIncludesPersistedRuntimeTimeline(t *testing.T) {
 		return []db.RuntimeEventRecord{
 			{TaskID: taskID, EventID: 1, Timestamp: time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC), ElapsedMS: 12, Kind: "tool_start", Name: "python3", Status: "running", Metadata: `{"args":"{\"code\":\"print(1)\"}"}`},
 			{TaskID: taskID, EventID: 2, Timestamp: time.Date(2026, 8, 4, 10, 0, 1, 0, time.UTC), ElapsedMS: 30, Kind: "tool_end", Name: "python3", Status: "ok", Metadata: `{"result":"stdout:\n1"}`},
+			{TaskID: taskID, EventID: 3, Timestamp: time.Date(2026, 8, 4, 10, 0, 2, 0, time.UTC), ElapsedMS: 42, Kind: "llm_end", Name: "planner", Status: "ok", Metadata: `{"assistant_output":"## 规划\n\n开始拆分页面。","output_preview":"规划摘要"}`},
 		}, nil
 	}
 	defer func() { listRuntimeEvents = oldListRuntimeEvents }()
@@ -148,11 +149,14 @@ func TestHandleGetConversationIncludesPersistedRuntimeTimeline(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.RuntimeMeta.RecentEvents) != 2 {
+	if len(payload.RuntimeMeta.RecentEvents) != 3 {
 		t.Fatalf("recent_events = %#v", payload.RuntimeMeta.RecentEvents)
 	}
 	if payload.RuntimeMeta.RecentEvents[0].Metadata != nil || payload.RuntimeMeta.RecentEvents[1].Metadata != nil {
-		t.Fatalf("conversation timeline should omit heavy metadata: %#v", payload.RuntimeMeta.RecentEvents)
+		t.Fatalf("conversation timeline should omit tool metadata: %#v", payload.RuntimeMeta.RecentEvents)
+	}
+	if got := payload.RuntimeMeta.RecentEvents[2].Metadata["assistant_output"]; got != "## 规划\n\n开始拆分页面。" {
+		t.Fatalf("conversation timeline should keep assistant_output only, got %#v", payload.RuntimeMeta.RecentEvents[2].Metadata)
 	}
 }
 

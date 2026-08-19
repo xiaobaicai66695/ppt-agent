@@ -1503,13 +1503,16 @@ func runtimeEventFromRecord(record db.RuntimeEventRecord, includeMetadata bool) 
 		Status:    record.Status,
 		Detail:    record.Detail,
 	}
-	if includeMetadata && strings.TrimSpace(record.Metadata) != "" {
+	if strings.TrimSpace(record.Metadata) != "" {
 		metadata := map[string]any{}
 		if err := json.Unmarshal([]byte(record.Metadata), &metadata); err == nil {
 			event.Metadata = metadata
 		} else {
 			event.Metadata = map[string]any{"raw": record.Metadata}
 		}
+	}
+	if !includeMetadata {
+		return agentutils.RuntimeEventSummary(event)
 	}
 	return event
 }

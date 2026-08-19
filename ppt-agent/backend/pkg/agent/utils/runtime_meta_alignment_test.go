@@ -122,7 +122,8 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 		},
 	})
 	meta.RecordLLMEndDetails("ChatModel", 11, 7, 18, map[string]any{
-		"output": map[string]any{"role": "assistant", "content": "done"},
+		"assistant_output": "done",
+		"output":           map[string]any{"role": "assistant", "content": "done"},
 	})
 	if err := meta.WriteReport("completed"); err != nil {
 		t.Fatalf("WriteReport() error = %v", err)
@@ -146,16 +147,26 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	if llmEnd.Metadata["output"] != nil {
 		t.Fatalf("opaque llm output should still be omitted: %#v", llmEnd.Metadata)
 	}
+	if llmEnd.Metadata["assistant_output"] != "done" {
+		t.Fatalf("assistant output missing from full llm event: %#v", llmEnd.Metadata)
+	}
 	if llmEnd.Metadata["prompt_tokens"].(int64) != 11 || llmEnd.Metadata["total_tokens"].(int64) != 18 {
 		t.Fatalf("token detail missing: %#v", llmEnd.Metadata)
 	}
+	snapshot := meta.Snapshot()
+	if snapshot.RecentEvents[0].Metadata != nil || snapshot.RecentEvents[1].Metadata != nil || snapshot.RecentEvents[2].Metadata != nil {
+		t.Fatalf("snapshot summary should omit tool/input metadata: %#v", snapshot.RecentEvents)
+	}
+	if got := snapshot.RecentEvents[3].Metadata["assistant_output"]; got != "done" {
+		t.Fatalf("snapshot summary should keep assistant output, got %#v", snapshot.RecentEvents[3].Metadata)
+	}
 
-	snapshot, err := LoadRuntimeMetaSnapshot(workDir)
+	reportSnapshot, err := LoadRuntimeMetaSnapshot(workDir)
 	if err != nil {
 		t.Fatalf("LoadRuntimeMetaSnapshot() error = %v", err)
 	}
-	if len(snapshot.RecentEvents) != 0 {
-		t.Fatalf("runtime report should not store full events on disk: %#v", snapshot.RecentEvents)
+	if len(reportSnapshot.RecentEvents) != 0 {
+		t.Fatalf("runtime report should not store full events on disk: %#v", reportSnapshot.RecentEvents)
 	}
 }
 

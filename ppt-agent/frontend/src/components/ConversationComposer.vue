@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
-import { fetchRuntimeEvent } from '../api';
 import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
-import { renderSafeMarkdown } from '../utils/workbench';
-import RuntimeJsonTree from './RuntimeJsonTree.vue';
+import { mergeConversationMessages, renderSafeMarkdown, runtimeAssistantOutputMessages } from '../utils/workbench';
 
 const props = defineProps<{
   taskId?: string;
@@ -28,9 +26,6 @@ const emit = defineEmits<{
 
 const thread = ref<HTMLElement | null>(null);
 const showHistory = ref(props.messages.length > 0);
-const traceDetailCache = ref<Record<number, RuntimeEvent>>({});
-const traceLoading = ref<Record<number, boolean>>({});
-const traceErrors = ref<Record<number, string>>({});
 
 const modeLabel = computed(() => ({
   create: '创建演示',
@@ -45,16 +40,18 @@ const helper = computed(() => ({
 const placeholder = computed(() => props.mode === 'create'
   ? '例如：为产品评审制作 10 页演示，面向研发负责人，重点说明架构与风险'
   : '描述希望如何改进这套演示');
-const traceEvents = computed(() => (props.runtimeEvents || [])
-  .filter(event => {
-    const kind = (event.kind || '').toLowerCase();
-    return kind.includes('llm') && !kind.includes('start');
-  })
-  .sort((a, b) => a.id - b.id)
-  .slice(-30));
 
-watch(() => [props.messages.length, props.streamingContent], async () => {
-  if (props.messages.length > 0 || props.streamingContent) showHistory.value = true;
+const displayMessages = computed(() => mergeConversationMessages(
+  props.messages,
+  runtimeAssistantOutputMessages(props.runtimeEvents || []),
+));
+const streamingAlreadyShown = computed(() => {
+  const content = props.streamingContent?.trim();
+  return Boolean(content && displayMessages.value.some(message => message.role === 'assistant' && message.content.trim() === content));
+});
+
+watch(() => [displayMessages.value.length, props.streamingContent], async () => {
+  if (displayMessages.value.length > 0 || props.streamingContent) showHistory.value = true;
   await nextTick();
   if (thread.value) thread.value.scrollTop = thread.value.scrollHeight;
 });
@@ -63,59 +60,6 @@ function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     if (props.modelValue.trim() && !props.submitting) emit('submit');
-  }
-}
-
-function traceTitle(event: RuntimeEvent): string {
-  const kind = (event.kind || '').toLowerCase();
-  if (kind.includes('start')) return '模型输入上下文';
-  if (kind.includes('error')) return '模型调用错误';
-  return '模型显式思考';
-}
-
-function traceDetail(event: RuntimeEvent): string {
-  if (event.detail) return event.detail;
-  const metadata = event.metadata || {};
-  if (typeof metadata.reasoning_preview === 'string') return metadata.reasoning_preview;
-  if (typeof metadata.output_preview === 'string') return metadata.output_preview;
-  return '展开查看模型显式输出与上下文';
-}
-
-function compactMetadata(event: RuntimeEvent): Record<string, unknown> {
-  const metadata = event.metadata || {};
-  const preferred = ['assistant_output', 'output_preview', 'reasoning_preview', 'history', 'assistant_message', 'error'];
-  const compact: Record<string, unknown> = {};
-  for (const key of preferred) {
-    if (metadata[key] !== undefined && metadata[key] !== null && metadata[key] !== '') compact[key] = metadata[key];
-  }
-  return Object.keys(compact).length ? compact : metadata;
-}
-
-function traceEventWithDetails(event: RuntimeEvent): RuntimeEvent {
-  return traceDetailCache.value[event.id] ? { ...event, ...traceDetailCache.value[event.id], metadata_loaded: true } : event;
-}
-
-function traceEventMetadata(event: RuntimeEvent): Record<string, unknown> {
-  return compactMetadata(traceEventWithDetails(event));
-}
-
-async function handleTraceToggle(domEvent: Event, event: RuntimeEvent) {
-  const target = domEvent.currentTarget as HTMLDetailsElement | null;
-  if (!target?.open || !props.taskId || event.metadata_loaded || traceDetailCache.value[event.id] || traceLoading.value[event.id]) {
-    return;
-  }
-  traceLoading.value = { ...traceLoading.value, [event.id]: true };
-  traceErrors.value = { ...traceErrors.value, [event.id]: '' };
-  try {
-    const detail = await fetchRuntimeEvent(props.taskId, event.id);
-    traceDetailCache.value = { ...traceDetailCache.value, [event.id]: detail };
-  } catch (error) {
-    traceErrors.value = {
-      ...traceErrors.value,
-      [event.id]: error instanceof Error ? error.message : '事件详情加载失败',
-    };
-  } finally {
-    traceLoading.value = { ...traceLoading.value, [event.id]: false };
   }
 }
 </script>
@@ -131,13 +75,13 @@ async function handleTraceToggle(domEvent: Event, event: RuntimeEvent) {
         </span>
       </span>
       <button
-        v-if="messages.length || streamingContent || historyLoading"
+        v-if="displayMessages.length || streamingContent || historyLoading"
         class="history-toggle"
         type="button"
         :aria-expanded="showHistory"
         @click="showHistory = !showHistory"
       >
-        {{ showHistory ? '收起对话' : `查看对话 (${messages.length})` }}
+        {{ showHistory ? '收起对话' : `查看对话 (${displayMessages.length})` }}
       </button>
     </header>
 
@@ -158,38 +102,18 @@ async function handleTraceToggle(domEvent: Event, event: RuntimeEvent) {
     </div>
 
     <div v-show="showHistory" ref="thread" class="conversation-thread" aria-live="polite">
-      <div v-if="historyLoading && messages.length === 0" class="history-state">
+      <div v-if="historyLoading && displayMessages.length === 0" class="history-state">
         <LoaderCircle :size="17" class="spin" />正在恢复对话
       </div>
-      <article v-for="(message, index) in messages" :key="`${message.timestamp}-${index}`" class="message" :class="message.role">
+      <article v-for="(message, index) in displayMessages" :key="`${message.timestamp}-${index}`" class="message" :class="message.role">
         <span class="message-role">{{ message.role === 'user' ? '你' : 'AI' }}</span>
         <div class="markdown-body" v-html="renderSafeMarkdown(message.content)"></div>
       </article>
-      <article v-if="streamingContent" class="message assistant streaming">
+      <article v-if="streamingContent && !streamingAlreadyShown" class="message assistant streaming">
         <span class="message-role">AI</span>
         <div class="markdown-body" v-html="renderSafeMarkdown(streamingContent)"></div>
       </article>
-      <section v-if="traceEvents.length" class="agent-trace" aria-label="AI 思维链">
-        <div class="trace-head">
-          <MessageSquareText :size="14" />
-          <span>AI 思维链</span>
-        </div>
-        <details
-          v-for="event in traceEvents"
-          :key="event.id"
-          class="trace-event"
-          @toggle="handleTraceToggle($event, event)"
-        >
-          <summary>
-            <span>{{ traceTitle(event) }}</span>
-            <small>{{ traceDetail(event) }}</small>
-          </summary>
-          <div v-if="traceLoading[event.id]" class="trace-loading">正在加载完整事件...</div>
-          <div v-else-if="traceErrors[event.id]" class="trace-loading error">{{ traceErrors[event.id] }}</div>
-          <RuntimeJsonTree v-else label="details" :value="traceEventMetadata(event)" :default-open="true" />
-        </details>
-      </section>
-      <div v-if="historyLoading && messages.length > 0" class="history-refresh">
+      <div v-if="historyLoading && displayMessages.length > 0" class="history-refresh">
         <LoaderCircle :size="14" class="spin" />同步历史中
       </div>
     </div>
@@ -249,17 +173,6 @@ async function handleTraceToggle(domEvent: Event, event: RuntimeEvent) {
 .markdown-body { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
 .message.user .markdown-body { border-color: #bdd7d3; background: var(--action-soft); }
 .message.streaming .markdown-body { border-left: 3px solid var(--info); }
-.agent-trace { margin-left: 36px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); }
-.trace-head { min-height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 7px; color: var(--text-secondary); border-bottom: 1px solid var(--divider); background: var(--surface-muted); font-size: 11px; font-weight: 800; }
-.trace-event { border-top: 1px solid var(--divider); }
-.trace-event:first-of-type { border-top: 0; }
-.trace-event summary { min-height: 34px; padding: 7px 10px; display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--text-secondary); cursor: pointer; list-style: none; font-size: 11px; }
-.trace-event summary::-webkit-details-marker { display: none; }
-.trace-event summary span { color: var(--text); font-weight: 750; }
-.trace-event summary small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
-.trace-event :deep(.json-tree) { padding: 8px 10px 10px; border-top: 1px solid var(--divider); background: var(--surface); }
-.trace-loading { padding: 8px 10px; border-top: 1px solid var(--divider); color: var(--text-muted); background: var(--surface); font-size: 11px; }
-.trace-loading.error { color: var(--danger); }
 .markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3), .markdown-body :deep(h4) { margin: 0 0 7px; font-size: 14px; line-height: 1.4; }
 .markdown-body :deep(p) { margin: 0 0 7px; }.markdown-body :deep(p:last-child) { margin-bottom: 0; }
 .markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 4px 0 8px; padding-left: 22px; }
@@ -285,8 +198,6 @@ async function handleTraceToggle(domEvent: Event, event: RuntimeEvent) {
   .composer-identity small { white-space: normal; }
   .conversation-thread { max-height: 46dvh; }
   .markdown-body { font-size: 12px; }
-  .agent-trace { margin-left: 0; }
-  .trace-event summary { grid-template-columns: 1fr; }
   .input-shell textarea { font-size: 16px; }
 }
 

@@ -151,6 +151,29 @@ export function mergeConversationMessages(
   return merged;
 }
 
+export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  const seen = new Set<string>();
+  for (const event of [...events].sort((a, b) => {
+    if (a.id > 0 && b.id > 0 && a.id !== b.id) return a.id - b.id;
+    return Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
+  })) {
+    const kind = (event.kind || '').toLowerCase();
+    if (!kind.includes('llm') || kind.includes('start')) continue;
+    const output = event.metadata?.assistant_output;
+    if (typeof output !== 'string') continue;
+    const content = output.trim();
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    messages.push({
+      role: 'assistant',
+      content,
+      timestamp: event.timestamp || new Date(0).toISOString(),
+    });
+  }
+  return messages;
+}
+
 export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {
   return Math.max(0, cachedEventID, sessionBoundary);
 }
