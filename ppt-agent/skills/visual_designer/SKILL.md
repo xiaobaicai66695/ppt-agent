@@ -84,6 +84,17 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 历史别名 `bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 不能写入新的 tasks.json；统一用 `chart_slide` 或 `comparison_table`。
 
+### 整体结构与叙事布局
+
+整套 PPT 优先采用“观点 -> 论据 -> 推论/行动”的叙事结构，而不是连续罗列要点。
+
+- 每个章节先用 1 页 `section_divider` 明确阶段主题，再进入说明、案例、数据或方案页；章节少于 2 个时可以省略分割页。
+- 内容页先确定本页主观点，再选择 2-4 个论据组件支撑；论据可以是 `fact_card`、`evidence_list`、`chart`、`table`、`image`、`case_snapshot` 或 `quote_block`。
+- 深度说明页优先使用 `argument_block` 承载完整论述，再配 `list`、`evidence_list`、`kpi_metric` 或 `image` 做证据补强。
+- 对比、选型、方案评估优先用 `comparison_table` 或 `two_column`，并用 `recommendation` 给出结论。
+- 每 3-5 页安排一次节奏变化：章节页、图文页、数据页、案例页或总结页，避免整套都是 `content_slide/card_grid`。
+- 同一页只讲一个中心判断；多个判断并列时拆页或改成目录/框架页。
+
 ---
 
 ## 内容容量与拆页
@@ -138,6 +149,8 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 
 `content_plan` 用来让结构化内容更稳定，优先写业务语义。新任务优先写 `components`，旧 `elements` 仅用于兼容：
 
+规划组件前优先读取 `templates/component_contracts.json`。该文件集中登记组件语义、渲染归类、容量上限和已实现 `layout_variant`，避免逐个读取 `templates/single-page/*.json` 造成上下文和工具调用浪费。`templates/single-page/*.json` 保留为前端与后端 loader 兼容元数据。
+
 ```json
 {
   "summary": "本页核心结论",
@@ -152,13 +165,12 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
   "visual_intent": {
     "role": "cards",
     "asset_query": "企业服务能力矩阵",
-    "preferred_variant": "featured_card_plus_grid",
     "image_position": "inline"
   }
 }
 ```
 
-组件计划不是手工排版。它只能决定：
+组件计划不是手工排版。`text_block`、`divider`、`icon`、`tag`、`shape`、`arrow`、`architecture_box` 可以在准备阶段规划，但只能作为语义 primitives 使用。它只能决定：
 
 - 这一页有哪些语义组件。
 - 每个组件承载什么信息。
@@ -174,15 +186,20 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 | 组件类型 | 用途 |
 |----------|------|
 | `headline` / `subheadline` | 主论点和副标题 |
-| `paragraph` / `bullet_list` | 正文叙事或要点 |
-| `feature_card` / `key_point` | 能力卡片、特性卡片、重点块 |
-| `kpi_metric` | KPI 指标，`data` 中可放 value/label/delta/baseline |
-| `chart` | 图表，`data` 中放 labels/datasets/chart_type |
-| `timeline_node` / `process_step` | 时间线节点或流程步骤 |
-| `image` | 图片语义、caption、asset/source |
+| `argument_block` | 大段论述正文，承载本页核心判断、背景、证据串联和结论，适合 220-420 字完整解释 |
+| `paragraph` / `text_block` | 正文叙事或短文本块，适合与图片、卡片、图表组合 |
+| `list` / `numbered_list` / `bullet_list` / `evidence_list` | 通用列表、有序列表、要点列表或证据列表；`items` 为字符串数组 |
+| `divider` / `shape` | 语义分组、阶段边界或轻量区域强调；只表达“为什么分组”，不写几何参数 |
+| `icon` / `tag` | 图标语义、状态标签、类别标签或风险等级；由生成器选择实际图标和标签样式 |
+| `feature_card` / `fact_card` / `key_point` / `insight` | 能力卡片、事实卡片、重点块和洞察 |
+| `recommendation` / `risk_item` / `opportunity_item` / `decision_item` | 建议、风险、机会和决策项 |
+| `case_snapshot` / `toc_item` | 案例摘要和目录项 |
+| `kpi_metric` / `stat` / `number_callout` | KPI 或关键数字，`data` 中可放 value/label/delta/baseline |
+| `chart` / `table` / `comparison_matrix` | 图表、表格和对比矩阵，`data` 中放结构化数据 |
+| `timeline_node` / `process_step` / `milestone` | 时间线节点、流程步骤或里程碑 |
+| `image` / `map` / `diagram` / `architecture_box` / `arrow` | 图片、地图、图解、架构模块和关系箭头语义，允许写 caption、asset/source/asset_query/relation/target |
 | `quote_block` / `callout` | 引用或强调信息 |
 | `section_marker` | 章节标记 |
-| `table` | 表格，`data` 中放 headers/rows |
 | `source_note` | 来源说明 |
 
 ### 计划审查与润色
@@ -254,20 +271,15 @@ Planner 在写入 DeckSpec 前应做有上限的自检/润色，最多 3 轮。`
 
 ## layout_variant 与视觉意图
 
-`layout_variant` 是同一 `content_type` 下的版式候选，只能写 generator 已支持的值。
+`layout_variant` 只填写 `templates/component_contracts.json` 中当前 content_type 明确列出的值。空 `variants` 表示该页由生成器按组件密度自适应排版，Planner 只写 `content_plan.visual_intent` 表达语义。
 
-当前优先使用：
+当前实现只稳定支持：
 
-| content_type | layout_variant 示例 |
-|--------------|---------------------|
-| `title_slide` | `photo_full_bleed_center` / `photo_full_bleed_left` / `editorial_split` |
-| `section_divider` | `number_sidebar` / `quiet_title` / `photo_band`，同一套 PPT 固定一种；默认左右结构 |
-| `content_slide` | `classic_bullets` / `numbered_cards` / `side_panel` |
-| `two_column` | `balanced_cards` / `split_table` / `mirror_emphasis` |
-| `image_text` | `left_photo` / `right_photo` / `photo_strip` |
-| `card_grid` | `equal_grid` / `featured_card_plus_grid` / `masonry_cards` |
+| content_type | layout_variant |
+|--------------|----------------|
+| `section_divider` | `number_sidebar` |
 
-其他页面如源码未显式支持 `layout_variant`，不要写该字段；可以只写 `content_plan.visual_intent` 表达语义。
+标题页、内容页、图文页、卡片页、对比页等页面优先通过 `content_type` 与 `content_plan.components` 表达结构，具体字号、卡片尺寸、背景蒙版、表格网格和对齐由 Python generator 控制。
 
 ---
 

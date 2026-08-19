@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "purpose": "Planner reads this single file to understand semantic components, content_type capacity and implemented layout variants. Single-page JSON files remain UI/runtime compatibility metadata.",
+  "planning_rules": {
+    "semantic_only": true,
+    "forbidden_component_fields": [
+      "x",
+      "y",
+      "left",
+      "top",
+      "width",
+      "height",
+      "font_size",
+      "fontSize",
+      "color",
+      "background_color",
+      "margin",
+      "padding",
+      "opacity",
+      "border_radius"
+    ],
+    "overflow_actions": [
+      "shorten_component_text",
+      "merge_minor_components",
+      "split_slide",
+      "change_content_type"
+    ],
+    "component_text_density": {
+      "principle": "Prefer complete, presentation-ready information units. Components should include concrete facts, named entities, scenario context, impact and conclusion when relevant; avoid noun-only or slogan-like short fragments.",
+      "card_body_target_chars": [70, 130],
+      "primary_card_body_max_chars": 160,
+      "paragraph_target_chars": [120, 220],
+      "argument_block_target_chars": [220, 420],
+      "bullet_item_target_chars": [45, 85],
+      "list_item_target_chars": [35, 90],
+      "flow_body_target_chars": [45, 85],
+      "case_snapshot_min_chars": 100,
+      "kpi_requirement": "Every kpi_metric should include value/label plus delta or baseline, and a short body explaining why the metric matters.",
+    "source_requirement": "When a page uses facts, data, quotes or charts, add a source_note or component source field whenever a concrete source is available."
+    },
+    "layout_variant_rule": "Only use layout_variant values listed in this file. An empty variants array means the generator uses adaptive component layout and Planner should leave layout_variant empty."
+  },
+  "component_types": {
+    "headline": "页面主论点或主标题，通常由 title 字段自动形成。",
+    "subheadline": "页面副标题或辅助判断，通常由 subtitle/summary 自动形成。",
+    "eyebrow": "标题上方的语义标签，用于说明页面类别、阶段或内容域。",
+    "deck_title": "整套演示文稿的主题标题，只在封面或结束呼应页使用。",
+    "argument_block": "大段论述正文，适合承载本页的核心判断、背景、证据串联和结论；body/text 通常 220-420 字。",
+    "paragraph": "完整自然段，适合图文页、深度解释页和案例背景。",
+    "text_block": "短段正文块，适合与卡片、图表或图片组合。",
+    "divider": "语义分割线，用于表达分栏、阶段边界或信息组切分；不写坐标、长度或颜色。",
+    "icon": "图标语义，用于给能力、流程、风险、技术模块提供视觉锚点；可写 icon、title 或 role，由生成器映射。",
+    "tag": "短标签，用于标记状态、类别、风险级别、来源类型或页面维度。",
+    "shape": "轻量语义色块或区域强调，用于提示分组、主次或视觉承托；不控制具体几何参数。",
+    "arrow": "关系箭头，用于表达流程、依赖、输入输出或组件间连接；可写 relation/target，不写坐标。",
+    "list": "通用列表组件，items 为字符串数组；适合事实、动作、检查项或并列说明。",
+    "numbered_list": "有顺序的列表组件，items 为字符串数组；适合步骤、阶段、优先级和方法路径。",
+    "bullet_list": "同一主题下的一组要点，items 为字符串数组。",
+    "evidence_list": "证据列表，强调事实、来源、时间和数字。",
+    "feature_card": "能力、特性、景点、模块等并列卡片。",
+    "fact_card": "事实卡片，适合放城市、政策、市场或产品事实。",
+    "key_point": "关键观点卡片，强调本页结论或判断。",
+    "insight": "洞察卡片，表达从事实中推导出的判断。",
+    "recommendation": "建议卡片，适合行动建议、路线建议、方案建议。",
+    "risk_item": "风险项，适合问题、限制、隐患或反方观点。",
+    "opportunity_item": "机会项，适合趋势、增长点或正向空间。",
+    "case_snapshot": "案例摘要，包含命名实体、背景、动作和结果。",
+    "decision_item": "决策项，适合会议纪要、项目评审和路线选择。",
+    "toc_item": "目录项，适合 agenda 页按章节展示。",
+    "kpi_metric": "KPI 指标，data 中写 value、label、delta、baseline。",
+    "stat": "关键数字，强调一个数字和说明。",
+    "number_callout": "大数字强调，适合少量指标或结论页。",
+    "chart": "图表，data 中写 chart_type、labels、datasets。",
+    "table": "表格，data 中写 headers、rows。",
+    "comparison_matrix": "对比矩阵，data 结构同 table，用于方案、产品或竞品对比。",
+    "timeline_node": "时间线节点，适合历史沿革、行程路线和阶段演进。",
+    "process_step": "流程步骤，适合方法、执行链路和操作流程。",
+    "milestone": "里程碑，适合项目节点或历史事件。",
+    "image": "图片语义，不写坐标；可写 title、body、caption、asset_query。",
+    "map": "地图语义，用于城市、区域、路线或业务版图。",
+    "diagram": "图解语义，用于架构、关系或机制说明。",
+    "architecture_box": "架构模块框，表示系统、服务、数据层、Agent、工具或外部依赖；配合 arrow 表达关系。",
+    "quote_block": "引用或金句。",
+    "callout": "强调提示，可用于结论、提醒或承上启下。",
+    "section_marker": "章节序号，必须是大章节序号。",
+    "source_note": "来源说明，适合事实、图表和引用页。"
+  },
+  "render_families": {
+    "title": ["headline", "subheadline", "section_marker", "eyebrow", "deck_title"],
+    "card": ["feature_card", "fact_card", "key_point", "insight", "recommendation", "risk_item", "opportunity_item", "toc_item", "case_snapshot", "decision_item", "callout"],
+    "list": ["argument_block", "paragraph", "text_block", "bullet_list", "evidence_list", "list", "numbered_list"],
+    "metric": ["kpi_metric", "stat", "number_callout"],
+    "flow": ["timeline_node", "process_step", "milestone"],
+    "data": ["chart", "table", "comparison_matrix"],
+    "media": ["image", "map", "diagram"],
+    "quote": ["quote_block"],
+    "source": ["source_note"],
+    "primitive": ["text_block", "divider", "icon", "tag", "shape", "arrow", "architecture_box"]
+  },
+  "content_types": {
+    "title_slide": {
+      "best_for": ["封面", "主题建立", "汇报标题"],
+      "recommended_components": ["headline", "subheadline", "fact_card", "key_point", "kpi_metric"],
+      "capacity": {"target_components_min": 0, "target_components_max": 3, "max_components": 4},
+      "variants": []
+    },
+    "agenda": {
+      "best_for": ["目录", "章节预告", "汇报路线"],
+      "recommended_components": ["toc_item", "feature_card", "key_point"],
+      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 8},
+      "variants": []
+    },
+    "section_divider": {
+      "best_for": ["章节转换", "大段落切换"],
+      "recommended_components": ["section_marker", "headline", "subheadline"],
+      "capacity": {"target_components_min": 1, "target_components_max": 2, "max_components": 3},
+      "variants": ["number_sidebar"],
+      "deck_rule": "同一套 PPT 固定一种 section_divider variant，当前实现仅支持 number_sidebar。"
+    },
+    "content_slide": {
+      "best_for": ["解释观点", "普通要点", "概念说明"],
+      "recommended_components": ["argument_block", "key_point", "fact_card", "list", "numbered_list", "bullet_list", "evidence_list", "insight", "text_block", "tag", "divider"],
+      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 8},
+      "variants": []
+    },
+    "image_text": {
+      "best_for": ["图文叙事", "城市/产品/场景介绍", "案例背景"],
+      "recommended_components": ["image", "argument_block", "paragraph", "list", "key_point", "callout", "source_note"],
+      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
+      "variants": []
+    },
+    "card_grid": {
+      "best_for": ["能力矩阵", "景点矩阵", "功能列表", "多要点并列"],
+      "recommended_components": ["feature_card", "fact_card", "insight", "recommendation", "risk_item", "opportunity_item"],
+      "capacity": {"target_components_min": 4, "target_components_max": 6, "max_components": 8},
+      "variants": []
+    },
+    "three_column": {
+      "best_for": ["三个并列维度", "三阶段框架", "三方案概览"],
+      "recommended_components": ["feature_card", "fact_card", "key_point", "insight"],
+      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 9},
+      "variants": []
+    },
+    "icon_grid": {
+      "best_for": ["能力支柱", "功能入口", "特征概览"],
+      "recommended_components": ["feature_card", "key_point", "fact_card", "icon", "tag"],
+      "capacity": {"target_components_min": 4, "target_components_max": 6, "max_components": 9},
+      "variants": []
+    },
+    "two_column": {
+      "best_for": ["左右对比", "并列分析", "问题-方案"],
+      "recommended_components": ["fact_card", "key_point", "risk_item", "opportunity_item", "comparison_matrix", "divider", "tag"],
+      "capacity": {"target_components_min": 4, "target_components_max": 8, "max_components": 10},
+      "variants": []
+    },
+    "timeline": {
+      "best_for": ["历史沿革", "项目节点", "行程路线"],
+      "recommended_components": ["timeline_node", "milestone", "callout"],
+      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
+      "variants": []
+    },
+    "process_flow": {
+      "best_for": ["步骤流程", "方法路径", "执行链路"],
+      "recommended_components": ["process_step", "decision_item", "callout", "arrow", "icon", "tag"],
+      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
+      "variants": []
+    },
+    "stat_slide": {
+      "best_for": ["关键数字", "成果概览", "规模说明"],
+      "recommended_components": ["stat", "number_callout", "source_note"],
+      "capacity": {"target_components_min": 2, "target_components_max": 4, "max_components": 4},
+      "variants": []
+    },
+    "kpi_dashboard": {
+      "best_for": ["经营指标", "绩效看板", "效果对比"],
+      "recommended_components": ["kpi_metric", "insight", "source_note"],
+      "capacity": {"target_components_min": 3, "target_components_max": 4, "max_components": 4},
+      "variants": []
+    },
+    "chart_slide": {
+      "best_for": ["趋势", "对比数据", "量化分析"],
+      "recommended_components": ["chart", "kpi_metric", "insight", "source_note"],
+      "capacity": {"target_components_min": 2, "target_components_max": 4, "max_components": 6},
+      "variants": []
+    },
+    "comparison_table": {
+      "best_for": ["方案选型", "竞品对比", "多维评估"],
+      "recommended_components": ["comparison_matrix", "recommendation", "source_note"],
+      "capacity": {"target_components_min": 2, "target_components_max": 4, "max_components": 5},
+      "variants": []
+    },
+    "quote_slide": {
+      "best_for": ["观点引用", "叙事停顿", "核心主张"],
+      "recommended_components": ["quote_block", "source_note"],
+      "capacity": {"target_components_min": 1, "target_components_max": 2, "max_components": 3},
+      "variants": []
+    },
+    "image_hero": {
+      "best_for": ["视觉转场", "场景建立", "重点主题强调"],
+      "recommended_components": ["image", "headline", "subheadline", "callout"],
+      "capacity": {"target_components_min": 1, "target_components_max": 3, "max_components": 4},
+      "variants": []
+    },
+    "example_detail": {
+      "best_for": ["命名案例", "实例拆解", "单点深度说明"],
+      "recommended_components": ["case_snapshot", "argument_block", "paragraph", "list", "kpi_metric", "insight", "source_note"],
+      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 8},
+      "variants": []
+    },
+    "case_study": {
+      "best_for": ["案例研究", "问题到结果", "客户成功故事"],
+      "recommended_components": ["case_snapshot", "argument_block", "numbered_list", "risk_item", "recommendation", "kpi_metric", "source_note"],
+      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 8},
+      "variants": []
+    },
+    "deep_dive": {
+      "best_for": ["原理详解", "机制分析", "架构与证据并列"],
+      "recommended_components": ["argument_block", "paragraph", "list", "numbered_list", "evidence_list", "diagram", "architecture_box", "arrow", "divider", "tag", "fact_card", "insight", "source_note"],
+      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 9},
+      "variants": []
+    },
+    "swot_analysis": {
+      "best_for": ["战略分析", "内外部因素", "机会风险判断"],
+      "recommended_components": ["fact_card", "risk_item", "opportunity_item", "recommendation"],
+      "capacity": {"target_components_min": 4, "target_components_max": 8, "max_components": 8},
+      "variants": []
+    },
+    "kanban": {
+      "best_for": ["项目状态", "工作流看板", "任务分组"],
+      "recommended_components": ["decision_item", "risk_item", "milestone", "kpi_metric"],
+      "capacity": {"target_components_min": 4, "target_components_max": 8, "max_components": 10},
+      "variants": []
+    },
+    "brand_focus": {
+      "best_for": ["品牌价值", "核心理念", "中心辐射关系"],
+      "recommended_components": ["key_point", "feature_card", "insight", "callout"],
+      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 8},
+      "variants": []
+    },
+    "region_map": {
+      "best_for": ["区域布局", "城市介绍", "市场版图", "路线空间关系"],
+      "recommended_components": ["map", "fact_card", "kpi_metric", "callout", "source_note"],
+      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 8},
+      "variants": []
+    },
+    "summary_slide": {
+      "best_for": ["结论收束", "行动建议", "核心回顾"],
+      "recommended_components": ["argument_block", "key_point", "recommendation", "list", "quote_block", "source_note"],
+      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
+      "variants": []
+    }
+  }
+}

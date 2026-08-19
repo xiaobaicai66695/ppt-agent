@@ -371,19 +371,42 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	return &db.TaskRecord{
 		ID:                  info.ID,
 		UserID:              uint(info.UserID),
-		Query:               info.Query,
+		Query:               mysqlSafeText(info.Query),
 		Status:              string(info.Status),
 		WorkDir:             info.WorkDir,
 		DoneCount:           info.DoneCount,
 		TotalCount:          info.TotalCount,
 		Duration:            info.Duration,
-		Error:               info.Error,
-		Files:               string(filesJSON),
+		Error:               mysqlSafeText(info.Error),
+		Files:               mysqlSafeText(string(filesJSON)),
 		PromptTokens:        info.PromptTokens,
 		CompletionTokens:    info.CompletionTokens,
 		TotalTokens:         info.TotalTokens,
-		ConversationContent: info.ConversationContent,
-		FullAnswer:          info.FullAnswer,
+		ConversationContent: mysqlSafeText(info.ConversationContent),
+		FullAnswer:          mysqlSafeText(info.FullAnswer),
+	}
+}
+
+func mysqlSafeText(value string) string {
+	return strings.Map(func(r rune) rune {
+		// Some existing deployments still use MySQL utf8/utf8mb3 columns.
+		// Keep ordinary BMP text, including Chinese, and drop emoji/symbol
+		// glyphs before writing task records.
+		if r > 0xFFFF || isEmojiSymbol(r) {
+			return -1
+		}
+		return r
+	}, value)
+}
+
+func isEmojiSymbol(r rune) bool {
+	switch {
+	case r >= 0x2600 && r <= 0x27BF:
+		return true
+	case r >= 0x2B00 && r <= 0x2BFF:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -600,8 +623,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.runtimeMeta.RecordPhase("preparing", "初始化任务运行环境")
 	}
 
-	ts.Broadcast(SSERichEvent{Type: "answer", Content: buildPlanningPrelude(cfg, query)})
-
 	// ── 步骤1：意图分析结果 ──────────────────────────────
 	var step1 strings.Builder
 	step1.WriteString("【步骤1/3】模型意图分析\n")
@@ -695,7 +716,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		cancelRun(errDeliveryMetadataComplete)
 	})
 
-	visibleToolSteps := map[string]bool{}
 	result, err := deck.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event deck.AgentEvent) {
 		if event.Type == deck.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
@@ -708,12 +728,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		if event.Type == "tool_call" || event.Type == "token_usage" {
 			// 从 tool_call 推断阶段
 			detectAndBroadcastPhase(ts, event)
-			if event.Type == "tool_call" {
-				if line := visibleToolProgressLine(event); line != "" && !visibleToolSteps[line] {
-					visibleToolSteps[line] = true
-					ts.Broadcast(SSERichEvent{Type: "answer", Content: line})
-				}
-			}
 			return
 		}
 		ts.Broadcast(SSERichEvent{
@@ -1017,89 +1031,6 @@ func persistRuntimeEvent(event utils.RuntimeEvent) {
 	}); err != nil {
 		logger.Warn("persist_runtime_event_failed", "task_id", event.TaskID, "event_id", event.ID, "error", err.Error())
 	}
-}
-
-func buildPlanningPrelude(cfg *deck.PPTTaskConfig, query string) string {
-	var b strings.Builder
-	b.WriteString("我会先把主题、资料和版式结构梳理清楚，再进入并发生成。\n")
-	if cfg != nil && cfg.IntentResult != nil {
-		intent := strings.TrimSpace(fmt.Sprint(cfg.IntentResult.Intent))
-		domain := strings.TrimSpace(string(cfg.IntentResult.Domain))
-		if intent != "" || domain != "" {
-			b.WriteString(fmt.Sprintf("- 正在识别任务类型：%s%s。\n", valueOr(intent, "PPT生成"), formatDomain(domain)))
-		}
-		if cfg.IntentResult.SuggestedPageCount > 0 {
-			b.WriteString(fmt.Sprintf("- 正在估算内容规模：初步按 %d 页左右组织，后续以主题完整度校正。\n", cfg.IntentResult.SuggestedPageCount))
-		}
-	} else {
-		b.WriteString("- 正在识别主题、受众和演示目标。\n")
-	}
-	if cfg != nil && cfg.Outline != nil {
-		template := valueOr(strings.TrimSpace(cfg.Outline.Template), "当前模板")
-		theme := valueOr(strings.TrimSpace(cfg.Outline.Theme), "推荐配色")
-		b.WriteString(fmt.Sprintf("- 正在核对模板与配色：使用 %s / %s 作为规划基线。\n", template, theme))
-		if cfg.Outline.UseBackground && strings.TrimSpace(cfg.Outline.RecommendedBackground) != "" {
-			b.WriteString(fmt.Sprintf("- 正在统一背景主题：整套页面围绕 %s 轮换同目录图片。\n", cfg.Outline.RecommendedBackground))
-		}
-		if cfg.Outline.SuggestedPageCount > 0 {
-			b.WriteString(fmt.Sprintf("- 正在拆分章节结构：目标约 %d 页，章节页会保持同一版式。\n", cfg.Outline.SuggestedPageCount))
-		} else if len(cfg.Outline.Slides) > 0 {
-			b.WriteString(fmt.Sprintf("- 正在补齐页面内容：基于已有 %d 页大纲完善每页信息密度。\n", len(cfg.Outline.Slides)))
-		}
-	} else {
-		b.WriteString("- 正在选择模板、配色和背景策略，并准备拆分章节主线。\n")
-	}
-	topic := strings.TrimSpace(query)
-	if topic != "" {
-		b.WriteString(fmt.Sprintf("- 资料准备方向：围绕“%s”的历史背景、核心事实、代表案例和可引用数据展开。\n", truncateForPrelude(topic, 36)))
-	}
-	b.WriteString("接下来会写入 DeckSpec，然后按页并发渲染。\n\n")
-	return b.String()
-}
-
-func visibleToolProgressLine(event deck.AgentEvent) string {
-	switch event.ToolName {
-	case "search":
-		if query := extractToolStringArg(event.ToolArgs, "query"); query != "" {
-			return fmt.Sprintf("正在检索资料关键词：%s\n", truncateForPrelude(query, 80))
-		}
-		return "正在检索并核实资料来源。\n"
-	case "read_file":
-		if path := extractToolStringArg(event.ToolArgs, "path"); path != "" {
-			return fmt.Sprintf("正在读取模板规范：%s\n", filepath.Base(path))
-		}
-		return "正在读取模板与设计规范。\n"
-	case "update_tasks_manifest":
-		return "正在冻结页面计划：写入 DeckSpec，并统一章节页版式与背景策略。\n"
-	default:
-		return ""
-	}
-}
-
-func valueOr(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return strings.TrimSpace(value)
-}
-
-func formatDomain(domain string) string {
-	if strings.TrimSpace(domain) == "" {
-		return ""
-	}
-	return "，领域=" + strings.TrimSpace(domain)
-}
-
-func truncateForPrelude(value string, maxRunes int) string {
-	value = strings.TrimSpace(value)
-	if maxRunes <= 0 {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= maxRunes {
-		return value
-	}
-	return string(runes[:maxRunes]) + "..."
 }
 
 func durationFromResult(result *deck.PPTTaskResult) time.Duration {

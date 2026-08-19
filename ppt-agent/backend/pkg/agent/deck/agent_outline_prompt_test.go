@@ -61,8 +61,13 @@ func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *tes
 	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", nil, "介绍大兴安岭", false, 5)
 	for _, want := range []string{
 		"页面完成状态由后端依据代码元数据维护",
-		"Planner 完成 `tasks.json` 后立即结束",
+		"Planner commit 后立即结束",
 		"validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile_delivery",
+		"ReAct 风格可见规划日志",
+		"Thought:",
+		"Action:",
+		"Observation:",
+		"不是模型底层原生隐藏思维链",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)

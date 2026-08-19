@@ -206,14 +206,86 @@ func recoveredContentPlan(topic, title, contentType string) *ContentPlan {
 		role = "chart"
 	}
 	return &ContentPlan{
-		Summary: summary,
+		Summary:     summary,
+		SlideIntent: recoveredSlideIntent(topic, title, contentType),
 		VisualIntent: &VisualIntent{
 			Role:          role,
 			AssetQuery:    topic + " " + title,
 			ImagePosition: position,
 			Caption:       title,
 		},
-		Elements: recoveredElements(topic, title, contentType),
+		Elements:   recoveredElements(topic, title, contentType),
+		Components: recoveredComponents(topic, title, contentType),
+		CapacityHint: &CapacityHint{
+			EstimatedDensity: "normal",
+			OverflowRisk:     "low",
+		},
+	}
+}
+
+func recoveredSlideIntent(topic, title, contentType string) string {
+	switch contentType {
+	case "title_slide":
+		return fmt.Sprintf("建立“%s”的整体主题、演示语境和第一印象。", topic)
+	case "agenda":
+		return fmt.Sprintf("把%s的叙事拆成可跟随的章节路线，让观众知道后续如何展开。", topic)
+	case "section_divider":
+		return fmt.Sprintf("开启“%s”章节，并提示这一部分在整套 PPT 中承担的转场作用。", title)
+	case "summary_slide":
+		return fmt.Sprintf("收束%s的核心信息，给出可复述的结论和后续行动建议。", topic)
+	default:
+		return fmt.Sprintf("围绕“%s”展开%s相关事实、解释和结论，支撑整套 PPT 的主线。", title, topic)
+	}
+}
+
+func recoveredComponents(topic, title, contentType string) []PlanComponent {
+	switch contentType {
+	case "title_slide":
+		return []PlanComponent{
+			{ID: "deck_title_1", Type: "deck_title", Text: topic},
+			{ID: "subheadline_1", Type: "subheadline", Text: fmt.Sprintf("从背景定位、代表事实、核心亮点和可感知价值四个层面，建立观众对%s的完整第一印象。", topic)},
+			{ID: "key_point_1", Type: "key_point", Title: "汇报主线", Body: fmt.Sprintf("本套 PPT 将避免停留在泛泛介绍，而是把%s放到具体场景中说明：先交代基本背景，再展开代表性事实与体验，最后形成可以复述的总结判断。", topic), Emphasis: "primary"},
+		}
+	case "agenda":
+		return []PlanComponent{
+			{ID: "toc_item_1", Type: "toc_item", Title: "背景定位", Body: fmt.Sprintf("先说明%s的基本坐标、主题范围和观众需要预先理解的背景信息。", topic)},
+			{ID: "toc_item_2", Type: "toc_item", Title: "核心事实", Body: fmt.Sprintf("围绕%s的代表性事实、地点、人物、机制或案例展开，避免只给抽象评价。", topic)},
+			{ID: "toc_item_3", Type: "toc_item", Title: "体验与价值", Body: fmt.Sprintf("把%s与真实体验、业务价值或学习启发连接起来，让内容更容易被听众带走。", topic)},
+			{ID: "toc_item_4", Type: "toc_item", Title: "总结建议", Body: "最后沉淀成清晰结论、行动建议或后续关注方向，形成完整闭环。"},
+		}
+	case "section_divider":
+		return []PlanComponent{
+			{ID: "section_marker_1", Type: "section_marker", Text: "01"},
+			{ID: "headline_1", Type: "headline", Text: title},
+			{ID: "subheadline_1", Type: "subheadline", Text: fmt.Sprintf("这一章聚焦%s中最需要先建立共识的部分，为后续事实、案例和结论展开提供清晰入口。", topic)},
+		}
+	case "card_grid":
+		return []PlanComponent{
+			{ID: "fact_card_1", Type: "fact_card", Title: "背景坐标", Body: fmt.Sprintf("先把%s放到地理、历史、产业或使用场景中定位，说明它为什么值得被单独介绍，以及观众应该从哪个角度理解它。", topic), Emphasis: "primary"},
+			{ID: "fact_card_2", Type: "fact_card", Title: "代表事实", Body: fmt.Sprintf("补充%s最有代表性的地点、事件、产品、机制或人物，用具体对象替代抽象形容，让页面具备可验证的信息密度。", topic)},
+			{ID: "insight_1", Type: "insight", Title: "关键洞察", Body: fmt.Sprintf("从这些事实中提炼出%s的核心价值：它不仅是一个被介绍的对象，还能说明某种趋势、方法或体验变化。", topic)},
+			{ID: "recommendation_1", Type: "recommendation", Title: "表达建议", Body: "在讲述时优先选择听众熟悉的入口，再逐步补充细节和判断，避免一开始堆砌名词导致理解成本过高。"},
+		}
+	case "two_column":
+		return []PlanComponent{
+			{ID: "fact_card_1", Type: "fact_card", Title: "认知维度", Body: fmt.Sprintf("从历史、地理、系统结构或业务背景解释%s为何形成今天的样貌，帮助观众建立稳定的理解框架。", topic), Emphasis: "primary"},
+			{ID: "insight_1", Type: "insight", Title: "判断维度", Body: fmt.Sprintf("进一步说明%s背后的关键变化、代表意义或方法启发，让页面不只是罗列事实，而是给出可以带走的判断。", topic)},
+			{ID: "fact_card_2", Type: "fact_card", Title: "体验维度", Body: fmt.Sprintf("从真实场景、典型路线、用户触点或工作过程说明%s如何被感知，增强内容的现场感和可讲述性。", topic)},
+			{ID: "recommendation_1", Type: "recommendation", Title: "行动维度", Body: "将前面的分析收束为下一步建议、参观路径、学习方法或汇报重点，使结论可以直接转化为行动。"},
+		}
+	case "summary_slide":
+		return []PlanComponent{
+			{ID: "key_point_1", Type: "key_point", Title: "核心认知", Body: fmt.Sprintf("%s的介绍需要同时覆盖背景、事实和价值三个层次，只有把它们串成主线，观众才容易形成稳定记忆。", topic), Emphasis: "primary"},
+			{ID: "insight_1", Type: "insight", Title: "主要收获", Body: fmt.Sprintf("通过前面的展开，可以看到%s不仅有可展示的表层亮点，也能反映更深层的历史脉络、系统逻辑或实践方法。", topic)},
+			{ID: "recommendation_1", Type: "recommendation", Title: "后续建议", Body: "正式汇报时可根据听众背景补充数据、图片或案例来源，把介绍型内容进一步升级为可讨论、可追问的交流材料。"},
+		}
+	default:
+		return []PlanComponent{
+			{ID: "key_point_1", Type: "key_point", Title: "基本背景", Body: fmt.Sprintf("先说明%s中“%s”的基本定位，包括它出现的场景、涉及的对象以及为什么需要单独展开。", topic, title), Emphasis: "primary"},
+			{ID: "fact_card_1", Type: "fact_card", Title: "具体事实", Body: fmt.Sprintf("补充与%s直接相关的时间、地点、人物、数据、流程或案例，让页面从概念说明变成具备证据支撑的信息页。", title)},
+			{ID: "insight_1", Type: "insight", Title: "解释判断", Body: fmt.Sprintf("说明这些事实对理解%s有什么帮助，并提炼出观众应该记住的一句话结论。", topic)},
+			{ID: "recommendation_1", Type: "recommendation", Title: "讲述落点", Body: "收束到一个可行动或可复述的表达落点，例如下一步关注方向、实践建议、体验路线或汇报中的承接问题。"},
+		}
 	}
 }
 
@@ -223,22 +295,22 @@ func recoveredElements(topic, title, contentType string) []ContentElement {
 		return nil
 	case "card_grid":
 		return []ContentElement{
-			{Type: "key_point_card", Title: "自然资源", Description: fmt.Sprintf("围绕%s的地理环境、景观资源和城市识别度展开，说明其成为主题核心的原因。", topic)},
-			{Type: "key_point_card", Title: "历史文化", Description: fmt.Sprintf("补充%s的历史沿革、地方文化与代表性符号，让内容从风景介绍延伸到城市气质。", topic)},
-			{Type: "key_point_card", Title: "体验场景", Description: "整理游客或听众最容易感知的场景，包括路线、活动、消费和公共服务等具体触点。"},
-			{Type: "key_point_card", Title: "总结价值", Description: fmt.Sprintf("提炼%s对外传播或学习汇报中的核心价值，形成可收束的演示结论。", topic)},
+			{Type: "key_point_card", Title: "自然资源", Description: fmt.Sprintf("围绕%s的地理环境、景观资源和城市识别度展开，说明其成为主题核心的原因，并补充观众可以直接感知的代表性地点或场景。", topic)},
+			{Type: "key_point_card", Title: "历史文化", Description: fmt.Sprintf("补充%s的历史沿革、地方文化与代表性符号，让内容从表层介绍延伸到更稳定的城市气质、组织记忆或价值脉络。", topic)},
+			{Type: "key_point_card", Title: "体验场景", Description: "整理游客、用户或听众最容易感知的具体触点，包括路线、活动、消费、服务或工作流，增强页面的现场感。"},
+			{Type: "key_point_card", Title: "总结价值", Description: fmt.Sprintf("提炼%s对外传播、学习汇报或业务交流中的核心价值，形成可被观众复述的结论，而不是只停留在亮点罗列。", topic)},
 		}
 	case "two_column":
 		return []ContentElement{
-			{Type: "point", Title: "认知维度", Items: []string{fmt.Sprintf("从历史、地理和产业视角解释%s为何值得介绍。", topic), fmt.Sprintf("用具体地点、时间和场景支撑%s的主题表达。", topic)}},
-			{Type: "point", Title: "体验维度", Items: []string{fmt.Sprintf("从游览、文化和生活体验角度组织%s的叙事材料。", topic), "把亮点转化为可被观众快速理解的行动建议。"}},
+			{Type: "point", Title: "认知维度", Items: []string{fmt.Sprintf("从历史、地理、产业或系统结构视角解释%s为何值得介绍，并指出它与听众当前场景的关系。", topic), fmt.Sprintf("用具体地点、时间、人物、流程或案例支撑%s的主题表达，减少泛泛而谈。", topic)}},
+			{Type: "point", Title: "体验维度", Items: []string{fmt.Sprintf("从游览、文化、产品使用或工作过程角度组织%s的叙事材料，让内容具备真实触点。", topic), "把亮点转化为可被观众快速理解的行动建议、观察路径或后续讨论问题。"}},
 		}
 	default:
 		return []ContentElement{
 			{Type: "bullet_list", Items: []string{
-				fmt.Sprintf("先说明%s的基本背景和定位，帮助观众快速建立主题坐标。", topic),
-				fmt.Sprintf("再补充%s的代表性事实、地点或案例，让内容避免停留在泛泛介绍。", topic),
-				fmt.Sprintf("最后提炼%s带来的观察结论或行动建议，形成完整收束。", topic),
+				fmt.Sprintf("先说明%s的基本背景和定位，帮助观众快速建立主题坐标，并明确这一页与整套 PPT 主线的关系。", topic),
+				fmt.Sprintf("再补充%s的代表性事实、地点、流程、人物或案例，让内容避免停留在泛泛介绍。", topic),
+				fmt.Sprintf("最后提炼%s带来的观察结论、行动建议或后续关注点，形成可以承接下一页的完整收束。", topic),
 			}},
 		}
 	}

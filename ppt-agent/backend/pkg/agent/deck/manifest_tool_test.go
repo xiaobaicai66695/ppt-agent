@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,49 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 	}
 	if got.Tasks[0].Status != StatusPending || got.Tasks[1].OutputFile != "2_agenda.pptx" {
 		t.Fatalf("runtime fields were not preserved: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "说明主流程优化")
+	args := `{
+		"mode":"initialize",
+		"theme":"ocean_soft",
+		"template":"tech-intro",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"为什么要优化主流程",
+			"content_type":"content_slide",
+			"description":"用一页说明优化必要性",
+			"output_file":"1_flow.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"主流程需要先规划再润色",
+				"components":[
+					{"id":"arg_1","type":"long_paragraph","title":"核心判断","body":"当前问题不是单页渲染能力不足，而是规划阶段没有给出足够完整的论述、证据和结论，导致后续只能渲染出泛化短句。"},
+					{"id":"steps_1","type":"ordered_list","title":"改造顺序","items":["先规划叙事结构","再审查并润色内容","最后按组件生成页面"]},
+					{"id":"list_1","type":"list_group","title":"验收点","items":["论点完整","列表清晰"]}
+				],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3},
+				"reviewer_status":{"planner_round":1,"locked":true,"issues":[]}
+			}
+		}]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := got.Tasks[0].ContentPlan.Components
+	if components[0].Type != "argument_block" || components[1].Type != "numbered_list" || components[2].Type != "list" {
+		t.Fatalf("component aliases not normalized: %#v", components)
 	}
 }
 
@@ -136,6 +180,72 @@ func TestManifestToolAcceptsTasksAsJSONArrayString(t *testing.T) {
 	}
 	if len(got.Tasks) != 2 || got.Tasks[0].Title != "封面" || got.Tasks[1].ContentType != "agenda" {
 		t.Fatalf("unexpected manifest: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "介绍延安")
+	args := `{
+		"mode":"initialize",
+		"theme":"government_red",
+		"template":"current-affairs",
+		"tasks":[
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
+			{"task_id":"2","page_index":2,"title":"红色历史","content_type":"content_slide","description":"介绍延安红色历史","output_file":"2_history.pptx","status":"pending"}
+		]
+	}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "介绍延安" {
+		t.Fatalf("title = %q, want query fallback", got.Title)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
+		t.Fatalf("configured manifest tool should write draft before commit, stat err=%v", err)
+	}
+	if _, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
+		t.Fatal(err)
+	}
+	finalManifest, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalManifest.Title != "介绍延安" || len(finalManifest.Tasks) != 2 {
+		t.Fatalf("commit did not publish draft: %#v", finalManifest)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.draft.json")); !os.IsNotExist(err) {
+		t.Fatalf("draft should be removed after commit, stat err=%v", err)
+	}
+}
+
+func TestManifestToolInfersInitializeTitleFromSlideTitle(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"theme":"sage_calm",
+		"template":"travel",
+		"tasks":[
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
+			{"task_id":"2","page_index":2,"title":"桂林山水格局","content_type":"content_slide","description":"介绍桂林山水格局","output_file":"2_landscape.pptx","status":"pending"}
+		]
+	}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "桂林山水格局" {
+		t.Fatalf("title = %q, want slide title fallback", got.Title)
 	}
 }
 
@@ -333,7 +443,7 @@ func TestRecommendedManifestNormalizesEveryTaskToSameBackgroundTheme(t *testing.
 	}
 }
 
-func TestManifestToolBackfillsLayoutVariantsAndUsesOneSectionVariant(t *testing.T) {
+func TestManifestToolBackfillsOnlyImplementedLayoutVariants(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newManifestTool(workDir)
 	args := `{
@@ -368,11 +478,11 @@ func TestManifestToolBackfillsLayoutVariantsAndUsesOneSectionVariant(t *testing.
 	if got.Tasks[1].LayoutVariant != "number_sidebar" {
 		t.Fatalf("default section variant = %q, want number_sidebar", got.Tasks[1].LayoutVariant)
 	}
-	if got.Tasks[3].LayoutVariant == "" || got.Tasks[4].LayoutVariant == "" || got.Tasks[3].LayoutVariant == got.Tasks[4].LayoutVariant {
-		t.Fatalf("image_text variants were not rotated: %q %q", got.Tasks[3].LayoutVariant, got.Tasks[4].LayoutVariant)
+	if got.Tasks[3].LayoutVariant != "" || got.Tasks[4].LayoutVariant != "" {
+		t.Fatalf("unsupported image_text variants should not be backfilled: %q %q", got.Tasks[3].LayoutVariant, got.Tasks[4].LayoutVariant)
 	}
-	if got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != got.Tasks[3].LayoutVariant {
-		t.Fatalf("visual_intent preferred variant not synced: %#v", got.Tasks[3].ContentPlan.VisualIntent)
+	if got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != "" {
+		t.Fatalf("unsupported image_text preferred variant should not be synced: %#v", got.Tasks[3].ContentPlan.VisualIntent)
 	}
 }
 
@@ -398,10 +508,10 @@ func TestManifestToolHonorsExplicitSectionVariantAcrossDeck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tasks[1].LayoutVariant != "quiet_title" || got.Tasks[3].LayoutVariant != "quiet_title" {
-		t.Fatalf("section variant should follow first explicit section variant: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[3].LayoutVariant)
+	if got.Tasks[1].LayoutVariant != "number_sidebar" || got.Tasks[3].LayoutVariant != "number_sidebar" {
+		t.Fatalf("unsupported section variants should normalize to implemented default: %q %q", got.Tasks[1].LayoutVariant, got.Tasks[3].LayoutVariant)
 	}
-	if got.Tasks[3].ContentPlan == nil || got.Tasks[3].ContentPlan.VisualIntent == nil || got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != "quiet_title" {
+	if got.Tasks[3].ContentPlan == nil || got.Tasks[3].ContentPlan.VisualIntent == nil || got.Tasks[3].ContentPlan.VisualIntent.PreferredVariant != "number_sidebar" {
 		t.Fatalf("section visual intent should match deck-wide section variant: %#v", got.Tasks[3].ContentPlan)
 	}
 }
@@ -452,6 +562,201 @@ func TestManifestToolAcceptsComponentPlanContract(t *testing.T) {
 	}
 	if plan.ReviewerStatus == nil || !plan.ReviewerStatus.Locked {
 		t.Fatalf("reviewer status not parsed: %#v", plan.ReviewerStatus)
+	}
+}
+
+func TestManifestToolAcceptsAtomicRenderingComponents(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"组件化架构页",
+		"theme":"charcoal_light",
+		"template":"generic",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"规划到渲染的执行链路",
+			"content_type":"deep_dive",
+			"description":"用架构模块和连接关系说明 PPT 生成链路",
+			"output_file":"1_architecture.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"Planner 只规划语义组件，Python generator 负责稳定排版。",
+				"slide_intent":"说明组件式生成链路",
+				"components":[
+					{"id":"tag_1","type":"tag","text":"准备阶段"},
+					{"id":"icon_1","type":"icon","icon":"LLM","title":"规划器"},
+					{"id":"divider_1","type":"divider","role":"区分规划与渲染"},
+					{"id":"shape_1","type":"shape","role":"强调组件计划已锁定"},
+					{"id":"box_1","type":"architecture_box","title":"Deck Planner","body":"负责整套叙事、章节和页面角色，不接触坐标、字号或颜色。","role":"规划层"},
+					{"id":"box_2","type":"architecture_box","title":"Component Planner","body":"把每页拆成 headline、卡片、指标、架构模块等可执行语义组件。","role":"规划层"},
+					{"id":"arrow_1","type":"arrow","relation":"输出 DeckSpec","target":"box_2"}
+				],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":7},
+				"reviewer_status":{"planner_round":1,"locked":true,"issues":[]}
+			}
+		}]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := got.Tasks[0].ContentPlan.Components
+	if len(components) != 7 || components[6].Target != "box_2" || components[1].Icon != "LLM" {
+		t.Fatalf("atomic components not preserved: %#v", components)
+	}
+}
+
+func TestManifestToolAcceptsUnifiedComponentContractTypes(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"统一组件契约",
+		"theme":"sage_calm",
+		"template":"generic",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"桂林山水甲天下",
+			"content_type":"title_slide",
+			"description":"封面页",
+			"output_file":"1_cover.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"介绍桂林",
+				"components":[
+					{"id":"deck_title_1","type":"deck_title","text":"桂林山水甲天下"},
+					{"id":"eyebrow_1","type":"eyebrow","text":"城市介绍"},
+					{"id":"fact_card_1","type":"fact_card","title":"山水名片","body":"喀斯特峰林与漓江构成城市识别"}
+				],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3}
+			}
+		},{
+			"task_id":"2",
+			"page_index":2,
+			"title":"区域路线",
+			"content_type":"region_map",
+			"description":"说明桂林周边路线",
+			"output_file":"2_region.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"区域关系",
+				"components":[
+					{"id":"map_1","type":"map","title":"市区-漓江-阳朔","body":"从市区向南串联漓江和阳朔"},
+					{"id":"image_1","type":"image","asset_query":"桂林 漓江 山水 背景图","caption":"漓江山水"},
+					{"id":"stat_1","type":"stat","title":"短途路线","text":"3天"},
+					{"id":"recommendation_1","type":"recommendation","title":"建议","body":"按市区、漓江、阳朔组织路线"}
+				],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3}
+			}
+		}]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].LayoutVariant != "" || got.Tasks[1].LayoutVariant != "" {
+		t.Fatalf("unsupported layout variants should not be backfilled: %q %q", got.Tasks[0].LayoutVariant, got.Tasks[1].LayoutVariant)
+	}
+}
+
+func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "中间草稿")
+	args := `{
+		"mode":"initialize",
+		"title":"中间草稿",
+		"theme":"ocean_soft",
+		"template":"generic",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"能力矩阵",
+			"content_type":"card_grid",
+			"description":"说明产品能力矩阵",
+			"output_file":"1_cards.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"摘要",
+				"components":[{"id":"absolute_box","type":"x_y_positioned_box","title":"非法组件"}],
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low"}
+			}
+		}]
+	}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatalf("draft write should defer hard validation: %v", err)
+	}
+	if _, err := ReadTasksDraftManifest(workDir); err != nil {
+		t.Fatal(err)
+	}
+	result, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`)
+	if err != nil {
+		t.Fatalf("commit validation failure should be returned to planner, got tool error %v", err)
+	}
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `unsupported type \"x_y_positioned_box\"`) {
+		t.Fatalf("commit should return structured validation failure, got %s", result)
+	}
+	if _, statErr := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid draft should not publish final tasks.json, stat err=%v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(workDir, "tasks.draft.json")); statErr != nil {
+		t.Fatalf("invalid draft should remain for planner retry, stat err=%v", statErr)
+	}
+}
+
+func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "章节页")
+	args := `{
+		"mode":"initialize",
+		"title":"章节页",
+		"theme":"ocean_soft",
+		"template":"generic",
+		"tasks":[{
+			"task_id":"1",
+			"page_index":1,
+			"title":"背景与目标",
+			"content_type":"section_divider",
+			"description":"章节分隔页",
+			"output_file":"1_section.pptx",
+			"status":"pending",
+			"content_plan":{
+				"summary":"进入背景章节",
+				"components":[
+					{"id":"section_title","type":"section_title","text":"背景与目标"},
+					{"id":"subtitle_1","type":"subtitle","text":"以数字化服务串联赛事体验和运营效率"}
+				],
+				"capacity_hint":{"estimated_density":"sparse","overflow_risk":"low","component_count":2}
+			}
+		}]
+	}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	componentType := got.Tasks[0].ContentPlan.Components[0].Type
+	if componentType != "headline" {
+		t.Fatalf("section_title alias = %q, want headline", componentType)
+	}
+	subtitleType := got.Tasks[0].ContentPlan.Components[1].Type
+	if subtitleType != "subheadline" {
+		t.Fatalf("subtitle alias = %q, want subheadline", subtitleType)
 	}
 }
 

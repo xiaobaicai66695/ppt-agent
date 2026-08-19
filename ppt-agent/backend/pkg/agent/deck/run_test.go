@@ -3,7 +3,37 @@ package deck
 import (
 	"testing"
 	"time"
+
+	"github.com/cloudwego/eino/schema"
 )
+
+func TestAssistantContentWithToolCallsIsEmittable(t *testing.T) {
+	msg := schema.AssistantMessage("Thought: 需要读取模板\nAction: read_file", []schema.ToolCall{{
+		ID:   "call-read-template",
+		Type: "function",
+		Function: schema.FunctionCall{
+			Name:      "read_file",
+			Arguments: `{"path":"/tmp/template.json"}`,
+		},
+	}})
+	if !isChunkEmittable(msg) {
+		t.Fatal("assistant content with tool_calls should remain visible")
+	}
+}
+
+func TestToolMessageContentIsNotEmittable(t *testing.T) {
+	msg := schema.ToolMessage(`{"ok":true}`, "call-read-template")
+	if isChunkEmittable(msg) {
+		t.Fatal("tool observation content should stay telemetry-only")
+	}
+}
+
+func TestVisibleMessageContentKeepsRawPlannerOutput(t *testing.T) {
+	raw := `{"thought":"规划 3 页延安介绍 PPT：\n1. 封面页 (title_slide)"}`
+	if got := visibleMessageContent(raw); got != raw {
+		t.Fatalf("visibleMessageContent() = %q, want raw output", got)
+	}
+}
 
 func TestStreamTimeoutDefaultsToEightMinutes(t *testing.T) {
 	t.Setenv("STREAM_TIMEOUT", "")

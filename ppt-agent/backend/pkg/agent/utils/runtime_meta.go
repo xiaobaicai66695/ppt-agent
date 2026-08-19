@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,15 @@ import (
 )
 
 const runtimeRecentEventLimit = 80
+const runtimeMetadataPreviewStringLimit = 500
+const runtimeMetadataRawStringLimit = 20000
+
+var runtimeSecretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)((?:authorization|cookie)\s*[:=]\s*)([^\r\n]+)`),
+	regexp.MustCompile(`(?i)("?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|password|passwd|secret|private[_-]?key)"?\s*[:=]\s*)("[^"]*"|[^,\s}]+)`),
+	regexp.MustCompile(`(?i)(bearer\s+)[a-z0-9._\-+/=]{12,}`),
+	regexp.MustCompile(`(?i)(sk-)[a-z0-9]{12,}`),
+}
 
 type RuntimeEventSink func(event RuntimeEvent)
 
@@ -879,9 +889,11 @@ func runtimeToolEventKind(name, suffix string) string {
 func compactToolMetadata(name, args, result string) map[string]any {
 	metadata := map[string]any{}
 	if strings.TrimSpace(args) != "" {
+		metadata["args"] = strings.TrimSpace(args)
 		metadata["args_preview"] = truncateString(strings.TrimSpace(args), 220)
 	}
 	if strings.TrimSpace(result) != "" {
+		metadata["result"] = strings.TrimSpace(result)
 		metadata["result_preview"] = truncateString(strings.TrimSpace(result), 220)
 	}
 	addToolObservationFields(metadata, name, args, result)
@@ -995,7 +1007,7 @@ func compactRuntimeMetadata(metadata map[string]any, depth int) map[string]any {
 		if key == "" || shouldDropRuntimeMetadataKey(key) {
 			continue
 		}
-		if compacted, ok := compactRuntimeValue(value, depth); ok {
+		if compacted, ok := compactRuntimeValue(key, value, depth); ok {
 			out[key] = compacted
 		}
 	}
@@ -1014,7 +1026,7 @@ func shouldDropRuntimeMetadataKey(key string) bool {
 	}
 }
 
-func compactRuntimeValue(value any, depth int) (any, bool) {
+func compactRuntimeValue(key string, value any, depth int) (any, bool) {
 	switch v := value.(type) {
 	case nil:
 		return nil, false
@@ -1023,7 +1035,11 @@ func compactRuntimeValue(value any, depth int) (any, bool) {
 		if v == "" {
 			return "", false
 		}
-		return truncateString(v, 500), true
+		limit := runtimeMetadataPreviewStringLimit
+		if isRawRuntimeMetadataKey(key) {
+			limit = runtimeMetadataRawStringLimit
+		}
+		return truncateString(redactRuntimeMetadataString(key, v), limit), true
 	case int, int64, float64, bool:
 		return v, true
 	case []string:
@@ -1035,7 +1051,7 @@ func compactRuntimeValue(value any, depth int) (any, bool) {
 		}
 		items := make([]any, 0, limit)
 		for i := 0; i < limit; i++ {
-			if item, ok := compactRuntimeValue(v[i], depth+1); ok {
+			if item, ok := compactRuntimeValue(key, v[i], depth+1); ok {
 				items = append(items, item)
 			}
 		}
@@ -1047,7 +1063,7 @@ func compactRuntimeValue(value any, depth int) (any, bool) {
 		}
 		items := make([]any, 0, limit)
 		for i := 0; i < limit; i++ {
-			if item, ok := compactRuntimeValue(v[i], depth+1); ok {
+			if item, ok := compactRuntimeValue(key, v[i], depth+1); ok {
 				items = append(items, item)
 			}
 		}
@@ -1062,6 +1078,36 @@ func compactRuntimeValue(value any, depth int) (any, bool) {
 		}
 		return truncateString(text, 240), true
 	}
+}
+
+func isRawRuntimeMetadataKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "args", "result", "content", "arguments", "assistant_output":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSensitiveRuntimeMetadataKey(key string) bool {
+	key = strings.ToLower(strings.TrimSpace(key))
+	for _, marker := range []string{"api_key", "apikey", "token", "authorization", "cookie", "password", "passwd", "secret", "private_key"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactRuntimeMetadataString(key, value string) string {
+	if isSensitiveRuntimeMetadataKey(key) {
+		return "[REDACTED]"
+	}
+	redacted := value
+	for _, pattern := range runtimeSecretPatterns {
+		redacted = pattern.ReplaceAllString(redacted, "${1}[REDACTED]")
+	}
+	return redacted
 }
 
 func (s RuntimeMetaSnapshot) MarshalJSONBytes() []byte {

@@ -34,6 +34,24 @@ func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
 	}
 }
 
+func TestTaskInfoToRecordDropsFourByteRunesForLegacyMySQL(t *testing.T) {
+	record := taskInfoToRecord(&TaskInfo{
+		ID:                  "task-emoji",
+		Query:               "介绍桂林📋",
+		ConversationContent: "中文保留，emoji移除✨",
+		FullAnswer:          "完成✅",
+		Error:               "错误🚫",
+		Files:               []string{"1_桂林.pptx"},
+	})
+
+	if strings.ContainsAny(record.Query+record.ConversationContent+record.FullAnswer+record.Error, "📋✨✅🚫") {
+		t.Fatalf("record still contains four-byte runes: %#v", record)
+	}
+	if !strings.Contains(record.ConversationContent, "中文保留") || !strings.Contains(record.Query, "介绍桂林") {
+		t.Fatalf("BMP text was not preserved: %#v", record)
+	}
+}
+
 func TestPersistConversationContentDoesNotHoldTaskLockDuringDatabaseRead(t *testing.T) {
 	oldList := listConversationMessagesForSummary
 	started := make(chan struct{})
@@ -96,6 +114,30 @@ func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
 	want := []string{"## 结果\n\n- 第一页完成\n- 第二页完成"}
 	if !reflect.DeepEqual(turns, want) {
 		t.Fatalf("turns = %#v, want %#v", turns, want)
+	}
+}
+
+func TestTaskStateTelemetryDoesNotEnterAssistantTurn(t *testing.T) {
+	var turns []string
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-telemetry", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+		assistantTurnFn: func(_, _ string, content string) {
+			turns = append(turns, content)
+		},
+	}
+
+	ts.Broadcast(SSERichEvent{Type: "system_step", Content: "【步骤1/3】模型意图分析"})
+	ts.Broadcast(SSERichEvent{Type: "progress", Phase: "planning", PhaseDetail: "正在写入 DeckSpec"})
+	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "read_file", ToolArgs: `{"path":"template.json"}`})
+	ts.Broadcast(SSERichEvent{Type: "answer_end"})
+	ts.Broadcast(SSERichEvent{Type: "complete"})
+
+	if got := strings.TrimSpace(ts.FullAnswer()); got != "" {
+		t.Fatalf("telemetry leaked into full answer: %q", got)
+	}
+	if len(turns) != 0 {
+		t.Fatalf("telemetry persisted as assistant turns: %#v", turns)
 	}
 }
 

@@ -1,12 +1,27 @@
 import unittest
 from pathlib import Path
 import sys
+import tempfile
+import zipfile
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT))
 
 from generators import render_task
+from generators import new_presentation, save_slide
+from generators.base import compact_source_text
+from generators.comparison_table_generator import generate as generate_comparison_table
+from generators.kpi_dashboard_generator import generate as generate_kpi_dashboard
+from generators.component_layout import (
+    choose_card_columns,
+    clamp_text,
+    component_accent,
+    component_body,
+    component_items,
+    component_label,
+    render_component_slide,
+)
 
 
 class RenderTaskComponentsTest(unittest.TestCase):
@@ -48,6 +63,237 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         self.assertEqual(render_task.chart_data(chart_plan, [])["labels"], ["Q1", "Q2"])
         self.assertEqual(render_task.kpis(kpi_plan, [])[0]["value"], "38%")
+
+    def test_accepted_params_preserves_components_for_keyword_generators(self):
+        def component_generator(*, title: str, **kwargs):
+            return title, kwargs
+
+        components = [{"type": "feature_card", "title": "山水游览"}]
+        params = {
+            "title": "桂林体验",
+            "components": components,
+            "layout_variant": "featured_card_plus_grid",
+        }
+
+        accepted = render_task.accepted_params(component_generator, params)
+
+        self.assertEqual(accepted, params)
+        self.assertIs(accepted["components"], components)
+
+    def test_component_layout_balances_title_cards_and_long_text(self):
+        self.assertEqual(choose_card_columns(3, 11.5, compact=False), 3)
+        self.assertEqual(clamp_text("桂林山水" * 20, 12), "桂林山水桂林山水桂林山…")
+        self.assertEqual(component_accent({"type": "recommendation"}), "accent")
+        self.assertEqual(component_accent({"type": "risk_item"}), "secondary")
+
+    def test_component_label_keeps_paragraph_body_separate(self):
+        item = {"type": "paragraph", "text": "桂林的吸引力不只来自单个景点，而是山、水、城共同组织出的连续体验。"}
+
+        self.assertEqual(component_label(item, 1), "要点")
+        self.assertTrue(component_body(item).startswith("桂林的吸引力"))
+
+    def test_argument_block_and_list_render_as_narrative_panel(self):
+        long_body = (
+            "规划质量不能只依赖页数和模板名称，因为真正影响观感的是每页是否有明确论点、证据和结论。"
+            "当页面只包含泛化短句时，生成器即使排版稳定，也只能产出看起来正确但内容空泛的页面。"
+            "argument_block 允许 Planner 把一段完整论述交给生成器，由生成器负责放入可读正文面板。"
+        )
+        items = ["先判断本页主张是否具体", "再补充证据、案例或比较口径", "最后给出可以上屏的结论"]
+        self.assertEqual(component_items({"type": "list", "items": items}), items)
+
+        prs = render_component_slide(
+            palette="ocean_soft",
+            title="规划为什么需要长论述",
+            content_type="content_slide",
+            components=[
+                {"type": "argument_block", "title": "核心判断", "body": long_body},
+                {"type": "list", "title": "检查顺序", "items": items},
+                {"type": "insight", "title": "结果", "body": "长论述和列表拆开后，页面内容更接近可交付的汇报页。"},
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "narrative-list.pptx"
+            save_slide(prs.slides[0], str(output))
+
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn("argument_block 允许 Planner", slide_xml)
+        self.assertIn("先判断本页主张是否具体", slide_xml)
+        self.assertIn("长论述和列表拆开后", slide_xml)
+
+    def test_argument_block_keeps_long_text_without_early_clamp(self):
+        long_body = (
+            "低空经济并不是单一飞行器赛道，而是由空域管理、飞行服务、制造供应链、运营平台和多行业应用共同构成的新型产业系统。"
+            "在政策侧，低空空域改革、试点城市建设和适航审定机制正在同步推进，决定了企业不能只看产品性能，还要判断航线审批、运行监管和应急保障是否成熟。"
+            "在商业侧，巡检、物流、文旅、应急和城市治理的需求强度不同，收入模型也从一次性设备销售转向持续运营、数据服务和场景托管。"
+            "因此，规划页需要保留完整论述，把概念边界、政策变量、产业链位置和落地条件串联起来，最终形成可执行的场景选择和投资判断。"
+        )
+
+        prs = render_component_slide(
+            palette="ocean_soft",
+            title="低空经济：概念、政策与产业定位",
+            content_type="image_text",
+            components=[
+                {"type": "image", "title": "城市低空场景", "body": "低空经济综合应用"},
+                {"type": "argument_block", "title": "核心判断", "body": long_body},
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "long-argument.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn("最终形成可执行的场景选择和投资判断", slide_xml)
+
+    def test_agenda_uses_manifest_titles_not_summary_blob(self):
+        manifest = {
+            "tasks": [
+                {"task_id": "1", "page_index": 1, "content_type": "title_slide", "title": "低空经济"},
+                {
+                    "task_id": "2",
+                    "page_index": 2,
+                    "content_type": "agenda",
+                    "title": "目录",
+                    "content_plan": {"summary": "第一章 概念与政策 / 第二章 市场规模 / 第三章 城市场景"},
+                },
+                {"task_id": "3", "page_index": 3, "content_type": "section_divider", "title": "概念、政策与产业定位"},
+                {"task_id": "4", "page_index": 4, "content_type": "section_divider", "title": "市场规模与增长动能"},
+                {"task_id": "5", "page_index": 5, "content_type": "section_divider", "title": "城市级应用场景全景"},
+            ]
+        }
+
+        params = render_task.build_params("agenda", manifest["tasks"][1], manifest)
+
+        self.assertEqual(params["items"], ["03  概念、政策与产业定位", "04  市场规模与增长动能", "05  城市级应用场景全景"])
+        self.assertNotIn("/", " ".join(params["items"]))
+        self.assertEqual([c["type"] for c in params["components"]], ["toc_item", "toc_item", "toc_item"])
+
+    def test_agenda_splits_legacy_slash_joined_toc_item(self):
+        prs = render_component_slide(
+            palette="ocean_soft",
+            title="目录",
+            content_type="agenda",
+            components=[
+                {
+                    "type": "toc_item",
+                    "title": "目录",
+                    "body": "第一章 概念与政策 / 第二章 市场规模 / 第三章 城市场景 / 第四章 商业化路径 / 第五章 风险与建议",
+                }
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "agenda.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn("第一章 概念与政策", slide_xml)
+        self.assertIn("第五章 风险与建议", slide_xml)
+        self.assertNotIn("围绕主题展开结构化说明", slide_xml)
+
+    def test_explicit_components_do_not_duplicate_legacy_kpis(self):
+        explicit = [
+            {
+                "type": "kpi_metric",
+                "title": "转化率",
+                "body": "较上月提升 6 个百分点",
+                "data": {"value": "38%", "label": "转化率", "delta": "+6pp", "baseline": "较上月"},
+            }
+        ]
+        prs = generate_kpi_dashboard(
+            title="经营指标",
+            kpis=[{"value": "38%", "label": "转化率", "baseline": "较上月"}],
+            components=explicit,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "kpi.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertEqual(slide_xml.count("38%"), 1)
+        self.assertEqual(slide_xml.count("转化率"), 1)
+
+    def test_comparison_table_renders_structured_table(self):
+        prs = generate_comparison_table(
+            title="方案选型",
+            headers=["旧维度", "旧方案"],
+            rows=[["旧数据", "旧结论"]],
+            recommendation="旧建议",
+            components=[
+                {
+                    "type": "comparison_matrix",
+                    "data": {
+                        "headers": ["维度", "方案A", "方案B"],
+                        "rows": [
+                            ["上线成本", "低，复用现有生成器", "高，需要重写渲染链路"],
+                            ["内容质量", "组件先行，便于审查", "页面先行，容易泛化"],
+                        ],
+                        "highlight_column": "方案A",
+                    },
+                },
+                {"type": "recommendation", "body": "优先选择方案A，先修复组件契约和表格渲染。"},
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "comparison.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn("方案A", slide_xml)
+        self.assertIn("上线成本", slide_xml)
+        self.assertIn("优先选择方案A", slide_xml)
+        self.assertNotIn("旧数据", slide_xml)
+        self.assertNotIn("围绕主题展开结构化说明", slide_xml)
+
+    def test_source_footer_compacts_long_urls(self):
+        source = "来源: 国家统计局 2025年数据 | https://www.stats.gov.cn/sj/zxfb/202502/t20250228_1958901.html；World Bank | https://data.worldbank.org/indicator/NY.GDP.MKTP.CD"
+        compact = compact_source_text(source, max_chars=60)
+
+        self.assertLessEqual(len(compact), 60)
+        self.assertIn("含2个链接", compact)
+        self.assertNotIn("https://", compact)
+
+    def test_atomic_components_render_without_coordinates(self):
+        prs = render_component_slide(
+            palette="charcoal_light",
+            title="组件式执行链路",
+            content_type="deep_dive",
+            components=[
+                {"type": "tag", "text": "准备阶段"},
+                {"type": "icon", "icon": "LLM", "title": "规划器"},
+                {"type": "divider", "role": "区分规划与渲染"},
+                {"type": "shape", "role": "强调组件计划已锁定"},
+                {"type": "architecture_box", "title": "Deck Planner", "body": "负责整套叙事、章节和页面角色，不接触坐标、字号或颜色。", "role": "规划层"},
+                {"type": "architecture_box", "title": "Component Planner", "body": "把每页拆成可执行语义组件，供生成器稳定消费。", "role": "规划层"},
+                {"type": "arrow", "relation": "输出 DeckSpec", "target": "box_2"},
+            ],
+        )
+
+        self.assertEqual(len(prs.slides), 1)
+
+    def test_saved_slide_includes_default_transition(self):
+        prs = new_presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "transition.pptx"
+            save_slide(slide, str(output))
+
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn("<p:transition", slide_xml)
+        self.assertIn("<p:fade", slide_xml)
+        self.assertIn('advClick="1"', slide_xml)
 
 
 if __name__ == "__main__":

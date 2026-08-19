@@ -30,6 +30,7 @@ from generators import (
 - `new_presentation(palette="xxx")` — 创建空演示文稿（不含幻灯片），每个 PPTX 文件必须单独创建
 - 每个 `generate_xxx` 函数必须传入 `prs` 参数（即使为 None，生成器内部会自动 new_presentation）
 - `save_slide(slide, output_path)` — 保存单个 slide 为 PPTX 文件（推荐用法）
+- `save_slide` / `save_presentation` 会在导出时为每页写入默认转页动画；默认是中速点击推进的 `fade`，可通过环境变量 `PPT_SLIDE_TRANSITION=none|fade|push|wipe|split|cover|uncover`、`PPT_SLIDE_TRANSITION_SPEED=slow|med|fast`、`PPT_SLIDE_TRANSITION_DIRECTION=l|r|u|d` 调整
 - **每个 PPTX 文件 = new_presentation + 一次 generate + save_slide**，禁止复用 prs 生成多个文件
 - **所有参数都用 keyword 形式传递**（如 `palette="ocean_soft"`），不要依赖位置参数
 - **只传函数接受的参数**，参数表是常用速查；如果本文档和源码不一致，以 `generators/<content_type>_generator.py` 的实际函数签名为准
@@ -42,16 +43,16 @@ from generators import (
 |------|------|--------|------|
 | `prs` | `Optional[Presentation]` | `None` | 已有的 Presentation 对象，为 None 时自动创建 |
 | `palette` | `str` | `"ocean_soft"` | 配色方案名，见 palettes.md |
-| `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
+| `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行；长 URL 会自动缩写为链接数量提示。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
 | `background` | `str` | `""` | 背景图片配置。可传主题名（如 `"party_government"`），也可传主题内具体图片引用（如 `"party_government/images/3.jpg"`）。留空则用纯色背景。可取值见 `background_templates/SKILL.md` |
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
-合法 `content_type` 只以 `slide_types.md` 和 `templates/single-page/*.json` 为准。`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 这类历史别名只能在旧任务生成时兼容映射，不能写入新的任务计划。
+合法 `content_type` 只以 `slide_types.md` 和 `templates/component_contracts.json` 为准；`templates/single-page/*.json` 继续作为前端和 loader 兼容元数据。`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 这类历史别名只能在旧任务生成时兼容映射，不能写入新的任务计划。
 
 ## 模板契约元数据
 
-`templates/single-page/*.json` 可以声明可选的 `contract` 对象，用于让规划器或 layout selector 在生成内容前判断“这个模板能装多少、适合什么、不适合什么”。该字段为附加元数据，不改变现有 generator 调用方式。
+`templates/component_contracts.json` 集中声明组件语义、渲染归类、容量与已实现变体。规划器优先读取这一份文件，减少多次 read_file；`templates/single-page/*.json` 可以声明可选的 `contract` 对象用于 UI 展示和兼容，不改变现有 generator 调用方式。
 
 推荐字段：
 
@@ -64,10 +65,26 @@ from generators import (
 | `contract.overflow_strategy` | string | 内容超量时的推荐动作，例如 `split_slide`、`reduce_series` |
 | `contract.background_policy` | string | 背景策略：`image_recommended`、`image_optional`、`clean_default` |
 | `contract.visual_primitives` | string[] | 首选视觉 primitives，例如 `local_icons`、`shapes`、`charts`、`cards` |
-| `variants` | object[] | 同一 `content_type` 下的版式候选，例如 `photo_full_bleed_center`、`left_photo`、`equal_grid`；这是规划/selector 元数据，不是 generator 参数 |
+| `variants` | object[] | 已有 generator 明确支持的 `layout_variant`。空数组表示 Planner 保持 `layout_variant` 为空，由组件布局引擎自适应。 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `layout_variant` 是组件布局倾向，而非固定坐标模板。所有生成器统一接受 `components` 兼容参数；旧参数会被包装成 `headline`、`feature_card`、`kpi_metric`、`chart`、`process_step` 等组件。同一套 PPT 的 `section_divider` 固定一种 `layout_variant`，内容页可按组件密度自适配。
+> 当前阶段 `content_plan.components` 是生成器优先消费的数据源；components 非空时，旧参数只作为兼容输入保留。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `number_sidebar`，其他内容页按组件密度自适配。
+
+## 组件规划入口
+
+规划时先读 `templates/component_contracts.json`。常用组件不是越多越好，而是让 Planner 用更贴近业务的语义表达页面内容：
+
+- 结构：`headline`、`subheadline`、`section_marker`、`toc_item`
+- 文本：`argument_block`、`paragraph`、`text_block`、`list`、`numbered_list`、`bullet_list`、`evidence_list`
+- 卡片：`feature_card`、`fact_card`、`key_point`、`insight`、`recommendation`、`risk_item`、`opportunity_item`、`case_snapshot`、`decision_item`
+- 数据：`kpi_metric`、`stat`、`number_callout`、`chart`、`table`、`comparison_matrix`
+- 流程：`timeline_node`、`process_step`、`milestone`
+- 视觉与来源：`image`、`map`、`diagram`、`quote_block`、`callout`、`source_note`
+- 原子渲染语义：`text_block`、`divider`、`icon`、`tag`、`shape`、`arrow`、`architecture_box`
+
+组件 JSON 禁止写坐标、字号、颜色、边距、透明度和卡片尺寸。生成器会把语义组件归入稳定渲染族，并按可用内容带自适应居中、裁剪超长文本或降低字号。需要深入论述时使用 `argument_block` 写完整段落；需要列举检查项、步骤或证据时使用 `list`、`numbered_list` 或 `evidence_list`，不要把所有内容拆成泛化短卡片。
+
+原子组件主要服务于 Python generator：Planner 可以声明“这里需要风险标签”“这些架构模块存在依赖关系”“两组信息需要分割”，但不能指定具体位置。`architecture_box` 会在深度说明、流程、内容页中优先组合为架构图；`arrow` 使用 `relation`、`target` 或 `text` 表达连接含义；`tag/icon/divider/shape` 作为辅助语义参与标题区、卡片区或架构区的自动布局。
 
 ## 背景与素材策略
 
@@ -133,7 +150,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | author | str | `"张三"` |
 | date | str | `"2025年1月"` |
 | kicker | str | `"产品发布 · 2025"` (可选，标题上方小标签) |
-| layout_variant | str | `"photo_full_bleed_center"`、`"photo_full_bleed_left"` 或 `"editorial_split"` |
+| layout_variant | str | 新规划保持为空；旧任务可传入但当前不触发独立渲染分支 |
 | background | str | `"artistic"` (可选，背景图片主题，为空则用纯色) |
 
 #### generate_section_divider — 章节分隔页
@@ -143,7 +160,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | title | str | `"技术背景"` |
 | subtitle | str | `"从感知机到大模型"` |
 | kicker | str | `"第三章"` (可选，编号上方小标签) |
-| layout_variant | str | `"number_sidebar"`、`"quiet_title"` 或 `"photo_band"`；默认左右结构 |
+| layout_variant | str | `"number_sidebar"`；当前实现的章节页结构 |
 | background | str | `"artistic"` (可选，背景图片主题) |
 
 #### generate_agenda — 目录页
@@ -174,7 +191,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | bullets | `List[str]` | `["感知机(1957)：首个线性分类器，仅能处理线性可分数据，并为后续神经网络研究提供了可训练范式", ...]` (4-6条，目标每条45-85字，可渲染上限100字) |
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
 | lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
-| layout_variant | str | `"classic_bullets"`、`"numbered_cards"` 或 `"side_panel"` |
+| layout_variant | str | 新规划保持为空；由 `content_plan.components` 和组件密度触发布局 |
 | background | str | `"minimalist_blue/images/1.jpg"` (可选，内容要点页可使用背景，生成器会加局部玻璃面板保证正文可读) |
 
 #### generate_quote_slide — 金句/引言页
@@ -190,7 +207,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 |------|------|------|
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
-| layout_variant | str | `"left_photo"`、`"right_photo"` 或 `"photo_strip"`；传入后优先于 layout |
+| layout_variant | str | 新规划保持为空；旧任务可传入但当前以组件和图片语义自适应 |
 | image_path | str | `"asset:photo_technology_device"`、注册 photo id 或本地文件路径；为空时自动选择语义默认图 |
 | header | str | `"核心技术突破"` |
 | paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
@@ -219,7 +236,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 | right_sections | `Dict[str, List[str]]` | 同上 (可选，多区块结构) |
 | left_items | `List[dict]` | `[{"title": "...", "desc": "...", "metric": "↑ 30%"}, ...]` (可选，逐项卡片模式) |
 | right_items | `List[dict]` | 同上 (可选，逐项卡片模式) |
-| layout_variant | str | `"balanced_cards"`、`"split_table"` 或 `"mirror_emphasis"` |
+| layout_variant | str | 新规划保持为空；对比结构优先用 `comparison_table` 或 `comparison_matrix` 组件表达 |
 | background | str | `"artistic"` (可选，背景图片主题) |
 
 > **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。
@@ -237,7 +254,7 @@ Icons8 图标保留 `Icons by Icons8` attribution；照片和 pattern 的来源�
 |------|------|------|
 | title | str | `"六大核心能力"` |
 | layout | str | `"2x2"` 或 `"2x3"` 或 `"3x2"` |
-| layout_variant | str | `"equal_grid"`、`"featured_card_plus_grid"` 或 `"masonry_cards"` |
+| layout_variant | str | 新规划保持为空；卡片数量和主次通过组件类型、`emphasis` 表达 |
 | cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话，并结合企业知识库提供可追溯答案..."}, ...]` ×4-6 (body 目标80-140字，可渲染上限160字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |

@@ -32,6 +32,8 @@
       ]
     },
     "capacity": {
+      "target_components_min": 3,
+      "target_components_max": 6,
       "max_components": 6,
       "target_density": "normal",
       "overflow_strategy": "split_slide_or_change_content_type"

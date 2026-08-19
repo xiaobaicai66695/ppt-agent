@@ -73,7 +73,7 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 	chatModel = agentutils.NewRuntimeStatusChatModel(chatModel, cfg.RuntimeMeta)
 
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
-	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline)
+	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline, cfg.Query)
 	searchTool := tools.NewSearchTool()
 
 	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{

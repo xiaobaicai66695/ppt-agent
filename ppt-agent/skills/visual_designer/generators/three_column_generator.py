@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 from pptx import Presentation
 
-from .component_layout import component, render_component_slide
+from .component_layout import component, prefer_explicit_components, render_component_slide
 
 
 def _clean_items(values):
@@ -19,5 +19,5 @@ def generate(prs: Optional[Presentation] = None, palette: str = "ocean_soft", so
     components = []
     for col in columns or []:
         components.append(component("feature_card", title=col.get("header") or col.get("title"), body=" / ".join(col.get("bullets") or col.get("items") or [])))
-    components.extend(kwargs.get("components") or [])
+    components = prefer_explicit_components(kwargs, components)
     return render_component_slide(prs, palette, source, title, "", kicker, components, "three_column", "", background)

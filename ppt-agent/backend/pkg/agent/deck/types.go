@@ -502,7 +502,12 @@ type PlanComponent struct {
 	Emphasis    string         `json:"emphasis,omitempty"`
 	Role        string         `json:"role,omitempty"`
 	Relation    string         `json:"relation,omitempty"`
+	Target      string         `json:"target,omitempty"`
+	Icon        string         `json:"icon,omitempty"`
 	Source      string         `json:"source,omitempty"`
+	AssetQuery  string         `json:"asset_query,omitempty"`
+	Caption     string         `json:"caption,omitempty"`
+	AssetID     string         `json:"asset_id,omitempty"`
 	Data        map[string]any `json:"data,omitempty"`
 	Description string         `json:"description,omitempty"`
 }
@@ -518,7 +523,12 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 		Emphasis    string          `json:"emphasis"`
 		Role        string          `json:"role"`
 		Relation    string          `json:"relation"`
+		Target      string          `json:"target"`
+		Icon        string          `json:"icon"`
 		Source      string          `json:"source"`
+		AssetQuery  string          `json:"asset_query"`
+		Caption     string          `json:"caption"`
+		AssetID     string          `json:"asset_id"`
 		Data        map[string]any  `json:"data"`
 		Description json.RawMessage `json:"description"`
 	}
@@ -547,7 +557,8 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 	*c = PlanComponent{
 		ID: raw.ID, Type: raw.Type, Title: raw.Title, Text: text, Body: body,
 		Items: items, Emphasis: raw.Emphasis, Role: raw.Role, Relation: raw.Relation,
-		Source: raw.Source, Data: raw.Data, Description: description,
+		Target: raw.Target, Icon: raw.Icon, Source: raw.Source, AssetQuery: raw.AssetQuery, Caption: raw.Caption, AssetID: raw.AssetID,
+		Data: raw.Data, Description: description,
 	}
 	return nil
 }

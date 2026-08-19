@@ -32,19 +32,26 @@ def main() -> int:
         new_presentation,
         save_slide,
         generate_agenda,
+        generate_brand_focus,
         generate_card_grid,
         generate_case_study,
         generate_chart_slide,
         generate_comparison_table,
         generate_content_slide,
+        generate_deep_dive,
+        generate_example_detail,
         generate_icon_grid,
+        generate_image_hero,
         generate_image_text,
+        generate_kanban,
         generate_kpi_dashboard,
         generate_process_flow,
         generate_quote_slide,
+        generate_region_map,
         generate_section_divider,
         generate_stat_slide,
         generate_summary_slide,
+        generate_swot_analysis,
         generate_three_column,
         generate_timeline,
         generate_title_slide,
@@ -64,19 +71,26 @@ def main() -> int:
 
     generators: dict[str, Callable[..., Any]] = {
         "agenda": generate_agenda,
+        "brand_focus": generate_brand_focus,
         "card_grid": generate_card_grid,
         "case_study": generate_case_study,
         "chart_slide": generate_chart_slide,
         "comparison_table": generate_comparison_table,
         "content_slide": generate_content_slide,
+        "deep_dive": generate_deep_dive,
+        "example_detail": generate_example_detail,
         "icon_grid": generate_icon_grid,
+        "image_hero": generate_image_hero,
         "image_text": generate_image_text,
+        "kanban": generate_kanban,
         "kpi_dashboard": generate_kpi_dashboard,
         "process_flow": generate_process_flow,
         "quote_slide": generate_quote_slide,
+        "region_map": generate_region_map,
         "section_divider": generate_section_divider,
         "stat_slide": generate_stat_slide,
         "summary_slide": generate_summary_slide,
+        "swot_analysis": generate_swot_analysis,
         "three_column": generate_three_column,
         "timeline": generate_timeline,
         "title_slide": generate_title_slide,
@@ -124,6 +138,8 @@ def normalize_content_type(content_type: str) -> str:
 
 def accepted_params(func: Callable[..., Any], params: dict[str, Any]) -> dict[str, Any]:
     sig = inspect.signature(func)
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values()):
+        return params
     return {k: v for k, v in params.items() if k in sig.parameters}
 
 
@@ -159,12 +175,12 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "components": components,
         }
     if content_type == "agenda":
-        agenda_items = items or [
-            f"{int(t.get('page_index') or i + 1):02d}  {t.get('title', '')}"
-            for i, t in enumerate(manifest.get("tasks", [])[1:7])
-            if t.get("title")
+        agenda_items = agenda_items_from_manifest(manifest, task) or items
+        agenda_components = [
+            {"type": "toc_item", "title": agenda_item_title(item), "body": item}
+            for item in agenda_items[:8]
         ]
-        return {"title": title, "items": agenda_items[:8], "kicker": "目录", "source": source, "components": components}
+        return {"title": title, "items": agenda_items[:8], "kicker": "目录", "source": source, "components": agenda_components or components}
     if content_type == "summary_slide":
         return {
             "title": title,
@@ -264,6 +280,16 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         params = generic_structured_params(content_type, title, summary, plan, items, cards, source)
         params["components"] = components
         return params
+    if content_type in {"image_hero", "example_detail", "deep_dive", "swot_analysis", "kanban", "brand_focus", "region_map"}:
+        return {
+            "title": title,
+            "subtitle": summary,
+            "lede": summary,
+            "kicker": plan.get("kicker", ""),
+            "layout_variant": layout_variant,
+            "source": source,
+            "components": components,
+        }
     return {
         "title": title,
         "section_header": first_card_title(cards) or "核心要点",
@@ -305,6 +331,43 @@ def extract_items(plan: dict[str, Any], task: dict[str, Any]) -> list[str]:
     if not result:
         result = split_text(plan.get("summary") or task.get("description") or task.get("title") or "")
     return [x for x in result if x][:8]
+
+
+def agenda_items_from_manifest(manifest: dict[str, Any], current_task: dict[str, Any]) -> list[str]:
+    tasks = sorted(
+        [t for t in manifest.get("tasks", []) if isinstance(t, dict)],
+        key=lambda item: safe_int(item.get("page_index"), 9999),
+    )
+    current_id = str(current_task.get("task_id"))
+
+    def usable(task: dict[str, Any]) -> bool:
+        if str(task.get("task_id")) == current_id:
+            return False
+        if not clean_text(task.get("title")):
+            return False
+        return normalize_content_type(task.get("content_type", "")) not in {"title_slide", "agenda"}
+
+    sections = [task for task in tasks if usable(task) and normalize_content_type(task.get("content_type", "")) == "section_divider"]
+    candidates = sections if len(sections) >= 2 else [task for task in tasks if usable(task)]
+    result: list[str] = []
+    for index, task in enumerate(candidates[:8], start=1):
+        page_index = safe_int(task.get("page_index"), index)
+        title = clean_text(task.get("title"))
+        result.append(f"{page_index:02d}  {title}")
+    return result
+
+
+def agenda_item_title(item: str) -> str:
+    text = clean_text(item)
+    text = re.sub(r"^\d+\s*", "", text).strip()
+    return text[:18] or "目录项"
+
+
+def safe_int(value: Any, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def extract_cards(plan: dict[str, Any], items: list[str]) -> list[dict[str, str]]:

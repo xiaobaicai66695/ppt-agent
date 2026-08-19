@@ -341,7 +341,7 @@ async function selectRuntimeEvent(evt: RuntimeEvent) {
   }
   selectedRuntimeEvent.value = evt;
   selectedRuntimeEventError.value = '';
-  if (!selectedId.value || evt.metadata_loaded || evt.metadata) return;
+  if (!selectedId.value || evt.metadata_loaded) return;
   const taskId = selectedId.value;
   const eventId = evt.id;
   selectedRuntimeEventLoading.value = true;
@@ -1405,10 +1405,11 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
       </template>
 
       <ConversationComposer
-        v-model="composerInput"
-        class="workspace-composer"
-        :mode="composerMode"
-        :task-title="selectedTask ? selectedTaskTitle : undefined"
+          v-model="composerInput"
+          class="workspace-composer"
+          :task-id="selectedTask ? selectedTask.id : undefined"
+          :mode="composerMode"
+          :task-title="selectedTask ? selectedTaskTitle : undefined"
         :messages="conversationMessages"
         :streaming-content="streamingAssistant"
         :history-loading="conversationLoading"

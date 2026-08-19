@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert, Wrench } from 'lucide-vue-next';
+import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
+import { fetchRuntimeEvent } from '../api';
 import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
 import { renderSafeMarkdown } from '../utils/workbench';
 import RuntimeJsonTree from './RuntimeJsonTree.vue';
 
 const props = defineProps<{
+  taskId?: string;
   modelValue: string;
   mode: 'create' | 'queue' | 'continue';
   taskTitle?: string;
@@ -26,6 +28,9 @@ const emit = defineEmits<{
 
 const thread = ref<HTMLElement | null>(null);
 const showHistory = ref(props.messages.length > 0);
+const traceDetailCache = ref<Record<number, RuntimeEvent>>({});
+const traceLoading = ref<Record<number, boolean>>({});
+const traceErrors = ref<Record<number, string>>({});
 
 const modeLabel = computed(() => ({
   create: '创建演示',
@@ -43,10 +48,10 @@ const placeholder = computed(() => props.mode === 'create'
 const traceEvents = computed(() => (props.runtimeEvents || [])
   .filter(event => {
     const kind = (event.kind || '').toLowerCase();
-    const name = (event.name || '').toLowerCase();
-    return kind.includes('llm') || kind.includes('tool') || name === 'search' || name === 'read_file' || name === 'update_tasks_manifest';
+    return kind.includes('llm') && !kind.includes('start');
   })
-  .slice(0, 10));
+  .sort((a, b) => a.id - b.id)
+  .slice(-30));
 
 watch(() => [props.messages.length, props.streamingContent], async () => {
   if (props.messages.length > 0 || props.streamingContent) showHistory.value = true;
@@ -63,32 +68,55 @@ function handleKeydown(event: KeyboardEvent) {
 
 function traceTitle(event: RuntimeEvent): string {
   const kind = (event.kind || '').toLowerCase();
-  const name = event.name || '';
-  if (name === 'search') return '搜索资料';
-  if (name === 'read_file') return '读取文件';
-  if (name === 'update_tasks_manifest') return '写入 DeckSpec';
-  if (kind.includes('llm')) return '模型思考';
-  if (kind.includes('tool')) return name ? `调用工具：${name}` : '调用工具';
-  return name || '执行步骤';
+  if (kind.includes('start')) return '模型输入上下文';
+  if (kind.includes('error')) return '模型调用错误';
+  return '模型显式思考';
 }
 
 function traceDetail(event: RuntimeEvent): string {
   if (event.detail) return event.detail;
   const metadata = event.metadata || {};
-  if (event.name === 'search' && typeof metadata.search_query === 'string') return `关键词：${metadata.search_query}`;
-  if (event.name === 'read_file' && typeof metadata.file_path === 'string') return `文件：${metadata.file_path}`;
-  if (event.name === 'update_tasks_manifest' && metadata.slide_count) return `规划 ${metadata.slide_count} 页`;
-  return '展开查看参数、结果或上下文摘要';
+  if (typeof metadata.reasoning_preview === 'string') return metadata.reasoning_preview;
+  if (typeof metadata.output_preview === 'string') return metadata.output_preview;
+  return '展开查看模型显式输出与上下文';
 }
 
 function compactMetadata(event: RuntimeEvent): Record<string, unknown> {
   const metadata = event.metadata || {};
-  const preferred = ['search_query', 'search_reason', 'source_urls', 'file_path', 'slide_count', 'template', 'theme', 'args', 'result', 'output_preview', 'reasoning_preview', 'error'];
+  const preferred = ['assistant_output', 'output_preview', 'reasoning_preview', 'history', 'assistant_message', 'error'];
   const compact: Record<string, unknown> = {};
   for (const key of preferred) {
     if (metadata[key] !== undefined && metadata[key] !== null && metadata[key] !== '') compact[key] = metadata[key];
   }
   return Object.keys(compact).length ? compact : metadata;
+}
+
+function traceEventWithDetails(event: RuntimeEvent): RuntimeEvent {
+  return traceDetailCache.value[event.id] ? { ...event, ...traceDetailCache.value[event.id], metadata_loaded: true } : event;
+}
+
+function traceEventMetadata(event: RuntimeEvent): Record<string, unknown> {
+  return compactMetadata(traceEventWithDetails(event));
+}
+
+async function handleTraceToggle(domEvent: Event, event: RuntimeEvent) {
+  const target = domEvent.currentTarget as HTMLDetailsElement | null;
+  if (!target?.open || !props.taskId || event.metadata_loaded || traceDetailCache.value[event.id] || traceLoading.value[event.id]) {
+    return;
+  }
+  traceLoading.value = { ...traceLoading.value, [event.id]: true };
+  traceErrors.value = { ...traceErrors.value, [event.id]: '' };
+  try {
+    const detail = await fetchRuntimeEvent(props.taskId, event.id);
+    traceDetailCache.value = { ...traceDetailCache.value, [event.id]: detail };
+  } catch (error) {
+    traceErrors.value = {
+      ...traceErrors.value,
+      [event.id]: error instanceof Error ? error.message : '事件详情加载失败',
+    };
+  } finally {
+    traceLoading.value = { ...traceLoading.value, [event.id]: false };
+  }
 }
 </script>
 
@@ -141,21 +169,24 @@ function compactMetadata(event: RuntimeEvent): Record<string, unknown> {
         <span class="message-role">AI</span>
         <div class="markdown-body" v-html="renderSafeMarkdown(streamingContent)"></div>
       </article>
-      <section v-if="traceEvents.length" class="agent-trace" aria-label="AI 过程与工具调用">
+      <section v-if="traceEvents.length" class="agent-trace" aria-label="AI 思维链">
         <div class="trace-head">
-          <Wrench :size="14" />
-          <span>AI 过程与工具调用</span>
+          <MessageSquareText :size="14" />
+          <span>AI 思维链</span>
         </div>
         <details
           v-for="event in traceEvents"
           :key="event.id"
           class="trace-event"
+          @toggle="handleTraceToggle($event, event)"
         >
           <summary>
             <span>{{ traceTitle(event) }}</span>
             <small>{{ traceDetail(event) }}</small>
           </summary>
-          <RuntimeJsonTree label="details" :value="compactMetadata(event)" />
+          <div v-if="traceLoading[event.id]" class="trace-loading">正在加载完整事件...</div>
+          <div v-else-if="traceErrors[event.id]" class="trace-loading error">{{ traceErrors[event.id] }}</div>
+          <RuntimeJsonTree v-else label="details" :value="traceEventMetadata(event)" :default-open="true" />
         </details>
       </section>
       <div v-if="historyLoading && messages.length > 0" class="history-refresh">
@@ -227,6 +258,8 @@ function compactMetadata(event: RuntimeEvent): Record<string, unknown> {
 .trace-event summary span { color: var(--text); font-weight: 750; }
 .trace-event summary small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
 .trace-event :deep(.json-tree) { padding: 8px 10px 10px; border-top: 1px solid var(--divider); background: var(--surface); }
+.trace-loading { padding: 8px 10px; border-top: 1px solid var(--divider); color: var(--text-muted); background: var(--surface); font-size: 11px; }
+.trace-loading.error { color: var(--danger); }
 .markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3), .markdown-body :deep(h4) { margin: 0 0 7px; font-size: 14px; line-height: 1.4; }
 .markdown-body :deep(p) { margin: 0 0 7px; }.markdown-body :deep(p:last-child) { margin-bottom: 0; }
 .markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 4px 0 8px; padding-left: 22px; }

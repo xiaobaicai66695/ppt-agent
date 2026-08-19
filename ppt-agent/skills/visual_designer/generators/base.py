@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from copy import deepcopy
 from typing import Literal
 
@@ -355,9 +356,117 @@ def add_frosted_glass_overlay(slide, palette: str = "ocean_soft"):
     return glass_palette
 
 
+def default_slide_transition() -> str:
+    """Return the default slide transition effect for exported PPTX files."""
+    return os.environ.get("PPT_SLIDE_TRANSITION", "fade").strip().lower()
+
+
+def default_slide_transition_speed() -> str:
+    """Return the default transition speed accepted by PowerPoint OOXML."""
+    speed = os.environ.get("PPT_SLIDE_TRANSITION_SPEED", "med").strip().lower()
+    return speed if speed in {"slow", "med", "fast"} else "med"
+
+
+def _transition_effect_xml(effect: str, direction: str):
+    effect = (effect or "fade").strip().lower()
+    direction = (direction or "l").strip().lower()
+    supported_dirs = {"l", "r", "u", "d", "lu", "ld", "ru", "rd"}
+    if direction not in supported_dirs:
+        direction = "l"
+
+    if effect == "none":
+        return None
+    if effect == "push":
+        node = etree.Element(qn("p:push"))
+        node.set("dir", direction)
+        return node
+    if effect == "wipe":
+        node = etree.Element(qn("p:wipe"))
+        node.set("dir", direction)
+        return node
+    if effect == "split":
+        node = etree.Element(qn("p:split"))
+        node.set("orient", os.environ.get("PPT_SLIDE_TRANSITION_ORIENT", "horz"))
+        node.set("dir", os.environ.get("PPT_SLIDE_TRANSITION_SPLIT_DIR", "out"))
+        return node
+    if effect == "cover":
+        node = etree.Element(qn("p:cover"))
+        node.set("dir", direction)
+        return node
+    if effect == "uncover":
+        node = etree.Element(qn("p:uncover"))
+        node.set("dir", direction)
+        return node
+    node = etree.Element(qn("p:fade"))
+    return node
+
+
+def apply_slide_transition(
+    slide,
+    effect: str | None = None,
+    speed: str | None = None,
+    direction: str | None = None,
+):
+    """Apply a PowerPoint slide transition using raw OOXML.
+
+    python-pptx does not expose slide transitions, so the generator writes the
+    minimal OOXML PowerPoint expects. The transition is intentionally modest by
+    default: click-to-advance fade at medium speed.
+    """
+    effect = default_slide_transition() if effect is None else effect.strip().lower()
+    if effect == "none":
+        remove_slide_transition(slide)
+        return
+
+    speed = default_slide_transition_speed() if speed is None else speed.strip().lower()
+    if speed not in {"slow", "med", "fast"}:
+        speed = "med"
+    direction = os.environ.get("PPT_SLIDE_TRANSITION_DIRECTION", "l") if direction is None else direction
+
+    transition = etree.Element(qn("p:transition"))
+    transition.set("spd", speed)
+    transition.set("advClick", "1")
+
+    effect_node = _transition_effect_xml(effect, direction)
+    if effect_node is not None:
+        transition.append(effect_node)
+
+    slide_el = slide._element
+    remove_slide_transition(slide)
+    insert_after = None
+    for tag in (qn("p:clrMapOvr"), qn("p:cSld")):
+        candidate = slide_el.find(tag)
+        if candidate is not None:
+            insert_after = candidate
+            break
+    if insert_after is None:
+        slide_el.insert(0, transition)
+        return
+    slide_el.insert(list(slide_el).index(insert_after) + 1, transition)
+
+
+def remove_slide_transition(slide):
+    """Remove existing slide transition XML if present."""
+    slide_el = slide._element
+    existing = slide_el.find(qn("p:transition"))
+    if existing is not None:
+        slide_el.remove(existing)
+
+
+def apply_presentation_transitions(prs: Presentation):
+    """Apply default transitions to every slide in a presentation."""
+    if default_slide_transition() == "none":
+        for slide in prs.slides:
+            remove_slide_transition(slide)
+        return
+    for slide in prs.slides:
+        apply_slide_transition(slide)
+
+
 def save_presentation(prs: Presentation, output_path: str):
     """Save the presentation to a file path."""
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    apply_presentation_transitions(prs)
     prs.save(output_path)
 
 
@@ -472,6 +581,28 @@ def save_slide(slide, output_path: str):
     save_presentation(new_prs, output_path)
 
 
+def compact_source_text(source: str, max_chars: int = 96) -> str:
+    """Return a footer-safe source label while avoiding long URL spillover."""
+    text = str(source or "").strip()
+    if not text:
+        return ""
+    urls = re.findall(r"https?://[^\s|；;，,）)]+", text)
+    without_urls = re.sub(r"https?://[^\s|；;，,）)]+", "", text)
+    parts = [
+        part.strip(" |；;，,")
+        for part in re.split(r"[|；;]+", without_urls)
+        if part.strip(" |；;，,")
+    ]
+    compact = "；".join(parts[:3]) if parts else "来源"
+    if urls and "链接" not in compact:
+        compact = f"{compact}（含{len(urls)}个链接）"
+    if not compact.startswith(("来源", "Source", "source")):
+        compact = f"来源: {compact}"
+    if len(compact) > max_chars:
+        compact = compact[: max_chars - 1].rstrip(" |；;，,") + "…"
+    return compact
+
+
 def add_source_line(
     slide,
     source: str,
@@ -480,6 +611,7 @@ def add_source_line(
     """在幻灯片底部渲染数据来源/参考信息。
     当 source 非空时，在底部添加灰色小字来源行。
     """
+    source = compact_source_text(source)
     if not source:
         return
 

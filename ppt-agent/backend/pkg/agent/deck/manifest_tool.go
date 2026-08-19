@@ -96,7 +96,12 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 					"emphasis":    {Type: schema.String},
 					"role":        {Type: schema.String},
 					"relation":    {Type: schema.String},
+					"target":      {Type: schema.String, Desc: "可选语义目标组件 ID，用于 arrow 等关系组件；不得写坐标"},
+					"icon":        {Type: schema.String, Desc: "可选图标语义或短 glyph，由生成器映射为实际图标"},
 					"source":      {Type: schema.String},
+					"asset_query": {Type: schema.String},
+					"caption":     {Type: schema.String},
+					"asset_id":    {Type: schema.String},
 					"description": {Type: schema.String},
 					"data":        {Type: schema.Object},
 				}},
@@ -107,14 +112,14 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 
 var manifestToolInfo = &schema.ToolInfo{
 	Name: "update_tasks_manifest",
-	Desc: "以结构化、原子方式初始化或批量更新 tasks.json。一次提交全部页面规划；不要使用 edit_file 修改 tasks.json。",
+	Desc: "以结构化、原子方式初始化或批量更新 DeckSpec。initialize/patch 只保存规划草稿，不做完整 DeckSpec 硬校验；审查完成后 commit 才校验并发布 tasks.json。不要使用 edit_file 修改 tasks.json。",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"mode":     {Type: schema.String, Required: true, Desc: "initialize 或 patch"},
-		"title":    {Type: schema.String, Desc: "PPT 标题，initialize 模式必填"},
+		"mode":     {Type: schema.String, Required: true, Desc: "initialize、patch 或 commit"},
+		"title":    {Type: schema.String, Desc: "PPT 标题；initialize 模式建议填写，缺省时系统会从任务上下文推断"},
 		"theme":    {Type: schema.String, Desc: "配色英文 ID"},
 		"template": {Type: schema.String, Desc: "整套模板英文 ID"},
 		"tasks": {
-			Type: schema.Array, Required: true, Desc: "要初始化或更新的页面列表",
+			Type: schema.Array, Desc: "要初始化或更新的页面列表；initialize/patch 必填，commit 可省略",
 			ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: manifestTaskPatchSchema},
 		},
 	}),
@@ -156,16 +161,23 @@ type manifestTool struct {
 	backgroundRoot        string
 	recommendedBackground string
 	normalizeBackgrounds  bool
+	fallbackTitle         string
+	draftFirst            bool
 }
 
 func newManifestTool(workDir string) tool.InvokableTool {
 	return &manifestTool{workDir: workDir}
 }
 
-func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline) tool.InvokableTool {
+func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline, query string) tool.InvokableTool {
 	t := &manifestTool{
 		workDir:        workDir,
 		backgroundRoot: filepath.Join(skillsDir, "visual_designer", "background_templates"),
+		fallbackTitle:  compactManifestTitle(query),
+		draftFirst:     true,
+	}
+	if outline != nil && strings.TrimSpace(outline.Title) != "" {
+		t.fallbackTitle = compactManifestTitle(outline.Title)
 	}
 	if outline != nil && outline.ContentMode == OutlineContentModeRecommendedStyle && outline.UseBackground {
 		t.normalizeBackgrounds = true
@@ -183,16 +195,40 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 	if err != nil {
 		return "", fmt.Errorf("invalid manifest tool input: %w", err)
 	}
-	if len(input.Tasks) == 0 {
-		return "", fmt.Errorf("tasks must not be empty")
-	}
 
 	var manifest *TasksManifest
+	target := "final"
 	switch strings.ToLower(strings.TrimSpace(input.Mode)) {
 	case "initialize":
-		manifest, err = initializeManifest(input)
+		if len(input.Tasks) == 0 {
+			return "", fmt.Errorf("tasks must not be empty")
+		}
+		manifest, err = t.initializeManifest(input)
+		target = t.writeTarget()
 	case "patch":
-		manifest, err = patchManifest(t.workDir, input)
+		if len(input.Tasks) == 0 {
+			return "", fmt.Errorf("tasks must not be empty")
+		}
+		manifest, err = t.patchManifest(input)
+		target = t.writeTarget()
+	case "commit":
+		committed, ok, commitErr := CommitTasksDraftManifestIfPresent(t.workDir)
+		if commitErr != nil {
+			result, _ := json.Marshal(map[string]any{
+				"ok": false, "mode": input.Mode, "target": "draft", "committed": false, "error": commitErr.Error(),
+			})
+			return string(result), nil
+		}
+		if !ok {
+			committed, commitErr = ReadTasksManifest(t.workDir)
+			if commitErr != nil {
+				return "", fmt.Errorf("no draft manifest to commit and final tasks.json is unavailable: %w", commitErr)
+			}
+		}
+		result, _ := json.Marshal(map[string]any{
+			"ok": true, "mode": input.Mode, "target": "final", "committed": ok, "total": len(committed.Tasks),
+		})
+		return string(result), nil
 	default:
 		err = fmt.Errorf("unsupported mode %q", input.Mode)
 	}
@@ -203,16 +239,36 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		return "", err
 	}
 	normalizeManifestLayoutVariants(manifest)
-	if err := validateManifestForWrite(manifest); err != nil {
-		return "", err
+	if !t.shouldDeferValidation() {
+		if err := validateManifestForWrite(manifest); err != nil {
+			return "", err
+		}
 	}
-	if err := WriteTasksManifest(t.workDir, manifest); err != nil {
+	if err := t.writeManifest(manifest); err != nil {
 		return "", err
 	}
 	result, _ := json.Marshal(map[string]any{
-		"ok": true, "mode": input.Mode, "updated": len(input.Tasks), "total": len(manifest.Tasks),
+		"ok": true, "mode": input.Mode, "target": target, "updated": len(input.Tasks), "total": len(manifest.Tasks),
 	})
 	return string(result), nil
+}
+
+func (t *manifestTool) writeTarget() string {
+	if t != nil && t.draftFirst {
+		return "draft"
+	}
+	return "final"
+}
+
+func (t *manifestTool) shouldDeferValidation() bool {
+	return t != nil && t.draftFirst
+}
+
+func (t *manifestTool) writeManifest(manifest *TasksManifest) error {
+	if t != nil && t.draftFirst {
+		return WriteTasksDraftManifest(t.workDir, manifest)
+	}
+	return WriteTasksManifest(t.workDir, manifest)
 }
 
 func (t *manifestTool) normalizeManifestBackgrounds(manifest *TasksManifest) error {
@@ -369,18 +425,8 @@ func preferredSectionDividerVariant(manifest *TasksManifest) string {
 
 func supportedLayoutVariants(contentType string) []string {
 	switch strings.TrimSpace(contentType) {
-	case "title_slide":
-		return []string{"photo_full_bleed_center", "photo_full_bleed_left", "editorial_split"}
 	case "section_divider":
-		return []string{"number_sidebar", "quiet_title", "photo_band"}
-	case "image_text":
-		return []string{"right_photo", "left_photo", "photo_strip"}
-	case "card_grid":
-		return []string{"equal_grid", "featured_card_plus_grid", "masonry_cards"}
-	case "content_slide":
-		return []string{"classic_bullets", "numbered_cards", "side_panel"}
-	case "two_column":
-		return []string{"balanced_cards", "split_table", "mirror_emphasis"}
+		return []string{"number_sidebar"}
 	default:
 		return nil
 	}
@@ -419,9 +465,13 @@ func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {
 	if err := json.Unmarshal([]byte(argumentsInJSON), &raw); err != nil {
 		return manifestToolInput{}, err
 	}
-	tasks, err := parseManifestTaskPatches(raw.Tasks)
-	if err != nil {
-		return manifestToolInput{}, err
+	var tasks []manifestTaskPatch
+	if len(raw.Tasks) > 0 && strings.TrimSpace(string(raw.Tasks)) != "" && string(raw.Tasks) != "null" {
+		var err error
+		tasks, err = parseManifestTaskPatches(raw.Tasks)
+		if err != nil {
+			return manifestToolInput{}, err
+		}
 	}
 	return manifestToolInput{
 		Mode: raw.Mode, Title: raw.Title, Theme: raw.Theme, Template: raw.Template, Tasks: tasks,
@@ -589,11 +639,15 @@ func isManifestTaskSeparator(char byte) bool {
 	}
 }
 
-func initializeManifest(input manifestToolInput) (*TasksManifest, error) {
-	if strings.TrimSpace(input.Title) == "" {
-		return nil, fmt.Errorf("title is required in initialize mode")
+func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManifest, error) {
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = inferManifestTitle(input.Tasks, t.fallbackTitle)
 	}
-	manifest := &TasksManifest{Title: input.Title, Theme: input.Theme, Template: input.Template}
+	if title == "" {
+		return nil, fmt.Errorf("title is required in initialize mode and could not be inferred from query or tasks")
+	}
+	manifest := &TasksManifest{Title: title, Theme: input.Theme, Template: input.Template}
 	seen := make(map[string]bool, len(input.Tasks))
 	for _, patch := range input.Tasks {
 		if patch.PageIndex == nil || patch.Title == nil || patch.ContentType == nil || patch.Description == nil || patch.OutputFile == nil {
@@ -634,11 +688,62 @@ func initializeManifest(input manifestToolInput) (*TasksManifest, error) {
 	return manifest, nil
 }
 
+func (t *manifestTool) patchManifest(input manifestToolInput) (*TasksManifest, error) {
+	if t != nil && t.draftFirst {
+		if manifest, err := ReadTasksDraftManifest(t.workDir); err == nil {
+			return applyManifestPatches(manifest, input)
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	return patchManifest(t.workDir, input)
+}
+
+func inferManifestTitle(tasks []manifestTaskPatch, fallback string) string {
+	if title := compactManifestTitle(fallback); title != "" {
+		return title
+	}
+	for _, task := range tasks {
+		if task.Title == nil {
+			continue
+		}
+		title := strings.TrimSpace(*task.Title)
+		if title == "" || title == "封面" || title == "目录" || strings.EqualFold(title, "cover") {
+			continue
+		}
+		return compactManifestTitle(title)
+	}
+	if len(tasks) > 0 && tasks[0].Title != nil {
+		return compactManifestTitle(*tasks[0].Title)
+	}
+	return ""
+}
+
+func compactManifestTitle(title string) string {
+	title = strings.TrimSpace(strings.ReplaceAll(title, "\r\n", "\n"))
+	if title == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(title, '\n'); idx >= 0 {
+		title = strings.TrimSpace(title[:idx])
+	}
+	const maxRunes = 80
+	runes := []rune(title)
+	if len(runes) > maxRunes {
+		title = strings.TrimSpace(string(runes[:maxRunes]))
+	}
+	return title
+}
+
 func patchManifest(workDir string, input manifestToolInput) (*TasksManifest, error) {
 	manifest, err := ReadTasksManifest(workDir)
 	if err != nil {
 		return nil, err
 	}
+	return applyManifestPatches(manifest, input)
+}
+
+func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*TasksManifest, error) {
 	if input.Title != "" {
 		manifest.Title = input.Title
 	}
@@ -670,6 +775,61 @@ func patchManifest(workDir string, input manifestToolInput) (*TasksManifest, err
 		applyManifestPatch(item, patch)
 	}
 	return manifest, nil
+}
+
+func ReadTasksDraftManifest(workDir string) (*TasksManifest, error) {
+	data, err := os.ReadFile(filepath.Join(workDir, "tasks.draft.json"))
+	if err != nil {
+		return nil, err
+	}
+	m := &TasksManifest{}
+	if err := m.UnmarshalJSON(data); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func WriteTasksDraftManifest(workDir string, manifest *TasksManifest) error {
+	tasksManifestMu.Lock()
+	defer tasksManifestMu.Unlock()
+
+	filePath := filepath.Join(workDir, "tasks.draft.json")
+	tmpPath := filePath + ".tmp"
+	content, err := manifest.MustMarshalJSON()
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(content, &TasksManifest{}); err != nil {
+		return fmt.Errorf("draft tasks manifest produced invalid JSON: %w", err)
+	}
+	if err := os.WriteFile(tmpPath, content, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+func CommitTasksDraftManifestIfPresent(workDir string) (*TasksManifest, bool, error) {
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if err := validateManifestForWrite(manifest); err != nil {
+		return nil, false, fmt.Errorf("draft DeckSpec is invalid: %w", err)
+	}
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
+		return nil, false, err
+	}
+	if err := os.Remove(filepath.Join(workDir, "tasks.draft.json")); err != nil && !os.IsNotExist(err) {
+		return nil, false, err
+	}
+	return manifest, true, nil
 }
 
 func applyManifestPatch(item *TaskItem, patch manifestTaskPatch) {
@@ -749,7 +909,9 @@ func validateContentPlanContract(item *TaskItem) error {
 		return nil
 	}
 	plan := item.ContentPlan
-	for _, component := range plan.Components {
+	for i := range plan.Components {
+		component := &plan.Components[i]
+		component.Type = normalizePlanComponentType(component.Type)
 		if !validPlanComponentType(component.Type) {
 			return fmt.Errorf("component %q has unsupported type %q", component.ID, component.Type)
 		}
@@ -757,7 +919,11 @@ func validateContentPlanContract(item *TaskItem) error {
 			return fmt.Errorf("component %q missing type", component.ID)
 		}
 		if strings.TrimSpace(component.Title) == "" && strings.TrimSpace(component.Text) == "" &&
-			strings.TrimSpace(component.Body) == "" && len(component.Items) == 0 && len(component.Data) == 0 {
+			strings.TrimSpace(component.Body) == "" && len(component.Items) == 0 && len(component.Data) == 0 &&
+			strings.TrimSpace(component.Role) == "" && strings.TrimSpace(component.Relation) == "" &&
+			strings.TrimSpace(component.Target) == "" && strings.TrimSpace(component.Icon) == "" &&
+			strings.TrimSpace(component.AssetQuery) == "" && strings.TrimSpace(component.Caption) == "" &&
+			strings.TrimSpace(component.AssetID) == "" {
 			return fmt.Errorf("component %q has no content", component.ID)
 		}
 	}
@@ -781,11 +947,38 @@ func validateContentPlanContract(item *TaskItem) error {
 	return nil
 }
 
+func normalizePlanComponentType(componentType string) string {
+	switch strings.TrimSpace(componentType) {
+	case "title", "heading", "main_title", "section_title":
+		return "headline"
+	case "subtitle", "sub_title", "section_subtitle":
+		return "subheadline"
+	case "section_number":
+		return "section_marker"
+	case "long_text", "long_paragraph", "argument", "narrative_block":
+		return "argument_block"
+	case "ordered_list", "steps":
+		return "numbered_list"
+	case "list_group":
+		return "list"
+	default:
+		return strings.TrimSpace(componentType)
+	}
+}
+
 func validPlanComponentType(componentType string) bool {
 	switch strings.TrimSpace(componentType) {
-	case "", "headline", "subheadline", "paragraph", "bullet_list", "key_point", "feature_card",
-		"kpi_metric", "chart", "timeline_node", "process_step", "image", "quote_block",
-		"callout", "section_marker", "table", "source_note":
+	case "",
+		"headline", "subheadline", "eyebrow", "deck_title", "section_marker",
+		"argument_block", "paragraph", "text_block", "bullet_list", "evidence_list", "list", "numbered_list",
+		"feature_card", "fact_card", "key_point", "insight", "recommendation",
+		"risk_item", "opportunity_item", "case_snapshot", "decision_item", "toc_item",
+		"kpi_metric", "stat", "number_callout",
+		"chart", "table", "comparison_matrix",
+		"timeline_node", "process_step", "milestone",
+		"image", "map", "diagram", "architecture_box",
+		"divider", "icon", "tag", "shape", "arrow",
+		"quote_block", "callout", "source_note":
 		return true
 	default:
 		return false
@@ -802,6 +995,12 @@ func maxComponentsForContentType(contentType string) int {
 		return 8
 	case "chart_slide", "comparison_table", "two_column", "image_text", "case_study", "example_detail", "deep_dive":
 		return 10
+	case "swot_analysis", "brand_focus", "region_map":
+		return 8
+	case "kanban":
+		return 10
+	case "image_hero":
+		return 4
 	default:
 		return 8
 	}

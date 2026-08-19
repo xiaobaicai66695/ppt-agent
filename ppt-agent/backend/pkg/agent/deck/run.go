@@ -298,6 +298,23 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	if plannerErr != nil {
 		return result, fmt.Errorf("Planner 执行失败: %w", plannerErr)
 	}
+	if committed, ok, commitErr := CommitTasksDraftManifestIfPresent(cfg.WorkDir); commitErr != nil {
+		return result, fmt.Errorf("提交 DeckSpec 草稿失败: %w", commitErr)
+	} else if ok {
+		manifest = committed
+		manifestErr = nil
+		onEvent(AgentEvent{
+			Type:    AgentEventAnswer,
+			Content: fmt.Sprintf("DeckSpec 规划草稿已通过硬校验并提交，共 %d 页，开始进入并发渲染。\n", len(manifest.Tasks)),
+		})
+		if cfg.RuntimeMeta != nil {
+			cfg.RuntimeMeta.RecordEvent("deck_spec_committed", "tasks.draft.json", "success", fmt.Sprintf("committed %d slides from draft", len(manifest.Tasks)), map[string]any{
+				"slide_count": len(manifest.Tasks),
+				"template":    manifest.Template,
+				"theme":       manifest.Theme,
+			})
+		}
+	}
 	if manifestErr != nil {
 		if os.IsNotExist(manifestErr) {
 			recovered, recoverErr := recoverMissingPlannerManifest(cfg, userQuery, lastMsg)
@@ -347,30 +364,24 @@ func makePrintCallback() AgentEventCallback {
 	}
 }
 
-// isChunkEmittable 如果流块应该作为 LLM 答案token发出则返回 true
-// 工具结果块（Role=="tool" 或 ToolCallID!="" 或 ToolCalls 非空）被跳过
-// 因为它们是执行元数据，不是 LLM 文本输出
+// isChunkEmittable 如果消息的 content 应作为 LLM 答案文本发出则返回 true。
+// 工具结果块（Role=="tool" 或 ToolCallID!=""）被跳过，因为它们是执行元数据。
+// assistant 消息即使同时携带 ToolCalls，也可能包含 ReAct 风格的 Thought/Action 文本；
+// 这部分 content 需要展示给用户，ToolCalls 本身仍通过 tool_call 事件单独转发。
 func isChunkEmittable(chunk *schema.Message) bool {
 	if chunk == nil {
 		return false
 	}
-	// 跳过工具结果块：这些是工具执行输出，不是 LLM 文本
 	if chunk.Role == schema.Tool {
 		return false
 	}
 	if chunk.ToolCallID != "" {
 		return false
 	}
-	if len(chunk.ToolCalls) > 0 {
-		return false
-	}
 	return true
 }
 
 func visibleMessageContent(content string) string {
-	if visible := plannerVisibleThought(content); visible != "" {
-		return visible
-	}
 	return content
 }
 
@@ -386,7 +397,7 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 			}
 			return
 		}
-		// 跳过工具结果块和工具调用意图块 — 它们不是 LLM 文本token
+		// 跳过工具结果块；assistant content 即使伴随 tool_calls 也应作为可见文本发送。
 		if !isChunkEmittable(chunk) {
 			continue
 		}

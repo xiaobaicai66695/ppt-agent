@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 from pptx import Presentation
 
-from .component_layout import component, render_component_slide
+from .component_layout import component, prefer_explicit_components, render_component_slide
 
 
 def _clean_items(values):
@@ -25,5 +25,5 @@ def generate(prs: Optional[Presentation] = None, palette: str = "ocean_soft", so
         components.append(component("bullet_list", items=bullets))
     for stat in highlight_stats or []:
         components.append(component("kpi_metric", title=stat.get("label", ""), text=stat.get("value", ""), data=stat))
-    components.extend(kwargs.get("components") or [])
+    components = prefer_explicit_components(kwargs, components)
     return render_component_slide(prs, palette, source, title, lede, kicker, components, "content_slide", layout_variant, background)

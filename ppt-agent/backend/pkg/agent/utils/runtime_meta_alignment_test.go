@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
@@ -130,8 +131,8 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 		t.Fatalf("events = %d, want 4: %#v", len(events), events)
 	}
 	toolEnd := events[1]
-	if toolEnd.Metadata["args"] != nil || toolEnd.Metadata["result"] != nil {
-		t.Fatalf("tool metadata should not persist full payloads: %#v", toolEnd.Metadata)
+	if toolEnd.Metadata["args"] != fullArgs || toolEnd.Metadata["result"] != fullResult {
+		t.Fatalf("tool metadata should persist auditable payloads: %#v", toolEnd.Metadata)
 	}
 	if toolEnd.Metadata["args_preview"] == "" || toolEnd.Metadata["result_preview"] == "" {
 		t.Fatalf("tool previews missing: %#v", toolEnd.Metadata)
@@ -143,7 +144,7 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	}
 	llmEnd := events[3]
 	if llmEnd.Metadata["output"] != nil {
-		t.Fatalf("llm full output should be omitted: %#v", llmEnd.Metadata)
+		t.Fatalf("opaque llm output should still be omitted: %#v", llmEnd.Metadata)
 	}
 	if llmEnd.Metadata["prompt_tokens"].(int64) != 11 || llmEnd.Metadata["total_tokens"].(int64) != 18 {
 		t.Fatalf("token detail missing: %#v", llmEnd.Metadata)
@@ -155,6 +156,28 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	}
 	if len(snapshot.RecentEvents) != 0 {
 		t.Fatalf("runtime report should not store full events on disk: %#v", snapshot.RecentEvents)
+	}
+}
+
+func TestRuntimeMetaRedactsSecretsFromRawPayloads(t *testing.T) {
+	meta := NewRuntimeMeta("task-redact", t.TempDir())
+	var events []RuntimeEvent
+	meta.SetEventSink(func(event RuntimeEvent) {
+		events = append(events, event)
+	})
+
+	meta.RecordToolEnd("call_api", `{"api_key":"sk-secretvalue123456","query":"ok"}`, "Authorization: Bearer abcdefghijklmnop")
+
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+	args := events[0].Metadata["args"].(string)
+	result := events[0].Metadata["result"].(string)
+	if strings.Contains(args, "sk-secretvalue") || strings.Contains(result, "abcdefghijklmnop") {
+		t.Fatalf("secret was not redacted: %#v", events[0].Metadata)
+	}
+	if !strings.Contains(args, "[REDACTED]") || !strings.Contains(result, "[REDACTED]") {
+		t.Fatalf("redaction marker missing: %#v", events[0].Metadata)
 	}
 }
 

@@ -34,7 +34,7 @@ import (
 	"text/template"
 )
 
-//go:embed planner/*.tmpl style/*.tmpl log_analysis/*.tmpl
+//go:embed planner/*.tmpl style/*.tmpl log_analysis/*.tmpl data/**/*.json
 var FS embed.FS
 
 // templateFuncs 提供给所有模板的函数映射。

@@ -239,7 +239,10 @@ func modelOutputDetails(output callbacks.CallbackOutput) map[string]any {
 	}
 	details := map[string]any{}
 	if mo.Message != nil {
-		details["output_preview"] = truncate(strings.TrimSpace(mo.Message.Content), 500)
+		if content := strings.TrimSpace(mo.Message.Content); content != "" {
+			details["assistant_output"] = content
+			details["output_preview"] = truncate(content, 500)
+		}
 		details["assistant_message"] = compactModelMessage(mo.Message, 0)
 		if reasoning := compactReasoningPreview(mo.Message); reasoning != "" {
 			details["reasoning_preview"] = reasoning
@@ -309,8 +312,9 @@ func compactModelMessage(message *schema.Message, index int) map[string]any {
 	}
 	if role == string(schema.System) {
 		result["content_preview"] = "[系统指令已隐藏，仅保留下方 system_preview 摘要]"
-	} else if content := truncate(strings.TrimSpace(message.Content), maxModelMessagePreviewLen); content != "" {
-		result["content_preview"] = content
+	} else if content := strings.TrimSpace(message.Content); content != "" {
+		result["content"] = content
+		result["content_preview"] = truncate(content, maxModelMessagePreviewLen)
 	}
 	if reasoning := compactReasoningPreview(message); reasoning != "" {
 		result["reasoning_preview"] = reasoning
@@ -335,11 +339,15 @@ func compactModelMessage(message *schema.Message, index int) map[string]any {
 }
 
 func compactToolCall(tc schema.ToolCall) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"id":                truncate(strings.TrimSpace(tc.ID), 120),
 		"name":              truncate(strings.TrimSpace(tc.Function.Name), 120),
 		"arguments_preview": truncate(strings.TrimSpace(tc.Function.Arguments), maxToolArgsLen),
 	}
+	if args := strings.TrimSpace(tc.Function.Arguments); args != "" {
+		result["arguments"] = args
+	}
+	return result
 }
 
 func compactReasoningPreview(message *schema.Message) string {

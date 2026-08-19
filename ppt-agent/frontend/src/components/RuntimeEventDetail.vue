@@ -16,6 +16,7 @@ const metadata = computed<RuntimeRecord>(() => (
     ? props.event.metadata as RuntimeRecord
     : {}
 ));
+const displayMetadata = computed<RuntimeRecord>(() => filterThoughtMetadata(metadata.value));
 
 const eventSummary = computed(() => {
   const { metadata: _metadata, metadata_loaded: _loaded, ...summary } = props.event;
@@ -80,14 +81,12 @@ const preservedRequirements = computed(() => (
 
 const historyMessages = computed(() => {
   const value = metadata.value.history;
-  return Array.isArray(value) ? value.filter(isRecord) : [];
+  return Array.isArray(value)
+    ? value.filter(isRecord).filter(message => String(message.role || '').toLowerCase() !== 'tool')
+    : [];
 });
 
 const reasoningPreview = computed(() => String(metadata.value.reasoning_preview || '').trim());
-const toolCallDetails = computed(() => {
-  const value = metadata.value.tool_call_details;
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-});
 const assistantMessage = computed(() => (
   isRecord(metadata.value.assistant_message) ? metadata.value.assistant_message : null
 ));
@@ -95,8 +94,7 @@ const assistantMessage = computed(() => (
 const readableSections = computed(() => {
   const sections: Array<{ key: string; title: string; value: unknown; mode: 'markdown' | 'json' }> = [];
   const candidates: Array<[string, string]> = [
-    ['args', '工具参数'],
-    ['result', '工具结果'],
+    ['assistant_output', '模型显式输出'],
     ['output_preview', '模型输出摘要'],
     ['error', '错误'],
   ];
@@ -144,21 +142,13 @@ function messageTitle(message: RuntimeRecord, index: number): string {
 }
 
 function messageContent(message: RuntimeRecord): string {
-  if (typeof message.content_preview === 'string') return normalizeNewlines(message.content_preview);
-  return typeof message.content === 'string' ? normalizeNewlines(message.content) : '';
+  if (typeof message.content === 'string') return normalizeNewlines(message.content);
+  return typeof message.content_preview === 'string' ? normalizeNewlines(message.content_preview) : '';
 }
 
 function messageExtra(message: RuntimeRecord): RuntimeRecord {
-  const { content: _content, content_preview: _contentPreview, role: _role, ...rest } = message;
-  return rest;
-}
-
-function toolCallTitle(call: RuntimeRecord, index: number): string {
-  return `#${index + 1} ${String(call.name || 'tool')}`;
-}
-
-function toolCallArguments(call: RuntimeRecord): string {
-  return normalizeNewlines(String(call.arguments_preview || '').trim());
+  const { content: _content, content_preview: _contentPreview, role: _role, tool_calls: _toolCalls, tool_call_details: _toolCallDetails, tool_call_id: _toolCallID, ...rest } = message;
+  return filterThoughtMetadata(rest);
 }
 
 function hasExtra(message: RuntimeRecord): boolean {
@@ -243,6 +233,33 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+function filterThoughtMetadata(record: RuntimeRecord): RuntimeRecord {
+  const hidden = new Set([
+    'args',
+    'args_preview',
+    'result',
+    'result_preview',
+    'tool_calls',
+    'tool_call_details',
+    'tool_call_id',
+    'tool_name',
+    'arguments',
+    'arguments_preview',
+  ]);
+  const out: RuntimeRecord = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (hidden.has(key)) continue;
+    if (Array.isArray(value)) {
+      out[key] = value.map(item => isRecord(item) ? filterThoughtMetadata(item) : item);
+    } else if (isRecord(value)) {
+      out[key] = filterThoughtMetadata(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 </script>
 
 <template>
@@ -293,8 +310,8 @@ function escapeHtml(value: string): string {
       <RuntimeJsonTree label="event" :value="eventSummary" :default-open="true" />
     </section>
 
-    <section v-if="reasoningPreview || toolCallDetails.length || assistantMessage" class="runtime-detail-section model-observation-section">
-      <h4>模型思考与调用</h4>
+    <section v-if="reasoningPreview || assistantMessage" class="runtime-detail-section model-observation-section">
+      <h4>模型思考</h4>
       <div v-if="reasoningPreview" class="model-reasoning">
         <strong>显式思考摘要</strong>
         <p>{{ reasoningPreview }}</p>
@@ -305,19 +322,6 @@ function escapeHtml(value: string): string {
           <span v-if="messageContent(assistantMessage)" class="history-preview">{{ messageContent(assistantMessage).slice(0, 90) }}</span>
         </summary>
         <div v-if="messageContent(assistantMessage)" class="markdown-body" v-html="renderMarkdown(messageContent(assistantMessage))"></div>
-      </details>
-      <details
-        v-for="(call, index) in toolCallDetails"
-        :key="index"
-        class="history-message"
-        :open="index < 2"
-      >
-        <summary>
-          <span class="history-role">{{ toolCallTitle(call, index) }}</span>
-          <span v-if="toolCallArguments(call)" class="history-preview">{{ toolCallArguments(call).slice(0, 90) }}</span>
-        </summary>
-        <div v-if="toolCallArguments(call)" class="markdown-body" v-html="renderMarkdown(toolCallArguments(call))"></div>
-        <RuntimeJsonTree label="工具调用元数据" :value="call" />
       </details>
     </section>
 
@@ -362,8 +366,8 @@ function escapeHtml(value: string): string {
     </section>
 
     <section class="runtime-detail-section metadata-section">
-      <h4>原始元数据</h4>
-      <RuntimeJsonTree label="metadata" :value="metadata" />
+      <h4>思维链元数据</h4>
+      <RuntimeJsonTree label="metadata" :value="displayMetadata" />
     </section>
   </div>
 </template>
