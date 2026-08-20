@@ -195,6 +195,14 @@ python skills/visual_designer/generators/generator.py
 
 ## 文档索引
 
+- [当前架构设计基线](./docs/architecture/ppt-agent-current-architecture-summary.md)
+
+- [架构与变更活动范围](./docs/architecture/ppt-agent-architecture-scope.md)
+
+- [智能体架构演进记录](./docs/architecture/ppt-agent-agent-architecture-evolution.md)
+
+- [组件级规划迁移](./docs/architecture/ppt-agent-component-plan-migration.md)
+
 - [长期迭代方向](./docs/issues/todo.md)
 
 - [已完成事项归档](./docs/issues/done.md)
