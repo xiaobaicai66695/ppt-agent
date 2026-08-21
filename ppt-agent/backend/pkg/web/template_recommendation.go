@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
+	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
@@ -57,7 +58,7 @@ func (s *Server) resolveTemplateSelectionWithIntent(query string, selection *Tem
 			Mode: "preset", Template: preset.Name, Theme: s.validThemeOrFallback(preset.DefaultPalette),
 			Reason: "使用用户在创作首页明确选择的模板",
 		}
-		if !containsAny(strings.ToLower(query), backgroundSuppressKeywords) {
+		if s.localBackgroundsEnabled() && !containsAny(strings.ToLower(query), backgroundSuppressKeywords) {
 			strategy.UseBackground = true
 			strategy.Background = s.defaultBackgroundTheme(query, preset)
 			if strategy.Background != "" {
@@ -132,7 +133,7 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 		Template:  preset.Name,
 		PageCount: normalizedRecommendedPageCount(intent),
 	}
-	if useBackground {
+	if useBackground && s.localBackgroundsEnabled() {
 		strategy.UseBackground = true
 		if intent != nil && s.isValidBackground(intent.SuggestedBackground) {
 			strategy.Background = strings.TrimSpace(intent.SuggestedBackground)
@@ -154,10 +155,16 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 		if palette := s.recommendedPaletteForBackground(strategy.Background); palette != "" {
 			strategy.Reason += "；配色优先匹配当前背景主题"
 		}
+	} else if useBackground && !s.localBackgroundsEnabled() {
+		strategy.Reason += "；专题背景图交由 Planner 使用图片搜索规划"
 	} else {
 		strategy.Reason += "；整套采用清晰的纯色信息表面"
 	}
 	return strategy, preset, nil
+}
+
+func (s *Server) localBackgroundsEnabled() bool {
+	return !unsplash.IsConfigured()
 }
 
 func normalizedRecommendedPageCount(intent *agentintent.ClassificationResult) int {

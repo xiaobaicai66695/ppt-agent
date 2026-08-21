@@ -74,13 +74,17 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 	chatModel = agentutils.NewRuntimeStatusChatModel(chatModel, cfg.RuntimeMeta)
 
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
-	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline, cfg.Query)
 	searchTool := tools.NewSearchTool()
-	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	var imageSearchClient *unsplash.Client
 	imageSearchAvailable := false
 	if client, err := unsplash.NewClientFromEnv(); err == nil {
-		plannerTools = append(plannerTools, tools.NewImageSearchTool(client, cfg.WorkDir))
+		imageSearchClient = client
 		imageSearchAvailable = true
+	}
+	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline, cfg.Query, imageSearchAvailable)
+	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	if imageSearchAvailable {
+		plannerTools = append(plannerTools, tools.NewImageSearchTool(imageSearchClient, cfg.WorkDir))
 	}
 
 	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{

@@ -189,6 +189,7 @@ python skills/visual_designer/generators/generator.py
 
 - 改动范围贴合用户请求和所属模块边界。
 - 优先复用现有 loader、generator、prompt 模板和 API 类型，不轻易引入新框架。
+- 当前项目处于快速验证 PPT 生成主流程的阶段，组件化 `content_plan.components`、Planner/Reviewer/Refiner 和确定性生成器是新基线；明显未被运行链路引用的旧 prompt/data 模板、过渡兼容逻辑和历史目录不要继续背负，确认无引用后应直接删除或标记废弃，避免让后续 Agent 误判为仍需维护的契约。
 - 质量问题要从“数据契约 -> 内容规划 -> 生成器容量 -> 渲染验证 -> 前端展示”整条链路定位，不要只做表面样式微调。
 - 行为变更应补充聚焦测试或最小可复现样例，尤其是任务状态、outline 生成、缩略图、QA 修复和文件下载。
 - 最终回复应列出修改文件和验证结果；若未运行验证，说明原因。

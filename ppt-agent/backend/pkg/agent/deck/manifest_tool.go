@@ -175,7 +175,7 @@ func newManifestTool(workDir string) tool.InvokableTool {
 	return &manifestTool{workDir: workDir}
 }
 
-func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline, query string) tool.InvokableTool {
+func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline, query string, imageSearchAvailable bool) tool.InvokableTool {
 	t := &manifestTool{
 		workDir:        workDir,
 		backgroundRoot: filepath.Join(skillsDir, "visual_designer", "background_templates"),
@@ -185,7 +185,7 @@ func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline, 
 	if outline != nil && strings.TrimSpace(outline.Title) != "" {
 		t.fallbackTitle = compactManifestTitle(outline.Title)
 	}
-	if outline != nil && outline.ContentMode == OutlineContentModeRecommendedStyle && outline.UseBackground {
+	if outline != nil && outline.ContentMode == OutlineContentModeRecommendedStyle && outline.UseBackground && !imageSearchAvailable {
 		t.normalizeBackgrounds = true
 		t.recommendedBackground = strings.TrimSpace(outline.RecommendedBackground)
 	}

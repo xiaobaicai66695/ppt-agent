@@ -59,7 +59,7 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 
 func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "说明主流程优化")
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "说明主流程优化", false)
 	args := `{
 		"mode":"initialize",
 		"theme":"ocean_soft",
@@ -185,7 +185,7 @@ func TestManifestToolAcceptsTasksAsJSONArrayString(t *testing.T) {
 
 func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "介绍延安")
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "介绍延安", false)
 	args := `{
 		"mode":"initialize",
 		"theme":"government_red",
@@ -443,6 +443,48 @@ func TestRecommendedManifestNormalizesEveryTaskToSameBackgroundTheme(t *testing.
 	}
 }
 
+func TestConfiguredManifestLeavesLocalBackgroundEmptyWhenImageSearchAvailable(t *testing.T) {
+	workDir := t.TempDir()
+	skillsDir := filepath.Join(t.TempDir(), "skills")
+	imageDir := filepath.Join(skillsDir, "visual_designer", "background_templates", "minimalist_blue", "images")
+	if err := os.MkdirAll(imageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(imageDir, "1.jpg"), []byte("image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outline := &TaskOutline{
+		ContentMode:           OutlineContentModeRecommendedStyle,
+		UseBackground:         true,
+		RecommendedBackground: "minimalist_blue",
+	}
+	tool := newConfiguredManifestTool(workDir, skillsDir, outline, "低空经济", true)
+	args := `{
+		"mode":"initialize",
+		"title":"低空经济",
+		"theme":"ocean_soft",
+		"template":"research-report",
+		"tasks":[
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"封面"}},
+			{"task_id":"2","page_index":2,"title":"场景","content_type":"image_text","description":"场景","background":"missing/images/1.jpg","output_file":"2_scene.pptx","status":"pending","content_plan":{"summary":"场景","visual_intent":{"asset_purpose":"background","asset_query":"aerial city skyline at blue hour, wide landscape, clean negative space"}}}
+		]
+	}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].Background != "" {
+		t.Fatalf("empty local background should stay empty when image search is available, got %q", got.Tasks[0].Background)
+	}
+	if got.Tasks[1].Background != "missing/images/1.jpg" {
+		t.Fatalf("draft should not be rewritten by local background fallback, got %q", got.Tasks[1].Background)
+	}
+}
+
 func TestManifestToolBackfillsOnlyImplementedLayoutVariants(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newManifestTool(workDir)
@@ -670,7 +712,7 @@ func TestManifestToolAcceptsUnifiedComponentContractTypes(t *testing.T) {
 
 func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "中间草稿")
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "中间草稿", false)
 	args := `{
 		"mode":"initialize",
 		"title":"中间草稿",
@@ -715,7 +757,7 @@ func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
 
 func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "章节页")
+	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "章节页", false)
 	args := `{
 		"mode":"initialize",
 		"title":"章节页",

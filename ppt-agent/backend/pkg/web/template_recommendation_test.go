@@ -13,6 +13,7 @@ import (
 
 func testTemplateServer(t *testing.T) *Server {
 	t.Helper()
+	t.Setenv("UNSPLASH_ACCESS_KEY", "")
 	projectRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +28,24 @@ func testTemplateServer(t *testing.T) *Server {
 		t.Fatal("template fixtures did not load")
 	}
 	return &Server{templateLoader: loader}
+}
+
+func TestPresetSelectionSkipsLocalBackgroundWhenImageSearchConfigured(t *testing.T) {
+	server := testTemplateServer(t)
+	t.Setenv("UNSPLASH_ACCESS_KEY", "test-access-key")
+
+	outline, strategy, err := server.resolveTemplateSelection("低空经济场景分析", &TemplateSelection{Mode: "preset", Template: "generic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strategy.UseBackground || strategy.Background != "" || outline.UseBackground || outline.RecommendedBackground != "" {
+		t.Fatalf("local background should be disabled when image search is configured: strategy=%#v outline=%#v", strategy, outline)
+	}
+	for _, slide := range outline.Slides {
+		if slide.Background != "" {
+			t.Fatalf("slide %q unexpectedly has local background %q", slide.ContentType, slide.Background)
+		}
+	}
 }
 
 func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {

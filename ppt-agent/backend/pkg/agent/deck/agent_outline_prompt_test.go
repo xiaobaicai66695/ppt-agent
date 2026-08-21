@@ -28,17 +28,29 @@ func TestMainAgentPromptDistinguishesTemplateScaffold(t *testing.T) {
 	}
 }
 
-func TestMainAgentPromptUsesOnlyRecommendedBackground(t *testing.T) {
+func TestMainAgentPromptUsesRecommendedBackgroundOnlyWithoutImageSearch(t *testing.T) {
 	outline := &TaskOutline{
 		Template: "personal-summary", Theme: "charcoal_light", Title: "主题",
 		ContentMode:   OutlineContentModeTemplateScaffold,
 		UseBackground: true, RecommendedBackground: "party_government",
 		Slides: []SlideOutline{{Title: "封面", ContentType: "title_slide"}},
 	}
-	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5)
+	prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5, false)
 	for _, want := range []string{"整套每页使用 `party_government` 同一主题目录", "`party_government` 是首选背景主题", "为每一页主动填写该主题或其具体图片引用", "`theme=charcoal_light` 是整套配色锚点"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
+		}
+	}
+
+	withImageSearch := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5, true)
+	for _, want := range []string{"外部图片搜索可用", "`task.background` 默认留空", "背景氛围图"} {
+		if !strings.Contains(withImageSearch, want) {
+			t.Fatalf("image-search prompt missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"整套每页使用 `party_government` 同一主题目录", "Planner 为每一页主动填写该主题或其具体图片引用"} {
+		if strings.Contains(withImageSearch, forbidden) {
+			t.Fatalf("image-search prompt should not force local background, found %q", forbidden)
 		}
 	}
 }
@@ -57,23 +69,18 @@ func TestMainAgentPromptPreservesPopulatedUserOutline(t *testing.T) {
 	}
 }
 
-func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrDiskVerification(t *testing.T) {
+func TestMainAgentPromptUsesMetadataCompletionWithoutQAOrPromptedReActLogs(t *testing.T) {
 	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", nil, "介绍大兴安岭", false, 5)
 	for _, want := range []string{
 		"页面完成状态由后端依据代码元数据维护",
 		"Planner commit 后立即结束",
 		"validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile_delivery",
-		"ReAct 风格可见规划日志",
-		"Thought:",
-		"Action:",
-		"Observation:",
-		"不是模型底层原生隐藏思维链",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"Fixer", "QA 质检", "bash(command=", "文件落地确认", "task | 并行调用 SlideExecutor"} {
+	for _, forbidden := range []string{"Fixer", "QA 质检", "bash(command=", "文件落地确认", "task | 并行调用 SlideExecutor", "ReAct 风格可见规划日志", "Thought:", "Action:", "Observation:"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("prompt still contains removed stage/tool %q", forbidden)
 		}
@@ -89,14 +96,18 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 		ContentMode: OutlineContentModeRecommendedStyle, SuggestedPageCount: 11,
 		UseBackground: true, RecommendedBackground: "snowy_mountain",
 	}
-	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5)
+	prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5, false)
 	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "推荐背景：`snowy_mountain`", "重新设计叙事结构"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
+	withImageSearch := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5, true)
+	if !strings.Contains(withImageSearch, "转换为外部背景图检索意图，不写本地 `background`") {
+		t.Fatal("image-search prompt should turn recommended background into external image planning")
+	}
 	for _, negativePatch := range []string{"不得", "不要"} {
-		if strings.Contains(prompt, negativePatch) {
+		if strings.Contains(prompt, negativePatch) || strings.Contains(withImageSearch, negativePatch) {
 			t.Fatalf("prompt should use positive decision contracts, found %q", negativePatch)
 		}
 	}
