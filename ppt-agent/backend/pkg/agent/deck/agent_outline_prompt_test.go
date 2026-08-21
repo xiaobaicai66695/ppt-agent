@@ -101,3 +101,17 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 		}
 	}
 }
+
+func TestMainAgentPromptAdvertisesImageSearchOnlyWhenConfigured(t *testing.T) {
+	withoutTool := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", nil, "生态报告", false, 5, false)
+	if strings.Contains(withoutTool, "search_images") {
+		t.Fatal("prompt should not advertise image search when the provider is unavailable")
+	}
+
+	withTool := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", nil, "生态报告", false, 5, true)
+	for _, want := range []string{"search_images", "download=true", "来源页和摄影师署名"} {
+		if !strings.Contains(withTool, want) {
+			t.Fatalf("configured prompt missing %q", want)
+		}
+	}
+}

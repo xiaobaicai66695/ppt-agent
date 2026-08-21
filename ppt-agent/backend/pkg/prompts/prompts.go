@@ -86,6 +86,7 @@ type TemplateData struct {
 	StyleContext           string           // 用户风格偏好上下文，用于个性化生成
 	EnableQA               bool             // 兼容字段；新链路默认不在 Planner 阶段做 QA
 	Concurrency            int              // 渲染 worker pool 并发数（来自路由决策，默认 5）
+	ImageSearchAvailable   bool             // 是否已配置 Unsplash 图片搜索工具
 	UserPreferences        *UserPreferences // 用户学习到的偏好，用于个性化生成
 }
 

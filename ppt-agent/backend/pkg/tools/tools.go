@@ -9,6 +9,8 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
+	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	imagetool "github.com/cloudwego/ppt-agent/pkg/tools/image"
 	"github.com/cloudwego/ppt-agent/pkg/tools/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/tools/qa"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
@@ -40,6 +42,13 @@ func SanitizeJSON(raw string) string {
 
 func NewSearchTool() tool.InvokableTool {
 	return search.NewSearchTool()
+}
+
+// NewImageSearchTool creates the optional Unsplash-backed image search tool.
+// The caller decides whether the provider is configured before registering it
+// with an Agent.
+func NewImageSearchTool(client *unsplash.Client, workDir string) tool.InvokableTool {
+	return imagetool.NewImageSearchTool(client, workDir)
 }
 
 func NewPPTTool(op commandline.Operator) tool.InvokableTool {

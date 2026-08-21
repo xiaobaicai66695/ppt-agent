@@ -164,7 +164,10 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
   "reviewer_status": {"planner_round": 1, "locked": true, "issues": []},
   "visual_intent": {
     "role": "cards",
-    "asset_query": "企业服务能力矩阵",
+    "asset_purpose": "background",
+    "asset_subject": "abstract enterprise network and connected nodes",
+    "asset_query": "abstract enterprise network, wide landscape, clean negative space",
+    "composition": "wide landscape, clean negative space on left",
     "image_position": "inline"
   }
 }
@@ -217,7 +220,7 @@ Planner 在写入 DeckSpec 前应做有上限的自检/润色，最多 3 轮。`
 
 通过质量门后设置 `reviewer_status.locked=true`。质量门包括：用户意图匹配、用户画像没有跨场景过拟合、页数合理、`content_type` 合法、组件合法、组件数量不超过模板容量、信息密度不空不爆、背景/模板/风格与主题一致。
 
-`visual_intent` 只表达“需要什么视觉语义”，不是绘图参数。
+`visual_intent` 只表达“需要什么视觉语义”，不是绘图参数。`asset_query` 必须是经过视觉转换、可以直接交给图片 provider 的最终检索词；`asset_subject` 记录视觉主体或语义代理；`composition` 记录宽幅、留白和主体位置等语义约束。
 
 可用 `role` 示例：
 
@@ -229,6 +232,21 @@ Planner 在写入 DeckSpec 前应做有上限的自检/润色，最多 3 轮。`
 - `map`
 - `process`
 - `timeline`
+
+### 无多模态模型的图片搜索
+
+Planner 当前无法查看候选图片，因此先把用户主题转换成可见的视觉主体，再调用 `search_images`：
+
+| `asset_purpose` | 适用内容 | 查询写法 |
+|-----------------|----------|----------|
+| `background` | 整页氛围和文字承载 | 视觉代理 + 环境/光线 + `wide landscape` + `clean negative space` |
+| `scene` | PPT 中插入的真实实例 | 具体对象 + 动作 + 环境/地点 |
+| `evidence` | 案例或事实的实景证据 | 行业/对象 + 可见设施或动作；事实来源仍写入 `source` |
+| `decorative` | 辅助装饰 | 主题实体 + 简洁构图 |
+
+例如“低空经济”不直接作为背景查询词：背景可转换为 `aerial city skyline at blue hour, wide landscape, clean negative space`，实景可转换为 `delivery drone flying above urban neighborhood`。如果主题没有精确对应的图片，使用相邻的环境、物体或动作作为视觉代理，并把代理主体写入 `asset_subject`；不要把抽象观点、政策名称或整句 PPT 标题直接提交给图片搜索。
+
+背景查询优先包含宽幅、低细节、留白、光线和环境，排除文字、Logo、信息图和拼贴语义；实景查询优先包含可见对象、动作和场景。`task.background` 仍只表示本地背景主题，外部图片用途写在 `visual_intent.asset_purpose`。
 
 ---
 
@@ -288,7 +306,7 @@ Planner 在写入 DeckSpec 前应做有上限的自检/润色，最多 3 轮。`
 - 默认优先使用本地素材库，不默认做外部图片搜索或生成式图片。
 - `assets/manifest.json` 登记图标、图片、纹理等素材元数据。
 - `background_templates/manifest.json` 登记主题背景。
-- `image_text` 如果用户提供真实本地路径或 `asset:<photo-id>`，可写入 `content_plan.visual_intent` 或生成参数中的 `image_path` 语义；不要编造路径。
+- `image_text` 如果用户提供真实本地路径或 `asset:<photo-id>`，可写入 `content_plan.visual_intent` 或生成参数中的 `image_path` 语义；外部搜索返回的本地路径需要同时保留来源页和署名。
 - 没有明确图片时，任务规划只需写 `asset_query` 或留空，具体默认图片由 generator 选择。
 - 禁止写“图片占位”“虚线框”“待替换图片”等半成品文案。
 

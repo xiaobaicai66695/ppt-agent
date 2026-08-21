@@ -32,6 +32,7 @@ import (
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
@@ -75,15 +76,21 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
 	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline, cfg.Query)
 	searchTool := tools.NewSearchTool()
+	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	imageSearchAvailable := false
+	if client, err := unsplash.NewClientFromEnv(); err == nil {
+		plannerTools = append(plannerTools, tools.NewImageSearchTool(client, cfg.WorkDir))
+		imageSearchAvailable = true
+	}
 
 	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "PPTPlanner",
 		Description: "PPT 规划代理，负责在意图分类后生成可执行的 DeckSpec/tasks.json，不负责渲染页面。",
 		Model:       chatModel,
-		Instruction: buildPlannerInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision)),
+		Instruction: buildPlannerInstructionWithImageSearch(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision), imageSearchAvailable),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: []tool.BaseTool{manifestTool, readFileTool, searchTool},
+				Tools: plannerTools,
 			},
 		},
 		MaxIterations: agentutils.EnvInt("PLANNER_MAX_ITERATIONS", 40),
@@ -112,6 +119,19 @@ func getConcurrency(route *agentintent.RoutingDecision) int {
 // query 提供用户原始主题描述用于内容生成。
 // concurrency 是后续渲染 worker pool 的并发提示。
 func buildPlannerInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int) string {
+	return buildPlannerInstructionWithImageSearch(
+		workDir,
+		skillsDir,
+		styleContext,
+		outline,
+		query,
+		enableQA,
+		concurrency,
+		unsplash.IsConfigured(),
+	)
+}
+
+func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int, imageSearchAvailable bool) string {
 	tmplDir := filepath.Join(skillsDir, "visual_designer", "templates", "full-decks")
 	tasksJSON := filepath.Join(workDir, "tasks.json")
 
@@ -179,6 +199,7 @@ func buildPlannerInstruction(workDir string, skillsDir string, styleContext stri
 		SkillsDir:              skillsDir,
 		EnableQA:               enableQA,
 		Concurrency:            concurrency,
+		ImageSearchAvailable:   imageSearchAvailable,
 	}
 
 	instruction, err := prompts.RenderPlanner("master_instruction", data)

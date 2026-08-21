@@ -76,7 +76,7 @@
     "timeline_node": "时间线节点，适合历史沿革、行程路线和阶段演进。",
     "process_step": "流程步骤，适合方法、执行链路和操作流程。",
     "milestone": "里程碑，适合项目节点或历史事件。",
-    "image": "图片语义，不写坐标；可写 title、body、caption、asset_query。",
+    "image": "图片语义，不写坐标；可写 title、body、caption、asset_purpose、asset_subject、asset_query、composition。",
     "map": "地图语义，用于城市、区域、路线或业务版图。",
     "diagram": "图解语义，用于架构、关系或机制说明。",
     "architecture_box": "架构模块框，表示系统、服务、数据层、Agent、工具或外部依赖；配合 arrow 表达关系。",
@@ -96,6 +96,12 @@
     "quote": ["quote_block"],
     "source": ["source_note"],
     "primitive": ["text_block", "divider", "icon", "tag", "shape", "arrow", "architecture_box"]
+  },
+  "asset_planning": {
+    "purpose_values": ["background", "scene", "evidence", "decorative"],
+    "background_query_rule": "Use a visual proxy, environment, light, wide landscape and clean negative space; avoid literal slide titles and layout words.",
+    "scene_query_rule": "Use a concrete visible subject, action and environment; use real-world imagery for examples and keep facts in source/search fields.",
+    "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints."
   },
   "content_types": {
     "title_slide": {

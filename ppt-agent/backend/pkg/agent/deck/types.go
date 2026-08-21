@@ -493,44 +493,50 @@ func decodeContentElementText(data json.RawMessage) (string, error) {
 // It deliberately excludes coordinates, font sizes, colors, margins and other
 // rendering details; those stay in Python generators and template contracts.
 type PlanComponent struct {
-	ID          string         `json:"id,omitempty"`
-	Type        string         `json:"type"`
-	Title       string         `json:"title,omitempty"`
-	Text        string         `json:"text,omitempty"`
-	Body        string         `json:"body,omitempty"`
-	Items       []string       `json:"items,omitempty"`
-	Emphasis    string         `json:"emphasis,omitempty"`
-	Role        string         `json:"role,omitempty"`
-	Relation    string         `json:"relation,omitempty"`
-	Target      string         `json:"target,omitempty"`
-	Icon        string         `json:"icon,omitempty"`
-	Source      string         `json:"source,omitempty"`
-	AssetQuery  string         `json:"asset_query,omitempty"`
-	Caption     string         `json:"caption,omitempty"`
-	AssetID     string         `json:"asset_id,omitempty"`
-	Data        map[string]any `json:"data,omitempty"`
-	Description string         `json:"description,omitempty"`
+	ID           string         `json:"id,omitempty"`
+	Type         string         `json:"type"`
+	Title        string         `json:"title,omitempty"`
+	Text         string         `json:"text,omitempty"`
+	Body         string         `json:"body,omitempty"`
+	Items        []string       `json:"items,omitempty"`
+	Emphasis     string         `json:"emphasis,omitempty"`
+	Role         string         `json:"role,omitempty"`
+	Relation     string         `json:"relation,omitempty"`
+	Target       string         `json:"target,omitempty"`
+	Icon         string         `json:"icon,omitempty"`
+	Source       string         `json:"source,omitempty"`
+	AssetPurpose string         `json:"asset_purpose,omitempty"`
+	AssetSubject string         `json:"asset_subject,omitempty"`
+	AssetQuery   string         `json:"asset_query,omitempty"`
+	Composition  string         `json:"composition,omitempty"`
+	Caption      string         `json:"caption,omitempty"`
+	AssetID      string         `json:"asset_id,omitempty"`
+	Data         map[string]any `json:"data,omitempty"`
+	Description  string         `json:"description,omitempty"`
 }
 
 func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		ID          string          `json:"id"`
-		Type        string          `json:"type"`
-		Title       string          `json:"title"`
-		Text        json.RawMessage `json:"text"`
-		Body        json.RawMessage `json:"body"`
-		Items       json.RawMessage `json:"items"`
-		Emphasis    string          `json:"emphasis"`
-		Role        string          `json:"role"`
-		Relation    string          `json:"relation"`
-		Target      string          `json:"target"`
-		Icon        string          `json:"icon"`
-		Source      string          `json:"source"`
-		AssetQuery  string          `json:"asset_query"`
-		Caption     string          `json:"caption"`
-		AssetID     string          `json:"asset_id"`
-		Data        map[string]any  `json:"data"`
-		Description json.RawMessage `json:"description"`
+		ID           string          `json:"id"`
+		Type         string          `json:"type"`
+		Title        string          `json:"title"`
+		Text         json.RawMessage `json:"text"`
+		Body         json.RawMessage `json:"body"`
+		Items        json.RawMessage `json:"items"`
+		Emphasis     string          `json:"emphasis"`
+		Role         string          `json:"role"`
+		Relation     string          `json:"relation"`
+		Target       string          `json:"target"`
+		Icon         string          `json:"icon"`
+		Source       string          `json:"source"`
+		AssetPurpose string          `json:"asset_purpose"`
+		AssetSubject string          `json:"asset_subject"`
+		AssetQuery   string          `json:"asset_query"`
+		Composition  string          `json:"composition"`
+		Caption      string          `json:"caption"`
+		AssetID      string          `json:"asset_id"`
+		Data         map[string]any  `json:"data"`
+		Description  json.RawMessage `json:"description"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -557,7 +563,10 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 	*c = PlanComponent{
 		ID: raw.ID, Type: raw.Type, Title: raw.Title, Text: text, Body: body,
 		Items: items, Emphasis: raw.Emphasis, Role: raw.Role, Relation: raw.Relation,
-		Target: raw.Target, Icon: raw.Icon, Source: raw.Source, AssetQuery: raw.AssetQuery, Caption: raw.Caption, AssetID: raw.AssetID,
+		Target: raw.Target, Icon: raw.Icon, Source: raw.Source,
+		AssetPurpose: raw.AssetPurpose, AssetSubject: raw.AssetSubject,
+		AssetQuery: raw.AssetQuery, Composition: raw.Composition,
+		Caption: raw.Caption, AssetID: raw.AssetID,
 		Data: raw.Data, Description: description,
 	}
 	return nil
@@ -626,7 +635,10 @@ type ContentPlan struct {
 // VisualIntent describes why a slide should use a given visual treatment.
 type VisualIntent struct {
 	Role             string `json:"role,omitempty"`              // hero_photo, supporting_photo, map, chart, icon, cards
-	AssetQuery       string `json:"asset_query,omitempty"`       // topic-aware image or asset search phrase
+	AssetPurpose     string `json:"asset_purpose,omitempty"`     // background, scene, evidence, decorative
+	AssetSubject     string `json:"asset_subject,omitempty"`     // visual subject or semantic proxy selected for search
+	AssetQuery       string `json:"asset_query,omitempty"`       // transformed provider-ready image search phrase
+	Composition      string `json:"composition,omitempty"`       // wide/close-up, negative space and subject placement
 	PreferredVariant string `json:"preferred_variant,omitempty"` // matching layout_variant when known
 	ImagePosition    string `json:"image_position,omitempty"`    // background, left, right, strip, inline
 	Caption          string `json:"caption,omitempty"`           // short caption or alt text
