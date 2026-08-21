@@ -4,6 +4,7 @@ import sys
 import tempfile
 import zipfile
 
+from PIL import Image
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT))
@@ -148,6 +149,60 @@ class RenderTaskComponentsTest(unittest.TestCase):
                 slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
 
         self.assertIn("最终形成可执行的场景选择和投资判断", slide_xml)
+
+    def test_image_text_embeds_local_image_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            image_path = tmp_path / "assets" / "images" / "scene.jpg"
+            image_path.parent.mkdir(parents=True)
+            Image.new("RGB", (640, 360), color=(40, 120, 180)).save(image_path)
+
+            prs = render_component_slide(
+                palette="ocean_soft",
+                title="城市低空配送场景",
+                content_type="image_text",
+                components=[
+                    {
+                        "type": "image",
+                        "title": "无人机配送",
+                        "local_path": str(image_path),
+                        "caption": "Photo by Demo on Unsplash",
+                    },
+                    {
+                        "type": "argument_block",
+                        "title": "场景判断",
+                        "body": "城市低空配送需要同时满足可见航线、稳定起降点和末端交付网络三个条件，图片用于呈现真实运行场景，文字负责解释业务约束和落地条件。",
+                    },
+                ],
+            )
+
+            output = tmp_path / "image-text.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                names = package.namelist()
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
+        self.assertIn("Photo by Demo on Unsplash", slide_xml)
+
+    def test_build_params_resolves_relative_image_path_to_work_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            task = {
+                "title": "图文页",
+                "content_type": "image_text",
+                "description": "说明",
+                "content_plan": {
+                    "summary": "说明",
+                    "components": [
+                        {"type": "image", "local_path": "assets/images/scene.jpg", "caption": "本地图片"},
+                    ],
+                },
+            }
+
+            params = render_task.build_params("image_text", task, {"tasks": [task]}, work_dir=work_dir)
+
+        self.assertEqual(params["components"][0]["local_path"], str((work_dir / "assets/images/scene.jpg").resolve()))
 
     def test_agenda_uses_manifest_titles_not_summary_blob(self):
         manifest = {

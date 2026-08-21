@@ -73,6 +73,11 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 					"image_position":    {Type: schema.String, Desc: "background、left、right、strip、inline 等"},
 					"caption":           {Type: schema.String, Desc: "图片说明或替代文本"},
 					"asset_id":          {Type: schema.String, Desc: "已选择的本地素材 ID"},
+					"local_path":        {Type: schema.String, Desc: "search_images(download=true) 返回的本地图片路径，位于当前任务工作目录内"},
+					"image_url":         {Type: schema.String, Desc: "图片 provider 返回的图片 URL，仅用于追踪和预览"},
+					"preview_url":       {Type: schema.String, Desc: "图片 provider 返回的缩略图 URL"},
+					"source_url":        {Type: schema.String, Desc: "图片来源页 URL，用于署名"},
+					"attribution":       {Type: schema.String, Desc: "图片署名，例如 Photo by ... on Unsplash"},
 				},
 			},
 			"elements": {
@@ -108,6 +113,11 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 					"composition":   {Type: schema.String, Desc: "图片构图和留白方向，使用语义描述"},
 					"caption":       {Type: schema.String},
 					"asset_id":      {Type: schema.String},
+					"local_path":    {Type: schema.String, Desc: "search_images(download=true) 返回的本地图片路径，位于当前任务工作目录内"},
+					"image_url":     {Type: schema.String, Desc: "图片 provider 返回的图片 URL，仅用于追踪和预览"},
+					"preview_url":   {Type: schema.String, Desc: "图片 provider 返回的缩略图 URL"},
+					"source_url":    {Type: schema.String, Desc: "图片来源页 URL，用于署名"},
+					"attribution":   {Type: schema.String, Desc: "图片署名，例如 Photo by ... on Unsplash"},
 					"description":   {Type: schema.String},
 					"data":          {Type: schema.Object},
 				}},
@@ -929,7 +939,9 @@ func validateContentPlanContract(item *TaskItem) error {
 			strings.TrimSpace(component.Role) == "" && strings.TrimSpace(component.Relation) == "" &&
 			strings.TrimSpace(component.Target) == "" && strings.TrimSpace(component.Icon) == "" &&
 			strings.TrimSpace(component.AssetQuery) == "" && strings.TrimSpace(component.Caption) == "" &&
-			strings.TrimSpace(component.AssetID) == "" {
+			strings.TrimSpace(component.AssetID) == "" && strings.TrimSpace(component.LocalPath) == "" &&
+			strings.TrimSpace(component.ImageURL) == "" && strings.TrimSpace(component.PreviewURL) == "" &&
+			strings.TrimSpace(component.SourceURL) == "" && strings.TrimSpace(component.Attribution) == "" {
 			return fmt.Errorf("component %q has no content", component.ID)
 		}
 	}

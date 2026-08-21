@@ -189,7 +189,7 @@ description: 指导 PPT Agent 规划 tasks.json、选择 content_type、填写 d
 | 组件类型 | 用途 |
 |----------|------|
 | `headline` / `subheadline` | 主论点和副标题 |
-| `argument_block` | 大段论述正文，承载本页核心判断、背景、证据串联和结论，适合 220-420 字完整解释 |
+| `argument_block` | 大段论述正文，承载本页核心判断、背景、证据串联和结论，适合 440-840 字完整解释 |
 | `paragraph` / `text_block` | 正文叙事或短文本块，适合与图片、卡片、图表组合 |
 | `list` / `numbered_list` / `bullet_list` / `evidence_list` | 通用列表、有序列表、要点列表或证据列表；`items` 为字符串数组 |
 | `divider` / `shape` | 语义分组、阶段边界或轻量区域强调；只表达“为什么分组”，不写几何参数 |
@@ -247,6 +247,8 @@ Planner 当前无法查看候选图片，因此先把用户主题转换成可见
 例如“低空经济”不直接作为背景查询词：背景可转换为 `aerial city skyline at blue hour, wide landscape, clean negative space`，实景可转换为 `delivery drone flying above urban neighborhood`。如果主题没有精确对应的图片，使用相邻的环境、物体或动作作为视觉代理，并把代理主体写入 `asset_subject`；不要把抽象观点、政策名称或整句 PPT 标题直接提交给图片搜索。
 
 背景查询优先包含宽幅、低细节、留白、光线和环境，排除文字、Logo、信息图和拼贴语义；实景查询优先包含可见对象、动作和场景。`task.background` 仍只表示本地背景主题，外部图片用途写在 `visual_intent.asset_purpose`。
+
+调用 `search_images(download=true)` 后，必须把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写回对应 `image` 组件或 `visual_intent`。生成器只消费这些资产字段，不从旧 `background` 字段猜测外部图片。
 
 ---
 

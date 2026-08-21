@@ -29,11 +29,30 @@ const sourceUrls = computed(() => (
     ? metadata.value.source_urls.map(item => String(item).trim()).filter(Boolean).slice(0, 5)
     : []
 ));
+const imageResults = computed(() => (
+  Array.isArray(metadata.value.image_results)
+    ? metadata.value.image_results.filter(isRecord).map((item, index) => ({
+      id: String(item.id || index + 1),
+      previewUrl: String(item.preview_url || item.image_url || '').trim(),
+      imageUrl: String(item.image_url || item.preview_url || '').trim(),
+      sourceUrl: String(item.source_url || '').trim(),
+      photographer: String(item.photographer || '').trim(),
+      attribution: String(item.attribution || '').trim(),
+      localPath: String(item.local_path || '').trim(),
+      description: String(item.description || '').trim(),
+      downloadError: String(item.download_error || '').trim(),
+    })).filter(item => item.previewUrl || item.sourceUrl || item.localPath)
+    : []
+));
 const observationRows = computed(() => {
   const rows: Array<{ label: string; value: string }> = [];
   const fields: Array<[string, string]> = [
     ['search_query', '搜索关键词'],
+    ['image_query', '图片关键词'],
     ['search_reason', '搜索原因'],
+    ['asset_purpose', '图片用途'],
+    ['asset_subject', '视觉主体'],
+    ['composition', '构图'],
     ['file_path', '读取文件'],
     ['slide_count', '规划页数'],
     ['template', '模板'],
@@ -285,6 +304,36 @@ function filterThoughtMetadata(record: RuntimeRecord): RuntimeRecord {
           rel="noreferrer"
         >{{ url }}</a>
       </div>
+    </section>
+
+    <section v-if="imageResults.length" class="runtime-detail-section image-preview-section">
+      <h4>图片工具预览</h4>
+      <details class="image-preview-detail" open>
+        <summary>
+          <span>已返回 {{ imageResults.length }} 张图片</span>
+          <small>展开查看缩略图、来源和本地保存路径</small>
+        </summary>
+        <div class="image-preview-grid">
+          <article v-for="item in imageResults" :key="item.id" class="image-preview-item">
+            <a
+              v-if="item.previewUrl"
+              class="image-thumb-link"
+              :href="item.sourceUrl || item.imageUrl || item.previewUrl"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img :src="item.previewUrl" :alt="item.description || item.attribution || '图片预览'" loading="lazy" />
+            </a>
+            <div v-else class="image-thumb-empty">无缩略图</div>
+            <div class="image-preview-copy">
+              <strong>{{ item.attribution || item.photographer || item.description || 'Unsplash image' }}</strong>
+              <small v-if="item.localPath">本地：{{ item.localPath }}</small>
+              <small v-if="item.downloadError" class="image-error">下载失败：{{ item.downloadError }}</small>
+              <a v-if="item.sourceUrl" :href="item.sourceUrl" target="_blank" rel="noreferrer">来源页面</a>
+            </div>
+          </article>
+        </div>
+      </details>
     </section>
 
     <section v-if="isCompression" class="runtime-detail-section compression-section">
@@ -542,6 +591,95 @@ function filterThoughtMetadata(record: RuntimeRecord): RuntimeRecord {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.image-preview-detail {
+  border-top: 1px solid var(--divider);
+}
+.image-preview-detail summary {
+  min-height: 36px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+}
+.image-preview-detail summary small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-preview-grid {
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: 10px;
+  border-top: 1px solid var(--divider);
+}
+.image-preview-item {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 96px auto;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 5px;
+  background: var(--surface);
+}
+.image-thumb-link,
+.image-thumb-empty {
+  min-width: 0;
+  display: block;
+  background: var(--surface-muted);
+}
+.image-thumb-link img {
+  width: 100%;
+  height: 96px;
+  display: block;
+  object-fit: cover;
+}
+.image-thumb-empty {
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.image-preview-copy {
+  min-width: 0;
+  padding: 8px;
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.image-preview-copy strong,
+.image-preview-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-preview-copy strong {
+  color: var(--text);
+  font-size: 10px;
+}
+.image-preview-copy small {
+  color: var(--text-muted);
+}
+.image-preview-copy a {
+  color: var(--info);
+  font-size: 10px;
+}
+.image-preview-copy .image-error {
+  color: var(--danger);
 }
 .compression-diff { display: grid; }
 .compression-head,

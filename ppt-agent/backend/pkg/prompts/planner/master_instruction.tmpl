@@ -109,7 +109,7 @@
 | three_column | 每栏 2-4 条，每条 55-90 字，三栏粒度一致 |
 | quote_slide | quote 45-130 字；attribution 8-32 字 |
 | summary_slide | 4-6 条，每条 65-105 字，附行动建议、判断依据或后续展望 |
-| image_text | paragraph 360-560 字，图片与文字共同讲述一个观点，并包含至少两个具体事实或场景 |
+| image_text | paragraph/argument_block 700-1100 字，图片与文字共同讲述一个观点，并包含至少两个具体事实或场景 |
 | chart_slide | 完整 `chart_type`、labels、datasets、结论和来源；至少 1 个 insight 解释图表含义 |
 | kpi_dashboard | 3-5 个 KPI；每项含 value、label、delta、baseline，并补充一句解释或业务含义 |
 | case_study | context/problem 各 90-150 字；solution 180-280 字；results 至少 2 个事实或指标 |
@@ -119,7 +119,7 @@
 组件文本最低密度：
 
 - `feature_card`、`fact_card`、`key_point`、`insight`、`recommendation`、`risk_item`、`opportunity_item` 的 `body` 通常写 70-130 字；重点卡可写到 160 字。
-- `argument_block` 用于承载本页最重要的一段完整论述，通常写 220-420 字，包含背景、判断、证据串联和结论；保持为单个完整论述组件。
+- `argument_block` 用于承载本页最重要的一段完整论述，通常写 440-840 字，包含背景、判断、证据串联和结论；保持为单个完整论述组件。
 - `paragraph` 和 `text_block` 通常写 120-220 字，适合承载一段完整解释。
 - `list`、`numbered_list`、`bullet_list.items` 每条 35-90 字；每条包含具体信息而非只有名词；有明确顺序时用 `numbered_list`，无顺序并列时用 `list` 或 `bullet_list`。
 - `process_step`、`timeline_node`、`milestone` 的 `body` 写 45-85 字，说明阶段动作、输入输出和结果。
@@ -166,7 +166,7 @@
 
 背景图优先写环境、光线、空间和留白，查询中排除 `text`、`logo`、`infographic`、`collage` 等版式词；实景图优先写可见对象、动作和环境，避免只写“行业趋势”“解决方案”“发展前景”等抽象名词。`asset_subject` 记录采用的视觉代理，`composition` 记录页面需要的留白方向，供 Reviewer 检查转换是否合理。
 
-顶层 `task.background` 仅表示本地 `background_templates` 主题或具体背景文件；图片搜索可用时默认留空。外部图片的 `asset_purpose=background` 表示页面组件使用的专题背景。只有明确需要外部图片时才调用搜索工具，并将 `download=true`、`local_path`、来源页和摄影师署名纳入后续素材记录。
+顶层 `task.background` 仅表示本地 `background_templates` 主题或具体背景文件；图片搜索可用时默认留空。外部图片的 `asset_purpose=background` 表示页面组件使用的专题背景。只有明确需要外部图片时才调用搜索工具，并将 `download=true` 返回的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写入对应 `image` 组件或 `visual_intent`，其中 `source_url` 和 `attribution` 用于保留来源页和摄影师署名。
 
 ## 计划审查与润色
 
@@ -191,7 +191,7 @@ validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile
 ```
 
 {{if .ImageSearchAvailable}}
-当前已注册 `search_images` 图片搜索工具。调用时同时填写 `asset_purpose`、`asset_subject`、转换后的 `query` 和 `composition`；需要进入生成链路的图片使用 `download=true`，并保留返回的 `local_path`、来源页和摄影师署名。图片搜索只负责视觉素材，不替代事实搜索；仅在页面有明确视觉角色时调用。
+当前已注册 `search_images` 图片搜索工具。调用时同时填写 `asset_purpose`、`asset_subject`、转换后的 `query` 和 `composition`；需要进入生成链路的图片使用 `download=true`，并把选中图片返回的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写回对应 `image` 组件或 `visual_intent`，保留来源页和摄影师署名。图片搜索只负责视觉素材，不替代事实搜索；仅在页面有明确视觉角色时调用。
 {{else}}
 当前未配置图片搜索工具。专题图片只在 `content_plan.visual_intent.asset_query` 中记录搜索意图，本地图片由后续素材规划能力提供。
 {{end}}

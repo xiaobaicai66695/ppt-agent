@@ -28,6 +28,7 @@ from .base import (
     set_image_background,
     set_slide_background,
 )
+from .asset_manager import add_cropped_photo, resolve_photo
 
 SLIDE_W = 13.333
 SLIDE_H = 7.5
@@ -310,9 +311,21 @@ def _render_workbench(
         _render_cards(slide, colors, palette, left, 0.65, top, 5.75, height, compact=True, align_y="middle")
         _render_cards(slide, colors, palette, right, 6.9, top, 5.75, height, compact=True, align_y="middle")
     elif content_type in {"image_text", "case_study", "example_detail", "deep_dive"}:
-        add_glass_panel(slide, 0.65, top, 4.0, height, palette=palette, fill_color="light_bg", alpha=210)
-        image_text = component_text(first_component(body_components, "image")) or "主题视觉"
-        add_text(slide, image_text, 0.95, top + 1.9, 3.4, 0.8, 22, True, "primary", "center", palette=palette, colors=colors)
+        image_component = first_component(body_components, "image")
+        image_path = component_image_path(image_component)
+        if image_path:
+            photo = resolve_photo(image_path=image_path, text=component_text(image_component))
+        else:
+            photo = None
+        if photo and add_cropped_photo(slide, photo, 0.65, top, 4.0, height):
+            caption = clean(image_component.get("caption") or image_component.get("attribution") or component_text(image_component))
+            if caption:
+                add_glass_panel(slide, 0.88, top + height - 0.82, 3.54, 0.52, palette=palette, fill_color="background", alpha=224)
+                add_text(slide, clamp_text(caption, text_limit(3.25, 0.26, 9.0, 0.95)), 1.02, top + height - 0.68, 3.25, 0.24, 9.0, color="secondary", palette=palette, colors=colors, min_font_size=7, max_font_size=False)
+        else:
+            add_glass_panel(slide, 0.65, top, 4.0, height, palette=palette, fill_color="light_bg", alpha=210)
+            image_text = component_text(image_component) or "主题视觉"
+            add_text(slide, image_text, 0.95, top + 1.9, 3.4, 0.8, 22, True, "primary", "center", palette=palette, colors=colors)
         text_side = [c for c in body_components if c.get("type") not in MEDIA_TYPES]
         if has_narrative_components(text_side):
             _render_narrative_panel(slide, colors, palette, text_side, 5.0, top, 7.6, height)
@@ -472,8 +485,8 @@ def _render_narrative_panel(
         body_h = max(1.4, bottom - y - reserved_for_lists - (0.24 if list_count else 0))
         body = clean(narrative.get("body") or narrative.get("text") or narrative.get("description")) or component_body(narrative)
         is_argument = narrative.get("type") == "argument_block"
-        body_font = 12.6 if is_argument else 13.0
-        body_ratio = 1.12 if is_argument else 1.0
+        body_font = 12.2 if is_argument else 12.8
+        body_ratio = 2.05 if is_argument else 1.72
         add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=9.5, max_font_size=False, vertical_alignment="top", line_spacing=0.98)
         y += body_h + 0.24
 
@@ -835,6 +848,12 @@ def _render_region_map(slide, colors: dict, palette: str, components: list[dict[
 
 
 def _render_image_hero(slide, colors: dict, palette: str, components: list[dict[str, Any]], left: float, top: float, width: float, height: float):
+    image_component = first_component(components, "image")
+    image_path = component_image_path(image_component)
+    photo = resolve_photo(image_path=image_path, text=component_text(image_component)) if image_path else None
+    if photo:
+        add_cropped_photo(slide, photo, left, top, width, height)
+        add_glass_panel(slide, left + width - 4.55, top + 0.35, 4.35, height - 0.7, palette=palette, fill_color="background", alpha=222)
     callouts = [c for c in components if c.get("type") in CARD_TYPES | METRIC_TYPES | LIST_TYPES]
     if not callouts:
         callouts = [component("callout", title="核心画面", body="用背景图建立主题氛围，再用少量文字完成判断")]
@@ -874,3 +893,20 @@ def first_value(components: list[dict[str, Any]], component_type: str) -> str:
 
 def component_text(item: dict[str, Any]) -> str:
     return clean(item.get("text") or item.get("body") or item.get("description") or item.get("title") or item.get("items"))
+
+
+def component_image_path(item: dict[str, Any]) -> str:
+    if not item:
+        return ""
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    return clean(
+        item.get("local_path")
+        or item.get("asset_path")
+        or item.get("image_path")
+        or item.get("path")
+        or data.get("local_path")
+        or data.get("asset_path")
+        or data.get("image_path")
+        or data.get("path")
+        or item.get("asset_id")
+    )

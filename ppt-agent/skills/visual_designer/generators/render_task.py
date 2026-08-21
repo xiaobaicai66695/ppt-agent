@@ -99,7 +99,7 @@ def main() -> int:
 
     prs = new_presentation(palette=palette)
     generator = generators.get(content_type, generate_content_slide)
-    params = build_params(content_type, task, manifest)
+    params = build_params(content_type, task, manifest, work_dir=work_dir)
     params.update({"prs": prs, "palette": palette, "background": background})
     params = accepted_params(generator, params)
     generated = generator(**params)
@@ -143,14 +143,14 @@ def accepted_params(func: Callable[..., Any], params: dict[str, Any]) -> dict[st
     return {k: v for k, v in params.items() if k in sig.parameters}
 
 
-def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, Any], work_dir: Path | None = None) -> dict[str, Any]:
     plan = task.get("content_plan") or {}
     title = task.get("title") or plan.get("summary") or "页面"
     summary = plan.get("summary") or plan.get("slide_intent") or task.get("description") or title
     source = extract_source(plan)
     items = extract_items(plan, task)
     cards = extract_cards(plan, items)
-    components = semantic_components(plan)
+    components = semantic_components(plan, work_dir=work_dir)
     layout_variant = task.get("layout_variant") or nested_get(plan, "visual_intent", "preferred_variant") or ""
 
     if content_type == "title_slide":
@@ -396,7 +396,7 @@ def extract_cards(plan: dict[str, Any], items: list[str]) -> list[dict[str, str]
     return cards[:6] or [{"header": "核心要点", "body": plan.get("summary", "围绕主题展开分析"), "icon": ""}]
 
 
-def semantic_components(plan: dict[str, Any], types: set[str] | None = None) -> list[dict[str, Any]]:
+def semantic_components(plan: dict[str, Any], types: set[str] | None = None, work_dir: Path | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for component in plan.get("components") or []:
         if not isinstance(component, dict):
@@ -406,8 +406,60 @@ def semantic_components(plan: dict[str, Any], types: set[str] | None = None) -> 
             continue
         normalized = dict(component)
         normalized["type"] = component_type
+        normalize_component_asset_paths(normalized, work_dir)
         result.append(normalized)
+    visual_intent = plan.get("visual_intent") if isinstance(plan.get("visual_intent"), dict) else {}
+    image_component = visual_intent_to_image_component(visual_intent, work_dir)
+    if image_component and (types is None or image_component.get("type") in types):
+        result.append(image_component)
     return result
+
+
+def visual_intent_to_image_component(visual_intent: dict[str, Any], work_dir: Path | None) -> dict[str, Any]:
+    image_fields = ("local_path", "asset_path", "image_path", "asset_id", "asset_query", "image_url", "preview_url")
+    if not any(clean_text(visual_intent.get(key)) for key in image_fields):
+        return {}
+    image_component = {
+        "id": "visual_intent_image",
+        "type": "image",
+        "role": clean_text(visual_intent.get("role")),
+        "asset_purpose": clean_text(visual_intent.get("asset_purpose")),
+        "asset_subject": clean_text(visual_intent.get("asset_subject")),
+        "asset_query": clean_text(visual_intent.get("asset_query")),
+        "composition": clean_text(visual_intent.get("composition")),
+        "caption": clean_text(visual_intent.get("caption")),
+        "asset_id": clean_text(visual_intent.get("asset_id")),
+        "local_path": clean_text(visual_intent.get("local_path")),
+        "image_url": clean_text(visual_intent.get("image_url")),
+        "preview_url": clean_text(visual_intent.get("preview_url")),
+        "source_url": clean_text(visual_intent.get("source_url")),
+        "attribution": clean_text(visual_intent.get("attribution")),
+    }
+    normalize_component_asset_paths(image_component, work_dir)
+    return {key: value for key, value in image_component.items() if value not in ("", None, [], {})}
+
+
+def normalize_component_asset_paths(component: dict[str, Any], work_dir: Path | None) -> None:
+    data = component.get("data") if isinstance(component.get("data"), dict) else {}
+    for key in ("local_path", "asset_path", "image_path", "path"):
+        value = clean_text(component.get(key) or data.get(key))
+        if not value:
+            continue
+        component[key] = resolve_workdir_path(value, work_dir)
+        if key != "local_path" and not clean_text(component.get("local_path")):
+            component["local_path"] = component[key]
+
+
+def resolve_workdir_path(value: str, work_dir: Path | None) -> str:
+    value = clean_text(value)
+    if not value or value.startswith("asset:"):
+        return value
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
+    if work_dir is not None:
+        return str((work_dir / candidate).resolve())
+    return value
 
 
 def split_header_body(text: str) -> tuple[str, str]:

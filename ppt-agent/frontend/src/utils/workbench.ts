@@ -215,6 +215,7 @@ export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
 
   const toolLabels: Record<string, string> = {
     search: '正在检索并核实资料',
+    search_images: '正在搜索并下载图片',
     read_file: '正在读取模板与设计规范',
     update_tasks_manifest: '正在整理页面内容',
     task: '正在并行生成幻灯片',
@@ -324,6 +325,7 @@ export function runtimeEventNameLabel(event: RuntimeEvent): string {
   if ((event.kind === 'manifest_validated' || event.kind === 'deck_spec_validated') && event.name === 'tasks.json') return 'PPT 页清单';
   if (event.kind === 'compression' || event.kind === 'planner_context_compressed') return '对话上下文';
   if (event.name === 'search') return '资料搜索';
+  if (event.name === 'search_images') return '图片搜索';
   if (event.name === 'read_file') return '读取文件';
   if (event.name === 'update_tasks_manifest') return '写入 DeckSpec';
   if (event.name === 'generate_slide') return '页面渲染器';
@@ -364,6 +366,14 @@ export function runtimeEventDetailLabel(event: RuntimeEvent): string {
     if (query && event.kind === 'tool_start') return `搜索关键词：${query}`;
     if (query && urls.length > 0) return `搜索完成：${query}，${urls.length} 个来源`;
     if (query) return `搜索关键词：${query}`;
+  }
+  if (event.name === 'search_images') {
+    const metadata = event.metadata || {};
+    const query = String(metadata.image_query || '').trim();
+    const images = Array.isArray(metadata.image_results) ? metadata.image_results.length : 0;
+    if (query && event.kind === 'tool_start') return `图片关键词：${query}`;
+    if (query && images > 0) return `图片搜索完成：${query}，${images} 张候选`;
+    if (query) return `图片关键词：${query}`;
   }
   if (event.name === 'update_tasks_manifest') {
     const count = Number((event.metadata || {}).slide_count || 0);
@@ -407,6 +417,7 @@ function isObservableEvent(event: RuntimeEvent): boolean {
     || kind.includes('slide_render')
     || kind.includes('terminal')
     || name === 'search'
+    || name === 'search_images'
     || name === 'update_tasks_manifest'
     || name === 'read_file'
     || name === 'generate_slide';
@@ -426,6 +437,11 @@ function observableEventLabel(event: RuntimeEvent): string {
     if (kind === 'tool_start') return query ? `正在搜索：${query}` : '正在搜索资料';
     return query ? `搜索完成：${query}` : '搜索完成';
   }
+  if (name === 'search_images') {
+    const query = String(metadata.image_query || '').trim();
+    if (kind === 'tool_start') return query ? `正在搜图：${query}` : '正在搜索图片';
+    return query ? `图片已返回：${query}` : '图片搜索完成';
+  }
   if (name === 'update_tasks_manifest') return kind === 'tool_end' ? 'DeckSpec 已写入' : '正在写入 DeckSpec';
   if (name === 'read_file') return '正在读取规范';
   if (name === 'generate_slide' || kind.startsWith('slide_render')) return runtimeEventKindLabel(event);
@@ -440,7 +456,7 @@ function observableEventCategory(event: RuntimeEvent): string {
   const kind = (event.kind || '').toLowerCase();
   const name = (event.name || '').toLowerCase();
   if (kind.includes('error') || event.status === 'error' || event.status === 'failed') return 'error';
-  if (name === 'search') return 'search';
+  if (name === 'search' || name === 'search_images') return 'search';
   if (kind.includes('llm')) return 'planner';
   if (kind.includes('compress')) return 'delivery';
   if (kind.includes('slide_render') || name === 'generate_slide') return 'render';

@@ -511,6 +511,11 @@ type PlanComponent struct {
 	Composition  string         `json:"composition,omitempty"`
 	Caption      string         `json:"caption,omitempty"`
 	AssetID      string         `json:"asset_id,omitempty"`
+	LocalPath    string         `json:"local_path,omitempty"`
+	ImageURL     string         `json:"image_url,omitempty"`
+	PreviewURL   string         `json:"preview_url,omitempty"`
+	SourceURL    string         `json:"source_url,omitempty"`
+	Attribution  string         `json:"attribution,omitempty"`
 	Data         map[string]any `json:"data,omitempty"`
 	Description  string         `json:"description,omitempty"`
 }
@@ -535,6 +540,11 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 		Composition  string          `json:"composition"`
 		Caption      string          `json:"caption"`
 		AssetID      string          `json:"asset_id"`
+		LocalPath    string          `json:"local_path"`
+		ImageURL     string          `json:"image_url"`
+		PreviewURL   string          `json:"preview_url"`
+		SourceURL    string          `json:"source_url"`
+		Attribution  string          `json:"attribution"`
 		Data         map[string]any  `json:"data"`
 		Description  json.RawMessage `json:"description"`
 	}
@@ -567,6 +577,8 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 		AssetPurpose: raw.AssetPurpose, AssetSubject: raw.AssetSubject,
 		AssetQuery: raw.AssetQuery, Composition: raw.Composition,
 		Caption: raw.Caption, AssetID: raw.AssetID,
+		LocalPath: raw.LocalPath, ImageURL: raw.ImageURL, PreviewURL: raw.PreviewURL,
+		SourceURL: raw.SourceURL, Attribution: raw.Attribution,
 		Data: raw.Data, Description: description,
 	}
 	return nil
@@ -643,6 +655,11 @@ type VisualIntent struct {
 	ImagePosition    string `json:"image_position,omitempty"`    // background, left, right, strip, inline
 	Caption          string `json:"caption,omitempty"`           // short caption or alt text
 	AssetID          string `json:"asset_id,omitempty"`          // selected local asset id when available
+	LocalPath        string `json:"local_path,omitempty"`        // downloaded image path in task work dir
+	ImageURL         string `json:"image_url,omitempty"`         // provider image URL for preview/trace
+	PreviewURL       string `json:"preview_url,omitempty"`       // provider thumbnail URL
+	SourceURL        string `json:"source_url,omitempty"`        // source page for attribution
+	Attribution      string `json:"attribution,omitempty"`       // human-readable attribution
 }
 
 // SlideOutline 单页幻灯片大纲

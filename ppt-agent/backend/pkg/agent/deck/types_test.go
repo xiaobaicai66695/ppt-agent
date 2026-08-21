@@ -71,6 +71,11 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 					"asset_query":"delivery drone flying above urban neighborhood",
 					"composition":"subject on right",
 					"caption":"城市末端配送无人机",
+					"local_path":"assets/images/unsplash_drone.jpg",
+					"image_url":"https://images.unsplash.com/photo.jpg",
+					"preview_url":"https://images.unsplash.com/photo-small.jpg",
+					"source_url":"https://unsplash.com/photos/drone",
+					"attribution":"Photo by Demo on Unsplash",
 					"description":["配送对象","飞行路径"]
 				}]
 			}
@@ -97,6 +102,9 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 		component.AssetSubject != "delivery drone above urban neighborhood" ||
 		component.AssetQuery != "delivery drone flying above urban neighborhood" ||
 		component.Composition != "subject on right" ||
+		component.LocalPath != "assets/images/unsplash_drone.jpg" ||
+		component.SourceURL != "https://unsplash.com/photos/drone" ||
+		component.Attribution != "Photo by Demo on Unsplash" ||
 		component.Description != "配送对象\n飞行路径" {
 		t.Fatalf("component image contract lost: %#v", component)
 	}
