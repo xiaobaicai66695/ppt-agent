@@ -2,7 +2,9 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
 import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
-import { mergeConversationMessages, renderSafeMarkdown, runtimeAssistantOutputMessages } from '../utils/workbench';
+import {
+  deriveInlineConversationItems, mergeConversationMessages, renderSafeMarkdown, runtimeAssistantOutputMessages,
+} from '../utils/workbench';
 
 const props = defineProps<{
   taskId?: string;
@@ -45,13 +47,18 @@ const displayMessages = computed(() => mergeConversationMessages(
   props.messages,
   runtimeAssistantOutputMessages(props.runtimeEvents || []),
 ));
+const conversationItems = computed(() => deriveInlineConversationItems(
+  displayMessages.value,
+  props.runtimeEvents || [],
+));
 const streamingAlreadyShown = computed(() => {
   const content = props.streamingContent?.trim();
   return Boolean(content && displayMessages.value.some(message => message.role === 'assistant' && message.content.trim() === content));
 });
+const visibleItemCount = computed(() => conversationItems.value.length + (props.streamingContent?.trim() && !streamingAlreadyShown.value ? 1 : 0));
 
-watch(() => [displayMessages.value.length, props.streamingContent], async () => {
-  if (displayMessages.value.length > 0 || props.streamingContent) showHistory.value = true;
+watch(() => [conversationItems.value.length, props.streamingContent], async () => {
+  if (conversationItems.value.length > 0 || props.streamingContent) showHistory.value = true;
   await nextTick();
   if (thread.value) thread.value.scrollTop = thread.value.scrollHeight;
 });
@@ -61,6 +68,26 @@ function handleKeydown(event: KeyboardEvent) {
     event.preventDefault();
     if (props.modelValue.trim() && !props.submitting) emit('submit');
   }
+}
+
+function toolStatusLabel(status: string): string {
+  if (status === 'running') return '运行中';
+  if (status === 'error' || status === 'failed') return '失败';
+  return '已完成';
+}
+
+function toolStatusIcon(status: string): 'running' | 'error' | 'ok' {
+  if (status === 'running') return 'running';
+  if (status === 'error' || status === 'failed') return 'error';
+  return 'ok';
+}
+
+function previewImageUrl(item: { preview_url?: string; image_url?: string }): string {
+  return String(item.preview_url || item.image_url || '').trim();
+}
+
+function previewImageLabel(item: { attribution?: string; photographer?: string; description?: string }): string {
+  return String(item.attribution || item.photographer || item.description || '图片预览').trim();
 }
 </script>
 
@@ -75,13 +102,13 @@ function handleKeydown(event: KeyboardEvent) {
         </span>
       </span>
       <button
-        v-if="displayMessages.length || streamingContent || historyLoading"
+        v-if="conversationItems.length || streamingContent || historyLoading"
         class="history-toggle"
         type="button"
         :aria-expanded="showHistory"
         @click="showHistory = !showHistory"
       >
-        {{ showHistory ? '收起对话' : `查看对话 (${displayMessages.length})` }}
+        {{ showHistory ? '收起对话' : `查看对话 (${visibleItemCount})` }}
       </button>
     </header>
 
@@ -102,18 +129,65 @@ function handleKeydown(event: KeyboardEvent) {
     </div>
 
     <div v-show="showHistory" ref="thread" class="conversation-thread" aria-live="polite">
-      <div v-if="historyLoading && displayMessages.length === 0" class="history-state">
+      <div v-if="historyLoading && conversationItems.length === 0" class="history-state">
         <LoaderCircle :size="17" class="spin" />正在恢复对话
       </div>
-      <article v-for="(message, index) in displayMessages" :key="`${message.timestamp}-${index}`" class="message" :class="message.role">
-        <span class="message-role">{{ message.role === 'user' ? '你' : 'AI' }}</span>
-        <div class="markdown-body" v-html="renderSafeMarkdown(message.content)"></div>
-      </article>
+      <template v-for="item in conversationItems" :key="item.key">
+        <article v-if="item.type === 'message'" class="message" :class="item.message.role">
+          <span class="message-role">{{ item.message.role === 'user' ? '你' : 'AI' }}</span>
+          <div class="markdown-body" v-html="renderSafeMarkdown(item.message.content)"></div>
+        </article>
+        <article v-else class="message assistant tool-message" :class="toolStatusIcon(item.tool.status)">
+          <span class="message-role">AI</span>
+          <details class="inline-tool-card" :open="item.tool.status === 'running' || item.tool.image_results.length > 0">
+            <summary>
+              <span class="tool-state" :class="toolStatusIcon(item.tool.status)">
+                <LoaderCircle v-if="toolStatusIcon(item.tool.status) === 'running'" :size="14" class="spin" />
+                <TriangleAlert v-else-if="toolStatusIcon(item.tool.status) === 'error'" :size="14" />
+                <CircleCheck v-else :size="14" />
+              </span>
+              <span class="tool-copy">
+                <strong>{{ item.tool.label }}</strong>
+                <small>{{ toolStatusLabel(item.tool.status) }} · {{ item.tool.detail }}</small>
+              </span>
+            </summary>
+            <div class="tool-card-body">
+              <div v-if="item.tool.source_urls.length" class="tool-source-list">
+                <a v-for="url in item.tool.source_urls" :key="url" :href="url" target="_blank" rel="noreferrer">{{ url }}</a>
+              </div>
+              <div v-if="item.tool.image_results.length" class="tool-image-grid">
+                <a
+                  v-for="image in item.tool.image_results"
+                  :key="image.id"
+                  class="tool-image-preview"
+                  :href="image.source_url || image.image_url || previewImageUrl(image)"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <img v-if="previewImageUrl(image)" :src="previewImageUrl(image)" :alt="previewImageLabel(image)" loading="lazy" />
+                  <span v-else>无缩略图</span>
+                  <small>{{ previewImageLabel(image) }}</small>
+                </a>
+              </div>
+              <div class="tool-preview-columns">
+                <div v-if="item.tool.args_preview" class="tool-preview-block">
+                  <span>参数</span>
+                  <pre>{{ item.tool.args_preview }}</pre>
+                </div>
+                <div v-if="item.tool.result_preview" class="tool-preview-block">
+                  <span>结果</span>
+                  <pre>{{ item.tool.result_preview }}</pre>
+                </div>
+              </div>
+            </div>
+          </details>
+        </article>
+      </template>
       <article v-if="streamingContent && !streamingAlreadyShown" class="message assistant streaming">
         <span class="message-role">AI</span>
         <div class="markdown-body" v-html="renderSafeMarkdown(streamingContent)"></div>
       </article>
-      <div v-if="historyLoading && displayMessages.length > 0" class="history-refresh">
+      <div v-if="historyLoading && conversationItems.length > 0" class="history-refresh">
         <LoaderCircle :size="14" class="spin" />同步历史中
       </div>
     </div>
@@ -173,6 +247,141 @@ function handleKeydown(event: KeyboardEvent) {
 .markdown-body { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
 .message.user .markdown-body { border-color: #bdd7d3; background: var(--action-soft); }
 .message.streaming .markdown-body { border-left: 3px solid var(--info); }
+.tool-message .message-role { color: var(--info); background: var(--info-soft); }
+.tool-message.error .message-role { color: var(--danger); background: var(--danger-soft); }
+.inline-tool-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.inline-tool-card summary {
+  min-height: 38px;
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.inline-tool-card summary:hover { background: var(--surface-muted); }
+.tool-state {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--success);
+  background: var(--success-soft);
+}
+.tool-state.running { color: var(--info); background: var(--info-soft); }
+.tool-state.error { color: var(--danger); background: var(--danger-soft); }
+.tool-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tool-copy strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.tool-copy small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-card-body {
+  padding: 9px;
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid var(--divider);
+  background: var(--surface);
+}
+.tool-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tool-source-list a {
+  max-width: 100%;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 4px;
+  color: var(--info);
+  background: var(--info-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+.tool-image-preview {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  text-decoration: none;
+}
+.tool-image-preview img,
+.tool-image-preview > span {
+  width: 100%;
+  height: 74px;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.tool-image-preview small {
+  min-width: 0;
+  padding: 5px 6px;
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-preview-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.tool-preview-block {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.tool-preview-block span {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+}
+.tool-preview-block pre {
+  max-height: 160px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--divider);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3), .markdown-body :deep(h4) { margin: 0 0 7px; font-size: 14px; line-height: 1.4; }
 .markdown-body :deep(p) { margin: 0 0 7px; }.markdown-body :deep(p:last-child) { margin-bottom: 0; }
 .markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 4px 0 8px; padding-left: 22px; }

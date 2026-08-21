@@ -199,6 +199,172 @@ export interface ObservableRuntimeStep {
   urls: string[];
 }
 
+export interface InlineToolImagePreview {
+  id: string;
+  preview_url?: string;
+  image_url?: string;
+  source_url?: string;
+  photographer?: string;
+  attribution?: string;
+  local_path?: string;
+  description?: string;
+  download_error?: string;
+}
+
+export interface InlineToolPreview {
+  key: string;
+  name: string;
+  label: string;
+  detail: string;
+  status: string;
+  timestamp: string;
+  elapsed_ms: number;
+  start_event_id?: number;
+  end_event_id?: number;
+  args_preview?: string;
+  result_preview?: string;
+  source_urls: string[];
+  image_results: InlineToolImagePreview[];
+}
+
+export type InlineConversationItem =
+  | { type: 'message'; key: string; timestamp: string; message: ConversationMessage }
+  | { type: 'tool'; key: string; timestamp: string; tool: InlineToolPreview };
+
+export function deriveInlineConversationItems(
+  messages: ConversationMessage[] = [],
+  events: RuntimeEvent[] = [],
+): InlineConversationItem[] {
+  const items: InlineConversationItem[] = [];
+  messages.forEach((message, index) => {
+    items.push({
+      type: 'message',
+      key: `message:${message.timestamp || index}:${message.role}:${index}`,
+      timestamp: message.timestamp || new Date(0).toISOString(),
+      message,
+    });
+  });
+  deriveInlineToolPreviews(events).forEach(tool => {
+    items.push({
+      type: 'tool',
+      key: tool.key,
+      timestamp: tool.timestamp,
+      tool,
+    });
+  });
+  return items.sort((a, b) => {
+    const timeDelta = Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
+    if (timeDelta !== 0) return timeDelta;
+    if (a.type !== b.type) return a.type === 'tool' ? -1 : 1;
+    return a.key.localeCompare(b.key);
+  });
+}
+
+export function deriveInlineToolPreviews(events: RuntimeEvent[] = []): InlineToolPreview[] {
+  const sorted = [...events].sort((a, b) => {
+    if (a.id > 0 && b.id > 0 && a.id !== b.id) return a.id - b.id;
+    return Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
+  });
+  const previews: InlineToolPreview[] = [];
+  const running = new Map<string, InlineToolPreview[]>();
+
+  for (const event of sorted) {
+    if (!isToolLikeRuntimeEvent(event)) continue;
+    const kind = (event.kind || '').toLowerCase();
+    const name = event.name || event.phase || 'tool';
+    if (kind.endsWith('_start')) {
+      const preview = toolPreviewFromEvent(event, 'running');
+      previews.push(preview);
+      running.set(name, [...(running.get(name) || []), preview]);
+      continue;
+    }
+    if (kind.endsWith('_end') || kind.endsWith('_error')) {
+      const queue = running.get(name) || [];
+      const existing = queue.shift();
+      if (queue.length) running.set(name, queue);
+      else running.delete(name);
+      const status = kind.endsWith('_error') || event.status === 'error' || event.status === 'failed' ? 'error' : 'ok';
+      if (existing) {
+        mergeToolPreview(existing, event, status);
+      } else {
+        previews.push(toolPreviewFromEvent(event, status));
+      }
+      continue;
+    }
+    previews.push(toolPreviewFromEvent(event, event.status || 'ok'));
+  }
+  return previews;
+}
+
+function isToolLikeRuntimeEvent(event: RuntimeEvent): boolean {
+  const kind = (event.kind || '').toLowerCase();
+  return kind.startsWith('tool_') || kind.startsWith('slide_render_');
+}
+
+function toolPreviewFromEvent(event: RuntimeEvent, status: string): InlineToolPreview {
+  const metadata = event.metadata || {};
+  return {
+    key: `tool:${event.id || runtimeEventFingerprint(event)}`,
+    name: event.name || event.phase || 'tool',
+    label: runtimeEventNameLabel(event),
+    detail: runtimeEventDetailLabel(event),
+    status,
+    timestamp: event.timestamp || new Date(0).toISOString(),
+    elapsed_ms: event.elapsed_ms || 0,
+    start_event_id: event.kind?.toLowerCase().endsWith('_start') ? event.id : undefined,
+    end_event_id: event.kind?.toLowerCase().endsWith('_start') ? undefined : event.id,
+    args_preview: firstMetadataString(metadata, 'args_preview', 'arguments_preview', 'args', 'arguments'),
+    result_preview: firstMetadataString(metadata, 'result_preview', 'output_preview', 'result', 'error'),
+    source_urls: metadataArray(metadata.source_urls),
+    image_results: metadataImageResults(metadata.image_results),
+  };
+}
+
+function mergeToolPreview(preview: InlineToolPreview, event: RuntimeEvent, status: string) {
+  const metadata = event.metadata || {};
+  preview.status = status;
+  preview.end_event_id = event.id;
+  preview.elapsed_ms = event.elapsed_ms || preview.elapsed_ms;
+  preview.detail = runtimeEventDetailLabel(event);
+  preview.result_preview = firstMetadataString(metadata, 'result_preview', 'output_preview', 'result', 'error') || preview.result_preview;
+  preview.source_urls = metadataArray(metadata.source_urls) || preview.source_urls;
+  const images = metadataImageResults(metadata.image_results);
+  if (images.length > 0) preview.image_results = images;
+}
+
+function firstMetadataString(metadata: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = metadata[key];
+    if (value === undefined || value === null) continue;
+    const text = typeof value === 'string' ? value.trim() : JSON.stringify(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function metadataImageResults(value: unknown): InlineToolImagePreview[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(item => item !== null && typeof item === 'object' && !Array.isArray(item))
+    .slice(0, 6)
+    .map((item, index) => {
+      const record = item as Record<string, unknown>;
+      const text = (key: string) => String(record[key] || '').trim();
+      return {
+        id: text('id') || String(index + 1),
+        preview_url: text('preview_url'),
+        image_url: text('image_url'),
+        source_url: text('source_url'),
+        photographer: text('photographer'),
+        attribution: text('attribution'),
+        local_path: text('local_path'),
+        description: text('description'),
+        download_error: text('download_error'),
+      };
+    })
+    .filter(item => item.preview_url || item.image_url || item.source_url || item.local_path);
+}
+
 export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
   if (input.connectionInterrupted) {
     return { label: '正在恢复实时连接', detail: '任务仍在服务器继续执行', state: 'running' };

@@ -2,6 +2,25 @@
 
 ## 2026-08-21
 
+- ID: 20260821-inline-chat-tool-previews
+- Type: feature
+- Scope: frontend conversation stream, inline tool preview cards
+- Completed: 2026-08-21 19:03 Asia/Shanghai
+- Changes:
+  - Added `deriveInlineConversationItems` and `deriveInlineToolPreviews` to merge assistant/user messages with real `tool_start/tool_end` runtime events by timestamp.
+  - Rendered tool calls as expandable AI-row cards inside `ConversationComposer`, including args/result previews, source links, and searched image thumbnails.
+  - Kept the existing runtime diagnostics panel as full trace while making the main chat stream show the same tool activity inline.
+- Verification:
+  - Local: `npm run test -- workbench` passed with 18 tests.
+  - Local: `npm run build` passed.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Frontend: `GET http://127.0.0.1:8080/` returned 200 and served new `dist` asset `/assets/index-Bbu_foc6.js`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Backend restart: not required; frontend-only change.
+- Cleanup:
+  - Removed `/tmp/ppt-agent-frontend-inline-tools-20260821190108.tgz`.
+
 - ID: 20260821-image-tool-preview-and-embed
 - Type: feature/fix
 - Scope: image search runtime preview, component image asset contract, PPT image embedding, long narrative capacity

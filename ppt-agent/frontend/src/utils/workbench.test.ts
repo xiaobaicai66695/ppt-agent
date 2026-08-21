@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem } from '../types';
 import {
-  canonicalOutputFile, compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages,
+  canonicalOutputFile, compactRuntimeEvents, deriveInlineConversationItems, deriveInlineToolPreviews,
+  deriveLiveActivity, deriveObservableSteps, mergeConversationMessages,
   mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
   runtimeAssistantOutputMessages, runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
   summarizeTaskTitle,
@@ -153,6 +154,74 @@ describe('workbench utilities', () => {
       content: '## 可见规划\n\n继续执行。',
       timestamp: '2026-08-05T00:00:03Z',
     }]);
+  });
+
+  it('derives inline tool previews with paired start/end and image results', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'tool_start',
+        name: 'search_images',
+        status: 'running',
+        metadata: { image_query: 'aerial city skyline', args_preview: '{"query":"aerial city skyline"}' },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'tool_end',
+        name: 'search_images',
+        status: 'ok',
+        metadata: {
+          image_query: 'aerial city skyline',
+          result_preview: '{"photos":[...]}',
+          source_urls: ['https://unsplash.com/photos/abc'],
+          image_results: [{
+            id: 'abc',
+            preview_url: 'https://images.unsplash.com/small.jpg',
+            source_url: 'https://unsplash.com/photos/abc',
+            local_path: 'assets/images/abc.jpg',
+            attribution: 'Photo by Demo on Unsplash',
+          }],
+        },
+      },
+    ];
+
+    const tools = deriveInlineToolPreviews(events);
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0].status).toBe('ok');
+    expect(tools[0].start_event_id).toBe(1);
+    expect(tools[0].end_event_id).toBe(2);
+    expect(tools[0].args_preview).toContain('aerial city skyline');
+    expect(tools[0].source_urls).toEqual(['https://unsplash.com/photos/abc']);
+    expect(tools[0].image_results[0].local_path).toBe('assets/images/abc.jpg');
+  });
+
+  it('interleaves conversation messages and tool previews by timestamp', () => {
+    const messages: ConversationMessage[] = [
+      { role: 'user', content: '做大兴安岭 PPT', timestamp: '2026-08-05T00:00:01Z' },
+      { role: 'assistant', content: '我先检索事实。', timestamp: '2026-08-05T00:00:03Z' },
+    ];
+    const events: RuntimeEvent[] = [{
+      id: 2,
+      task_id: 'task-1',
+      timestamp: '2026-08-05T00:00:02Z',
+      elapsed_ms: 2000,
+      kind: 'tool_end',
+      name: 'search',
+      status: 'ok',
+      metadata: { search_query: '大兴安岭 文化', source_urls: ['https://example.com'] },
+    }];
+
+    const items = deriveInlineConversationItems(messages, events);
+
+    expect(items.map(item => item.type)).toEqual(['message', 'tool', 'message']);
+    expect(items[1].type === 'tool' ? items[1].tool.name : '').toBe('search');
   });
 
   it('derives concise live activity without exposing tool arguments', () => {
