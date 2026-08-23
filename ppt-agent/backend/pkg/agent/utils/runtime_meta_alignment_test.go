@@ -210,6 +210,13 @@ func TestRuntimeMetaExtractsObservableSearchAndManifestFields(t *testing.T) {
 	if !ok || len(urls) != 2 || urls[0] != "https://www.yanan.gov.cn/a" {
 		t.Fatalf("search urls were not extracted: %#v", events[1].Metadata)
 	}
+	if events[1].Metadata["source_count"] != 2 {
+		t.Fatalf("search source count was not extracted: %#v", events[1].Metadata)
+	}
+	titles, ok := events[1].Metadata["source_titles"].([]string)
+	if !ok || len(titles) != 2 || titles[0] != "延安市人民政府" {
+		t.Fatalf("search source titles were not extracted: %#v", events[1].Metadata)
+	}
 	if events[2].Metadata["slide_count"] != 2 || events[2].Metadata["template"] != "generic" {
 		t.Fatalf("manifest fields were not extracted: %#v", events[2].Metadata)
 	}
@@ -248,6 +255,9 @@ func TestRuntimeMetaExtractsImageSearchPreviews(t *testing.T) {
 	first, ok := previews[0].(map[string]any)
 	if !ok || first["local_path"] != "assets/images/unsplash_abc.jpg" || first["preview_url"] == "" {
 		t.Fatalf("image preview metadata invalid: %#v", previews[0])
+	}
+	if events[1].Metadata["provider"] != "unsplash" || events[1].Metadata["asset_query"] != "aerial city skyline, wide landscape" {
+		t.Fatalf("image search summary metadata invalid: %#v", events[1].Metadata)
 	}
 	urls, ok := events[1].Metadata["source_urls"].([]string)
 	if !ok || len(urls) != 1 || urls[0] != "https://unsplash.com/photos/abc" {

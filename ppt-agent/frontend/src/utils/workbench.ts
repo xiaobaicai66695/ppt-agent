@@ -342,9 +342,9 @@ function toolPreviewFromEvent(event: RuntimeEvent, status: string): InlineToolPr
     elapsed_ms: event.elapsed_ms || 0,
     start_event_id: event.kind?.toLowerCase().endsWith('_start') ? event.id : undefined,
     end_event_id: event.kind?.toLowerCase().endsWith('_start') ? undefined : event.id,
-    args_preview: firstMetadataString(metadata, 'args_preview', 'arguments_preview', 'args', 'arguments')
+    args_preview: firstMetadataString(metadata, 'args', 'arguments', 'args_preview', 'arguments_preview')
       || synthesizeToolArgsPreview(event),
-    result_preview: firstMetadataString(metadata, 'result_preview', 'output_preview', 'result', 'error')
+    result_preview: firstMetadataString(metadata, 'result', 'result_preview', 'output_preview', 'error')
       || synthesizeToolResultPreview(event, imageResults),
     source_urls: metadataArray(metadata.source_urls),
     image_results: imageResults,
@@ -357,7 +357,7 @@ function mergeToolPreview(preview: InlineToolPreview, event: RuntimeEvent, statu
   preview.end_event_id = event.id;
   preview.elapsed_ms = event.elapsed_ms || preview.elapsed_ms;
   preview.detail = runtimeEventDetailLabel(event);
-  preview.result_preview = firstMetadataString(metadata, 'result_preview', 'output_preview', 'result', 'error')
+  preview.result_preview = firstMetadataString(metadata, 'result', 'result_preview', 'output_preview', 'error')
     || synthesizeToolResultPreview(event, metadataImageResults(metadata.image_results))
     || preview.result_preview;
   preview.source_urls = metadataArray(metadata.source_urls) || preview.source_urls;
@@ -444,12 +444,16 @@ function synthesizeToolResultPreview(event: RuntimeEvent, images: InlineToolImag
   }
   if (name === 'search') {
     const urls = metadataArray(metadata.source_urls);
+    data.query = metadata.search_query;
     data.sources = urls.length;
     data.top_sources = urls.slice(0, 3);
+    if (urls.length === 0) data.note = metadata.error || '未返回可展示来源';
   } else if (name === 'search_images') {
+    data.query = metadata.image_query || metadata.asset_query;
     data.images = images.length;
     data.downloaded = images.filter(image => image.local_path).length;
     data.attribution = images.map(image => image.attribution || image.photographer).filter(Boolean).slice(0, 3);
+    if (images.length === 0) data.note = metadata.error || '未返回可展示图片';
   } else if (name === 'read_file') {
     data.status = runtimeEventStatusLabel(event.status);
     data.file = metadata.file_path;
@@ -519,7 +523,7 @@ function summarizePreviewValue(value: unknown): string {
     return keys.length > 0 ? `${keys.length} 个字段：${keys.slice(0, 4).map(previewFieldLabel).join('、')}` : '';
   }
   if (typeof value === 'boolean') return value ? '是' : '否';
-  return String(value).trim();
+  return truncatePreviewText(String(value).trim(), 260);
 }
 
 function previewFieldLabel(key: string): string {
@@ -538,7 +542,10 @@ function previewFieldLabel(key: string): string {
     template: '模板',
     theme: '配色',
     sources: '来源数量',
+    source_count: '来源数量',
     top_sources: '主要来源',
+    results: '搜索结果',
+    content: '结果摘要',
     images: '图片数量',
     downloaded: '已下载',
     download: '下载图片',
@@ -548,9 +555,18 @@ function previewFieldLabel(key: string): string {
     error: '错误',
     photos: '图片结果',
     total: '总数',
+    total_pages: '页数',
     provider: '服务',
+    asset_query: '图片检索词',
+    note: '说明',
   };
   return labels[key] || key.replace(/_/g, ' ');
+}
+
+function truncatePreviewText(value: string, limit: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, Math.max(1, limit - 1)).trim()}...`;
 }
 
 function firstMetadataString(metadata: Record<string, unknown>, ...keys: string[]): string {

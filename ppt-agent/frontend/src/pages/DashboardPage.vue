@@ -90,6 +90,7 @@ const composerNotice = ref('');
 const conversationLoading = ref(false);
 const conversationMessages = ref<import('../types').ConversationMessage[]>([]);
 const streamingAssistant = ref('');
+const streamingAssistantStartedAt = ref('');
 const continuationQueued = ref(false);
 
 const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
@@ -126,17 +127,22 @@ async function loadConversation(taskId: string, replace = false) {
 }
 
 function appendAssistantDelta(delta: string) {
-  if (delta) streamingAssistant.value += delta;
+  if (!delta) return;
+  if (!streamingAssistant.value && !streamingAssistantStartedAt.value) {
+    streamingAssistantStartedAt.value = new Date().toISOString();
+  }
+  streamingAssistant.value += delta;
 }
 
 function finalizeAssistantTurn() {
   const content = streamingAssistant.value.trim();
   if (content) {
     conversationMessages.value = [...conversationMessages.value, {
-      role: 'assistant', content, timestamp: new Date().toISOString(),
+      role: 'assistant', content, timestamp: streamingAssistantStartedAt.value || new Date().toISOString(),
     }];
   }
   streamingAssistant.value = '';
+  streamingAssistantStartedAt.value = '';
   composerLoading.value = false;
 }
 
@@ -168,6 +174,7 @@ async function submitComposer() {
   }];
   composerInput.value = '';
   streamingAssistant.value = '';
+  streamingAssistantStartedAt.value = '';
   try {
     const accepted = await continueTask(taskId, message);
     composerNotice.value = accepted.message;
@@ -651,6 +658,7 @@ function disconnectSSE() {
   if (es) { es.close(); es = null; }
   stopPolling();
   streamingAssistant.value = '';
+  streamingAssistantStartedAt.value = '';
   composerLoading.value = false;
   continuationQueued.value = false;
   currentPhase.value = '';
@@ -794,6 +802,7 @@ interface TaskCache {
   runtimeMeta: RuntimeMeta | null;
   conversationMessages: import('../types').ConversationMessage[];
   streamingAssistant: string;
+  streamingAssistantStartedAt: string;
   lastSeenEventID: number;
 }
 const taskCache = new Map<string, TaskCache>();
@@ -814,6 +823,7 @@ function saveCache(id: string) {
     runtimeMeta: runtimeMeta.value ? { ...runtimeMeta.value } : null,
     conversationMessages: conversationMessages.value.map(message => ({ ...message })),
     streamingAssistant: streamingAssistant.value,
+    streamingAssistantStartedAt: streamingAssistantStartedAt.value,
     lastSeenEventID,
   });
 }
@@ -835,6 +845,7 @@ function restoreCache(id: string): boolean {
   runtimeMeta.value = c.runtimeMeta;
   conversationMessages.value = c.conversationMessages.map(message => ({ ...message }));
   streamingAssistant.value = c.streamingAssistant;
+  streamingAssistantStartedAt.value = c.streamingAssistantStartedAt || '';
   lastSeenEventID = c.lastSeenEventID;
   return true;
 }
@@ -888,7 +899,8 @@ async function selectTask(id: string) {
 	selectedSlides.value = new Set();
 	sseCompleted = false;
 	lastSeenEventID = 0;
-	streamingAssistant.value = '';
+  streamingAssistant.value = '';
+  streamingAssistantStartedAt.value = '';
 
   if (t.status === 'running') {
     // Restore finalized turns first, then replay only the unfinished turn.
@@ -1412,6 +1424,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
           :task-title="selectedTask ? selectedTaskTitle : undefined"
         :messages="conversationMessages"
         :streaming-content="streamingAssistant"
+        :streaming-timestamp="streamingAssistantStartedAt"
         :history-loading="conversationLoading"
         :submitting="composerLoading || creating"
         :error="composerError || (!selectedTask ? loadError : '')"

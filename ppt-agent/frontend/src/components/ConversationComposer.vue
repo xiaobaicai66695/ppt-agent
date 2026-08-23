@@ -14,6 +14,7 @@ const props = defineProps<{
   taskTitle?: string;
   messages: ConversationMessage[];
   streamingContent?: string;
+  streamingTimestamp?: string;
   historyLoading?: boolean;
   submitting?: boolean;
   error?: string;
@@ -49,21 +50,39 @@ const displayMessages = computed(() => mergeConversationMessages(
   props.messages,
   runtimeAssistantOutputMessages(props.runtimeEvents || []),
 ));
-const conversationItems = computed(() => deriveInlineConversationItems(
-  displayMessages.value,
-  props.runtimeEvents || [],
-));
 const streamingAlreadyShown = computed(() => {
   const content = props.streamingContent?.trim();
   return Boolean(content && displayMessages.value.some(message => message.role === 'assistant' && message.content.trim() === content));
 });
-const visibleItemCount = computed(() => conversationItems.value.length + (props.streamingContent?.trim() && !streamingAlreadyShown.value ? 1 : 0));
+const visibleMessages = computed(() => {
+  const messages = [...displayMessages.value];
+  const content = props.streamingContent?.trim();
+  if (content && !streamingAlreadyShown.value) {
+    messages.push({
+      role: 'assistant',
+      content,
+      timestamp: props.streamingTimestamp || new Date(0).toISOString(),
+    });
+  }
+  return messages;
+});
+const conversationItems = computed(() => deriveInlineConversationItems(
+  visibleMessages.value,
+  props.runtimeEvents || [],
+));
+const visibleItemCount = computed(() => conversationItems.value.length);
 
 watch(() => [conversationItems.value.length, props.streamingContent], async () => {
   if (conversationItems.value.length > 0 || props.streamingContent) showHistory.value = true;
   const shouldScroll = autoFollowThread.value || !thread.value;
+  const previousScrollTop = thread.value?.scrollTop ?? 0;
   await nextTick();
-  if (thread.value && shouldScroll) thread.value.scrollTop = thread.value.scrollHeight;
+  if (!thread.value) return;
+  if (shouldScroll) {
+    thread.value.scrollTop = thread.value.scrollHeight;
+  } else {
+    thread.value.scrollTop = previousScrollTop;
+  }
 });
 
 function isNearThreadBottom(el: HTMLElement): boolean {
@@ -231,10 +250,6 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
           </details>
         </article>
       </template>
-      <article v-if="streamingContent && !streamingAlreadyShown" class="message assistant streaming">
-        <span class="message-role">AI</span>
-        <div class="markdown-body" v-html="renderSafeMarkdown(streamingContent)"></div>
-      </article>
       <div v-if="historyLoading && conversationItems.length > 0" class="history-refresh">
         <LoaderCircle :size="14" class="spin" />同步历史中
       </div>

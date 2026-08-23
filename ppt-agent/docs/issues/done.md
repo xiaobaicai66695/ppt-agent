@@ -2,6 +2,28 @@
 
 ## 2026-08-24
 
+- ID: 20260824-inline-tool-trace-stream-order
+- Type: fix
+- Scope: frontend conversation timeline, runtime tool metadata
+- Completed: 2026-08-24 02:31 Asia/Shanghai
+- Changes:
+  - Rendered active streaming assistant text as a timestamped conversation message inside the same message/tool timeline instead of a separate bottom-fixed block.
+  - Preserved scroll position when the user has scrolled away from the bottom, while still auto-following when the user is already near the bottom.
+  - Preferred full `args/result` metadata over truncated previews when building inline tool cards, then converted values into readable fields instead of raw JSON.
+  - Added structured runtime metadata for search/source count, source titles, image provider, image query, total count, and image-search errors so inline previews can explain empty results.
+- Verification:
+  - Local: `npm run test -- workbench` passed with 22 tests.
+  - Local: `npm run build` passed.
+  - Local: `go test ./pkg/agent/utils ./pkg/agent/deck` passed.
+  - Local: `go build ./...` passed.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Backend process: restarted from PID `2587512` to PID `2593829`, command `./ppt-agent-linux -mode web -addr :8080`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Frontend: deployed new `dist` asset `DashboardPage-bZGllKcp.js`; smoke confirmed streaming timestamp timeline marker is present.
+- Cleanup:
+  - Removed this deployment's `/tmp/ppt-agent-frontend-202608240231.tgz` and `/tmp/ppt-agent-linux-202608240231`.
+
 - ID: 20260824-background-image-render-and-tool-trace-order
 - Type: fix
 - Scope: PPT image-background rendering, planner layout guidance, frontend inline tool trace

@@ -943,6 +943,15 @@ func addToolObservationFields(metadata map[string]any, name, args, result string
 	case "search":
 		addJSONFieldAs(metadata, args, "query", "search_query")
 		addJSONFieldAs(metadata, args, "reason", "search_reason")
+		if count, titles, errText := extractSearchSummary(result, 5); count > 0 || errText != "" {
+			metadata["source_count"] = count
+			if len(titles) > 0 {
+				metadata["source_titles"] = titles
+			}
+			if errText != "" {
+				metadata["error"] = errText
+			}
+		}
 		if urls := extractSearchURLs(result, 5); len(urls) > 0 {
 			metadata["source_urls"] = urls
 		}
@@ -952,6 +961,11 @@ func addToolObservationFields(metadata map[string]any, name, args, result string
 		addJSONFieldAs(metadata, args, "asset_subject", "asset_subject")
 		addJSONFieldAs(metadata, args, "composition", "composition")
 		addJSONFieldAs(metadata, args, "reason", "search_reason")
+		addJSONFieldAs(metadata, result, "provider", "provider")
+		addJSONFieldAs(metadata, result, "asset_query", "asset_query")
+		addJSONFieldAs(metadata, result, "total", "total")
+		addJSONFieldAs(metadata, result, "total_pages", "total_pages")
+		addJSONFieldAs(metadata, result, "error", "error")
 		if previews, urls := extractImageSearchResults(result, 6); len(previews) > 0 {
 			metadata["image_results"] = previews
 			if len(urls) > 0 {
@@ -1002,6 +1016,33 @@ func countManifestTasks(raw string) int {
 		return len(tasks)
 	}
 	return 0
+}
+
+func extractSearchSummary(raw string, limit int) (int, []string, string) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil, ""
+	}
+	var parsed struct {
+		Results []struct {
+			Title string `json:"title"`
+		} `json:"results"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return 0, nil, ""
+	}
+	titles := make([]string, 0, minInt(len(parsed.Results), limit))
+	for _, result := range parsed.Results {
+		title := truncateString(strings.TrimSpace(result.Title), 120)
+		if title == "" {
+			continue
+		}
+		titles = append(titles, title)
+		if len(titles) >= limit {
+			break
+		}
+	}
+	return len(parsed.Results), titles, truncateString(strings.TrimSpace(parsed.Error), 180)
 }
 
 func extractSearchURLs(raw string, limit int) []string {

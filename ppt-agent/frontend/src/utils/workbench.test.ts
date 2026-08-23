@@ -306,6 +306,27 @@ describe('workbench utilities', () => {
     ]);
   });
 
+  it('prefers full tool result over truncated preview for readable fields', () => {
+    const [tool] = deriveInlineToolPreviews([{
+      id: 1,
+      task_id: 'task-1',
+      timestamp: '2026-08-05T00:00:01Z',
+      elapsed_ms: 1000,
+      kind: 'tool_end',
+      name: 'search',
+      status: 'ok',
+      metadata: {
+        result_preview: '{"results":[{"title":"截断',
+        result: '{"results":[{"title":"政策原文","url":"https://example.com/policy"}],"content":"这是一段很长的搜索正文摘要，用于说明前端应该解析完整 result 而不是截断 preview。"}',
+      },
+    }]);
+
+    expect(formatToolPreviewFields(tool, 'result')).toEqual([
+      { label: '搜索结果', value: '1 项' },
+      { label: '结果摘要', value: '这是一段很长的搜索正文摘要，用于说明前端应该解析完整 result 而不是截断 preview。' },
+    ]);
+  });
+
   it('derives concise live activity without exposing tool arguments', () => {
     expect(deriveLiveActivity({ status: 'running', lastTool: 'search', done: 3, total: 12 })).toEqual({
       label: '正在检索并核实资料', detail: '已完成 3/12 页', state: 'running',
