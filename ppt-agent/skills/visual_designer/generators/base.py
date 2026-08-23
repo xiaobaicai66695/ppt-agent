@@ -6,7 +6,7 @@ import re
 from copy import deepcopy
 from typing import Literal
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR_TYPE
@@ -246,10 +246,7 @@ def set_image_background(slide, image_path: str, brightness: float = 0.95, palet
         img = img.convert('RGB')
 
     if brightness < 1.0:
-        import numpy as np
-        arr = np.array(img).astype(np.float32)
-        arr = np.clip(arr * brightness, 0, 255).astype(np.uint8)
-        img = Image.fromarray(arr)
+        img = ImageEnhance.Brightness(img).enhance(brightness)
 
     # 调整为幻灯片尺寸 16:9 (像素为单位)
     target_w, target_h = 1920, 1080
@@ -302,12 +299,6 @@ def set_image_background(slide, image_path: str, brightness: float = 0.95, palet
     if existing_bg is not None:
         p_cSld.remove(existing_bg)
     p_cSld.insert(0, bg)
-
-    # 移除之前添加的 picture shape（背景现在由 p:bg 承载）
-    sp_tree = slide.shapes._spTree
-    for shape in list(slide.shapes):
-        if hasattr(shape, 'shape_type') and shape.shape_type == 13:
-            sp_tree.remove(shape.element)
 
     os.remove(temp_path)
 

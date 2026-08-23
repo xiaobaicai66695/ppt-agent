@@ -65,7 +65,7 @@ def main() -> int:
 
     palette = manifest.get("theme") or "ocean_soft"
     content_type = normalize_content_type(task.get("content_type", "content_slide"))
-    background = task.get("background") or None
+    background = background_from_task(task, work_dir)
     output_file = task.get("output_file") or f"{task.get('page_index', args.task_id)}.pptx"
     output_path = work_dir / output_file
 
@@ -460,6 +460,44 @@ def resolve_workdir_path(value: str, work_dir: Path | None) -> str:
     if work_dir is not None:
         return str((work_dir / candidate).resolve())
     return value
+
+
+def background_from_task(task: dict[str, Any], work_dir: Path | None = None) -> str | None:
+    explicit = clean_text(task.get("background"))
+    if explicit:
+        return explicit
+    plan = task.get("content_plan") if isinstance(task.get("content_plan"), dict) else {}
+    visual_intent = plan.get("visual_intent") if isinstance(plan.get("visual_intent"), dict) else {}
+    candidate = background_path_from_visual_item(visual_intent, work_dir)
+    if candidate:
+        return candidate
+    for component in plan.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        candidate = background_path_from_visual_item(component, work_dir)
+        if candidate:
+            return candidate
+    return None
+
+
+def background_path_from_visual_item(item: dict[str, Any], work_dir: Path | None = None) -> str:
+    if not is_background_visual_item(item):
+        return ""
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    for key in ("local_path", "asset_path", "image_path", "path"):
+        value = clean_text(item.get(key) or data.get(key))
+        if value:
+            return resolve_workdir_path(value, work_dir)
+    return ""
+
+
+def is_background_visual_item(item: dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    purpose = clean_text(item.get("asset_purpose")).lower()
+    position = clean_text(item.get("image_position")).lower()
+    role = clean_text(item.get("role")).lower()
+    return purpose == "background" or position == "background" or role in {"background", "hero_photo"}
 
 
 def split_header_body(text: str) -> tuple[str, str]:

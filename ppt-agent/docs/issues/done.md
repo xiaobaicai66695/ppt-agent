@@ -1,5 +1,32 @@
 # Done
 
+## 2026-08-24
+
+- ID: 20260824-background-image-render-and-tool-trace-order
+- Type: fix
+- Scope: PPT image-background rendering, planner layout guidance, frontend inline tool trace
+- Completed: 2026-08-24 02:15 Asia/Shanghai
+- Changes:
+  - Promoted downloaded `content_plan.visual_intent.local_path` and background-purpose image components into the renderer `background` path so normal content pages can embed searched background images.
+  - Kept background-purpose image components out of the visible body component pool to avoid duplicate placeholder/card rendering.
+  - Removed `numpy` as a hard dependency for image-background brightness adjustment and kept a real bottom image layer so PPTX packages retain `ppt/media/*` across python-pptx versions.
+  - Updated Planner guidance to prefer image-text mixed layouts and viewpoint/evidence alternation instead of continuous card grids when the page benefits from visual explanation.
+  - Anchored recovered `full_answer` chat messages to `created_at`, preventing stale summary text from staying at the bottom after newer tool events; retained grouped inline tool previews with formatted params/results.
+- Verification:
+  - Local: `npm run test -- workbench` passed with 21 tests.
+  - Local: `npm run build` passed.
+  - Local: bundled Python `-m unittest skills.visual_designer.tests.test_render_task_components` passed with 17 tests.
+  - Local: `go test ./pkg/agent/contentplan ./pkg/web ./pkg/agent/deck` passed.
+  - Local: `go build ./...` passed.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Backend process: restarted from PID `2519154` to PID `2587512`, command `./ppt-agent-linux -mode web -addr :8080`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Frontend: deployed new `dist` asset `DashboardPage-CTYVWHfD.js`; smoke confirmed grouped tool UI strings and recovered-message timestamp fix are present.
+  - Online render smoke: temporary `content_slide` task with `visual_intent.asset_purpose=background` and local `assets/images/bg.jpg` generated PPT successfully; package contained `media_count=1`.
+- Cleanup:
+  - Removed this deployment's `/tmp/ppt-agent-frontend-202608240145.tgz`, `/tmp/ppt-agent-linux-202608240145`, generator upload files, and `/tmp/ppt-bg-smoke-*` workspaces from the server.
+
 ## 2026-08-23
 
 - ID: 20260823-reflexion-plan-review-gate

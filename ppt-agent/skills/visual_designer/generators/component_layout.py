@@ -262,7 +262,10 @@ def _render_workbench(
         add_text(slide, subtitle, 0.58, 1.13, 10.8, 0.36, 13, color="secondary", palette=palette, colors=colors)
     add_rect(slide, 0.57, 1.48, 1.1, 0.05, "accent", palette=palette)
 
-    body_components = [c for c in components if c.get("type") not in TITLE_TYPES | SOURCE_TYPES]
+    body_components = [
+        c for c in components
+        if c.get("type") not in TITLE_TYPES | SOURCE_TYPES and not is_background_media(c)
+    ]
     architecture_boxes = [c for c in body_components if c.get("type") == "architecture_box"]
     primitive_helpers = [c for c in body_components if c.get("type") in PRIMITIVE_TYPES and c.get("type") != "architecture_box"]
     charts = [c for c in body_components if c.get("type") == "chart"]
@@ -343,6 +346,15 @@ def _render_workbench(
             seen.add(marker)
             ordered.append(item)
         _render_cards(slide, colors, palette, ordered, 0.65, top, 11.95, height, align_y="middle")
+
+
+def is_background_media(item: dict[str, Any]) -> bool:
+    purpose = clean(item.get("asset_purpose")).lower()
+    position = clean(item.get("image_position")).lower()
+    role = clean(item.get("role")).lower()
+    return item.get("type") in MEDIA_TYPES and (
+        purpose == "background" or position == "background" or role in {"background", "hero_photo"}
+    )
 
 
 def _render_cards(

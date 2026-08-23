@@ -143,6 +143,7 @@
 - `image_position` 可用 `background`、`left`、`right`、`strip`、`inline`。
 - 只有同页 `layout_variant` 非空时，`preferred_variant` 才与它保持一致。
 - 视觉字段服务于叙事：视觉页填写具体意图，数据页使用 `chart` 或 `cards`，纯文字留白页可保持精简。
+- 版式优先观点与论据交替呈现，少用连续卡片罗列；除目录、分割页和纯数据页外，适合视觉解释的页面优先选 `image_text`、`case_study`、`example_detail` 或 `image_hero`，用图片承载背景/场景/证据，用文字承载判断和论证。
 - `layout_variant` 只填写 `component_contracts.json` 中当前 content_type 的非空 `variants`。当前稳定值为 `section_divider.number_sidebar`；其他页面依靠 `content_type`、组件类型、组件数量和 `visual_intent` 触发生成器自适应布局。
 - `section_divider.content_plan.section_number` 必须是大章节序号（01、02、03），不是 `page_index`。例如第 6 页如果是第二个章节页，显示 `02`。
 

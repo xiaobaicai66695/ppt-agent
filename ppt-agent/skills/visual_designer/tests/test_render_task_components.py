@@ -204,6 +204,46 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         self.assertEqual(params["components"][0]["local_path"], str((work_dir / "assets/images/scene.jpg").resolve()))
 
+    def test_visual_intent_background_local_path_is_promoted_to_slide_background(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            image_path = work_dir / "assets" / "images" / "background.jpg"
+            image_path.parent.mkdir(parents=True)
+            Image.new("RGB", (960, 540), color=(90, 120, 150)).save(image_path)
+            task = {
+                "title": "政策环境",
+                "content_type": "content_slide",
+                "content_plan": {
+                    "visual_intent": {
+                        "role": "hero_photo",
+                        "asset_purpose": "background",
+                        "local_path": "assets/images/background.jpg",
+                    },
+                    "components": [
+                        {"type": "argument_block", "title": "判断", "body": "背景图负责建立政策发布场景，正文负责解释关键政策变量。"},
+                    ],
+                },
+            }
+
+            self.assertEqual(render_task.background_from_task(task, work_dir), str(image_path.resolve()))
+            params = render_task.build_params("content_slide", task, {"tasks": [task]}, work_dir=work_dir)
+            prs = render_component_slide(
+                palette="ocean_soft",
+                title=params["title"],
+                content_type="content_slide",
+                background=render_task.background_from_task(task, work_dir),
+                components=params["components"],
+            )
+            output = work_dir / "background-slide.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                names = package.namelist()
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
+        self.assertIn("背景图负责建立政策发布场景", slide_xml)
+        self.assertNotIn("visual_intent_image", slide_xml)
+
     def test_agenda_uses_manifest_titles_not_summary_blob(self):
         manifest = {
             "tasks": [

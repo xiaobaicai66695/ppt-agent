@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem } from '../types';
 import {
   canonicalOutputFile, compactRuntimeEvents, deriveInlineConversationItems, deriveInlineToolPreviews,
-  deriveLiveActivity, deriveObservableSteps, mergeConversationMessages,
+  deriveLiveActivity, deriveObservableSteps, formatToolPreviewFields, mergeConversationMessages,
   mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
   runtimeAssistantOutputMessages, runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
   summarizeTaskTitle,
@@ -54,8 +54,32 @@ describe('workbench utilities', () => {
       created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:01Z',
     };
     expect(recoverConversationMessages(session)).toEqual([{
-      role: 'assistant', content: '# 完成\n\n- 第一页\n- 第二页', timestamp: session.updated_at,
+      role: 'assistant', content: '# 完成\n\n- 第一页\n- 第二页', timestamp: session.created_at,
     }]);
+  });
+
+  it('does not pin recovered full answers after newer runtime tools', () => {
+    const session: ConversationSession = {
+      task_id: 't1',
+      messages: [],
+      full_answer: '固定的历史总结',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:10:00Z',
+    };
+    const events: RuntimeEvent[] = [{
+      id: 1,
+      task_id: 't1',
+      timestamp: '2026-01-01T00:05:00Z',
+      elapsed_ms: 1000,
+      kind: 'tool_end',
+      name: 'search_images',
+      status: 'ok',
+      metadata: { image_query: 'conference hall wide landscape' },
+    }];
+
+    const items = deriveInlineConversationItems(recoverConversationMessages(session), events);
+
+    expect(items.map(item => item.type)).toEqual(['message', 'tool_group']);
   });
 
   it('resumes from the newest task-specific event boundary', () => {
@@ -220,8 +244,66 @@ describe('workbench utilities', () => {
 
     const items = deriveInlineConversationItems(messages, events);
 
-    expect(items.map(item => item.type)).toEqual(['message', 'tool', 'message']);
-    expect(items[1].type === 'tool' ? items[1].tool.name : '').toBe('search');
+    expect(items.map(item => item.type)).toEqual(['message', 'tool_group', 'message']);
+    expect(items[1].type === 'tool_group' ? items[1].group.tools[0].name : '').toBe('search');
+  });
+
+  it('groups adjacent tool previews into one visible tool round', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'tool_end',
+        name: 'read_file',
+        status: 'ok',
+        metadata: { file_path: '/tmp/component_contracts.json' },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'tool_end',
+        name: 'search',
+        status: 'ok',
+        metadata: { search_query: '2026 两会', source_urls: ['https://example.com'] },
+      },
+    ];
+    const items = deriveInlineConversationItems([], events);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type).toBe('tool_group');
+    expect(items[0].type === 'tool_group' ? items[0].group.label : '').toBe('本轮工具调用');
+    expect(items[0].type === 'tool_group' ? items[0].group.tools.map(tool => tool.name) : []).toEqual(['read_file', 'search']);
+  });
+
+  it('formats tool preview JSON into readable fields', () => {
+    const [tool] = deriveInlineToolPreviews([{
+      id: 1,
+      task_id: 'task-1',
+      timestamp: '2026-08-05T00:00:01Z',
+      elapsed_ms: 1000,
+      kind: 'tool_end',
+      name: 'search_images',
+      status: 'ok',
+      metadata: {
+        args_preview: '{"query":"aerial city skyline","asset_purpose":"background","download":true}',
+        result_preview: '{"provider":"unsplash","total":12,"photos":[{"id":"a"},{"id":"b"}]}',
+      },
+    }]);
+
+    expect(formatToolPreviewFields(tool, 'args')).toEqual([
+      { label: '检索词', value: 'aerial city skyline' },
+      { label: '图片用途', value: 'background' },
+      { label: '下载图片', value: '是' },
+    ]);
+    expect(formatToolPreviewFields(tool, 'result')).toEqual([
+      { label: '服务', value: 'unsplash' },
+      { label: '总数', value: '12' },
+      { label: '图片结果', value: '2 项' },
+    ]);
   });
 
   it('derives concise live activity without exposing tool arguments', () => {

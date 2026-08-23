@@ -3,7 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
 import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
 import {
-  deriveInlineConversationItems, mergeConversationMessages, renderSafeMarkdown, runtimeAssistantOutputMessages,
+  deriveInlineConversationItems, formatToolPreviewFields, mergeConversationMessages, renderSafeMarkdown,
+  runtimeAssistantOutputMessages,
 } from '../utils/workbench';
 
 const props = defineProps<{
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 
 const thread = ref<HTMLElement | null>(null);
 const showHistory = ref(props.messages.length > 0);
+const autoFollowThread = ref(true);
 
 const modeLabel = computed(() => ({
   create: '创建演示',
@@ -59,9 +61,19 @@ const visibleItemCount = computed(() => conversationItems.value.length + (props.
 
 watch(() => [conversationItems.value.length, props.streamingContent], async () => {
   if (conversationItems.value.length > 0 || props.streamingContent) showHistory.value = true;
+  const shouldScroll = autoFollowThread.value || !thread.value;
   await nextTick();
-  if (thread.value) thread.value.scrollTop = thread.value.scrollHeight;
+  if (thread.value && shouldScroll) thread.value.scrollTop = thread.value.scrollHeight;
 });
+
+function isNearThreadBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 56;
+}
+
+function handleThreadScroll() {
+  if (!thread.value) return;
+  autoFollowThread.value = isNearThreadBottom(thread.value);
+}
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -80,6 +92,12 @@ function toolStatusIcon(status: string): 'running' | 'error' | 'ok' {
   if (status === 'running') return 'running';
   if (status === 'error' || status === 'failed') return 'error';
   return 'ok';
+}
+
+function toolGroupStatusLabel(status: string): string {
+  if (status === 'running') return '持续运行';
+  if (status === 'error' || status === 'failed') return '需要处理';
+  return '已完成';
 }
 
 function previewImageUrl(item: { preview_url?: string; image_url?: string }): string {
@@ -128,7 +146,7 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
       </span>
     </div>
 
-    <div v-show="showHistory" ref="thread" class="conversation-thread" aria-live="polite">
+    <div v-show="showHistory" ref="thread" class="conversation-thread" aria-live="polite" @scroll="handleThreadScroll">
       <div v-if="historyLoading && conversationItems.length === 0" class="history-state">
         <LoaderCircle :size="17" class="spin" />正在恢复对话
       </div>
@@ -137,48 +155,78 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
           <span class="message-role">{{ item.message.role === 'user' ? '你' : 'AI' }}</span>
           <div class="markdown-body" v-html="renderSafeMarkdown(item.message.content)"></div>
         </article>
-        <article v-else class="message assistant tool-message" :class="toolStatusIcon(item.tool.status)">
+        <article v-else class="message assistant tool-message" :class="toolStatusIcon(item.group.status)">
           <span class="message-role">AI</span>
-          <details class="inline-tool-card" :open="item.tool.status === 'running' || item.tool.image_results.length > 0">
-            <summary>
-              <span class="tool-state" :class="toolStatusIcon(item.tool.status)">
-                <LoaderCircle v-if="toolStatusIcon(item.tool.status) === 'running'" :size="14" class="spin" />
-                <TriangleAlert v-else-if="toolStatusIcon(item.tool.status) === 'error'" :size="14" />
+          <details class="tool-group-card" :open="item.group.status === 'running'">
+            <summary class="tool-group-summary">
+              <span class="tool-state group" :class="toolStatusIcon(item.group.status)">
+                <LoaderCircle v-if="toolStatusIcon(item.group.status) === 'running'" :size="14" class="spin" />
+                <TriangleAlert v-else-if="toolStatusIcon(item.group.status) === 'error'" :size="14" />
                 <CircleCheck v-else :size="14" />
               </span>
               <span class="tool-copy">
-                <strong>{{ item.tool.label }}</strong>
-                <small>{{ toolStatusLabel(item.tool.status) }} · {{ item.tool.detail }}</small>
+                <strong>{{ item.group.label }}</strong>
+                <small>{{ toolGroupStatusLabel(item.group.status) }} · {{ item.group.detail }}</small>
               </span>
             </summary>
-            <div class="tool-card-body">
-              <div v-if="item.tool.source_urls.length" class="tool-source-list">
-                <a v-for="url in item.tool.source_urls" :key="url" :href="url" target="_blank" rel="noreferrer">{{ url }}</a>
-              </div>
-              <div v-if="item.tool.image_results.length" class="tool-image-grid">
-                <a
-                  v-for="image in item.tool.image_results"
-                  :key="image.id"
-                  class="tool-image-preview"
-                  :href="image.source_url || image.image_url || previewImageUrl(image)"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <img v-if="previewImageUrl(image)" :src="previewImageUrl(image)" :alt="previewImageLabel(image)" loading="lazy" />
-                  <span v-else>无缩略图</span>
-                  <small>{{ previewImageLabel(image) }}</small>
-                </a>
-              </div>
-              <div class="tool-preview-columns">
-                <div v-if="item.tool.args_preview" class="tool-preview-block">
-                  <span>参数</span>
-                  <pre>{{ item.tool.args_preview }}</pre>
+            <div class="tool-group-body">
+              <details
+                v-for="tool in item.group.tools"
+                :key="tool.key"
+                class="inline-tool-card"
+                :open="tool.status === 'running' || tool.image_results.length > 0"
+              >
+                <summary>
+                  <span class="tool-state" :class="toolStatusIcon(tool.status)">
+                    <LoaderCircle v-if="toolStatusIcon(tool.status) === 'running'" :size="14" class="spin" />
+                    <TriangleAlert v-else-if="toolStatusIcon(tool.status) === 'error'" :size="14" />
+                    <CircleCheck v-else :size="14" />
+                  </span>
+                  <span class="tool-copy">
+                    <strong>{{ tool.label }}</strong>
+                    <small>{{ toolStatusLabel(tool.status) }} · {{ tool.detail }}</small>
+                  </span>
+                </summary>
+                <div class="tool-card-body">
+                  <div v-if="tool.source_urls.length" class="tool-source-list">
+                    <a v-for="url in tool.source_urls" :key="url" :href="url" target="_blank" rel="noreferrer">{{ url }}</a>
+                  </div>
+                  <div v-if="tool.image_results.length" class="tool-image-grid">
+                    <a
+                      v-for="image in tool.image_results"
+                      :key="image.id"
+                      class="tool-image-preview"
+                      :href="image.source_url || image.image_url || previewImageUrl(image)"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img v-if="previewImageUrl(image)" :src="previewImageUrl(image)" :alt="previewImageLabel(image)" loading="lazy" />
+                      <span v-else>无缩略图</span>
+                      <small>{{ previewImageLabel(image) }}</small>
+                    </a>
+                  </div>
+                  <div class="tool-preview-columns">
+                    <div v-if="formatToolPreviewFields(tool, 'args').length" class="tool-preview-block">
+                      <span>调用参数</span>
+                      <dl>
+                        <template v-for="field in formatToolPreviewFields(tool, 'args')" :key="`${field.label}:${field.value}`">
+                          <dt>{{ field.label }}</dt>
+                          <dd>{{ field.value }}</dd>
+                        </template>
+                      </dl>
+                    </div>
+                    <div v-if="formatToolPreviewFields(tool, 'result').length" class="tool-preview-block">
+                      <span>返回结果</span>
+                      <dl>
+                        <template v-for="field in formatToolPreviewFields(tool, 'result')" :key="`${field.label}:${field.value}`">
+                          <dt>{{ field.label }}</dt>
+                          <dd>{{ field.value }}</dd>
+                        </template>
+                      </dl>
+                    </div>
+                  </div>
                 </div>
-                <div v-if="item.tool.result_preview" class="tool-preview-block">
-                  <span>结果</span>
-                  <pre>{{ item.tool.result_preview }}</pre>
-                </div>
-              </div>
+              </details>
             </div>
           </details>
         </article>
@@ -249,6 +297,7 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
 .message.streaming .markdown-body { border-left: 3px solid var(--info); }
 .tool-message .message-role { color: var(--info); background: var(--info-soft); }
 .tool-message.error .message-role { color: var(--danger); background: var(--danger-soft); }
+.tool-group-card,
 .inline-tool-card {
   min-width: 0;
   overflow: hidden;
@@ -256,6 +305,11 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
   border-radius: 6px;
   background: var(--surface);
 }
+.tool-group-card {
+  border-color: #cdd8dc;
+  background: #fbfcfc;
+}
+.tool-group-summary,
 .inline-tool-card summary {
   min-height: 38px;
   padding: 7px 9px;
@@ -265,7 +319,19 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
   cursor: pointer;
   color: var(--text-secondary);
 }
+.tool-group-summary {
+  min-height: 42px;
+  background: #f8fafb;
+}
+.tool-group-summary:hover,
 .inline-tool-card summary:hover { background: var(--surface-muted); }
+.tool-group-body {
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--divider);
+  background: #fff;
+}
 .tool-state {
   width: 22px;
   height: 22px;
@@ -278,6 +344,10 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
 }
 .tool-state.running { color: var(--info); background: var(--info-soft); }
 .tool-state.error { color: var(--danger); background: var(--danger-soft); }
+.tool-state.group {
+  width: 24px;
+  height: 24px;
+}
 .tool-copy {
   min-width: 0;
   display: flex;
@@ -362,25 +432,44 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
 .tool-preview-block {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 .tool-preview-block span {
   color: var(--text-muted);
   font-size: 9px;
   font-weight: 800;
 }
-.tool-preview-block pre {
-  max-height: 160px;
+.tool-preview-block dl {
   margin: 0;
-  padding: 8px;
-  overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(64px, max-content) minmax(0, 1fr);
+  overflow: hidden;
   border: 1px solid var(--divider);
   border-radius: 5px;
   color: var(--text-secondary);
   background: var(--surface-muted);
-  font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre-wrap;
+  font-size: 11px;
+}
+.tool-preview-block dt,
+.tool-preview-block dd {
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--divider);
+}
+.tool-preview-block dt {
+  color: var(--text-muted);
+  background: #fff;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.tool-preview-block dd {
+  color: var(--text);
   overflow-wrap: anywhere;
+}
+.tool-preview-block dt:last-of-type,
+.tool-preview-block dd:last-of-type {
+  border-bottom: 0;
 }
 .markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3), .markdown-body :deep(h4) { margin: 0 0 7px; font-size: 14px; line-height: 1.4; }
 .markdown-body :deep(p) { margin: 0 0 7px; }.markdown-body :deep(p:last-child) { margin-bottom: 0; }
