@@ -82,7 +82,8 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 		imageSearchAvailable = true
 	}
 	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline, cfg.Query, imageSearchAvailable)
-	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	planReviewTool := newPlanReviewTool(cfg.WorkDir)
+	plannerTools := []tool.BaseTool{manifestTool, planReviewTool, readFileTool, searchTool}
 	if imageSearchAvailable {
 		plannerTools = append(plannerTools, tools.NewImageSearchTool(imageSearchClient, cfg.WorkDir))
 	}

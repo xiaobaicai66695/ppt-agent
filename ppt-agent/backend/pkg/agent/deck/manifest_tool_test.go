@@ -70,10 +70,12 @@ func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
 			"title":"为什么要优化主流程",
 			"content_type":"content_slide",
 			"description":"用一页说明优化必要性",
+			"background":"minimalist_blue/images/1.jpg",
 			"output_file":"1_flow.pptx",
 			"status":"pending",
 			"content_plan":{
 				"summary":"主流程需要先规划再润色",
+				"slide_intent":"说明主流程优化的必要性",
 				"components":[
 					{"id":"arg_1","type":"long_paragraph","title":"核心判断","body":"当前问题不是单页渲染能力不足，而是规划阶段没有给出足够完整的论述、证据和结论，导致后续只能渲染出泛化短句。"},
 					{"id":"steps_1","type":"ordered_list","title":"改造顺序","items":["先规划叙事结构","再审查并润色内容","最后按组件生成页面"]},
@@ -86,6 +88,11 @@ func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
 	}`
 	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
 		t.Fatal(err)
+	}
+	if report, err := ReviewTasksDraftManifest(workDir, 1); err != nil {
+		t.Fatal(err)
+	} else if !report.Passed {
+		t.Fatalf("review should pass before commit: %#v", report)
 	}
 	if _, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
 		t.Fatal(err)
@@ -191,8 +198,8 @@ func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 		"theme":"government_red",
 		"template":"current-affairs",
 		"tasks":[
-			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
-			{"task_id":"2","page_index":2,"title":"红色历史","content_type":"content_slide","description":"介绍延安红色历史","output_file":"2_history.pptx","status":"pending"}
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","background":"party_government/images/1.jpg","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"延安主题封面","components":[{"id":"title_1","type":"deck_title","text":"介绍延安"}]}},
+			{"task_id":"2","page_index":2,"title":"红色历史","content_type":"content_slide","description":"介绍延安红色历史和精神传承","background":"party_government/images/2.jpg","output_file":"2_history.pptx","status":"pending","content_plan":{"summary":"延安红色历史形成精神传承","slide_intent":"概括延安历史价值","components":[{"id":"headline_1","type":"headline","text":"红色历史形成可持续的精神坐标"},{"id":"point_1","type":"key_point","title":"历史价值","body":"延安时期沉淀出组织建设、群众路线和艰苦奋斗等经验，成为后续党史教育和红色研学的重要内容。"}]}}
 		]
 	}`
 
@@ -208,6 +215,16 @@ func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
 		t.Fatalf("configured manifest tool should write draft before commit, stat err=%v", err)
+	}
+	if result, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
+		t.Fatal(err)
+	} else if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, "has not been reviewed") {
+		t.Fatalf("commit should require review first, got %s", result)
+	}
+	if report, err := ReviewTasksDraftManifest(workDir, 1); err != nil {
+		t.Fatal(err)
+	} else if !report.Passed {
+		t.Fatalf("review should pass before commit: %#v", report)
 	}
 	if _, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
 		t.Fatal(err)
@@ -744,8 +761,22 @@ func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit validation failure should be returned to planner, got tool error %v", err)
 	}
-	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `unsupported type \"x_y_positioned_box\"`) {
-		t.Fatalf("commit should return structured validation failure, got %s", result)
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `has not been reviewed`) {
+		t.Fatalf("commit should require review before validation, got %s", result)
+	}
+	report, err := ReviewTasksDraftManifest(workDir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Passed || !strings.Contains(report.Summary, "未通过") {
+		t.Fatalf("invalid draft review should fail, got %#v", report)
+	}
+	result, err = tool.InvokableRun(context.Background(), `{"mode":"commit"}`)
+	if err != nil {
+		t.Fatalf("failed review should be returned to planner, got tool error %v", err)
+	}
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `review did not pass`) {
+		t.Fatalf("commit should reject failed review, got %s", result)
 	}
 	if _, statErr := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("invalid draft should not publish final tasks.json, stat err=%v", statErr)
@@ -769,6 +800,7 @@ func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *test
 			"title":"背景与目标",
 			"content_type":"section_divider",
 			"description":"章节分隔页",
+			"background":"minimalist_blue/images/1.jpg",
 			"output_file":"1_section.pptx",
 			"status":"pending",
 			"content_plan":{
@@ -784,6 +816,11 @@ func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *test
 
 	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
 		t.Fatal(err)
+	}
+	if report, err := ReviewTasksDraftManifest(workDir, 1); err != nil {
+		t.Fatal(err)
+	} else if !report.Passed {
+		t.Fatalf("review should pass before commit: %#v", report)
 	}
 	if _, err := tool.InvokableRun(context.Background(), `{"mode":"commit"}`); err != nil {
 		t.Fatal(err)

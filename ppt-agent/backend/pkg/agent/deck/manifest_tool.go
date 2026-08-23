@@ -179,6 +179,7 @@ type manifestTool struct {
 	normalizeBackgrounds  bool
 	fallbackTitle         string
 	draftFirst            bool
+	requireReview         bool
 }
 
 func newManifestTool(workDir string) tool.InvokableTool {
@@ -191,6 +192,7 @@ func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline, 
 		backgroundRoot: filepath.Join(skillsDir, "visual_designer", "background_templates"),
 		fallbackTitle:  compactManifestTitle(query),
 		draftFirst:     true,
+		requireReview:  true,
 	}
 	if outline != nil && strings.TrimSpace(outline.Title) != "" {
 		t.fallbackTitle = compactManifestTitle(outline.Title)
@@ -228,7 +230,14 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		manifest, err = t.patchManifest(input)
 		target = t.writeTarget()
 	case "commit":
-		committed, ok, commitErr := CommitTasksDraftManifestIfPresent(t.workDir)
+		var committed *TasksManifest
+		var ok bool
+		var commitErr error
+		if t != nil && t.requireReview {
+			committed, ok, commitErr = CommitReviewedTasksDraftManifestIfPresent(t.workDir)
+		} else {
+			committed, ok, commitErr = CommitTasksDraftManifestIfPresent(t.workDir)
+		}
 		if commitErr != nil {
 			result, _ := json.Marshal(map[string]any{
 				"ok": false, "mode": input.Mode, "target": "draft", "committed": false, "error": commitErr.Error(),
@@ -834,6 +843,29 @@ func CommitTasksDraftManifestIfPresent(workDir string) (*TasksManifest, bool, er
 		if os.IsNotExist(err) {
 			return nil, false, nil
 		}
+		return nil, false, err
+	}
+	if err := validateManifestForWrite(manifest); err != nil {
+		return nil, false, fmt.Errorf("draft DeckSpec is invalid: %w", err)
+	}
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
+		return nil, false, err
+	}
+	if err := os.Remove(filepath.Join(workDir, "tasks.draft.json")); err != nil && !os.IsNotExist(err) {
+		return nil, false, err
+	}
+	return manifest, true, nil
+}
+
+func CommitReviewedTasksDraftManifestIfPresent(workDir string) (*TasksManifest, bool, error) {
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if err := RequirePassingPlanReview(workDir, manifest); err != nil {
 		return nil, false, err
 	}
 	if err := validateManifestForWrite(manifest); err != nil {

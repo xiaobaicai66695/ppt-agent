@@ -13,7 +13,7 @@
 - 组件契约：`{{ .SkillsDir }}/visual_designer/templates/component_contracts.json`
 - 所有文件参数使用绝对路径。
 - 正式 DeckSpec 是 `tasks.json`；规划草稿由 `update_tasks_manifest` 写入缓存，禁止直接 edit 文件。
-- `update_tasks_manifest(mode="initialize"|"patch")` 只更新规划草稿，不代表格式已最终通过；完成审查并确认每页 `reviewer_status.locked=true` 后，调用 `update_tasks_manifest(mode="commit")` 做硬校验并落盘为正式 `tasks.json`。
+- `update_tasks_manifest(mode="initialize"|"patch")` 只更新规划草稿，不代表格式已最终通过；必须调用 `review_tasks_manifest` 审核当前草稿。审核通过后工具会锁定每页 `reviewer_status` 并写入 review artifact；草稿一旦 patch，需要重新 review，之后才能 `commit`。
 - 页面完成状态由后端依据代码元数据维护；Planner commit 后立即结束，后端 Eino workflow 会继续校验、编译并按 `task_id` 并发渲染。
 
 {{if .HasOutline}}
@@ -42,8 +42,9 @@
 1. 读取 `{{ .TasksJSON }}`、`{{ .TmplDir }}/{{ .OutlineTemplate }}.json` 和 `{{ .SkillsDir }}/visual_designer/templates/component_contracts.json`，确认页面容量、可用版式和组件语义。
 2. 以用户主题为内容事实来源，以模板字段为布局容量来源。
 3. 一次 `update_tasks_manifest(mode="patch", tasks=[...])` 提交全部需要补写的页面到草稿缓存。
-4. 审查通过后调用 `update_tasks_manifest(mode="commit")` 生成正式 `tasks.json`。
-5. 规划完成后输出包含模板、页数、章节、背景主题和审查结果的过程摘要并结束，后端 workflow 会接管渲染。
+4. 调用 `review_tasks_manifest(round=1)` 审核草稿；如果返回未通过，按 issues 一次性 patch 对应页面，并以 round+1 重新 review，最多 3 轮。
+5. 审查通过后调用 `update_tasks_manifest(mode="commit")` 生成正式 `tasks.json`。
+6. 规划完成后输出包含模板、页数、章节、背景主题和审查结果的过程摘要并结束，后端 workflow 会接管渲染。
 
 {{else}}
 ## 动态规划
@@ -64,7 +65,7 @@
 {{ .TemplateCatalog }}
 {{end}}
 
-一次调用 `update_tasks_manifest(mode="initialize", title="...", theme="...", template="...", tasks=[...])` 创建全部页面草稿。每页包含稳定英文 `content_type`、具体 `description`、结构化 `content_plan`、组件计划和适用的视觉意图。审查通过后再调用 `update_tasks_manifest(mode="commit")` 落盘正式 DeckSpec。
+一次调用 `update_tasks_manifest(mode="initialize", title="...", theme="...", template="...", tasks=[...])` 创建全部页面草稿。每页包含稳定英文 `content_type`、具体 `description`、结构化 `content_plan`、组件计划和适用的视觉意图。随后调用 `review_tasks_manifest` 审核草稿；如果有问题，按返回 issues 修订并重新 review；通过后再调用 `update_tasks_manifest(mode="commit")` 落盘正式 DeckSpec。
 
 工具参数直接使用 schema 中的 `tasks` 对象数组；`content_plan.elements` 的 `text`、`title`、`description` 使用单个字符串，多值列表放入 `items`；正文引用优先使用中文引号“示例”，保持参数边界清晰。
 
@@ -80,7 +81,7 @@
 ## 背景规划
 
 {{if .ImageSearchAvailable}}
-外部图片搜索可用时，`task.background` 不再作为默认视觉策略。每页需要背景氛围图时，在 `content_plan.visual_intent` 或 `image` 组件中写 `asset_purpose=background`、`asset_subject`、`asset_query` 和 `composition`，并按需调用 `search_images(download=true)` 保存本地图片和署名。`background_templates` 仅作为用户明确指定本地背景或图片搜索不可用时的降级路径。
+外部图片搜索可用时，`task.background` 不再作为默认视觉策略。默认尽量为每页规划可嵌入背景图或背景氛围图：在 `content_plan.visual_intent` 或 `image` 组件中写 `asset_purpose=background`、`asset_subject`、`asset_query` 和 `composition`，并调用 `search_images(download=true)` 保存本地图片和署名，再把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url`、`attribution` 写回对应字段。`background_templates` 仅作为用户明确指定本地背景或图片搜索不可用时的降级路径。
 {{else}}
 本地可用背景：{{if .AvailableBackgrounds}}{{ .AvailableBackgrounds }}{{else}}以 background_templates 目录为准{{end}}。
 
@@ -168,11 +169,11 @@
 
 顶层 `task.background` 仅表示本地 `background_templates` 主题或具体背景文件；图片搜索可用时默认留空。外部图片的 `asset_purpose=background` 表示页面组件使用的专题背景。只有明确需要外部图片时才调用搜索工具，并将 `download=true` 返回的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写入对应 `image` 组件或 `visual_intent`，其中 `source_url` 和 `attribution` 用于保留来源页和摄影师署名。
 
-## 计划审查与润色
+## Reflexion 计划审查与润色
 
-写入 DeckSpec 前先自检一次，必要时最多润色到第 3 轮。`reviewer_status.issues[].code` 只能使用这些值：`intent_mismatch`、`profile_overfit`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`。
+写入 DeckSpec 前必须调用 `review_tasks_manifest`，把工具返回的 issues 视为 Reflexion critique。若未通过，先根据 critique 修订草稿，再重新 review；最多 3 轮。`reviewer_status.issues[].code` 可以使用这些值：`intent_mismatch`、`profile_overfit`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`、`missing_background_image`。
 
-必须通过的质量门：用户意图匹配、用户画像没有跨场景过拟合、页数合理、`content_type` 合法、`components` 合法、组件数量不超过模板容量、信息密度不空不爆、背景/模板/风格与主题一致。通过后把每页 `reviewer_status.locked` 设为 `true`。
+必须通过的质量门：用户意图匹配、用户画像没有跨场景过拟合、页数合理、`content_type` 合法、`components` 合法、组件数量不超过模板容量、信息密度不空不爆、每页尽量有可嵌入背景图、背景/模板/风格与主题一致。通过后 `review_tasks_manifest` 会把每页 `reviewer_status.locked` 设为 `true`。
 
 ## 规划完成后的执行链路
 
@@ -180,7 +181,7 @@ Planner 不调用子 Agent，不调用页面生成工具，也不编写 Python�
 
 1. `content_type` 是合法稳定英文 id。
 2. `description`、`content_plan.slide_intent` 和 `content_plan.components` 足够具体，后端 compiler 可以直接转成 generator 参数。
-3. {{if .ImageSearchAvailable}}`background` 默认留空，专题背景图由 `visual_intent`/图片组件和素材搜索结果承载。{{else}}`background` 已按同一主题目录规划，或在用户明确要求无背景时留空。{{end}}
+3. {{if .ImageSearchAvailable}}`background` 默认留空，专题背景图由 `visual_intent`/图片组件和素材搜索结果承载，并写入可嵌入的 `local_path`。{{else}}`background` 已按同一主题目录规划，或在用户明确要求无背景时留空。{{end}}
 4. `output_file` 与页码一一对应，文件名稳定。
 5. `status` 初始为 `pending`。
 
@@ -209,5 +210,6 @@ validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile
 |------|------|
 | read_file | 读取模板、skill 和 tasks.json |
 | update_tasks_manifest | 原子初始化/批量更新规划草稿，并在 commit 时生成正式 DeckSpec |
+| review_tasks_manifest | 审核当前 DeckSpec 草稿，返回 Reflexion critique；通过后锁定 reviewer_status |
 | search | 获取主题所需的真实资料与来源 |
 {{if .ImageSearchAvailable}}| search_images | 搜索 Unsplash 专题图片；按需下载并保留来源与署名 |{{end}}

@@ -1,5 +1,30 @@
 # Done
 
+## 2026-08-23
+
+- ID: 20260823-reflexion-plan-review-gate
+- Type: feature/fix
+- Scope: DeckSpec planning, manifest commit gate, image-background planning quality
+- Completed: 2026-08-23 21:22 Asia/Shanghai
+- Changes:
+  - Added `review_tasks_manifest` as a deterministic Reflexion-style planner review tool for `tasks.draft.json`.
+  - Required reviewed and current draft fingerprints before `update_tasks_manifest(mode="commit")` can publish `tasks.json`.
+  - Updated Planner instructions to run `initialize/patch -> review -> refine -> review -> commit`, with up to 3 review rounds.
+  - Added a planning quality gate that prefers every slide to have an executable background image plan, using downloaded `local_path` when image search is available.
+- Verification:
+  - Local: `go test ./pkg/agent/deck` passed.
+  - Local: `go test ./pkg/agent/deck ./pkg/tools/image ./pkg/agent/utils` passed.
+  - Local: `go build ./...` passed.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent/backend`
+  - Backend process: restarted from PID `1766222` to PID `2519154`, command `./ppt-agent-linux -mode web -addr :8080`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Templates: `GET http://127.0.0.1:8080/api/templates` returned 200 and returned preset metadata.
+  - Binary verification: deployed binary contains `review_tasks_manifest` and the commit guard string.
+- Cleanup:
+  - Removed local `ppt-agent-linux` build artifact.
+  - Removed this deployment's `/tmp/ppt-agent-linux.20260823*` files from the server.
+
 ## 2026-08-21
 
 - ID: 20260821-inline-chat-tool-previews

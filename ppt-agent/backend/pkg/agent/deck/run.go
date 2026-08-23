@@ -298,7 +298,7 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	if plannerErr != nil {
 		return result, fmt.Errorf("Planner 执行失败: %w", plannerErr)
 	}
-	if committed, ok, commitErr := CommitTasksDraftManifestIfPresent(cfg.WorkDir); commitErr != nil {
+	if committed, ok, commitErr := CommitReviewedTasksDraftManifestIfPresent(cfg.WorkDir); commitErr != nil {
 		return result, fmt.Errorf("提交 DeckSpec 草稿失败: %w", commitErr)
 	} else if ok {
 		manifest = committed
