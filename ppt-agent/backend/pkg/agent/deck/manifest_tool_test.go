@@ -412,64 +412,45 @@ func TestManifestToolRejectsInvalidTasksString(t *testing.T) {
 	}
 }
 
-func TestRecommendedManifestNormalizesEveryTaskToSameBackgroundTheme(t *testing.T) {
-	backgroundRoot := filepath.Join(t.TempDir(), "background_templates")
-	imageDir := filepath.Join(backgroundRoot, "minimalist_blue", "images")
-	if err := os.MkdirAll(imageDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"1.jpg", "2.jpg", "3.jpg"} {
-		if err := os.WriteFile(filepath.Join(imageDir, name), []byte("image"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+func TestManifestToolDoesNotNormalizeLegacyLocalBackgrounds(t *testing.T) {
 	manifest := &TasksManifest{Title: "推荐背景", Tasks: []*TaskItem{
 		{TaskID: "1", PageIndex: 1, ContentType: "title_slide"},
 		{TaskID: "2", PageIndex: 2, ContentType: "agenda"},
 		{TaskID: "3", PageIndex: 3, ContentType: "content_slide"},
-		{TaskID: "4", PageIndex: 4, ContentType: "section_divider"},
-		{TaskID: "5", PageIndex: 5, ContentType: "card_grid"},
-		{TaskID: "6", PageIndex: 6, ContentType: "image_text"},
-		{TaskID: "7", PageIndex: 7, ContentType: "chart_slide"},
-		{TaskID: "8", PageIndex: 8, ContentType: "kpi_dashboard"},
-		{TaskID: "9", PageIndex: 9, ContentType: "summary_slide"},
-		{TaskID: "10", PageIndex: 10, ContentType: "comparison_table", Background: "missing/images/1.jpg"},
-		{TaskID: "11", PageIndex: 11, ContentType: "content_slide", Background: "minimalist_blue/images/2.jpg"},
 	}}
-	tool := &manifestTool{
-		backgroundRoot: backgroundRoot, recommendedBackground: "minimalist_blue", normalizeBackgrounds: true,
-	}
-	if err := tool.normalizeManifestBackgrounds(manifest); err != nil {
+	workDir := t.TempDir()
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	previous := ""
+	tool := newConfiguredManifestTool(workDir, t.TempDir(), &TaskOutline{
+		ContentMode:           OutlineContentModeRecommendedStyle,
+		UseBackground:         true,
+		RecommendedBackground: "minimalist_blue",
+	}, "推荐背景", false)
+	args := `{"mode":"patch","tasks":[{"task_id":"2","background":"missing/images/1.jpg"}]}`
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, item := range manifest.Tasks {
-		if item.Background == "" {
-			t.Fatalf("task %q missing background", item.TaskID)
+		if item.TaskID == "2" {
+			continue
 		}
-		if !tool.validBackgroundReference(item.Background) {
-			t.Fatalf("invalid background remained: %q", item.Background)
+		if item.Background != "" {
+			t.Fatalf("task %q should keep empty legacy background, got %q", item.TaskID, item.Background)
 		}
-		if backgroundTheme(item.Background) != "minimalist_blue" {
-			t.Fatalf("background = %q, want minimalist_blue theme", item.Background)
-		}
-		if previous == item.Background {
-			t.Fatalf("adjacent assigned backgrounds repeated: %q", item.Background)
-		}
-		previous = item.Background
+	}
+	if got.GetTask("2").Background != "missing/images/1.jpg" {
+		t.Fatalf("explicit patch should be preserved until final validator/generator ignores it, got %q", got.GetTask("2").Background)
 	}
 }
 
 func TestConfiguredManifestLeavesLocalBackgroundEmptyWhenImageSearchAvailable(t *testing.T) {
 	workDir := t.TempDir()
 	skillsDir := filepath.Join(t.TempDir(), "skills")
-	imageDir := filepath.Join(skillsDir, "visual_designer", "background_templates", "minimalist_blue", "images")
-	if err := os.MkdirAll(imageDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(imageDir, "1.jpg"), []byte("image"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	outline := &TaskOutline{
 		ContentMode:           OutlineContentModeRecommendedStyle,

@@ -2,6 +2,26 @@
 
 ## 2026-08-24
 
+- ID: 20260824-rename-visual-designer-to-deck-planner
+- Type: refactor/cleanup
+- Scope: skill naming, component-first template loading, legacy asset/background cleanup
+- Completed: 2026-08-24 17:30 Asia/Shanghai
+- Changes:
+  - Renamed the misleading `visual_designer` skill concept to `ppt-deck-planner`, with the skill frontmatter, backend skill path, prompts, docs, tests, scripts, and frontend references aligned to the new name.
+  - Reframed the skill as the DeckSpec/tasks.json planning contract plus generator handoff layer, rather than a direct LLM visual-design surface.
+  - Removed obsolete offline asset/background/template baggage from the active skill tree, including old `assets`, `background_templates`, `templates/full-decks`, `templates/single-page`, palette reference, and unused maintenance scripts.
+  - Switched template loading to the component-first loader backed by `templates/component_contracts.json` and built-in preset metadata; legacy local backgrounds now return empty/no-op compatibility responses.
+  - Updated planner, recommendation, README, and AGENTS guidance so new plans keep top-level `background` empty and use external image search `local_path` metadata in `visual_intent` or `image` components.
+- Verification:
+  - Local: `go test ./pkg/templates ./pkg/web ./pkg/agent/deck ./pkg/agent/intent ./pkg/log_analysis` passed.
+  - Local: `go build ./...` passed.
+  - Local: `python -m compileall -q skills\ppt-deck-planner\generators` passed.
+  - Local: bundled Python `-m unittest discover -s skills\ppt-deck-planner\tests` passed with 17 tests.
+  - Local: `npm run build` passed.
+  - Skill validator blocked because the local Python environment lacks `yaml` / PyYAML.
+- Deployment:
+  - Not deployed by current instruction; this change remains local only.
+
 - ID: 20260824-readable-inline-tool-results-and-image-budget
 - Type: fix/performance
 - Scope: inline tool result preview, runtime event summaries, image search budget, stream timeout
@@ -61,7 +81,7 @@
 - Verification:
   - Local: `npm run test -- workbench` passed with 21 tests.
   - Local: `npm run build` passed.
-  - Local: bundled Python `-m unittest skills.visual_designer.tests.test_render_task_components` passed with 17 tests.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed with 17 tests.
   - Local: `go test ./pkg/agent/contentplan ./pkg/web ./pkg/agent/deck` passed.
   - Local: `go build ./...` passed.
 - Deployment:
@@ -130,7 +150,7 @@
   - Expanded `argument_block` and image-text narrative target length in planner/skill/component contracts.
 - Verification:
   - Local: `go test ./pkg/agent/deck ./pkg/agent/utils ./pkg/tools/image` passed.
-  - Local: bundled Python `-m unittest skills.visual_designer.tests.test_render_task_components` passed.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed.
   - Local: `npm run build` passed.
   - Local: `go build ./...` passed.
   - Local full `go test ./...` blocked only by missing local `pdftoppm` in `pkg/tools/qa`.

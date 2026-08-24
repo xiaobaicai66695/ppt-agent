@@ -3,8 +3,6 @@ package deck
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,15 +31,10 @@ func recoverMissingPlannerManifest(cfg *PPTTaskConfig, userQuery, plannerOutput 
 
 	template := "generic"
 	theme := "ocean_soft"
-	background := ""
 	pageCount := 0
 	if cfg.Outline != nil {
 		template = fallbackString(cfg.Outline.Template, template)
 		theme = fallbackString(cfg.Outline.Theme, theme)
-		background = strings.TrimSpace(cfg.Outline.RecommendedBackground)
-		if cfg.Outline.UseBackground && background == "" {
-			background = firstBackgroundTheme(cfg.SkillsDir)
-		}
 		pageCount = cfg.Outline.SuggestedPageCount
 	}
 	if cfg.IntentResult != nil {
@@ -72,7 +65,6 @@ func recoverMissingPlannerManifest(cfg *PPTTaskConfig, userQuery, plannerOutput 
 	}
 
 	manifest := &TasksManifest{Title: title, Theme: theme, Template: template}
-	refs := backgroundImageRefsFromSkills(cfg.SkillsDir, background)
 	for i, spec := range slideSpecs {
 		page := i + 1
 		contentType := normalizeRecoveredContentType(spec.ContentType)
@@ -85,7 +77,6 @@ func recoverMissingPlannerManifest(cfg *PPTTaskConfig, userQuery, plannerOutput 
 			OutputFile:  fmt.Sprintf("%02d_%s.pptx", page, safeOutputStem(spec.Title)),
 			Status:      StatusPending,
 			ContentPlan: recoveredContentPlan(title, spec.Title, contentType),
-			Background:  rotatingBackgroundRef(background, refs, page, previousTaskBackground(manifest)),
 		}
 		manifest.Tasks = append(manifest.Tasks, task)
 	}
@@ -344,45 +335,6 @@ func normalizeRecoveredContentType(contentType string) string {
 	default:
 		return "content_slide"
 	}
-}
-
-func backgroundImageRefsFromSkills(skillsDir, background string) []string {
-	theme := backgroundTheme(background)
-	if theme == "" || skillsDir == "" {
-		return nil
-	}
-	root := filepath.Join(skillsDir, "visual_designer", "background_templates", theme, "images")
-	paths, _ := filepath.Glob(filepath.Join(root, "*"))
-	refs := make([]string, 0, len(paths))
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		refs = append(refs, filepath.ToSlash(filepath.Join(theme, "images", filepath.Base(path))))
-	}
-	return refs
-}
-
-func firstBackgroundTheme(skillsDir string) string {
-	root := filepath.Join(skillsDir, "visual_designer", "background_templates")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return entry.Name()
-		}
-	}
-	return ""
-}
-
-func previousTaskBackground(manifest *TasksManifest) string {
-	if manifest == nil || len(manifest.Tasks) == 0 {
-		return ""
-	}
-	return manifest.Tasks[len(manifest.Tasks)-1].Background
 }
 
 func fallbackString(value, fallback string) string {

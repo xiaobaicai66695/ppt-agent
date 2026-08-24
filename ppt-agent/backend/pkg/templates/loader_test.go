@@ -39,3 +39,21 @@ func TestLoaderPreservesLayoutContractMetadata(t *testing.T) {
 		t.Fatalf("required_fields = %#v", layouts[0].Contract.RequiredFields)
 	}
 }
+
+func TestLoaderFallsBackToBuiltInCatalogWithoutLegacyTemplateDirs(t *testing.T) {
+	root := t.TempDir()
+	loader := NewLoader(
+		filepath.Join(root, "missing-full-decks"),
+		filepath.Join(root, "missing-single-page"),
+		filepath.Join(root, "missing-backgrounds"),
+	)
+	if loader.GetPreset("generic") == nil {
+		t.Fatal("expected built-in generic preset when legacy full-deck files are absent")
+	}
+	if loader.GetLayout("content_slide") == nil {
+		t.Fatal("expected built-in component layout when legacy single-page files are absent")
+	}
+	if got := loader.ListBackgrounds(); len(got) != 0 {
+		t.Fatalf("backgrounds = %#v, want no legacy local backgrounds", got)
+	}
+}

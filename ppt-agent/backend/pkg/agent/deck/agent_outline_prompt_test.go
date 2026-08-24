@@ -28,7 +28,7 @@ func TestMainAgentPromptDistinguishesTemplateScaffold(t *testing.T) {
 	}
 }
 
-func TestMainAgentPromptUsesRecommendedBackgroundOnlyWithoutImageSearch(t *testing.T) {
+func TestMainAgentPromptKeepsLegacyBackgroundEmpty(t *testing.T) {
 	outline := &TaskOutline{
 		Template: "personal-summary", Theme: "charcoal_light", Title: "主题",
 		ContentMode:   OutlineContentModeTemplateScaffold,
@@ -36,9 +36,14 @@ func TestMainAgentPromptUsesRecommendedBackgroundOnlyWithoutImageSearch(t *testi
 		Slides: []SlideOutline{{Title: "封面", ContentType: "title_slide"}},
 	}
 	prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5, false)
-	for _, want := range []string{"整套每页使用 `party_government` 同一主题目录", "`party_government` 是首选背景主题", "为每一页主动填写该主题或其具体图片引用", "`theme=charcoal_light` 是整套配色锚点"} {
+	for _, want := range []string{"没有可用图片搜索时只保留 `visual_intent.asset_query`", "`task.background` 默认留空", "`theme=charcoal_light` 是整套配色锚点"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"整套每页使用 `party_government` 同一主题目录", "为每一页主动填写该主题或其具体图片引用"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("prompt should not force local background, found %q", forbidden)
 		}
 	}
 
@@ -97,7 +102,7 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 		UseBackground: true, RecommendedBackground: "snowy_mountain",
 	}
 	prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5, false)
-	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "推荐背景：`snowy_mountain`", "重新设计叙事结构"} {
+	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "`snowy_mountain` 仅作为后续图片搜索线索", "重新设计叙事结构"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
@@ -106,9 +111,9 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 	if !strings.Contains(withImageSearch, "转换为外部背景图检索意图，不写本地 `background`") {
 		t.Fatal("image-search prompt should turn recommended background into external image planning")
 	}
-	for _, negativePatch := range []string{"不得", "不要"} {
-		if strings.Contains(prompt, negativePatch) || strings.Contains(withImageSearch, negativePatch) {
-			t.Fatalf("prompt should use positive decision contracts, found %q", negativePatch)
+	for _, forbidden := range []string{"整套每页使用", "同一主题目录"} {
+		if strings.Contains(prompt, forbidden) || strings.Contains(withImageSearch, forbidden) {
+			t.Fatalf("prompt should not carry legacy background contract, found %q", forbidden)
 		}
 	}
 }

@@ -20,12 +20,8 @@ func testTemplateServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skills := filepath.Join(projectRoot, "skills", "visual_designer")
-	loader := templates.NewLoader(
-		filepath.Join(skills, "templates", "full-decks"),
-		filepath.Join(skills, "templates", "single-page"),
-		filepath.Join(skills, "background_templates"),
-	)
+	skills := filepath.Join(projectRoot, "skills", "ppt-deck-planner")
+	loader := templates.NewComponentLoader(skills)
 	if len(loader.ListPresets()) == 0 || len(loader.ListLayouts()) == 0 {
 		t.Fatal("template fixtures did not load")
 	}
@@ -72,7 +68,7 @@ func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	if _, err := server.getTheme(strategy.Theme); err != nil {
 		t.Fatalf("recommended missing theme %q", strategy.Theme)
 	}
-	if strategy.PageCount != 13 || strategy.Background != "minimalist_blue" {
+	if strategy.PageCount != 13 || strategy.Background != "" || strategy.UseBackground {
 		t.Fatalf("recommendation did not reuse LLM result: %#v", strategy)
 	}
 }
@@ -135,7 +131,7 @@ func TestRecommendTemplateRouteDoesNotFallThroughToFrontend(t *testing.T) {
 	}
 }
 
-func TestRecommendedTemplateUsesBackgroundPaletteOverIntentTheme(t *testing.T) {
+func TestRecommendedTemplateDoesNotUseLegacyBackgroundPalette(t *testing.T) {
 	server := testTemplateServer(t)
 	useBackground := true
 	intent := &agentintent.ClassificationResult{
@@ -151,11 +147,11 @@ func TestRecommendedTemplateUsesBackgroundPaletteOverIntentTheme(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.Theme != "government_red" || outline.Theme != "government_red" {
-		t.Fatalf("theme = %q outline=%q, want government_red", strategy.Theme, outline.Theme)
+	if strategy.Theme != "patriotic_blue" || outline.Theme != "patriotic_blue" {
+		t.Fatalf("theme = %q outline=%q, want patriotic_blue", strategy.Theme, outline.Theme)
 	}
-	if strategy.Background != "party_government" {
-		t.Fatalf("background = %q, want party_government", strategy.Background)
+	if strategy.Background != "" || strategy.UseBackground || outline.UseBackground {
+		t.Fatalf("legacy background should not be used: strategy=%#v outline=%#v", strategy, outline)
 	}
 }
 
@@ -181,13 +177,13 @@ func TestRecommendationProducesStyleGuidanceWithoutPresetSlides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strategy.UseBackground || strategy.Background == "" {
-		t.Fatalf("strategy = %#v, want background", strategy)
+	if strategy.UseBackground || strategy.Background != "" {
+		t.Fatalf("strategy = %#v, want no legacy background", strategy)
 	}
 	if outline.ContentMode != deck.OutlineContentModeRecommendedStyle || len(outline.Slides) != 0 {
 		t.Fatalf("recommended outline copied preset slides: %#v", outline)
 	}
-	if outline.SuggestedPageCount != 9 || outline.Template != "course-module" || outline.Theme != "warm_terracotta" {
+	if outline.SuggestedPageCount != 9 || outline.Template != "course-module" || outline.Theme != "sage_calm" {
 		t.Fatalf("recommended style guidance = %#v", outline)
 	}
 }
@@ -219,54 +215,49 @@ func TestExplicitPageCountDoesNotTreatPageReferenceAsDeckSize(t *testing.T) {
 	}
 }
 
-func TestPresetSelectionAssignsBackgroundToEverySlide(t *testing.T) {
+func TestPresetSelectionDoesNotAssignLegacyBackgrounds(t *testing.T) {
 	server := testTemplateServer(t)
 	outline, _, err := server.resolveTemplateSelection("说明一些尚未分类的新想法", &TemplateSelection{Mode: "preset", Template: "generic"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, slide := range outline.Slides {
-		if slide.Background == "" {
-			t.Fatalf("slide %q should receive a background", slide.ContentType)
+		if slide.Background != "" {
+			t.Fatalf("slide %q unexpectedly received legacy background %q", slide.ContentType, slide.Background)
 		}
-		if backgroundTheme(slide.Background) != outline.RecommendedBackground {
-			t.Fatalf("slide background = %q, want theme %q", slide.Background, outline.RecommendedBackground)
-		}
+	}
+	if outline.UseBackground || outline.RecommendedBackground != "" {
+		t.Fatalf("outline should not use legacy background: %#v", outline)
 	}
 }
 
-func TestRecommendationAvoidsAdjacentDuplicateBackgroundImages(t *testing.T) {
+func TestPresetSelectionIgnoresLegacyBackgroundThemeMatches(t *testing.T) {
 	server := testTemplateServer(t)
 	outline, strategy, err := server.resolveTemplateSelection("党建政府工作汇报", &TemplateSelection{Mode: "preset", Template: "generic"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.Background != "party_government" {
-		t.Fatalf("background = %q, want party_government", strategy.Background)
+	if strategy.Background != "" || strategy.UseBackground {
+		t.Fatalf("strategy should not use legacy background: %#v", strategy)
 	}
-	previous := ""
 	for _, slide := range outline.Slides {
-		if !strings.HasPrefix(slide.Background, "party_government/") {
-			t.Fatalf("slide background = %q, want concrete party_government image ref", slide.Background)
+		if slide.Background != "" {
+			t.Fatalf("slide background = %q, want empty", slide.Background)
 		}
-		if previous != "" && backgroundTheme(previous) == backgroundTheme(slide.Background) && previous == slide.Background {
-			t.Fatalf("adjacent visual backgrounds repeated: %q", slide.Background)
-		}
-		previous = slide.Background
 	}
 }
 
-func TestPresetSelectionUsesDefaultBackgroundUnlessSuppressed(t *testing.T) {
+func TestPresetSelectionUsesTemplateWithoutDefaultBackground(t *testing.T) {
 	server := testTemplateServer(t)
 	outline, strategy, err := server.resolveTemplateSelection("说明一些尚未分类的新想法", &TemplateSelection{Mode: "preset", Template: "generic"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strategy.UseBackground || strategy.Background != "minimalist_blue" {
-		t.Fatalf("strategy = %#v, want default minimalist background", strategy)
+	if strategy.UseBackground || strategy.Background != "" {
+		t.Fatalf("strategy = %#v, want no legacy background", strategy)
 	}
-	if outline.Slides[0].Background == "" {
-		t.Fatal("expected title slide to receive background")
+	if outline.Slides[0].Background != "" {
+		t.Fatal("expected title slide background to stay empty")
 	}
 }
 

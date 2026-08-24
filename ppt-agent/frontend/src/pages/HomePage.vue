@@ -187,8 +187,8 @@ async function startCreation() {
         </div>
         <div>
           <span>视觉</span>
-          <strong>{{ recommendation.strategy.use_background ? '图片/背景优先' : '信息表面优先' }}</strong>
-          <small>{{ recommendation.background?.display_name || '由 Planner 搜索或按页面内容决定' }}</small>
+          <strong>{{ recommendation.strategy.use_background ? '图片搜索优先' : '信息表面优先' }}</strong>
+          <small>由 Planner 按页面内容规划图片检索和图文混排</small>
         </div>
       </div>
       <div class="component-focus">

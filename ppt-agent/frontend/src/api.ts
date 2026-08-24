@@ -168,7 +168,6 @@ export interface TemplateRecommendation {
   primary_template: TemplateCandidate;
   ranked_templates: TemplateCandidate[];
   theme?: ThemeInfo;
-  background?: BackgroundTheme;
   visual_policy: string;
   component_focus: string[];
   risks?: string[];
@@ -235,7 +234,7 @@ export interface TaskOutline {
   template: string;
   theme: string;
   title: string;
-  content_mode?: 'template_scaffold' | 'user_outline';
+  content_mode?: 'template_scaffold' | 'user_outline' | 'recommended_style';
   slides: SlideOutline[];
 }
 
@@ -291,14 +290,6 @@ export interface ThemeInfo {
   tags: string[];
 }
 
-export interface BackgroundTheme {
-  name: string;
-  display_name: string;
-  description: string;
-  scenarios: string[];
-  preview_path: string;
-}
-
 export async function fetchPresets(): Promise<PresetTemplate[]> {
 	const res = await checkResponse(await apiFetch('/api/templates'));
   const data = await res.json();
@@ -330,12 +321,6 @@ export async function fetchThemes(): Promise<ThemeInfo[]> {
 	const res = await checkResponse(await apiFetch('/api/themes'));
   const data = await res.json();
   return data.themes || [];
-}
-
-export async function fetchBackgrounds(): Promise<BackgroundTheme[]> {
-	const res = await checkResponse(await apiFetch('/api/backgrounds'));
-  const data = await res.json();
-  return data.backgrounds || [];
 }
 
 export async function createTaskWithOutline(query: string, outline: TaskOutline): Promise<TaskInfo> {

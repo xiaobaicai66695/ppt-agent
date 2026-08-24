@@ -3,11 +3,8 @@ package web
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
-	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +14,6 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
@@ -41,7 +37,6 @@ type TemplateRecommendation struct {
 	PrimaryTemplate TemplateCandidate              `json:"primary_template"`
 	RankedTemplates []TemplateCandidate            `json:"ranked_templates"`
 	Theme           *templates.ThemeInfo           `json:"theme,omitempty"`
-	Background      *templates.BackgroundThemeInfo `json:"background,omitempty"`
 	VisualPolicy    string                         `json:"visual_policy"`
 	ComponentFocus  []string                       `json:"component_focus"`
 	Risks           []string                       `json:"risks,omitempty"`
@@ -57,8 +52,6 @@ type TemplateCandidate struct {
 	Tags        []string `json:"tags"`
 	Reason      string   `json:"reason"`
 }
-
-var backgroundSuppressKeywords = []string{"不要背景", "无背景", "纯色", "极简", "数据密集", "财务报表", "表格为主"}
 
 var explicitPageCountPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:生成|制作|创建|做|需要|共|总共|一共|页数\s*(?:为|是|[:：=])?|generate|create|make|need|total)\s*(?:一套|a\s+)?\s*(\d{1,2})[-\s]*(?:页|頁|pages?|slides?)`),
@@ -84,13 +77,6 @@ func (s *Server) resolveTemplateSelectionWithIntent(query string, selection *Tem
 		strategy := TemplateStrategy{
 			Mode: "preset", Template: preset.Name, Theme: s.validThemeOrFallback(preset.DefaultPalette),
 			Reason: "使用用户在创作首页明确选择的模板",
-		}
-		if s.localBackgroundsEnabled() && !containsAny(strings.ToLower(query), backgroundSuppressKeywords) {
-			strategy.UseBackground = true
-			strategy.Background = s.defaultBackgroundTheme(query, preset)
-			if strategy.Background != "" {
-				strategy.Reason += "，并让整套页面使用同一背景风格"
-			}
 		}
 		return s.outlineFromTemplate(query, preset, strategy), strategy, nil
 	case "recommended":
@@ -157,15 +143,6 @@ func (s *Server) buildTemplateRecommendation(query string, intent *agentintent.C
 	if theme, err := s.getTheme(strategy.Theme); err == nil && theme != nil {
 		rec.Theme = theme
 	}
-	if strategy.Background != "" {
-		for _, bg := range s.templateLoader.ListBackgrounds() {
-			if bg.Name == strategy.Background {
-				bgCopy := bg
-				rec.Background = &bgCopy
-				break
-			}
-		}
-	}
 	return rec, nil
 }
 
@@ -208,11 +185,6 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 		preset = &presets[0]
 	}
 
-	useBackground := true
-	if intent != nil && intent.UseBackground != nil {
-		useBackground = *intent.UseBackground
-	}
-
 	theme := preset.DefaultPalette
 	if intent != nil && strings.TrimSpace(intent.SuggestedTheme) != "" {
 		theme = intent.SuggestedTheme
@@ -222,33 +194,13 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 		Template:  preset.Name,
 		PageCount: normalizedRecommendedPageCount(intent),
 	}
-	if useBackground && s.localBackgroundsEnabled() {
-		strategy.UseBackground = true
-		if intent != nil && s.isValidBackground(intent.SuggestedBackground) {
-			strategy.Background = strings.TrimSpace(intent.SuggestedBackground)
-		} else {
-			strategy.Background = s.defaultBackgroundForPreset(preset)
-		}
-	}
-	if palette := s.recommendedPaletteForBackground(strategy.Background); palette != "" {
-		theme = palette
-	}
 	strategy.Theme = s.validThemeOrFallback(theme)
 	if intent != nil && strings.TrimSpace(intent.IntentReasoning) != "" {
 		strategy.Reason = strings.TrimSpace(intent.IntentReasoning)
 	} else {
 		strategy.Reason = "使用通用视觉风格，由主 Agent 根据主题动态规划内容"
 	}
-	if strategy.UseBackground {
-		strategy.Reason += "；整套页面使用同一背景主题并轮换同目录图片"
-		if palette := s.recommendedPaletteForBackground(strategy.Background); palette != "" {
-			strategy.Reason += "；配色优先匹配当前背景主题"
-		}
-	} else if useBackground && !s.localBackgroundsEnabled() {
-		strategy.Reason += "；专题背景图交由 Planner 使用图片搜索规划"
-	} else {
-		strategy.Reason += "；整套采用清晰的纯色信息表面"
-	}
+	strategy.Reason += "；专题视觉素材交由 Planner 使用图片搜索规划"
 	return strategy, preset, nil
 }
 
@@ -319,10 +271,8 @@ func templateCandidateFromInfo(preset *templates.TemplateInfo, reason string) Te
 }
 
 func visualPolicyText(strategy TemplateStrategy) string {
-	if strategy.UseBackground && strategy.Background != "" {
-		return "采用推荐模板与背景/图片策略，Planner 会优先规划图文混排、章节分割和必要的数据页。"
-	}
-	return "采用清晰信息表面，Planner 会根据内容密度选择图文、表格、流程或长论述组件。"
+	_ = strategy
+	return "采用组件化信息表面与专题图片搜索，Planner 会根据内容密度选择图文、表格、流程或长论述组件。"
 }
 
 func componentFocusForStrategy(strategy TemplateStrategy, intent *agentintent.ClassificationResult) []string {
@@ -357,9 +307,6 @@ func recommendationRisks(strategy TemplateStrategy, intent *agentintent.Classifi
 	if intent == nil {
 		risks = append(risks, "未获得稳定意图识别结果，已使用通用推荐兜底")
 	}
-	if strategy.UseBackground && strategy.Background == "" {
-		risks = append(risks, "背景策略启用但没有匹配到可用背景，将由 Planner 搜索图片或降级为信息表面")
-	}
 	return risks
 }
 
@@ -375,10 +322,6 @@ func dedupeStrings(items []string) []string {
 		result = append(result, item)
 	}
 	return result
-}
-
-func (s *Server) localBackgroundsEnabled() bool {
-	return !unsplash.IsConfigured()
 }
 
 func normalizedRecommendedPageCount(intent *agentintent.ClassificationResult) int {
@@ -412,35 +355,12 @@ func (s *Server) validThemeOrFallback(name string) string {
 	return ""
 }
 
-func (s *Server) recommendedPaletteForBackground(background string) string {
-	theme := backgroundTheme(background)
-	if theme == "" {
-		return ""
-	}
-	for _, candidate := range s.templateLoader.ListBackgrounds() {
-		if candidate.Name == theme && strings.TrimSpace(candidate.RecommendedPalette) != "" {
-			return candidate.RecommendedPalette
-		}
-	}
-	return ""
-}
-
 func (s *Server) outlineFromTemplate(query string, preset *templates.TemplateInfo, strategy TemplateStrategy) *deck.TaskOutline {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	slides := make([]deck.SlideOutline, 0, len(preset.DefaultSlides))
-	previousBackground := ""
 	for _, slide := range preset.DefaultSlides {
-		background := strings.TrimSpace(slide.Background)
-		if strategy.UseBackground && strategy.Background != "" {
-			background = strategy.Background
-		}
-		if background != "" {
-			background = s.randomBackgroundReference(background, previousBackground, rng)
-			previousBackground = background
-		}
 		slides = append(slides, deck.SlideOutline{
 			Title: slide.Title, ContentType: slide.ContentType,
-			Description: slide.Description, Background: background,
+			Description: slide.Description,
 		})
 	}
 	return &deck.TaskOutline{
@@ -463,123 +383,4 @@ func (s *Server) recommendedOutlineFromTemplate(query string, preset *templates.
 		SuggestedPageCount:    strategy.PageCount,
 		Slides:                []deck.SlideOutline{},
 	}
-}
-
-func (s *Server) defaultBackgroundForPreset(preset *templates.TemplateInfo) string {
-	if s.isValidBackground("minimalist_blue") {
-		return "minimalist_blue"
-	}
-	if preset != nil && preset.BackgroundOpts != nil {
-		for _, theme := range preset.BackgroundOpts.Themes {
-			theme = strings.TrimSpace(theme)
-			if theme != "" && s.isValidBackground(theme) {
-				return theme
-			}
-		}
-	}
-	backgrounds := s.templateLoader.ListBackgrounds()
-	if len(backgrounds) > 0 {
-		return backgrounds[0].Name
-	}
-	return ""
-}
-
-func (s *Server) defaultBackgroundTheme(query string, preset *templates.TemplateInfo) string {
-	if background, score := scoreBackgrounds(query, s.templateLoader.ListBackgrounds()); score > 0 {
-		return background
-	}
-	if s.isValidBackground("minimalist_blue") {
-		return "minimalist_blue"
-	}
-	if preset != nil && preset.BackgroundOpts != nil {
-		for _, theme := range preset.BackgroundOpts.Themes {
-			theme = strings.TrimSpace(theme)
-			if theme != "" && s.isValidBackground(theme) {
-				return theme
-			}
-		}
-	}
-	backgrounds := s.templateLoader.ListBackgrounds()
-	if len(backgrounds) > 0 {
-		return backgrounds[0].Name
-	}
-	return ""
-}
-
-func (s *Server) randomBackgroundReference(background string, previous string, rng *rand.Rand) string {
-	theme := backgroundTheme(background)
-	refs := s.backgroundImageRefs(theme)
-	if len(refs) == 0 {
-		return background
-	}
-	candidates := append([]string{}, refs...)
-	if len(candidates) > 1 && backgroundTheme(previous) == theme {
-		filtered := candidates[:0]
-		for _, candidate := range candidates {
-			if candidate != previous {
-				filtered = append(filtered, candidate)
-			}
-		}
-		if len(filtered) > 0 {
-			candidates = filtered
-		}
-	}
-	return candidates[rng.Intn(len(candidates))]
-}
-
-func (s *Server) backgroundImageRefs(theme string) []string {
-	theme = strings.TrimSpace(theme)
-	if theme == "" || strings.Contains(theme, "/") || strings.Contains(theme, "\\") {
-		return nil
-	}
-	root := filepath.Join(s.templateLoader.GetBackgroundTemplatesDir(), theme)
-	var refs []string
-	for _, pattern := range []string{
-		filepath.Join(root, "images", "*.jpg"),
-		filepath.Join(root, "images", "*.jpeg"),
-		filepath.Join(root, "images", "*.png"),
-	} {
-		matches, _ := filepath.Glob(pattern)
-		for _, match := range matches {
-			if rel, err := filepath.Rel(s.templateLoader.GetBackgroundTemplatesDir(), match); err == nil {
-				refs = append(refs, filepath.ToSlash(rel))
-			}
-		}
-	}
-	sort.Strings(refs)
-	return refs
-}
-
-func backgroundTheme(background string) string {
-	background = strings.TrimSpace(strings.ReplaceAll(background, "\\", "/"))
-	if background == "" {
-		return ""
-	}
-	return strings.Split(background, "/")[0]
-}
-
-func scoreBackgrounds(query string, backgrounds []templates.BackgroundThemeInfo) (string, int) {
-	normalized := strings.ToLower(strings.TrimSpace(query))
-	bestName, bestScore := "", 0
-	for _, background := range backgrounds {
-		score := 0
-		for _, scenario := range background.Scenarios {
-			if strings.Contains(normalized, strings.ToLower(scenario)) {
-				score += 8
-			}
-		}
-		if score > bestScore || (score == bestScore && score > 0 && background.Name < bestName) {
-			bestName, bestScore = background.Name, score
-		}
-	}
-	return bestName, bestScore
-}
-
-func containsAny(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, strings.ToLower(candidate)) {
-			return true
-		}
-	}
-	return false
 }

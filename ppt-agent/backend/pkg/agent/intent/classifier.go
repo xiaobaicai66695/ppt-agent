@@ -568,9 +568,9 @@ const routingSystemPrompt = `你是 PPT Agent 的任务路由器。请基于用�
 视觉推荐从以下合法 id 中选择：
 - template：tech-intro、tech-sharing、product-launch、weekly-report、pitch-deck、course-module、current-affairs、politics-ideology、design-defense、innovation-compete、research-report、activity-plan、personal-summary、short-class-talk、meeting-minutes、product-intro、training-course、project-proposal、generic
 - theme：government_red、patriotic_blue、debate_purple、civic_gold、activity_orange、report_green、simple_gray、ocean_soft、sage_calm、warm_terracotta、charcoal_light、berry_cream、lavender_mist、medical_blue、finance_gold、education_blue
-- background：party_government、minimalist_blue、business_gradient、ink_wash_mountain、vintage_chinese、education_warm、medical_clean、eco_nature、snowy_mountain、artistic
+- suggested_background：不再表示本地背景主题，只写 1 个可辅助图片检索的视觉线索，例如 policy conference hall、aerial forest landscape、modern enterprise network、clean medical workspace。
 
-结合主题、受众、信息密度和视觉气质给出首选 template、theme、background。use_background 表示整套演示是否使用同一个背景主题；用户明确要求纯色或无背景时设为 false，其他场景优先设为 true。启用背景时，整套 PPT 必须只使用同一 background id 下的图片，不跨目录混用。
+结合主题、受众、信息密度和视觉气质给出首选 template、theme 和 suggested_background。use_background 表示是否建议 Planner 规划外部图片素材；用户明确要求纯色或无图时设为 false，其他场景可设为 true。最终图片下载、署名和嵌入由 Planner 的图片搜索工具完成，分类器不写本地背景 id。
 
 只返回 JSON，不要返回 Markdown：
 {
@@ -582,7 +582,7 @@ const routingSystemPrompt = `你是 PPT Agent 的任务路由器。请基于用�
   "confidence": 0.9,
   "suggested_theme": "",
   "suggested_templates": [],
-  "suggested_background": "minimalist_blue",
+  "suggested_background": "modern enterprise workspace",
   "use_background": true,
   "agent_type": "planner",
   "pipeline": ["plan", "generate"],

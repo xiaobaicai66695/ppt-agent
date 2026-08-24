@@ -1,35 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowDown, ArrowUp, Copy, GripVertical, Image, LayoutTemplate, ListPlus, PanelsTopLeft, Play, Plus, Sparkles, Trash2, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, Copy, GripVertical, LayoutTemplate, ListPlus, PanelsTopLeft, Play, Plus, Sparkles, Trash2, X } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
-import { createTaskWithOutline, fetchLayouts, fetchThemes, fetchBackgrounds } from '../api';
-import type { AtomicLayout, ThemeInfo, BackgroundTheme, TaskOutline, SlideOutline } from '../api';
+import { createTaskWithOutline, fetchLayouts, fetchThemes } from '../api';
+import type { AtomicLayout, ThemeInfo, TaskOutline, SlideOutline } from '../api';
 
 const route = useRoute();
 const router = useRouter();
 // State
-const activeTab = ref<'layouts' | 'backgrounds'>('layouts');
 const layouts = ref<AtomicLayout[]>([]);
 const themes = ref<ThemeInfo[]>([]);
-const backgrounds = ref<BackgroundTheme[]>([]);
 const loading = ref(false);
 const loadError = ref('');
 const generating = ref(false);
 const generationError = ref('');
-
-// Background category filter
-const bgCategories = ['全部', '商务', '科技', '教育', '党政', '生活', '自然'];
-const bgCategoryMap: Record<string, string[]> = {
-  '全部': [],
-  '商务': ['biz', 'office', 'meeting', 'report'],
-  '科技': ['tech', 'digital', 'data', 'ai'],
-  '教育': ['edu', 'school', 'learning', 'knowledge'],
-  '党政': ['gov', 'party', 'official', 'ceremony'],
-  '生活': ['life', 'lifestyle', 'travel', 'food'],
-  '自然': ['nature', 'landscape', 'environment', 'green'],
-};
-const selectedBgCategory = ref('全部');
 
 // Editing state
 const selectedTheme = ref('ocean_soft');
@@ -76,16 +61,6 @@ function onDrop(e: DragEvent, index: number) {
   draggingIndex.value = -1;
   dragOverIndex.value = -1;
 }
-
-// Filter backgrounds by category/scenario
-const filteredBackgrounds = computed(() => {
-  const cats = bgCategoryMap[selectedBgCategory.value] || [];
-  if (selectedBgCategory.value === '全部' || cats.length === 0) return backgrounds.value;
-  return backgrounds.value.filter(bg => {
-    const scenarios = bg.scenarios || [];
-    return cats.some(c => scenarios.some(s => s.toLowerCase().includes(c.toLowerCase())));
-  });
-});
 
 // Layout category groups
 const layoutCategories = [
@@ -153,49 +128,17 @@ function getLayoutDisplayName(name: string): string {
   return layouts.value.find(layout => layout.name === name)?.display_name || name;
 }
 
-function getBackgroundPreview(name: string): string {
-  const bg = backgrounds.value.find(b => b.name === name);
-  return bg?.preview_path || '';
-}
-
-function getBgScenarios(name: string): string[] {
-  const bg = backgrounds.value.find(b => b.name === name);
-  return bg?.scenarios?.slice(0, 4) || [];
-}
-
-function getBgDescription(name: string): string {
-  const bg = backgrounds.value.find(b => b.name === name);
-  return bg?.description || '';
-}
-
-function getBgDisplayName(name: string): string {
-  const bg = backgrounds.value.find(b => b.name === name);
-  return bg?.display_name || name;
-}
-
-function applyBackgroundToSlide(bgName: string) {
-  if (selectedSlideIndex.value >= 0 && editingSlide.value) {
-    editingSlide.value.background = bgName;
-    saveSlideEdit();
-  } else if (selectedSlideIndex.value >= 0) {
-    // Apply directly without opening editor
-    slides.value[selectedSlideIndex.value].background = bgName;
-  }
-}
-
 // Load data
 async function loadWorkspaceData() {
   loading.value = true;
   loadError.value = '';
   try {
-    const [l, t, b] = await Promise.all([
+    const [l, t] = await Promise.all([
       fetchLayouts(),
       fetchThemes(),
-      fetchBackgrounds(),
     ]);
     layouts.value = l;
     themes.value = t;
-    backgrounds.value = b;
 
     const initialBrief = typeof route.query.brief === 'string' ? route.query.brief.trim() : '';
     if (initialBrief) {
@@ -230,7 +173,6 @@ function buildOutline(): TaskOutline {
       content_type: s.content_type,
       description: s.description || '',
       content_plan: s.content_plan,
-      background: s.background,
     })),
   };
 }
@@ -366,18 +308,13 @@ async function startGeneration() {
     </p>
 
     <div class="editor-workspace">
-      <aside class="resource-panel" aria-label="布局与背景资源">
-        <div class="resource-tabs" role="tablist" aria-label="资源类型">
-          <button type="button" role="tab" :aria-selected="activeTab === 'layouts'" :class="{ active: activeTab === 'layouts' }" @click="activeTab = 'layouts'">
-            <PanelsTopLeft :size="17" /><span>布局</span>
-          </button>
-          <button type="button" role="tab" :aria-selected="activeTab === 'backgrounds'" :class="{ active: activeTab === 'backgrounds' }" @click="activeTab = 'backgrounds'">
-            <Image :size="17" /><span>背景</span>
-          </button>
+      <aside class="resource-panel" aria-label="布局资源">
+        <div class="resource-tabs" aria-label="资源类型">
+          <span><PanelsTopLeft :size="17" />布局</span>
         </div>
 
         <div class="resource-scroll">
-          <section v-if="activeTab === 'layouts'">
+          <section>
             <div v-for="group in groupedLayouts" :key="group.label" class="layout-group">
               <h3>{{ group.label }}</h3>
               <div class="layout-list">
@@ -387,22 +324,6 @@ async function startGeneration() {
                   <Plus :size="16" />
                 </button>
               </div>
-            </div>
-          </section>
-
-          <section v-else>
-            <div class="filter-row" aria-label="背景分类">
-              <button v-for="cat in bgCategories" :key="cat" type="button" :class="{ active: selectedBgCategory === cat }" @click="selectedBgCategory = cat">{{ cat }}</button>
-            </div>
-            <p v-if="selectedSlideIndex < 0" class="resource-note">先选择中间的一张页面，再应用背景。</p>
-            <div class="background-list">
-              <button v-for="bg in filteredBackgrounds" :key="bg.name" class="background-card" :class="{ selected: selectedSlideIndex >= 0 && slides[selectedSlideIndex]?.background === bg.name }" type="button" :title="bg.description" @click="applyBackgroundToSlide(bg.name)">
-                <span class="background-thumb">
-                  <img v-if="bg.preview_path" :src="bg.preview_path" :alt="`${bg.display_name}背景预览`" loading="lazy" @error="(event) => { (event.target as HTMLImageElement).style.display = 'none'; }" />
-                  <span v-else>无预览</span>
-                </span>
-                <span class="background-info"><strong>{{ bg.display_name }}</strong><small>{{ bg.description || '背景主题' }}</small></span>
-              </button>
             </div>
           </section>
         </div>
@@ -425,7 +346,6 @@ async function startGeneration() {
                 <span v-if="slide.description" class="slide-description">{{ slide.description }}</span>
                 <span v-else class="slide-description missing">尚未填写内容描述</span>
               </span>
-              <span v-if="slide.background" class="slide-background">{{ getBgDisplayName(slide.background) }}</span>
             </button>
             <div class="slide-actions">
               <button type="button" title="上移" aria-label="上移页面" @click="moveSlide(index, 'up')"><ArrowUp :size="16" /></button>
@@ -470,18 +390,6 @@ async function startGeneration() {
             </section>
 
             <div class="field-group">
-              <label for="field-bg">背景</label>
-              <select id="field-bg" v-model="editingSlide.background">
-                <option value="">不使用背景</option>
-                <option v-for="bg in backgrounds" :key="bg.name" :value="bg.name">{{ bg.display_name }}</option>
-              </select>
-              <div v-if="editingSlide.background" class="selected-background">
-                <img :src="getBackgroundPreview(editingSlide.background)" :alt="`${getBgDisplayName(editingSlide.background)}背景预览`" @error="(event) => { (event.target as HTMLImageElement).style.display = 'none'; }" />
-                <span><strong>{{ getBgDisplayName(editingSlide.background) }}</strong><small>{{ getBgDescription(editingSlide.background) }}</small></span>
-              </div>
-            </div>
-
-            <div class="field-group">
               <label for="field-desc">内容描述</label>
               <textarea id="field-desc" v-model="editingSlide.description" rows="8" placeholder="写清本页要表达的结论、事实和结构，AI 将据此填充字段。" />
             </div>
@@ -494,7 +402,7 @@ async function startGeneration() {
         </template>
 
         <div v-else class="property-empty">
-          <span><PanelsTopLeft :size="22" /></span><h3>选择一张页面</h3><p>在这里编辑布局、背景、标题和内容描述。</p>
+          <span><PanelsTopLeft :size="22" /></span><h3>选择一张页面</h3><p>在这里编辑布局、标题和内容描述。</p>
         </div>
       </aside>
     </div>
@@ -546,19 +454,12 @@ async function startGeneration() {
 .resource-panel { border-right: 1px solid var(--border); background: var(--surface-muted); }
 .property-panel { border-left: 1px solid var(--border); background: var(--surface); }
 
-.resource-tabs { padding: 8px; display: grid; grid-template-columns: repeat(2,1fr); gap: 3px; border-bottom: 1px solid var(--border); }
-.resource-tabs button {
-  min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; font-size: 11px; font-weight: 700; cursor: pointer;
+.resource-tabs { padding: 10px; border-bottom: 1px solid var(--border); }
+.resource-tabs span {
+  min-height: 40px; display: inline-flex; align-items: center; gap: 7px;
+  color: var(--action-ink); font-size: 11px; font-weight: 750;
 }
-.resource-tabs button:hover { color: var(--text); background: var(--surface-hover); }
-.resource-tabs button.active { color: var(--action-ink); background: var(--surface); box-shadow: var(--shadow-xs); }
 .resource-scroll { min-height: 0; flex: 1; overflow: auto; padding: 10px; }
-
-.filter-row { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 9px; scrollbar-width: none; }
-.filter-row::-webkit-scrollbar { display: none; }
-.filter-row button { min-height: 32px; padding: 0 9px; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); background: var(--surface); font-size: 10px; cursor: pointer; }
-.filter-row button.active { border-color: var(--action-ink); color: var(--action-ink); background: var(--action-soft); }
 
 .layout-list { display: grid; gap: 9px; }
 
@@ -573,16 +474,6 @@ async function startGeneration() {
 .layout-list button > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; }
 .layout-list strong { color: var(--text); font-size: 11px; }
 .layout-list small { margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-
-.resource-note { margin: 0 0 9px; padding: 8px 9px; border-left: 2px solid var(--warning); color: var(--warning); background: var(--warning-soft); font-size: 10px; }
-.background-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.background-card { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; }
-.background-card.selected { border-color: var(--action-ink); box-shadow: 0 0 0 2px rgba(7,94,87,.1); }
-.background-thumb { display: grid; place-items: center; aspect-ratio: 16/9; overflow: hidden; color: var(--text-muted); background: #e5e9e9; font-size: 9px; }
-.background-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.background-info { padding: 7px; display: flex; flex-direction: column; }
-.background-info strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.background-info small { display: -webkit-box; margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 8px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 .outline-panel { background: var(--canvas); }
 .panel-header {
@@ -619,7 +510,6 @@ async function startGeneration() {
 .slide-copy small { margin-top: 3px; color: var(--action-ink); font-size: 10px; }
 .slide-description { display: -webkit-box; margin-top: 8px; overflow: hidden; color: var(--text-secondary); font-size: 11px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .slide-description.missing { color: var(--warning); }
-.slide-background { max-width: 100px; padding: 4px 6px; overflow: hidden; border-radius: 4px; color: var(--info); background: var(--info-soft); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .slide-actions { padding: 8px 7px; display: grid; grid-template-columns: repeat(2,34px); align-content: center; gap: 3px; border-left: 1px solid var(--divider); }
 .slide-actions button, .close-property {
   width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
@@ -653,12 +543,6 @@ async function startGeneration() {
 .layout-guidance > div > span { color: var(--text-muted); font-size: 9px; font-weight: 750; }
 .layout-guidance div p { margin: 5px 0 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .layout-guidance small { padding: 3px 5px; border-radius: 4px; color: var(--info); background: rgba(255,255,255,.72); font-size: 8px; }
-
-.selected-background { min-width: 0; padding: 7px; display: grid; grid-template-columns: 80px minmax(0,1fr); align-items: center; gap: 9px; border: 1px solid var(--border); border-radius: 6px; }
-.selected-background img { width: 80px; aspect-ratio: 16/9; object-fit: cover; border-radius: 3px; background: var(--surface-muted); }
-.selected-background span { min-width: 0; display: flex; flex-direction: column; }
-.selected-background strong { font-size: 10px; }
-.selected-background small { display: -webkit-box; margin-top: 2px; overflow: hidden; color: var(--text-muted); font-size: 8px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 .property-footer { padding: 10px 12px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 7px; border-top: 1px solid var(--border); }
 .property-footer button { min-height: 40px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--surface); font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -697,7 +581,6 @@ async function startGeneration() {
   .slide-card { grid-template-columns:24px minmax(0,1fr); }
   .slide-open-button { grid-template-columns:80px minmax(0,1fr); gap:9px; }
   .slide-miniature { width:80px; }
-  .slide-background { display:none; }
   .slide-actions { grid-column:1/-1; padding:5px 7px; grid-template-columns:repeat(4,40px); justify-content:end; border-top:1px solid var(--divider); border-left:0; }
   .slide-actions button { width:40px; height:40px; }
 }
@@ -706,7 +589,6 @@ async function startGeneration() {
   .slide-open-button { grid-template-columns:1fr; padding:9px; }
   .slide-miniature { width:100%; }
   .slide-description { -webkit-line-clamp:3; }
-  .background-list { grid-template-columns:1fr; }
   .property-panel { width:100vw; }
 }
 </style>

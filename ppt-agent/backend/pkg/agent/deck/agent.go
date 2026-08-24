@@ -19,9 +19,7 @@ package deck
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -144,7 +142,6 @@ func buildPlannerInstruction(workDir string, skillsDir string, styleContext stri
 }
 
 func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int, imageSearchAvailable bool) string {
-	tmplDir := filepath.Join(skillsDir, "visual_designer", "templates", "full-decks")
 	tasksJSON := filepath.Join(workDir, "tasks.json")
 
 	const templateCatalog = `| 模板文件 | 适用场景 | 页数 |
@@ -193,7 +190,6 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 	}
 
 	data := &prompts.TemplateData{
-		TmplDir:                tmplDir,
 		TasksJSON:              tasksJSON,
 		TemplateCatalog:        templateCatalog,
 		StyleContext:           styleContext,
@@ -207,7 +203,7 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 		OutlineUseBackground:   outlineUseBackground,
 		OutlineBackground:      outlineBackground,
 		SuggestedPageCount:     suggestedPageCount,
-		AvailableBackgrounds:   availableBackgroundCatalog(skillsDir),
+		AvailableBackgrounds:   "",
 		SkillsDir:              skillsDir,
 		EnableQA:               enableQA,
 		Concurrency:            concurrency,
@@ -219,27 +215,6 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 		panic("failed to render planner instruction template: " + err.Error())
 	}
 	return instruction
-}
-
-func availableBackgroundCatalog(skillsDir string) string {
-	root := filepath.Join(skillsDir, "visual_designer", "background_templates")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return ""
-	}
-	items := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		images, _ := filepath.Glob(filepath.Join(root, entry.Name(), "images", "*"))
-		if len(images) == 0 {
-			continue
-		}
-		items = append(items, fmt.Sprintf("%s(%d images)", entry.Name(), len(images)))
-	}
-	sort.Strings(items)
-	return strings.Join(items, ", ")
 }
 
 // ── 意图路由与只读画像引擎 ─────────────────────────────────────────────────

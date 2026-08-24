@@ -201,9 +201,9 @@ import json
 import os
 from pathlib import Path
 
-# 添加 generators 包路径（work_dir=output/{taskID}/, 父目录是 skills/visual_designer）
+# 添加 generators 包路径（work_dir=output/{taskID}/, 父目录是 skills/ppt-deck-planner）
 work_dir = %q
-generators_pkg_dir = (Path(work_dir) / ".." / ".." / "skills" / "visual_designer").resolve()
+generators_pkg_dir = (Path(work_dir) / ".." / ".." / "skills" / "ppt-deck-planner").resolve()
 sys.path.insert(0, str(generators_pkg_dir))
 
 from generators import (

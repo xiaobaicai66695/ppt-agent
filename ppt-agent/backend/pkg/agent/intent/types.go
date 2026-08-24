@@ -156,8 +156,8 @@ type ClassificationResult struct {
 	SuggestedActions    []string   // 建议的下一步动作
 	SuggestedTemplates  []string   // 建议的模板
 	SuggestedTheme      string     // 建议的配色主题
-	SuggestedBackground string     // 建议的背景主题
-	UseBackground       *bool      // 是否在适合的页面使用图片背景
+	SuggestedBackground string     // 建议的图片检索线索（历史字段名）
+	UseBackground       *bool      // 是否建议在适合页面规划外部图片
 	SuggestedPageCount  int        // 建议的页数
 	AgentType           string     // LLM 选择的可执行 Agent 类型
 	Pipeline            []string   // LLM 建议的执行阶段

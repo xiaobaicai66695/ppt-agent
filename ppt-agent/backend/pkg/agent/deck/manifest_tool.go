@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -24,7 +23,7 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 	"status":         {Type: schema.String, Desc: "pending、generating、done、qa_done、fixed 或 failed"},
 	"qa_report":      {Type: schema.String, Desc: "可选的 QA 报告"},
 	"fix_attempts":   {Type: schema.Integer, Desc: "修复尝试次数"},
-	"background":     {Type: schema.String, Desc: "可用背景主题 ID，可为空"},
+	"background":     {Type: schema.String, Desc: "历史兼容字段，新规划保持为空；外部图片写入 visual_intent 或 image 组件"},
 	"content_plan": {
 		Type: schema.Object,
 		Desc: "结构化页面内容规划",
@@ -173,33 +172,25 @@ type manifestToolRawInput struct {
 }
 
 type manifestTool struct {
-	workDir               string
-	backgroundRoot        string
-	recommendedBackground string
-	normalizeBackgrounds  bool
-	fallbackTitle         string
-	draftFirst            bool
-	requireReview         bool
+	workDir       string
+	fallbackTitle string
+	draftFirst    bool
+	requireReview bool
 }
 
 func newManifestTool(workDir string) tool.InvokableTool {
 	return &manifestTool{workDir: workDir}
 }
 
-func newConfiguredManifestTool(workDir, skillsDir string, outline *TaskOutline, query string, imageSearchAvailable bool) tool.InvokableTool {
+func newConfiguredManifestTool(workDir, _ string, outline *TaskOutline, query string, _ bool) tool.InvokableTool {
 	t := &manifestTool{
-		workDir:        workDir,
-		backgroundRoot: filepath.Join(skillsDir, "visual_designer", "background_templates"),
-		fallbackTitle:  compactManifestTitle(query),
-		draftFirst:     true,
-		requireReview:  true,
+		workDir:       workDir,
+		fallbackTitle: compactManifestTitle(query),
+		draftFirst:    true,
+		requireReview: true,
 	}
 	if outline != nil && strings.TrimSpace(outline.Title) != "" {
 		t.fallbackTitle = compactManifestTitle(outline.Title)
-	}
-	if outline != nil && outline.ContentMode == OutlineContentModeRecommendedStyle && outline.UseBackground && !imageSearchAvailable {
-		t.normalizeBackgrounds = true
-		t.recommendedBackground = strings.TrimSpace(outline.RecommendedBackground)
 	}
 	return t
 }
@@ -260,9 +251,6 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 	if err != nil {
 		return "", err
 	}
-	if err := t.normalizeManifestBackgrounds(manifest); err != nil {
-		return "", err
-	}
 	normalizeManifestLayoutVariants(manifest)
 	if !t.shouldDeferValidation() {
 		if err := validateManifestForWrite(manifest); err != nil {
@@ -294,97 +282,6 @@ func (t *manifestTool) writeManifest(manifest *TasksManifest) error {
 		return WriteTasksDraftManifest(t.workDir, manifest)
 	}
 	return WriteTasksManifest(t.workDir, manifest)
-}
-
-func (t *manifestTool) normalizeManifestBackgrounds(manifest *TasksManifest) error {
-	if !t.normalizeBackgrounds || manifest == nil || len(manifest.Tasks) == 0 {
-		return nil
-	}
-	if !t.validBackgroundReference(t.recommendedBackground) {
-		return fmt.Errorf("recommended background %q is unavailable", t.recommendedBackground)
-	}
-
-	recommendedTheme := backgroundTheme(t.recommendedBackground)
-	for _, item := range manifest.Tasks {
-		if item == nil {
-			continue
-		}
-		background := strings.TrimSpace(item.Background)
-		if background == "" {
-			continue
-		}
-		if !t.validBackgroundReference(background) || backgroundTheme(background) != recommendedTheme {
-			item.Background = ""
-		}
-	}
-	refs := t.backgroundImageRefs(t.recommendedBackground)
-	previous := ""
-	for _, item := range manifest.Tasks {
-		if item == nil {
-			continue
-		}
-		if strings.TrimSpace(item.Background) == "" || (len(refs) > 1 && item.Background == previous) {
-			item.Background = rotatingBackgroundRef(t.recommendedBackground, refs, item.PageIndex, previous)
-		}
-		previous = item.Background
-	}
-	return nil
-}
-
-func (t *manifestTool) validBackgroundReference(background string) bool {
-	background = strings.TrimSpace(strings.ReplaceAll(background, "\\", "/"))
-	if background == "" || t.backgroundRoot == "" {
-		return false
-	}
-	parts := strings.Split(background, "/")
-	themeRoot := filepath.Join(t.backgroundRoot, parts[0])
-	if info, err := os.Stat(themeRoot); err != nil || !info.IsDir() {
-		return false
-	}
-	if len(parts) == 1 {
-		return true
-	}
-	candidate := filepath.Clean(filepath.Join(t.backgroundRoot, filepath.FromSlash(background)))
-	root := filepath.Clean(t.backgroundRoot) + string(filepath.Separator)
-	if !strings.HasPrefix(candidate, root) {
-		return false
-	}
-	info, err := os.Stat(candidate)
-	return err == nil && !info.IsDir()
-}
-
-func (t *manifestTool) backgroundImageRefs(background string) []string {
-	theme := strings.Split(strings.TrimSpace(strings.ReplaceAll(background, "\\", "/")), "/")[0]
-	paths, _ := filepath.Glob(filepath.Join(t.backgroundRoot, theme, "images", "*"))
-	refs := make([]string, 0, len(paths))
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		refs = append(refs, filepath.ToSlash(filepath.Join(theme, "images", filepath.Base(path))))
-	}
-	sort.Strings(refs)
-	return refs
-}
-
-func rotatingBackgroundRef(theme string, refs []string, pageIndex int, previous string) string {
-	if len(refs) == 0 {
-		return theme
-	}
-	index := (pageIndex - 1) % len(refs)
-	if refs[index] == previous && len(refs) > 1 {
-		index = (index + 1) % len(refs)
-	}
-	return refs[index]
-}
-
-func backgroundTheme(background string) string {
-	background = strings.TrimSpace(strings.ReplaceAll(background, "\\", "/"))
-	if background == "" {
-		return ""
-	}
-	return strings.Split(background, "/")[0]
 }
 
 func normalizeManifestLayoutVariants(manifest *TasksManifest) {

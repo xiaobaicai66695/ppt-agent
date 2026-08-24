@@ -21,7 +21,7 @@
 - 根目录包含：
   - `ppt-agent/backend`：Go 后端服务、Agent 编排、Web API、任务管理、模型 fallback、prompt 模板。
   - `ppt-agent/frontend`：Vue 3 + TypeScript + Vite 前端。
-  - `ppt-agent/skills/visual_designer`：PPT 视觉设计 skill、Python `python-pptx` 生成器、模板、背景资源和参考文档。
+  - `ppt-agent/skills/ppt-deck-planner`：PPT Deck Planner skill、组件契约、Python `python-pptx` 生成器和参考文档。
   - `ppt-agent/doc`、`ppt-agent/test`、`ppt-agent/scripts`：项目文档、测试和辅助脚本。
   - `ppt-plugin/skills`：插件/skill 分发相关内容。
 - 修改代码前，应在工作区根目录或相关子项目查看 `git status`。不要回滚与当前任务无关的用户改动。
@@ -70,26 +70,24 @@
 - 主要操作文案应和业务一致，例如 PPT 生成按钮不要写成“开始翻译”。
 - 大页面改动时优先拆分可复用组件、composable 或局部工具函数，避免继续膨胀单文件页面。
 
-## PPT 生成器与视觉质量约定
+## PPT Deck Planner 与生成器约定
 
-- 核心目录：`ppt-agent/skills/visual_designer`。
+- 核心目录：`ppt-agent/skills/ppt-deck-planner`。
 - 修改 Python 生成器前，应先阅读：
-  - `skills/visual_designer/SKILL.md`
-  - `skills/visual_designer/references/generators.md`
-  - 相关 `templates/single-page/*.json`
+  - `skills/ppt-deck-planner/SKILL.md`
+  - `skills/ppt-deck-planner/references/generators.md`
+  - `skills/ppt-deck-planner/templates/component_contracts.json`
   - 相关 `generators/*_generator.py`
 - 所有单页 PPT 生成应复用 `generators` 包和 `base.py` helper，避免在 Agent 生成代码中手写底层 `python-pptx` 绘制逻辑。
 - 生成器质量优先级：
   - 文字不溢出、不重叠、不被背景压低对比度。
   - 字号、行距、留白、卡片尺寸和图表区域有稳定规则。
   - `description` 和 `content_plan` 的内容密度要匹配布局容量。
-  - 背景图只在适合的页面使用；不要强制所有页面都使用图片背景。
-  - 背景主题和 palette 要协调，必要时通过 `get_palette_for_background` 自动匹配。
+  - 背景图和图文素材通过图片搜索写入 `visual_intent` 或 `image.local_path`，不要再依赖本地背景主题。
   - 每页需要事实或数据时，应保留来源信息并避免匿名实体。
 - 对 `content_slide`、`card_grid`、`two_column`、`three_column`、`kpi_dashboard`、`chart_slide` 这类信息页，优先做结构化参数和容量控制，不要直接塞 300-400 字长段落。
-- 增加或调整模板时，同步检查：
-  - `templates/single-page/*.json`
-  - `templates/full-decks/*.json`
+- 增加或调整页面类型/组件契约时，同步检查：
+  - `templates/component_contracts.json`
   - `generators/__init__.py`
   - `references/generators.md`
   - 前端 `contentTypeLabels` 或模板展示逻辑
@@ -100,7 +98,7 @@
   - 所有页面 `content_type` 合法。
   - 空 `description` 已补齐或明确交给后续阶段补齐。
   - `content_plan` 不为空时结构可被 SlideExecutor 稳定消费。
-  - `background` 来自实际可用背景列表，而不是硬编码但不存在的主题。
+  - `background` 是历史字段，新规划应保持为空；图片路径写入 `visual_intent.local_path` 或 `image.local_path`。
 - Prompt 示例中的 JSON 字段值应使用真实合法 id，避免写“布局名”这类占位值。
 - 内容质量要求要和具体布局容量一致：
   - bullet 页控制条数和单条长度。
@@ -128,11 +126,11 @@ npm run build
 npm run dev
 ```
 
-Python 生成器在 `ppt-agent` 或 `ppt-agent/skills/visual_designer` 相关目录运行，按改动选择：
+Python 生成器在 `ppt-agent` 或 `ppt-agent/skills/ppt-deck-planner` 相关目录运行，按改动选择：
 
 ```powershell
-python -m py_compile skills/visual_designer/generators/*.py
-python skills/visual_designer/generators/generator.py
+python -m py_compile skills/ppt-deck-planner/generators/*.py
+python skills/ppt-deck-planner/generators/generator.py
 ```
 
 

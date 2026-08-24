@@ -12,15 +12,6 @@ import (
 func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	workDir := t.TempDir()
 	skillsDir := t.TempDir()
-	bgDir := filepath.Join(skillsDir, "visual_designer", "background_templates", "eco_nature", "images")
-	if err := os.MkdirAll(bgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"1.jpg", "2.jpg", "3.jpg", "4.jpg"} {
-		if err := os.WriteFile(filepath.Join(bgDir, name), []byte("image"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 
 	output := `{
 "thought": "规划 8 页桂林介绍 PPT：\n1. 封面页 (title_slide)\n2. 目录页 (agenda)\n3. 章节1：山水桂林 (section_divider)\n4. 桂林概况 (image_text)\n5. 核心景点 (card_grid)\n6. 章节2：文化美食 (section_divider)\n7. 文化与美食 (two_column)\n8. 旅行贴士与总结 (summary_slide)\n\n背景主题：eco_nature（4张图轮换）\n配色：ocean_soft\n模板：product-intro"
@@ -63,8 +54,8 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 		t.Fatalf("second section number = %#v", manifest.Tasks[5].ContentPlan)
 	}
 	for i, task := range manifest.Tasks {
-		if task.Background == "" || backgroundTheme(task.Background) != "eco_nature" {
-			t.Fatalf("task %d background = %q", i+1, task.Background)
+		if task.Background != "" {
+			t.Fatalf("task %d should not recover legacy local background, got %q", i+1, task.Background)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); err != nil {

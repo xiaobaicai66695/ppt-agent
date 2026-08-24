@@ -36,13 +36,11 @@ ppt-agent/
 │   │   └── components/              # 侧边栏、进度、预览和运行事件组件
 │   └── public/                      # 前端静态资源
 ├── skills/
-│   └── visual_designer/             # PPT 视觉设计能力包
+│   └── ppt-deck-planner/             # PPT Deck Planner：组件规划契约与生成器
 │       ├── SKILL.md                 # 规划约束和生成契约
 │       ├── generators/              # Python 单页生成器
-│       ├── templates/               # 单页模板和整套模板
-│       ├── background_templates/    # 主题背景库
-│       ├── assets/                  # 图标、图片、纹理素材
-│       └── references/              # 生成器、配色、页面类型参考
+│       ├── templates/               # component_contracts.json
+│       └── references/              # 生成器、页面类型和图片搜索参考
 ├── scripts/                         # 评估、缩略图和样例生成脚本
 ├── doc/                             # 项目文档
 ├── test/                            # 测试辅助材料
@@ -51,7 +49,7 @@ ppt-agent/
 
 ## 运行链路
 
-用户通过前端创建任务后，后端会先识别意图并选择模板、配色、页数和背景主题。随后 Planner 生成 `tasks.json`。目标主流程会在渲染前加入 Plan Reviewer / Refiner：先审查整套 PPT 的叙事、信息密度、用户画像使用、模板容量和组件计划，修订到通过质量门后，再由渲染工作池调用 Python 生成器生成单页 PPTX。任务管理器负责合并结果、记录进度、生成缩略图并通过 SSE 推送状态。
+用户通过前端创建任务后，后端会先识别意图并选择叙事模板、配色和页数。随后 Planner 生成 `tasks.json`。目标主流程会在渲染前加入 Plan Reviewer / Refiner：先审查整套 PPT 的叙事、信息密度、用户画像使用、组件容量、图片检索意图和组件计划，修订到通过质量门后，再由渲染工作池调用 Python 生成器生成单页 PPTX。任务管理器负责合并结果、记录进度、生成缩略图并通过 SSE 推送状态。
 
 ```text
 用户请求
@@ -79,26 +77,26 @@ DeckRenderWorkflow 按页并发生成 PPTX
 - 管理任务目录、任务状态、输出文件和数据库记录。
 - 调用 Planner 完成页面规划；目标态通过 Plan Reviewer / Refiner 做渲染前质量门，再由渲染工作池完成分页生成。
 - 维护运行元数据，记录模型调用、工具调用、错误和阶段耗时。
-- 加载模板、配色、背景主题和本地素材。
+- 加载内置模板推荐、配色和组件契约。
 
 ### 前端工作台
 
 前端位于 `frontend/`，用于承载真实生产流程，而不是营销页。主要页面包括：
 
 - 创作入口：输入主题、选择模板、选择智能推荐或自定义编排。
-- 编排工作台：查看模板结构、页面类型和背景选项。
+- 编排工作台：查看模板结构、页面类型和组件容量。
 - 任务页：展示生成进度、缩略图、文件下载、会话和运行事件。
 - 管理页：查看用户、任务和日志分析信息。
 
-### Visual Designer
+### PPT Deck Planner
 
-`skills/visual_designer` 是 PPT 质量的核心契约层。它主要约束 Planner 如何填充 DeckSpec / `tasks.json`，并规定生成器如何消费结构化计划。字号、坐标、颜色、边距等底层绘制细节由 Python generator 和模板 contract 控制，不应交给 LLM 在 prompt 中直接决定。
+`skills/ppt-deck-planner` 是 PPT 质量的核心契约层。它主要约束 Planner 如何填充 DeckSpec / `tasks.json`，并规定生成器如何消费结构化计划。字号、坐标、颜色、边距等底层绘制细节由 Python generator 和模板 contract 控制，不应交给 LLM 在 prompt 中直接决定。
 
 它规定：
 
 - 合法页面类型与字段结构。
 - 每种页面的内容容量和适用场景。
-- 背景图片、配色、素材和布局的使用方式。
+- 图片搜索意图、配色、组件和布局的使用方式。
 - `render_task.py` 如何调用 Python 生成器。
 - 生成器如何保证文本不溢出、元素不重叠、背景可读。
 
@@ -110,30 +108,9 @@ two_column、three_column、timeline、process_flow、stat_slide、
 kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 ```
 
-## 背景与风格规则
+## 图片与风格规则
 
-背景库位于 `skills/visual_designer/background_templates/`，由 `manifest.json` 统一登记。当前维护 10 类背景主题：
-
-| 主题标识 | 中文名称 | 适用场景 |
-| --- | --- | --- |
-| `party_government` | 党政办公 | 党建、政府、机关汇报 |
-| `minimalist_blue` | 商务科技蓝 | 商务、科技、产品方案 |
-| `business_gradient` | 商务渐变 | 经营分析、咨询、投标 |
-| `ink_wash_mountain` | 彩墨山水 | 中国风、文化、自然 |
-| `vintage_chinese` | 复古中国风 | 传统文化、历史、国风 |
-| `education_warm` | 教育暖阳 | 课程、培训、教学 |
-| `medical_clean` | 医疗清新 | 医疗、健康、护理 |
-| `eco_nature` | 生态自然 | 环保、绿色、可持续 |
-| `snowy_mountain` | 雪山风景 | 户外、旅行、探索 |
-| `artistic` | 艺术创意 | 艺术、创意、品牌表达 |
-
-维护规则：
-
-- 每类至少 4 张图片，可超过 4 张。
-- 图片统一放在 `<theme>/images/` 下，并使用数字文件名，例如 `1.jpg`、`2.jpg`。
-- 同一目录内图片应主题一致、风格相近，避免黑白配色和明显跑题图片。
-- 启用背景时，整套 PPT 每页只使用同一个主题目录下的图片，避免跨主题混用导致风格漂移。
-- `background` 字段可以写主题名，也可以写具体图片引用，例如 `business_gradient/images/3.jpg`。
+本地背景库和离线素材目录已经下线。Planner 需要图片时，应先把页面主题转换成可搜索的视觉主体，调用图片搜索工具下载到当前任务工作区，再把 `local_path`、来源链接和署名写入 `visual_intent` 或 `image` 组件。顶层 `background` 字段仅作为历史兼容字段，新规划保持为空。
 
 ## 任务清单契约
 
@@ -149,14 +126,16 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
   "content_type": "title_slide",
   "layout_variant": "photo_full_bleed_center",
   "description": "页面内容描述",
-  "background": "business_gradient/images/1.jpg",
+  "background": "",
   "output_file": "1_cover.pptx",
   "status": "pending",
   "content_plan": {
     "summary": "页面核心信息",
     "visual_intent": {
       "role": "cards",
-      "preferred_variant": "numbered_cards"
+      "asset_purpose": "scene",
+      "asset_query": "delivery drone flying above urban neighborhood, wide landscape",
+      "local_path": "images/unsplash-example.jpg"
     },
     "components": [
       {
@@ -183,8 +162,8 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 重要约束：
 
 - `content_type` 必须是合法英文标识，不写中文布局名。
-- `theme` 是整套 PPT 的配色锚点，不因单页背景而变化。
-- `background` 只表示背景主题或具体图片，不用于改写 `theme`。
+- `theme` 是整套 PPT 的配色锚点。
+- `background` 是历史本地背景字段，新规划保持为空。
 - `description` 和 `content_plan` 描述内容语义，不写坐标、字号、颜色、透明度等实现细节。
 - `components` 描述页内组件的类型、内容、关系和强调级别；底层布局仍由 generator 决定。
 - 数据页必须包含可结构化的数据和来源信息。
@@ -257,8 +236,8 @@ npm run dev
 ### Python 生成器
 
 ```bash
-python -m py_compile skills/visual_designer/generators/*.py
-python skills/visual_designer/generators/generator.py
+python -m py_compile skills/ppt-deck-planner/generators/*.py
+python skills/ppt-deck-planner/generators/generator.py
 ```
 
 生成器依赖 `python-pptx`。缩略图和 QA 渲染链路依赖 LibreOffice 与 Poppler。
@@ -278,13 +257,6 @@ go build ./...
 ```bash
 cd frontend
 npm run build
-```
-
-背景库验证：
-
-```bash
-cd ppt-agent
-python -c "import sys; sys.path.insert(0, 'skills/visual_designer'); from generators.background_manager import validate_background_manifest; print(validate_background_manifest())"
 ```
 
 ## 环境变量
@@ -329,7 +301,7 @@ cd /ppt/ppt-agent/backend
 - `:8080` 正常监听。
 - 启动日志出现数据库连接成功且无立即失败。
 - `/api/health` 返回 200。
-- `/api/templates`、`/api/backgrounds` 返回可用数据。
+- `/api/templates` 返回可用模板和组件布局数据。
 - 涉及生成链路时，创建 1 个低成本 1 到 2 页任务并清理测试数据。
 
 ## 版本与外部依赖

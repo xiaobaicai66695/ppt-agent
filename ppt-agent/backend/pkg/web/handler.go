@@ -340,38 +340,7 @@ func (s *Server) handleListBackgrounds(c *gin.Context) {
 }
 
 func (s *Server) handleBackgroundPreview(c *gin.Context) {
-	name := c.Param("name")
-	backgrounds := s.templateLoader.ListBackgrounds()
-	for _, bg := range backgrounds {
-		if bg.Name == name {
-			previewPath := filepath.Join(
-				s.templateLoader.GetBackgroundTemplatesDir(),
-				name,
-				"preview.jpg",
-			)
-			if _, err := os.Stat(previewPath); err == nil {
-				c.File(previewPath)
-				return
-			}
-			// Fallback: try preview.png
-			previewPath = filepath.Join(
-				s.templateLoader.GetBackgroundTemplatesDir(),
-				name,
-				"preview.png",
-			)
-			if _, err := os.Stat(previewPath); err == nil {
-				c.File(previewPath)
-				return
-			}
-			if refs := s.backgroundImageRefs(name); len(refs) > 0 {
-				c.File(filepath.Join(s.templateLoader.GetBackgroundTemplatesDir(), filepath.FromSlash(refs[0])))
-				return
-			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "preview not found"})
-			return
-		}
-	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "background theme not found"})
+	c.JSON(http.StatusGone, gin.H{"error": "local background catalog has been removed; use image search assets instead"})
 }
 
 func (s *Server) handleAIExpand(c *gin.Context) {
@@ -462,12 +431,9 @@ func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.T
 		slide.Title = strings.TrimSpace(slide.Title)
 		slide.ContentType = strings.TrimSpace(slide.ContentType)
 		slide.Description = strings.TrimSpace(slide.Description)
-		slide.Background = strings.TrimSpace(slide.Background)
+		slide.Background = ""
 		if s.templateLoader.GetLayout(slide.ContentType) == nil {
 			return nil, fmt.Errorf("第%d页 content_type=%q 不存在", i+1, slide.ContentType)
-		}
-		if slide.Background != "" && !s.isValidBackground(slide.Background) {
-			slide.Background = ""
 		}
 	}
 
@@ -518,55 +484,13 @@ func (s *Server) mergeOutlineSlides(base *deck.TaskOutline, enriched []deck.Slid
 		if e.ContentPlan != nil {
 			base.Slides[i].ContentPlan = e.ContentPlan
 		}
-		if e.Background != "" && s.isValidBackground(e.Background) {
-			base.Slides[i].Background = e.Background
-		}
 	}
 	return base
 }
 
 func (s *Server) isValidBackground(name string) bool {
-	name = strings.TrimSpace(name)
-	for _, bg := range s.templateLoader.ListBackgrounds() {
-		if bg.Name == name {
-			return true
-		}
-	}
-	return s.isValidBackgroundReference(name)
-}
-
-func (s *Server) isValidBackgroundReference(name string) bool {
-	name = filepath.ToSlash(strings.TrimSpace(name))
-	if name == "" || strings.HasPrefix(name, "/") || filepath.IsAbs(name) || strings.Contains(name, "..") {
-		return false
-	}
-	ext := strings.ToLower(filepath.Ext(name))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-		return false
-	}
-	root, err := filepath.Abs(s.templateLoader.GetBackgroundTemplatesDir())
-	if err != nil {
-		return false
-	}
-	target, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(name)))
-	if err != nil {
-		return false
-	}
-	rel, err := filepath.Rel(root, target)
-	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		return false
-	}
-	info, err := os.Stat(target)
-	return err == nil && !info.IsDir()
-}
-
-func (s *Server) backgroundCatalog() string {
-	var lines []string
-	for _, bg := range s.templateLoader.ListBackgrounds() {
-		lines = append(lines, fmt.Sprintf("- `%s`：%s；适用场景：%s",
-			bg.Name, bg.DisplayName, strings.Join(bg.Scenarios, "、")))
-	}
-	return strings.Join(lines, "\n")
+	_ = name
+	return false
 }
 
 func layoutDescriptionTarget(contentType string) string {
@@ -629,9 +553,6 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
 ## 配色方案
 %s
 
-## 可用背景主题
-%s
-
 ## 页面结构
 %s
 
@@ -641,7 +562,7 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
     {
       "title": "实际标题",
       "content_type": "content_slide",
-      "background": "minimalist_blue",
+      "background": "",
       "description": "与布局容量匹配的内容描述",
       "content_plan": {
         "summary": "一句话概括",
@@ -656,11 +577,11 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
 ## 生成契约
 - slides 数量和顺序与页面结构保持一致。
 - content_type 使用页面结构中的稳定英文 id。
-- background 从可用背景 id 中选择；视觉叙事页优先，数据密集页使用清晰信息表面。
+- background 是历史字段，保持为空；图片需求写入 content_plan.visual_intent 或 image 组件。
 - description 以各页容量目标为正常密度，内容完整性与版式容量共同决定最终长度。
 - content_plan 使用 bullet_list、numbered_list、key_point_card、table、chart_placeholder、callout、quote 等结构化字段。
 - 每页包含具体实体、数据、场景或案例；真实数据明确搜索项和来源方向。
-- 输出为一个 JSON 对象。`, query, themeName, s.backgroundCatalog(), slideContexts.String())
+- 输出为一个 JSON 对象。`, query, themeName, slideContexts.String())
 
 	resp, err := model.Generate(ctx, []*schema.Message{
 		schema.UserMessage(prompt),

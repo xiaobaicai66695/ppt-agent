@@ -294,7 +294,7 @@ func renderOneTask(ctx context.Context, cfg *PPTTaskConfig, task *TaskItem, onEv
 }
 
 func runRenderTaskScript(ctx context.Context, cfg *PPTTaskConfig, taskID string) (string, error) {
-	scriptPath := filepath.Join(cfg.SkillsDir, "visual_designer", "generators", "render_task.py")
+	scriptPath := filepath.Join(cfg.SkillsDir, "ppt-deck-planner", "generators", "render_task.py")
 	timeout := time.Duration(agentRenderTimeoutSeconds()) * time.Second
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

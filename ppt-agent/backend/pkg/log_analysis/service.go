@@ -248,7 +248,7 @@ func buildFallbackPrompt(skillsDir string) string {
 
 ppt-agent 是一个 AI PPT 生成系统：
 - Go 后端使用“意图分类 → Planner LLM → DeckSpec/tasks.json → Eino workflow → renderer worker pool”的生成链路
-- Python PPT 生成使用 python-pptx 库，代码位于 skills/visual_designer/generators/ 目录
+- Python PPT 生成使用 python-pptx 库，代码位于 skills/ppt-deck-planner/generators/ 目录
 - Planner 只调用 read_file、update_tasks_manifest、search 准备 DeckSpec；页面渲染由 render_task.py 按 task_id 确定性完成
 
 ## 日志分析方法
@@ -270,9 +270,9 @@ ppt-agent 是一个 AI PPT 生成系统：
 ## 可用文件路径
 
 - /ppt/ppt-agent/backend/pkg/prompts
-- Generator 模板：%s/visual_designer/templates
-- Python 生成器：%s/visual_designer/generators/base.py
-- Python 生成器：%s/visual_designer/generators/*_generator.py
+- 组件契约：%s/ppt-deck-planner/templates/component_contracts.json
+- Python 生成器：%s/ppt-deck-planner/generators/base.py
+- Python 生成器：%s/ppt-deck-planner/generators/*_generator.py
 
 ## 输出格式
 

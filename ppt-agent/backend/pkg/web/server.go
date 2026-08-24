@@ -165,11 +165,8 @@ func NewServer(cfg *ServerConfig) *Server {
 		s.logAnalysis.Start()
 	}
 
-	// 初始化模板加载器
-	presetsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "full-decks")
-	layoutsDir := filepath.Join(cfg.SkillsDir, "visual_designer", "templates", "single-page")
-	bgTemplatesDir := filepath.Join(cfg.SkillsDir, "visual_designer", "background_templates")
-	s.templateLoader = templates.NewLoader(presetsDir, layoutsDir, bgTemplatesDir)
+	// 初始化组件优先模板加载器。预设模板由内置推荐目录提供，页面类型来自 component_contracts.json。
+	s.templateLoader = templates.NewComponentLoader(filepath.Join(cfg.SkillsDir, "ppt-deck-planner"))
 
 	// 认证路由（公开）
 	auth := engine.Group("/api/auth")

@@ -55,7 +55,7 @@ go test ./test/plan_benchmark -v -run TestPlanJudgeAPIScoresDeckSpecs -count 1 -
 
 This copies each gold `tasks.json` into a temporary work directory and invokes
 the production `RenderDeckByTaskIDWorkflow`, which calls
-`skills/visual_designer/generators/render_task.py`.
+`skills/ppt-deck-planner/generators/render_task.py`.
 
 ```powershell
 cd D:\environment\codeGo\llm-examples\projects\ppt-agent\backend

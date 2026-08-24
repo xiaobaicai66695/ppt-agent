@@ -1,6 +1,7 @@
 # Output
 output/
-skills/visual_designer/generators/output/
+skills/ppt-deck-planner/generators/output/
+skills/ppt-deck-planner/generators/examples_output/
 
 # Python
 __pycache__/

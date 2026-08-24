@@ -58,11 +58,11 @@
         "summary": "系统把不稳定的语义规划和稳定的视觉渲染分开，降低整轮生成失败面。",
         "slide_intent": "解释为什么当前生产链路不是让 Agent 直接绘制 PPT。",
         "components": [
-          {"id": "argument", "type": "argument_block", "body": "PPT Agent 的生产链路以 DeckSpec 为中心：Web API 先接收用户主题、模板、风格和大纲约束，Planner 只负责把这些输入转换为结构化 tasks.json；确定性 Reviewer 检查字段、组件容量、背景计划和质量门；SlideExecutor 逐页读取任务并调用 visual_designer 中的 render_task.py；Python generators 根据 content_type 和 content_plan.components 生成单页 PPTX；最后服务端合并文件、生成缩略图并返回下载地址。这个拆分让模型输出集中在语义层，避免每页都由 LLM 手写绘图代码。"},
+          {"id": "argument", "type": "argument_block", "body": "PPT Agent 的生产链路以 DeckSpec 为中心：Web API 先接收用户主题、模板、风格和大纲约束，Planner 只负责把这些输入转换为结构化 tasks.json；确定性 Reviewer 检查字段、组件容量、背景计划和质量门；SlideExecutor 逐页读取任务并调用 ppt-deck-planner 中的 render_task.py；Python generators 根据 content_type 和 content_plan.components 生成单页 PPTX；最后服务端合并文件、生成缩略图并返回下载地址。这个拆分让模型输出集中在语义层，避免每页都由 LLM 手写绘图代码。"},
           {"id": "box_api", "type": "architecture_box", "title": "Web API", "body": "接收 query、outline、template、style_context"},
           {"id": "box_planner", "type": "architecture_box", "title": "Planner", "body": "生成 title/theme/tasks/content_plan"},
           {"id": "box_renderer", "type": "architecture_box", "title": "Renderer", "body": "render_task.py 调用既有 generators"},
-          {"id": "source", "type": "source_note", "text": "来源: docs/architecture/ppt-agent-current-architecture-summary.md；skills/visual_designer/SKILL.md"}
+          {"id": "source", "type": "source_note", "text": "来源: docs/architecture/ppt-agent-current-architecture-summary.md；skills/ppt-deck-planner/SKILL.md"}
         ],
         "capacity_hint": {"estimated_density": "dense", "overflow_risk": "medium", "component_count": 5}
       }

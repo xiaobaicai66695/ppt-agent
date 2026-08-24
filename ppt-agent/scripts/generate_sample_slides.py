@@ -8,7 +8,7 @@ from pathlib import Path
 script_dir = Path(r"d:\environment\codeGo\llm-examples\projects\ppt-agent\temp_samples")
 script_dir.mkdir(parents=True, exist_ok=True)
 
-generators_pkg_dir = Path(r"d:\environment\codeGo\llm-examples\projects\ppt-agent\skills\visual_designer")
+generators_pkg_dir = Path(r"d:\environment\codeGo\llm-examples\projects\ppt-agent\skills\ppt-deck-planner")
 sys.path.insert(0, str(generators_pkg_dir))
 
 from generators import (
