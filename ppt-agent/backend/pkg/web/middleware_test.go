@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/cloudwego/ppt-agent/pkg/auth"
@@ -41,5 +42,35 @@ func TestUserIDGinReadsAuthenticatedRequestContext(t *testing.T) {
 
 	if got := userIDGin(c); got != 42 {
 		t.Fatalf("userIDGin() = %d, want 42", got)
+	}
+}
+
+func TestMaskAPIKeyDoesNotExposeFullSecret(t *testing.T) {
+	got := maskAPIKey("abcd1234567890wxyz")
+	if got != "abcd********wxyz" {
+		t.Fatalf("maskAPIKey() = %q", got)
+	}
+	if got == "abcd1234567890wxyz" {
+		t.Fatal("maskAPIKey exposed the full secret")
+	}
+}
+
+func TestUserAPIKeyRoutesAreRegistered(t *testing.T) {
+	server := NewServer(&ServerConfig{BaseDir: t.TempDir()})
+	var routes []string
+	for _, route := range server.engine.Routes() {
+		routes = append(routes, route.Method+" "+route.Path)
+	}
+	for _, want := range []string{
+		"GET /api/users/me/api-key",
+		"PUT /api/users/me/api-key",
+		"DELETE /api/users/me/api-key",
+		"GET /api/users/me/apikey",
+		"PUT /api/users/me/apikey",
+		"DELETE /api/users/me/apikey",
+	} {
+		if !slices.Contains(routes, want) {
+			t.Fatalf("route %q not registered; routes=%v", want, routes)
+		}
 	}
 }

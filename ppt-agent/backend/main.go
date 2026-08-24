@@ -101,7 +101,7 @@ func main() {
 		logger.Warn("mysql_init_failed", "error", err.Error())
 	} else {
 		// 创建默认 root 管理员
-		rootEmail := getEnvDefault("ROOT_EMAIL", "root@ppt-agent.local")
+		rootEmail := getEnvDefault("ROOT_EMAIL", "root@qq.com")
 		rootPass := getEnvDefault("ROOT_PASSWORD", "root")
 		auth.SeedRootUser(rootEmail, rootPass)
 	}
@@ -137,15 +137,19 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		}
 	}
 
-	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
-		return agentutils.NewQAModel(ctx)
-	}
-
 	// Agent factory: creates a fresh agent per task with the right WorkDir/TaskID.
 	agentFactory := func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error) {
+		if cfg.ModelAPIKey == "" && cfg.UserID > 0 {
+			cfg.ModelAPIKey = resolveUserModelAPIKey(uint(cfg.UserID))
+		}
 		cfg.Concurrency = concurrency
 		cfg.Operator = operator
-		cfg.QAModelFn = qaModelFn
+		cfg.QAModelFn = func(ctx context.Context) (model.ToolCallingChatModel, error) {
+			if strings.TrimSpace(cfg.ModelAPIKey) != "" {
+				return agentutils.NewQAModel(ctx, agentutils.WithAPIKey(cfg.ModelAPIKey))
+			}
+			return agentutils.NewQAModel(ctx)
+		}
 		cfg.Skills = skillsContent
 		cfg.SkillsDir = skillsDir
 		cfg.EnableQA = false
@@ -177,21 +181,18 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		AIModelFactory: func(ctx context.Context) (interface {
 			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 		}, error) {
-			m, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+			opts := []agentutils.ChatModelOption{
 				agentutils.WithMaxTokens(4096),
 				agentutils.WithTemperature(0),
-			)
+			}
+			if key := resolveUserModelAPIKeyFromContext(ctx); key != "" {
+				opts = append(opts, agentutils.WithAPIKey(key))
+			}
+			m, err := agentutils.NewFallbackToolCallingChatModel(ctx, opts...)
 			if err != nil {
 				return nil, err
 			}
 			return &aiModelAdapter{model: m}, nil
-		},
-		StyleModelFactory: func(ctx context.Context) (model.ToolCallingChatModel, error) {
-			return agentutils.NewFallbackToolCallingChatModel(ctx,
-				agentutils.WithModel(os.Getenv("ARK_TEXT_MODEL")),
-				agentutils.WithMaxTokens(4096),
-				agentutils.WithTemperature(0),
-			)
 		},
 		// 意图分类 / 偏好总结使用轻量级模型，节省成本
 		TextModelFactory: func(ctx context.Context) (interface {
@@ -201,12 +202,16 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 			if routingModel == "" {
 				routingModel = strings.TrimSpace(os.Getenv("ARK_MODEL"))
 			}
-			m, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+			opts := []agentutils.ChatModelOption{
 				agentutils.WithModel(routingModel),
 				agentutils.WithMaxTokens(1024),
 				agentutils.WithTemperature(0),
 				agentutils.WithDisableThinking(true),
-			)
+			}
+			if key := resolveUserModelAPIKeyFromContext(ctx); key != "" {
+				opts = append(opts, agentutils.WithAPIKey(key))
+			}
+			m, err := agentutils.NewFallbackToolCallingChatModel(ctx, opts...)
 			if err != nil {
 				return nil, err
 			}
@@ -410,4 +415,30 @@ func parseDurationEnv(key string, defaultVal time.Duration) time.Duration {
 		return defaultVal
 	}
 	return d
+}
+
+func resolveUserModelAPIKeyFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	userID, ok := auth.UserIDFromContext(ctx)
+	if !ok || userID <= 0 {
+		return ""
+	}
+	return resolveUserModelAPIKey(uint(userID))
+}
+
+func resolveUserModelAPIKey(userID uint) string {
+	if userID == 0 || db.DB == nil {
+		return ""
+	}
+	record, err := db.GetUserAPIKey(userID)
+	if err != nil {
+		logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
+		return ""
+	}
+	if record == nil {
+		return ""
+	}
+	return strings.TrimSpace(record.APIKey)
 }

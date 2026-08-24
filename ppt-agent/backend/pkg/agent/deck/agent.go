@@ -39,20 +39,27 @@ import (
 )
 
 func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
-	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx,
+	modelOpts := []agentutils.ChatModelOption{
 		agentutils.WithMaxTokens(32768),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
-	)
+	}
+	compressorOpts := []agentutils.ChatModelOption{
+		agentutils.WithTextModel(),
+		agentutils.WithMaxTokens(4096),
+		agentutils.WithTemperature(0),
+	}
+	if strings.TrimSpace(cfg.ModelAPIKey) != "" {
+		modelOpts = append(modelOpts, agentutils.WithAPIKey(cfg.ModelAPIKey))
+		compressorOpts = append(compressorOpts, agentutils.WithAPIKey(cfg.ModelAPIKey))
+	}
+
+	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx, modelOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("创建主模型失败: %w", err)
 	}
 
-	compressor, err := agentutils.NewFallbackToolCallingChatModel(ctx,
-		agentutils.WithTextModel(),
-		agentutils.WithMaxTokens(4096),
-		agentutils.WithTemperature(0),
-	)
+	compressor, err := agentutils.NewFallbackToolCallingChatModel(ctx, compressorOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("创建压缩器模型失败: %w", err)
 	}

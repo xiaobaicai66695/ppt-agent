@@ -33,7 +33,6 @@ type Server struct {
 	tasks           *task.TaskManager
 	sessionManager  *session.SessionManager
 	styleStore      *style.ProfileStore
-	styleExtractor  *style.Extractor
 	agentFactory    task.AgentFactory
 	makeTaskConfig  func(taskID string) *deck.PPTTaskConfig
 	taskIDGen       func() string
@@ -66,9 +65,6 @@ type ServerConfig struct {
 	AIModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
-	// StyleModelFactory 创建用于 LLM 驱动风格提取的模型。
-	// 如果为 nil，则回退到基于规则的风格提取。
-	StyleModelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
 	// TextModelFactory 创建轻量级文本模型，用于意图分类等辅助任务。
 	// 使用 ARK_TEXT_MODEL 环境变量（成本更低）。如果为 nil，则回退到 AIModelFactory。
 	TextModelFactory func(ctx context.Context) (interface {
@@ -113,7 +109,7 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	engine.Use(cors.New(cors.Config{
 		AllowAllOrigins:  true,
-		AllowMethods:     []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -133,19 +129,12 @@ func NewServer(cfg *ServerConfig) *Server {
 		operator:         cfg.Operator,
 	}
 
-	// LLM 驱动的风格提取器（从 PPTX 文本内容分析用户偏好）
-	if cfg.StyleModelFactory != nil {
-		s.styleExtractor = style.NewExtractor(cfg.StyleModelFactory)
-	}
-
-	// 初始化智能学习引擎（意图分类 + 偏好学习）
+	// 初始化意图识别与只读偏好推荐引擎。用户画像只通过显式资料/偏好更新。
 	deck.InitLearningEngine(cfg.AIModelFactory, cfg.TextModelFactory)
 
-	// 创建任务管理器，并注册风格更新回调
+	// 创建任务管理器。任务完成不会自动回写风格偏好，避免把系统生成结果当作用户记忆。
 	s.tasks = task.NewTaskManager(cfg.BaseDir,
-		func(userID int, workDir, query string) {
-			s.updateUserStyleFromTask(userID, workDir, query)
-		},
+		nil,
 		func(taskID string) {
 			if s.logAnalysis != nil {
 				s.logAnalysis.Trigger(taskID, "failed")
@@ -214,18 +203,16 @@ func NewServer(cfg *ServerConfig) *Server {
 	users := engine.Group("/api/users")
 	users.Use(s.authMiddleware())
 	{
+		users.GET("/me/api-key", s.handleGetUserAPIKey)
+		users.PUT("/me/api-key", s.handleUpdateUserAPIKey)
+		users.DELETE("/me/api-key", s.handleDeleteUserAPIKey)
+		users.GET("/me/apikey", s.handleGetUserAPIKey)
+		users.PUT("/me/apikey", s.handleUpdateUserAPIKey)
+		users.DELETE("/me/apikey", s.handleDeleteUserAPIKey)
 		users.GET("/me/profile", s.handleGetUserProfile)
 		users.PUT("/me/profile", s.handleUpdateUserProfile)
 		users.POST("/me/profile/reset", s.handleResetUserProfile)
 		users.POST("/me/profile/summarize", s.handleSummarizeProfile)
-		users.GET("/me/insights", s.handleGetUserInsights)
-	}
-
-	// 反馈路由（需要认证）
-	feedback := engine.Group("/api/feedback")
-	feedback.Use(s.authMiddleware())
-	{
-		feedback.POST("", s.handleSubmitFeedback)
 	}
 
 	// 推荐路由（需要认证）

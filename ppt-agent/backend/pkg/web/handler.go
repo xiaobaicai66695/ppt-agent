@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
-	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
@@ -143,6 +142,8 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	cfg := s.makeTaskConfig(taskID)
 	cfg.Query = req.Query
 	uid := userIDGin(c)
+	cfg.UserID = uid
+	cfg.ModelAPIKey = userModelAPIKey(uid)
 
 	// 推荐模式需要先拿到结构化意图结果，模板选择与 TaskManager 共用这一次分类。
 	if req.Outline == nil && req.TemplateSelection != nil && strings.EqualFold(strings.TrimSpace(req.TemplateSelection.Mode), "recommended") {
@@ -227,7 +228,12 @@ func (s *Server) handleGetTask(c *gin.Context) {
 }
 
 func (s *Server) handleListTasks(c *gin.Context) {
-	tasks := s.tasks.ListTasks(userIDGin(c))
+	var tasks []task.TaskInfo
+	if isAdminGin(c) {
+		tasks = s.tasks.ListAllTasks()
+	} else {
+		tasks = s.tasks.ListTasks(userIDGin(c))
+	}
 	if tasks == nil {
 		tasks = []task.TaskInfo{}
 	}
@@ -840,7 +846,7 @@ func (s *Server) startContinue(taskID string, ts *task.TaskState, message string
 func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession, ch chan task.SSERichEvent) {
 	defer close(ch)
 
-	ctx := context.Background()
+	ctx := auth.WithUser(context.Background(), &db.User{ID: uint(uid)})
 
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在分析您的请求...\n"}
 
@@ -1205,6 +1211,8 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		Operator:    s.operator,
 		RuntimeMeta: runtimeMeta,
 		Concurrency: 5,
+		UserID:      ts.Info.UserID,
+		ModelAPIKey: userModelAPIKey(ts.Info.UserID),
 	}
 	if _, err := deck.RenderDeckByTaskIDWorkflow(context.Background(), cfg, func(event deck.DeckRenderEvent) {
 		ch <- deckRenderSSE(event)
@@ -1491,6 +1499,96 @@ func (s *Server) handleGetRuntimeEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, runtimeEventFromRecord(*record, true))
 }
 
+// ── Account model key handlers ────────────────────────────────────────────────
+
+func (s *Server) handleGetUserAPIKey(c *gin.Context) {
+	uid := userIDGin(c)
+	key, err := db.GetUserAPIKey(uint(uid))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询 API Key 配置失败: " + err.Error()})
+		return
+	}
+	if key == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"configured":         false,
+			"provider":           "ark",
+			"masked_key":         "",
+			"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"configured":         true,
+		"provider":           key.Provider,
+		"masked_key":         maskAPIKey(key.APIKey),
+		"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+		"updated_at":         key.UpdatedAt,
+	})
+}
+
+func (s *Server) handleUpdateUserAPIKey(c *gin.Context) {
+	var req struct {
+		Provider string `json:"provider"`
+		APIKey   string `json:"api_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
+		return
+	}
+	apiKey := strings.TrimSpace(req.APIKey)
+	if len(apiKey) < 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key 长度过短"})
+		return
+	}
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = "ark"
+	}
+	if err := db.UpsertUserAPIKey(uint(userIDGin(c)), provider, apiKey); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 API Key 失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"configured": true,
+		"provider":   provider,
+		"masked_key": maskAPIKey(apiKey),
+	})
+}
+
+func (s *Server) handleDeleteUserAPIKey(c *gin.Context) {
+	if err := db.DeleteUserAPIKey(uint(userIDGin(c))); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除 API Key 配置失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "configured": false})
+}
+
+func userModelAPIKey(userID int) string {
+	if userID <= 0 {
+		return ""
+	}
+	key, err := db.GetUserAPIKey(uint(userID))
+	if err != nil {
+		logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
+		return ""
+	}
+	if key == nil {
+		return ""
+	}
+	return strings.TrimSpace(key.APIKey)
+}
+
+func maskAPIKey(apiKey string) string {
+	apiKey = strings.TrimSpace(apiKey)
+	runes := []rune(apiKey)
+	if len(runes) <= 8 {
+		return strings.Repeat("*", len(runes))
+	}
+	prefix := string(runes[:4])
+	suffix := string(runes[len(runes)-4:])
+	return prefix + strings.Repeat("*", 8) + suffix
+}
+
 func runtimeEventFromRecord(record db.RuntimeEventRecord, includeMetadata bool) agentutils.RuntimeEvent {
 	event := agentutils.RuntimeEvent{
 		ID:        record.EventID,
@@ -1638,39 +1736,6 @@ func (s *Server) handleSummarizeProfile(c *gin.Context) {
 	})
 }
 
-// updateUserStyleFromTask is called when a task completes to extract and save style preferences.
-// 核心逻辑由 LLM 分析 PPTX 文本内容完成，fallback 到规则提取。
-func (s *Server) updateUserStyleFromTask(userID int, workDir string, query string) {
-	manifest, err := deck.ReadTasksManifest(workDir)
-	if err != nil || manifest == nil {
-		return
-	}
-
-	// 将 tasks 转换为 TaskItemInfo 用于回退
-	taskInfos := make([]*style.TaskItemInfo, len(manifest.Tasks))
-	for i, t := range manifest.Tasks {
-		taskInfos[i] = &style.TaskItemInfo{
-			ContentType: t.ContentType,
-			Theme:       manifest.Theme,
-		}
-	}
-
-	// 如果配置了 LLM 提取器，使用 LLM 分析
-	if s.styleExtractor != nil {
-		ctx := context.Background()
-		extracted, err := s.styleExtractor.ExtractFromPPTX(ctx, workDir, query, manifest.Theme, taskInfos)
-		if err == nil && extracted != nil {
-			s.styleStore.UpdateWithTask(userID, extracted)
-			return
-		}
-		// LLM 提取失败，fallback 到规则提取
-	}
-
-	// Fallback：使用规则提取
-	extracted := style.ExtractFromTasks(taskInfos, manifest.Theme)
-	s.styleStore.UpdateWithTask(userID, extracted)
-}
-
 // handleListLogAnalyses 返回最近的日志分析列表。
 func (s *Server) handleListLogAnalyses(c *gin.Context) {
 	if s.logAnalysis == nil {
@@ -1700,71 +1765,7 @@ func (s *Server) handleGetTaskLogAnalyses(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
 }
 
-// ── Feedback & Learning handlers ──────────────────────────────────────────────
-
-// FeedbackRequest 对应前端 FeedbackRequest 结构
-type FeedbackRequest struct {
-	Type      string  `json:"type"` // rating/edit/completion/abandon
-	TaskID    string  `json:"task_id,omitempty"`
-	Rating    float64 `json:"rating,omitempty"`
-	PageIndex int     `json:"page_index,omitempty"`
-	Before    string  `json:"before,omitempty"`
-	After     string  `json:"after,omitempty"`
-	Reason    string  `json:"reason,omitempty"`
-	Progress  float64 `json:"progress,omitempty"`
-}
-
-func (s *Server) handleSubmitFeedback(c *gin.Context) {
-	var req FeedbackRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求: " + err.Error()})
-		return
-	}
-
-	uid := userIDGin(c)
-
-	engine := deck.GetLearningEngine()
-	if engine == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
-		return
-	}
-
-	feedback := &agentlearning.Feedback{
-		Type:      req.Type,
-		Rating:    req.Rating,
-		PageIndex: req.PageIndex,
-		Before:    req.Before,
-		After:     req.After,
-		Duration:  0,
-		Reason:    req.Reason,
-		Progress:  req.Progress,
-		Data: map[string]interface{}{
-			"task_id": req.TaskID,
-		},
-	}
-
-	engine.RecordFeedback(uid, req.TaskID, feedback)
-
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
-func (s *Server) handleGetUserInsights(c *gin.Context) {
-	uid := userIDGin(c)
-
-	engine := deck.GetLearningEngine()
-	if engine == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
-		return
-	}
-
-	insights := engine.GetUserInsights(uid)
-	if insights == nil {
-		c.JSON(http.StatusOK, gin.H{"insights": nil})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"insights": insights})
-}
+// ── Preference recommendation handlers ───────────────────────────────────────
 
 func (s *Server) handleGetRecommendations(c *gin.Context) {
 	uid := userIDGin(c)

@@ -413,6 +413,37 @@ export async function summarizeProfile(): Promise<{ summary: PreferenceSummary; 
   return data;
 }
 
+// ── Account API key API ───────────────────────────────────────────────────────
+
+export interface UserApiKeyStatus {
+  configured: boolean;
+  provider: string;
+  masked_key: string;
+  default_configured: boolean;
+  updated_at?: string;
+}
+
+export async function fetchUserApiKeyStatus(): Promise<UserApiKeyStatus> {
+	const res = await checkResponse(await apiFetch('/api/users/me/apikey', { headers: authHeaders() }));
+  return res.json();
+}
+
+export async function updateUserApiKey(apiKey: string, provider = 'ark'): Promise<UserApiKeyStatus> {
+	const res = await checkResponse(await apiFetch('/api/users/me/apikey', {
+		method: 'PUT',
+		headers: authHeaders(),
+		body: JSON.stringify({ provider, api_key: apiKey }),
+	}));
+  return res.json();
+}
+
+export async function deleteUserApiKey(): Promise<void> {
+	await checkResponse(await apiFetch('/api/users/me/apikey', {
+		method: 'DELETE',
+		headers: authHeaders(),
+	}));
+}
+
 // ── User feedback API ──────────────────────────────────────────────────────────────
 
 export interface FeedbackRequest {

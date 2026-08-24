@@ -1321,6 +1321,33 @@ func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
 	return result
 }
 
+// ListAllTasks returns task summaries for administrators, merging hot in-memory
+// tasks with persisted records.
+func (tm *TaskManager) ListAllTasks() []TaskInfo {
+	seen := make(map[string]bool)
+	var result []TaskInfo
+
+	tm.mu.RLock()
+	for _, ts := range tm.tasks {
+		result = append(result, ts.Info)
+		seen[ts.Info.ID] = true
+	}
+	tm.mu.RUnlock()
+
+	if db.DB != nil {
+		records, err := db.ListAllTaskRecords(500)
+		if err == nil {
+			for i := len(records) - 1; i >= 0; i-- {
+				if !seen[records[i].ID] {
+					result = append(result, *recordToTaskInfo(&records[i]))
+				}
+			}
+		}
+	}
+
+	return result
+}
+
 // CancelTask 取消一个运行中的任务。如果任务被找到且正在运行则返回 true。
 func (tm *TaskManager) CancelTask(id string) bool {
 	tm.mu.RLock()

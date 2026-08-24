@@ -43,6 +43,7 @@ type ChatModelConfig struct {
 	DisableThinking *bool
 	JsonSchema      *openai.ChatCompletionResponseFormatJSONSchema
 	Model           *string
+	APIKey          *string
 }
 
 // ChatModelOption ChatModel 配置函数
@@ -87,6 +88,15 @@ func WithModel(modelName string) ChatModelOption {
 	}
 }
 
+func WithAPIKey(apiKey string) ChatModelOption {
+	return func(c *ChatModelConfig) {
+		apiKey = strings.TrimSpace(apiKey)
+		if apiKey != "" {
+			c.APIKey = &apiKey
+		}
+	}
+}
+
 // WithTextModel 覆盖 NewFallbackToolCallingChatModel 用于纯文本任务的模型链。
 // 使用 ARK_TEXT_MODEL，备用为 ARK_MODEL_BACKUP*。
 // 如果 ARK_TEXT_MODEL 未设置，则回退到 ARK_MODEL。
@@ -103,10 +113,14 @@ func WithTextModel() ChatModelOption {
 // NewQAModel 创建一个不带降级的独立 QA 模型。
 // 使用 ARK_QA_MODEL；遇到瞬时失败时最多重试 3 次。
 // QA 质量不能因模型降级而受损——不使用降级链。
-func NewQAModel(ctx context.Context) (model.ToolCallingChatModel, error) {
+func NewQAModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCallingChatModel, error) {
 	qaModel := os.Getenv("ARK_QA_MODEL")
 	if qaModel == "" {
 		return nil, fmt.Errorf("ARK_QA_MODEL 环境变量未设置")
+	}
+	baseCfg := &ChatModelConfig{}
+	for _, opt := range opts {
+		opt(baseCfg)
 	}
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -114,12 +128,12 @@ func NewQAModel(ctx context.Context) (model.ToolCallingChatModel, error) {
 		temp := float32(0)
 		topP := float32(0)
 		disableThink := true
-		m, err := newSingleModel(ctx, qaModel, &ChatModelConfig{
-			MaxTokens:       &maxTokens,
-			Temperature:     &temp,
-			TopP:            &topP,
-			DisableThinking: &disableThink,
-		})
+		cfg := *baseCfg
+		cfg.MaxTokens = &maxTokens
+		cfg.Temperature = &temp
+		cfg.TopP = &topP
+		cfg.DisableThinking = &disableThink
+		m, err := newSingleModel(ctx, qaModel, &cfg)
 		if err == nil {
 			return m, nil
 		}
@@ -271,7 +285,7 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 // newSingleModel 根据模型名称创建单个模型
 func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig) (model.ToolCallingChatModel, error) {
 	conf := &ark.ChatModelConfig{
-		APIKey:      os.Getenv("ARK_API_KEY"),
+		APIKey:      modelAPIKeyFromConfig(cfg),
 		BaseURL:     os.Getenv("ARK_BASE_URL"),
 		Region:      os.Getenv("ARK_REGION"),
 		Model:       modelName,
@@ -312,6 +326,13 @@ func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig)
 	}
 
 	return ark.NewChatModel(ctx, conf)
+}
+
+func modelAPIKeyFromConfig(cfg *ChatModelConfig) string {
+	if cfg != nil && cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
+		return strings.TrimSpace(*cfg.APIKey)
+	}
+	return os.Getenv("ARK_API_KEY")
 }
 
 func (f *FallbackChatModel) shouldPause(idx int) (bool, time.Time) {

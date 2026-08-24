@@ -30,6 +30,16 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// UserAPIKey stores an account-level model API key override.
+// Empty rows are not kept; absence means the service falls back to env config.
+type UserAPIKey struct {
+	UserID    uint      `gorm:"primaryKey" json:"user_id"`
+	Provider  string    `gorm:"size:40;not null;default:'ark'" json:"provider"`
+	APIKey    string    `gorm:"type:text;not null" json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // VerificationCode — 邮箱验证码。
 type VerificationCode struct {
 	ID        uint      `gorm:"primaryKey" json:"-"`
@@ -319,7 +329,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 
@@ -378,4 +388,41 @@ func ListAllStyleProfiles() ([]UserStyleProfile, error) {
 // DeleteErrorAnalysis 删除指定 ID 的日志分析记录。
 func DeleteErrorAnalysis(id uint) error {
 	return DB.Where("id = ?", id).Delete(&TaskErrorAnalysis{}).Error
+}
+
+// UpsertUserAPIKey stores or replaces the current user's model key override.
+func UpsertUserAPIKey(userID uint, provider, apiKey string) error {
+	if DB == nil {
+		return fmt.Errorf("database unavailable")
+	}
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "ark"
+	}
+	return DB.Save(&UserAPIKey{
+		UserID:   userID,
+		Provider: provider,
+		APIKey:   strings.TrimSpace(apiKey),
+	}).Error
+}
+
+// GetUserAPIKey returns the configured key override, or nil if the account uses defaults.
+func GetUserAPIKey(userID uint) (*UserAPIKey, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	var key UserAPIKey
+	err := DB.Where("user_id = ?", userID).First(&key).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return &key, err
+}
+
+// DeleteUserAPIKey removes the user's model key override.
+func DeleteUserAPIKey(userID uint) error {
+	if DB == nil {
+		return nil
+	}
+	return DB.Where("user_id = ?", userID).Delete(&UserAPIKey{}).Error
 }

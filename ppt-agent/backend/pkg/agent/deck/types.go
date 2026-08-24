@@ -50,6 +50,7 @@ type PPTTaskConfig struct {
 	QAModelFn     func(ctx context.Context) (model.ToolCallingChatModel, error)
 	Skills        string
 	SkillsDir     string // skills 目录的绝对路径，用于构造 read_file 可用的模板路径
+	ModelAPIKey   string // account-level model key override; empty uses env fallback
 	CompressorOpt CompressorOption
 	// CompressorTracker 启用压缩器的 token 统计
 	// 设置后，主模型调用和压缩器调用（用于上下文压缩）都会被计入同一个 TokenTracker，提供准确的总数
