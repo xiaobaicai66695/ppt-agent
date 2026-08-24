@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { isLoggedIn } from '../api';
+import { authState } from '../stores/auth';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -55,9 +56,16 @@ const router = createRouter({
       path: '/admin',
       name: 'admin',
       component: () => import('../pages/AdminPage.vue'),
-      beforeEnter: (_to, _from, next) => {
+      beforeEnter: async (_to, _from, next) => {
         if (!isLoggedIn()) {
           next({ name: 'auth', query: { redirect: '/admin' } });
+          return;
+        }
+        if (!authState.user) {
+          await authState.init();
+        }
+        if (!authState.isAdmin) {
+          next({ name: 'dashboard' });
         } else {
           next();
         }

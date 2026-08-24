@@ -6,7 +6,7 @@ import re
 from copy import deepcopy
 from typing import Literal
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR_TYPE
@@ -225,7 +225,13 @@ def set_slide_background(slide, palette: str = "ocean_soft"):
     fill.fore_color.rgb = rgb(colors["background"])
 
 
-def set_image_background(slide, image_path: str, brightness: float = 0.95, palette: str = "ocean_soft"):
+def set_image_background(
+    slide,
+    image_path: str,
+    brightness: float = 0.95,
+    palette: str = "ocean_soft",
+    blur_radius: float = 0,
+):
     """
     为幻灯片设置图片背景。
 
@@ -233,6 +239,8 @@ def set_image_background(slide, image_path: str, brightness: float = 0.95, palet
         slide: python-pptx Slide 对象
         image_path: 背景图片的完整路径（支持 JPG/PNG）
         brightness: 亮度调整 (0.0-1.0)，值越小背景越暗。推荐值 0.9-1.0
+        blur_radius: 高斯模糊半径。标题页和章节分割页使用轻度模糊，
+            避免复杂背景或透视结构压低文字可读性。
 
     Example:
         set_image_background(slide, "D:/path/to/background.jpg")
@@ -264,6 +272,8 @@ def set_image_background(slide, image_path: str, brightness: float = 0.95, palet
     left = (new_w - target_w) // 2
     top = (new_h - target_h) // 2
     img = img.crop((left, top, left + target_w, top + target_h))
+    if blur_radius > 0:
+        img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
     # 临时保存处理后的图片
     import tempfile

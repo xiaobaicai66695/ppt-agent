@@ -98,6 +98,56 @@ describe('workbench utilities', () => {
     ]);
   });
 
+  it('drops assistant runtime fragments already contained in a restored full answer', () => {
+    const fullAnswer = [
+      '我将为您生成一份12页的PPT，主题为“中小后端项目Git版本控制规范方案”。',
+      'PPT规划已完成，12页内容已提交。以下是各页概要：',
+      '| 页码 | 标题 |',
+      '| --- | --- |',
+      '| 12 | 致谢 |',
+      'DeckSpec已锁定并发布，后端将自动渲染生成PPT文件。',
+    ].join('\n');
+    const fragment = 'PPT规划已完成，12页内容已提交。以下是各页概要：\n\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |';
+
+    const merged = mergeConversationMessages(
+      [{ role: 'assistant', content: fullAnswer, timestamp: 'a' }],
+      [{ role: 'assistant', content: fragment, timestamp: 'b' }],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].content).toBe(fullAnswer);
+  });
+
+  it('keeps the fuller assistant output when runtime events are cumulative', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: 'PPT规划已完成，12页内容已提交。以下是各页概要：' },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: 'PPT规划已完成，12页内容已提交。以下是各页概要：\n\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |' },
+      },
+    ];
+
+    const messages = runtimeAssistantOutputMessages(events);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toContain('| 12 | 致谢 |');
+  });
+
   it('extracts assistant_output from model events as markdown assistant messages', () => {
     const events: RuntimeEvent[] = [
       {

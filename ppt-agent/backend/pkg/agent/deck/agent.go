@@ -171,8 +171,6 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 	outlineTheme := ""
 	outlineTitle := ""
 	outlineContentMode := ""
-	outlineUseBackground := false
-	outlineBackground := ""
 	suggestedPageCount := 0
 	outlineQuery := query // user's original topic description
 	hasOutline := outline != nil && len(outline.Slides) > 0
@@ -182,10 +180,6 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 		outlineTheme = outline.Theme
 		outlineTitle = outline.Title
 		outlineContentMode = outline.ContentMode
-		outlineUseBackground = outline.UseBackground
-		if outline.UseBackground {
-			outlineBackground = outline.RecommendedBackground
-		}
 		suggestedPageCount = outline.SuggestedPageCount
 	}
 
@@ -200,10 +194,7 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 		OutlineTheme:           outlineTheme,
 		OutlineTitle:           outlineTitle,
 		OutlineContentMode:     outlineContentMode,
-		OutlineUseBackground:   outlineUseBackground,
-		OutlineBackground:      outlineBackground,
 		SuggestedPageCount:     suggestedPageCount,
-		AvailableBackgrounds:   "",
 		SkillsDir:              skillsDir,
 		EnableQA:               enableQA,
 		Concurrency:            concurrency,

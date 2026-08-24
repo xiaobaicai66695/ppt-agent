@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   Home,
+  KeyRound,
   LogIn,
   LogOut,
   Menu,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-vue-next';
 import { authState } from '../stores/auth';
 import { isLoggedIn } from '../api';
+import AccountSettingsDialog from './AccountSettingsDialog.vue';
 
 defineProps<{
   title: string;
@@ -25,6 +27,7 @@ defineProps<{
 const route = useRoute();
 const router = useRouter();
 const navOpen = ref(false);
+const accountSettingsOpen = ref(false);
 const auth = authState;
 
 const navItems = computed(() => {
@@ -106,6 +109,16 @@ async function handleAuthAction() {
           </span>
         </div>
         <button
+          v-if="auth.loggedIn"
+          class="rail-auth"
+          type="button"
+          title="账户设置"
+          aria-label="账户设置"
+          @click="accountSettingsOpen = true"
+        >
+          <KeyRound :size="17" />
+        </button>
+        <button
           class="rail-auth"
           type="button"
           :title="auth.loggedIn ? '退出登录' : '登录'"
@@ -146,6 +159,8 @@ async function handleAuthAction() {
         <slot />
       </main>
     </section>
+
+    <AccountSettingsDialog :open="accountSettingsOpen" @close="accountSettingsOpen = false" />
   </div>
 </template>
 
@@ -165,7 +180,8 @@ async function handleAuthAction() {
   flex-direction: column;
   background: var(--nav-surface);
   color: var(--nav-text);
-  border-right: 1px solid rgba(255,255,255,0.08);
+  border-right: 1px solid var(--border);
+  box-shadow: 2px 0 16px rgba(65, 80, 90, 0.04);
 }
 
 .brand-button,
@@ -197,8 +213,9 @@ async function handleAuthAction() {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  color: #0f2421;
-  background: var(--action);
+  color: var(--action-ink);
+  background: var(--action-soft);
+  border: 1px solid #cfe2e9;
   border-radius: 7px;
 }
 
@@ -222,14 +239,15 @@ async function handleAuthAction() {
   justify-content: center;
   gap: 8px;
   border-radius: 7px;
-  color: #102522;
-  background: var(--action);
+  color: var(--action-ink);
+  border: 1px solid #cfe2e9;
+  background: var(--action-soft);
   font-weight: 700;
   cursor: pointer;
   transition: background var(--motion-fast), transform var(--motion-fast);
 }
 
-.new-deck-button:hover { background: var(--action-strong); }
+.new-deck-button:hover { border-color: #b5d4df; background: var(--action-strong); }
 .new-deck-button:active { transform: scale(0.98); }
 
 .rail-nav {
@@ -251,14 +269,14 @@ async function handleAuthAction() {
 }
 
 .rail-link:hover {
-  color: var(--nav-text);
-  background: rgba(255,255,255,0.07);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .rail-link.active {
-  color: #ffffff;
-  background: rgba(255,255,255,0.12);
-  box-shadow: inset 3px 0 0 var(--action);
+  color: var(--action-ink);
+  background: var(--action-soft);
+  box-shadow: inset 3px 0 0 var(--action-ink);
 }
 
 .rail-link span { font-size: 13px; font-weight: 600; }
@@ -269,7 +287,7 @@ async function handleAuthAction() {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid rgba(255,255,255,0.09);
+  border-top: 1px solid var(--border);
 }
 
 .rail-user {
@@ -287,8 +305,9 @@ async function handleAuthAction() {
   place-items: center;
   flex: 0 0 auto;
   border-radius: 50%;
-  color: #ffffff;
-  background: #3c4349;
+  color: var(--action-ink);
+  background: var(--action-soft);
+  border: 1px solid #cfe2e9;
   font-size: 12px;
   font-weight: 700;
 }
@@ -316,7 +335,7 @@ async function handleAuthAction() {
   cursor: pointer;
 }
 
-.rail-auth:hover { color: #ffffff; background: rgba(255,255,255,0.08); }
+.rail-auth:hover { color: var(--action-ink); background: var(--action-soft); }
 
 .app-stage {
   min-height: 100dvh;
@@ -388,7 +407,7 @@ async function handleAuthAction() {
     z-index: calc(var(--z-nav) - 1);
     display: block;
     visibility: hidden;
-    background: rgba(15,17,18,0.5);
+    background: rgba(38, 48, 56, 0.18);
     opacity: 0;
     cursor: pointer;
     transition: opacity var(--motion-medium), visibility var(--motion-medium);

@@ -130,13 +130,24 @@ def text_limit(width: float, height: float, font_size: float, ratio: float = 0.9
     return max(8, int(chars_per_line * lines * ratio))
 
 
-def setup_slide(prs: Presentation | None, palette: str, background: str | None):
+def setup_slide(
+    prs: Presentation | None,
+    palette: str,
+    background: str | None,
+    blur_radius: float = 0,
+):
     if prs is None:
         prs = new_presentation(palette=palette)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg_path = resolve_background(background) if background else None
     if bg_path:
-        colors = set_image_background(slide, bg_path, brightness=0.95, palette=palette)
+        colors = set_image_background(
+            slide,
+            bg_path,
+            brightness=0.95,
+            palette=palette,
+            blur_radius=blur_radius,
+        )
     else:
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])
@@ -155,11 +166,12 @@ def render_component_slide(
     layout_variant: str = "",
     background: str | None = None,
 ) -> Presentation:
-    prs, slide, colors = setup_slide(prs, palette, background)
+    background_blur = 6 if content_type in {"title_slide", "section_divider"} else 0
+    prs, slide, colors = setup_slide(prs, palette, background, blur_radius=background_blur)
     components = normalize_components(components or [], title=title, subtitle=subtitle, content_type=content_type)
 
     if content_type == "title_slide":
-        _render_title(slide, colors, palette, title, subtitle, kicker, components)
+        _render_title(slide, colors, palette, title, subtitle, kicker, components, bool(background))
     elif content_type == "section_divider":
         _render_section(slide, colors, palette, title, subtitle, kicker, components)
     elif content_type == "quote_slide":
@@ -211,8 +223,20 @@ def infer_component_type(item: dict[str, Any], content_type: str) -> str:
     return "paragraph"
 
 
-def _render_title(slide, colors: dict, palette: str, title: str, subtitle: str, kicker: str, components: list[dict[str, Any]]):
-    add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, "background", palette=palette)
+def _render_title(
+    slide,
+    colors: dict,
+    palette: str,
+    title: str,
+    subtitle: str,
+    kicker: str,
+    components: list[dict[str, Any]],
+    has_background: bool = False,
+):
+    if has_background:
+        add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, (255, 255, 255, 64), palette=palette)
+    else:
+        set_slide_background(slide, palette)
     add_rect(slide, 0, 0, 0.22, SLIDE_H, "primary", palette=palette)
     if kicker:
         add_text(slide, kicker, 0.82, 1.05, 4.6, 0.36, 13, color="secondary", palette=palette, colors=colors)

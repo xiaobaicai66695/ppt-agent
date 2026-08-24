@@ -11,16 +11,41 @@
       "description": "45 分钟新员工数据安全培训封面，强调可操作场景、处理流程和案例测验。",
       "output_file": "01_培训封面.pptx",
       "status": "pending",
-      "background": "education_warm/images/1.jpg",
       "content_plan": {
         "summary": "45 分钟掌握数据分级、常见风险、处置流程和自检方法。",
         "slide_intent": "建立课程目标和学习预期。",
         "components": [
-          {"id": "deck_title", "type": "deck_title", "text": "新员工数据安全培训"},
-          {"id": "subheadline", "type": "subheadline", "text": "识别风险、正确处置、减少误发和越权访问"},
-          {"id": "key_point", "type": "key_point", "title": "培训对象", "body": "入职 30 天内的新员工，覆盖研发、销售、运营和客服岗位。"}
+          {
+            "id": "deck_title",
+            "type": "deck_title",
+            "text": "新员工数据安全培训"
+          },
+          {
+            "id": "subheadline",
+            "type": "subheadline",
+            "text": "识别风险、正确处置、减少误发和越权访问"
+          },
+          {
+            "id": "key_point",
+            "type": "key_point",
+            "title": "培训对象",
+            "body": "入职 30 天内的新员工，覆盖研发、销售、运营和客服岗位。"
+          }
         ],
-        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 3}
+        "capacity_hint": {
+          "estimated_density": "sparse",
+          "overflow_risk": "low",
+          "component_count": 3
+        },
+        "visual_intent": {
+          "role": "hero_photo",
+          "asset_purpose": "background",
+          "asset_subject": "新员工数据安全培训",
+          "asset_query": "新员工数据安全培训, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/1.jpg"
+        }
       }
     },
     {
@@ -31,17 +56,54 @@
       "description": "目录页，包含课程目标、风险场景、处理流程、真实案例、测验与承诺。",
       "output_file": "02_课程结构.pptx",
       "status": "pending",
-      "background": "education_warm/images/2.jpg",
       "content_plan": {
         "summary": "课程按识别、处理、复盘、测验四个学习动作推进。",
         "slide_intent": "给出 45 分钟课程路线。",
         "components": [
-          {"id": "toc_1", "type": "toc_item", "title": "01 学习目标", "body": "知道哪些数据不能随意复制、外发或上传。"},
-          {"id": "toc_2", "type": "toc_item", "title": "02 风险场景", "body": "识别误发邮件、共享链接、AI 工具粘贴和截图传播。"},
-          {"id": "toc_3", "type": "toc_item", "title": "03 处理流程", "body": "按发现、隔离、报告、修复、复盘五步处理。"},
-          {"id": "toc_4", "type": "toc_item", "title": "04 案例测验", "body": "用真实案例判断风险等级和正确动作。"}
+          {
+            "id": "headline_auto",
+            "type": "headline",
+            "text": "课程按识别、处理、复盘、测验四个学习动作推进。"
+          },
+          {
+            "id": "toc_1",
+            "type": "toc_item",
+            "title": "01 学习目标",
+            "body": "知道哪些数据不能随意复制、外发或上传。"
+          },
+          {
+            "id": "toc_2",
+            "type": "toc_item",
+            "title": "02 风险场景",
+            "body": "识别误发邮件、共享链接、AI 工具粘贴和截图传播。"
+          },
+          {
+            "id": "toc_3",
+            "type": "toc_item",
+            "title": "03 处理流程",
+            "body": "按发现、隔离、报告、修复、复盘五步处理。"
+          },
+          {
+            "id": "toc_4",
+            "type": "toc_item",
+            "title": "04 案例测验",
+            "body": "用真实案例判断风险等级和正确动作。"
+          }
         ],
-        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+        "capacity_hint": {
+          "estimated_density": "normal",
+          "overflow_risk": "low",
+          "component_count": 5
+        },
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "background",
+          "asset_subject": "课程结构",
+          "asset_query": "课程结构, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/2.jpg"
+        }
       }
     },
     {
@@ -52,16 +114,46 @@
       "description": "课程目标页，说明新员工需要掌握数据分级、最小权限、外发审批、异常报告四项能力。",
       "output_file": "03_学习目标.pptx",
       "status": "pending",
-      "background": "education_warm/images/3.jpg",
       "content_plan": {
         "summary": "数据安全不是背制度，而是在具体动作前先判断数据等级和传播边界。",
         "slide_intent": "把制度目标转成新员工可执行能力。",
         "components": [
-          {"id": "headline", "type": "headline", "text": "每次处理数据前先问四个问题"},
-          {"id": "list", "type": "numbered_list", "items": ["这份数据是否包含客户、员工、合同、价格或源代码等敏感信息？", "我是否真的需要完整数据，能否只使用脱敏样本或汇总结果？", "接收方是否具备权限，外发是否经过审批或水印控制？", "如果发生误发、误传或越权访问，我应在多久内向谁报告？"]},
-          {"id": "callout", "type": "callout", "title": "培训通过标准", "body": "课后测验达到 80 分，并能在案例题中写出正确报告路径。"}
+          {
+            "id": "headline",
+            "type": "headline",
+            "text": "每次处理数据前先问四个问题"
+          },
+          {
+            "id": "list",
+            "type": "numbered_list",
+            "items": [
+              "这份数据是否包含客户、员工、合同、价格或源代码等敏感信息？",
+              "我是否真的需要完整数据，能否只使用脱敏样本或汇总结果？",
+              "接收方是否具备权限，外发是否经过审批或水印控制？",
+              "如果发生误发、误传或越权访问，我应在多久内向谁报告？"
+            ]
+          },
+          {
+            "id": "callout",
+            "type": "callout",
+            "title": "培训通过标准",
+            "body": "课后测验达到 80 分，并能在案例题中写出正确报告路径。"
+          }
         ],
-        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 3}
+        "capacity_hint": {
+          "estimated_density": "normal",
+          "overflow_risk": "low",
+          "component_count": 3
+        },
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "background",
+          "asset_subject": "学习目标：先判断数据，再决定动作",
+          "asset_query": "学习目标：先判断数据，再决定动作, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/3.jpg"
+        }
       }
     },
     {
@@ -72,17 +164,54 @@
       "description": "风险场景卡片页，覆盖邮件误发、共享链接过宽、AI 工具粘贴敏感信息、会议截图外传四类场景。",
       "output_file": "04_风险场景.pptx",
       "status": "pending",
-      "background": "education_warm/images/4.jpg",
       "content_plan": {
         "summary": "多数数据安全事件来自日常协作动作，而不是复杂攻击。",
         "slide_intent": "帮助新员工识别最常见的行为风险。",
         "components": [
-          {"id": "risk_1", "type": "risk_item", "title": "邮件误发", "body": "把客户名单、报价单或合同附件发送给相似姓名的外部联系人。"},
-          {"id": "risk_2", "type": "risk_item", "title": "共享链接过宽", "body": "文档链接设置为组织内所有人可见，导致非项目成员也能下载。"},
-          {"id": "risk_3", "type": "risk_item", "title": "AI 工具粘贴", "body": "将真实客户记录、源代码或未脱敏日志粘贴到未批准的外部工具。"},
-          {"id": "risk_4", "type": "risk_item", "title": "截图外传", "body": "会议截图包含客户名称、价格策略或内部排期，被转发到外部群。"}
+          {
+            "id": "headline_auto",
+            "type": "headline",
+            "text": "多数数据安全事件来自日常协作动作，而不是复杂攻击。"
+          },
+          {
+            "id": "risk_1",
+            "type": "risk_item",
+            "title": "邮件误发",
+            "body": "把客户名单、报价单或合同附件发送给相似姓名的外部联系人。"
+          },
+          {
+            "id": "risk_2",
+            "type": "risk_item",
+            "title": "共享链接过宽",
+            "body": "文档链接设置为组织内所有人可见，导致非项目成员也能下载。"
+          },
+          {
+            "id": "risk_3",
+            "type": "risk_item",
+            "title": "AI 工具粘贴",
+            "body": "将真实客户记录、源代码或未脱敏日志粘贴到未批准的外部工具。"
+          },
+          {
+            "id": "risk_4",
+            "type": "risk_item",
+            "title": "截图外传",
+            "body": "会议截图包含客户名称、价格策略或内部排期，被转发到外部群。"
+          }
         ],
-        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+        "capacity_hint": {
+          "estimated_density": "normal",
+          "overflow_risk": "low",
+          "component_count": 5
+        },
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "background",
+          "asset_subject": "四类高频风险场景",
+          "asset_query": "四类高频风险场景, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/4.jpg"
+        }
       }
     },
     {
@@ -93,18 +222,60 @@
       "description": "处理流程页，包含发现、隔离、报告、修复、复盘五步；强调先撤回链接、冻结权限，再向直属经理和安全接口人报告。",
       "output_file": "05_处置流程.pptx",
       "status": "pending",
-      "background": "education_warm/images/1.jpg",
       "content_plan": {
         "summary": "发生误发或越权访问时，前 15 分钟的目标是止损和同步事实。",
         "slide_intent": "给新员工一个可照做的应急流程。",
         "components": [
-          {"id": "step_1", "type": "process_step", "title": "发现", "body": "确认涉及数据类型、接收方、传播渠道和发生时间。"},
-          {"id": "step_2", "type": "process_step", "title": "隔离", "body": "撤回邮件或链接，收回共享权限，必要时冻结账号或文件下载。"},
-          {"id": "step_3", "type": "process_step", "title": "报告", "body": "15 分钟内同步直属经理、安全接口人和系统 owner，不隐瞒、不自行删除证据。"},
-          {"id": "step_4", "type": "process_step", "title": "修复", "body": "按安全团队要求补充水印、权限、审计日志和客户沟通。"},
-          {"id": "step_5", "type": "process_step", "title": "复盘", "body": "记录根因和预防动作，更新团队操作 checklist。"}
+          {
+            "id": "headline_auto",
+            "type": "headline",
+            "text": "发生误发或越权访问时，前 15 分钟的目标是止损和同步事实。"
+          },
+          {
+            "id": "step_1",
+            "type": "process_step",
+            "title": "发现",
+            "body": "确认涉及数据类型、接收方、传播渠道和发生时间。"
+          },
+          {
+            "id": "step_2",
+            "type": "process_step",
+            "title": "隔离",
+            "body": "撤回邮件或链接，收回共享权限，必要时冻结账号或文件下载。"
+          },
+          {
+            "id": "step_3",
+            "type": "process_step",
+            "title": "报告",
+            "body": "15 分钟内同步直属经理、安全接口人和系统 owner，不隐瞒、不自行删除证据。"
+          },
+          {
+            "id": "step_4",
+            "type": "process_step",
+            "title": "修复",
+            "body": "按安全团队要求补充水印、权限、审计日志和客户沟通。"
+          },
+          {
+            "id": "step_5",
+            "type": "process_step",
+            "title": "复盘",
+            "body": "记录根因和预防动作，更新团队操作 checklist。"
+          }
         ],
-        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 5}
+        "capacity_hint": {
+          "estimated_density": "normal",
+          "overflow_risk": "low",
+          "component_count": 6
+        },
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "background",
+          "asset_subject": "处置流程：发现后 15 分钟内先止损",
+          "asset_query": "处置流程：发现后 15 分钟内先止损, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/1.jpg"
+        }
       }
     },
     {
@@ -115,17 +286,51 @@
       "description": "测验案例页。场景为销售新人要把包含 240 家客户联系方式和采购预算的 Excel 发给外部活动供应商，请学员判断风险等级、正确处理方式和报告路径。",
       "output_file": "06_案例测验.pptx",
       "status": "pending",
-      "background": "education_warm/images/2.jpg",
       "content_plan": {
         "summary": "含客户联系方式和采购预算的明细数据不能直接外发给供应商，必须脱敏、最小化并走审批。",
         "slide_intent": "通过情境题检查学员是否能迁移流程。",
         "components": [
-          {"id": "case", "type": "case_snapshot", "title": "活动供应商名单需求", "body": "销售新人准备把包含 240 家客户联系方式、岗位、采购预算和跟进状态的 Excel 发给外部活动供应商，用于会务邀约。"},
-          {"id": "question", "type": "numbered_list", "items": ["这份文件包含哪些敏感字段？", "能否直接外发原始明细？", "如果业务确需供应商联系客户，应该如何脱敏和审批？"]},
-          {"id": "answer", "type": "insight", "title": "标准判断", "body": "风险等级高；只能提供经审批的最小字段集，隐藏采购预算和跟进状态，并使用带水印的受控链接。"},
-          {"id": "source", "type": "source_note", "text": "来源: 公司数据分级与外发审批规范 V3.2"}
+          {
+            "id": "case",
+            "type": "case_snapshot",
+            "title": "活动供应商名单需求",
+            "body": "销售新人准备把包含 240 家客户联系方式、岗位、采购预算和跟进状态的 Excel 发给外部活动供应商，用于会务邀约。"
+          },
+          {
+            "id": "question",
+            "type": "numbered_list",
+            "items": [
+              "这份文件包含哪些敏感字段？",
+              "能否直接外发原始明细？",
+              "如果业务确需供应商联系客户，应该如何脱敏和审批？"
+            ]
+          },
+          {
+            "id": "answer",
+            "type": "insight",
+            "title": "标准判断",
+            "body": "风险等级高；只能提供经审批的最小字段集，隐藏采购预算和跟进状态，并使用带水印的受控链接。"
+          },
+          {
+            "id": "source",
+            "type": "source_note",
+            "text": "来源: 公司数据分级与外发审批规范 V3.2"
+          }
         ],
-        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+        "capacity_hint": {
+          "estimated_density": "normal",
+          "overflow_risk": "low",
+          "component_count": 4
+        },
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "background",
+          "asset_subject": "案例测验：这份数据能发吗？",
+          "asset_query": "案例测验：这份数据能发吗？, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/2.jpg"
+        }
       }
     },
     {
@@ -136,15 +341,35 @@
       "description": "引用收束页，用一句话提醒员工：不确定时先停一下，查分级、问负责人、留痕迹。",
       "output_file": "07_培训收束.pptx",
       "status": "pending",
-      "background": "education_warm/images/3.jpg",
       "content_plan": {
         "summary": "不确定时先停一下，查分级、问负责人、留痕迹。",
         "slide_intent": "用易记原则结束培训。",
         "components": [
-          {"id": "quote", "type": "quote_block", "text": "不确定时先停一下：查分级、问负责人、留痕迹。"},
-          {"id": "source", "type": "source_note", "text": "课程结语，用于新员工数据安全培训"}
+          {
+            "id": "quote",
+            "type": "quote_block",
+            "text": "不确定时先停一下：查分级、问负责人、留痕迹。"
+          },
+          {
+            "id": "source",
+            "type": "source_note",
+            "text": "课程结语，用于新员工数据安全培训"
+          }
         ],
-        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 2}
+        "capacity_hint": {
+          "estimated_density": "sparse",
+          "overflow_risk": "low",
+          "component_count": 2
+        },
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "background",
+          "asset_subject": "记住一句话",
+          "asset_query": "记住一句话, wide landscape, clean negative space",
+          "composition": "wide landscape, clean negative space",
+          "image_position": "background",
+          "local_path": "education_warm/images/3.jpg"
+        }
       }
     }
   ]

@@ -263,11 +263,11 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         params = render_task.build_params("agenda", manifest["tasks"][1], manifest)
 
-        self.assertEqual(params["items"], ["03  概念、政策与产业定位", "04  市场规模与增长动能", "05  城市级应用场景全景"])
+        self.assertEqual(params["items"], ["01  概念、政策与产业定位", "02  市场规模与增长动能", "03  城市级应用场景全景"])
         self.assertNotIn("/", " ".join(params["items"]))
         self.assertEqual([c["type"] for c in params["components"]], ["toc_item", "toc_item", "toc_item"])
 
-    def test_agenda_splits_legacy_slash_joined_toc_item(self):
+    def test_agenda_splits_compact_slash_joined_toc_item(self):
         prs = render_component_slide(
             palette="ocean_soft",
             title="目录",
@@ -291,7 +291,7 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertIn("第五章 风险与建议", slide_xml)
         self.assertNotIn("围绕主题展开结构化说明", slide_xml)
 
-    def test_explicit_components_do_not_duplicate_legacy_kpis(self):
+    def test_explicit_components_do_not_duplicate_kpis(self):
         explicit = [
             {
                 "type": "kpi_metric",

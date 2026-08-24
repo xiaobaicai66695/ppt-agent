@@ -41,7 +41,7 @@ function matchesFilter(...values: unknown[]) {
   return values.some(value => String(value ?? '').toLowerCase().includes(normalizedFilter.value));
 }
 const filteredUsers = computed(() => users.value.filter(item => matchesFilter(item.id, item.email, item.is_admin ? '管理员' : '用户')));
-const filteredTasks = computed(() => tasks.value.filter(item => matchesFilter(item.id, item.user_id, item.query, item.status)));
+const filteredTasks = computed(() => tasks.value.filter(item => matchesFilter(item.id, item.user_id, item.user_email, item.query, item.status)));
 const filteredLogs = computed(() => logAnalyses.value.filter(item => matchesFilter(item.id, item.task_id, item.trigger_type, item.root_cause, item.suggestion, item.model_used)));
 const filteredProfiles = computed(() => profiles.value.filter(item => matchesFilter(item.user_id, item.language_tone, item.preferred_themes, item.preferred_colors, item.content_types)));
 
@@ -321,7 +321,12 @@ async function deleteLog(id: number) {
           <tbody>
             <tr v-for="t in filteredTasks" :key="t.id" @dblclick="openDetail(t, '任务详情')">
               <td class="mono">{{ String(t.id).slice(0, 12) }}...</td>
-              <td class="mono">{{ t.user_id }}</td>
+              <td>
+                <div class="admin-user-cell">
+                  <strong>{{ t.user_email || `用户 ${t.user_id}` }}</strong>
+                  <small class="mono">#{{ t.user_id }}</small>
+                </div>
+              </td>
               <td class="query-cell" :title="String(t.query)">
                 <div class="cell-with-copy">
                   <span>{{ truncate(t.query) }}</span>
@@ -473,6 +478,9 @@ async function deleteLog(id: number) {
 .data-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 .cell-with-copy { min-width: 0; display: flex; align-items: center; gap: 6px; }.cell-with-copy > span, .cell-with-copy > pre { min-width: 0; flex: 1; }
 .mono { font-family: ui-monospace, "Cascadia Code", monospace; font-variant-numeric: tabular-nums; }
+.admin-user-cell { min-width: 150px; display: flex; flex-direction: column; gap: 2px; }
+.admin-user-cell strong { color: var(--text-secondary); font-size: 11px; font-weight: 650; }
+.admin-user-cell small { color: var(--text-muted); font-size: 9px; }
 .query-cell { min-width: 220px; }.text-cell { min-width: 180px; max-width: 300px; }
 .badge { display: inline-flex; align-items: center; white-space: nowrap; }
 .badge-admin { color: var(--action-ink); background: var(--action-soft); }.badge-user, .badge-idle { color: var(--text-secondary); background: var(--surface-pressed); }

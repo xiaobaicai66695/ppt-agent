@@ -139,14 +139,10 @@ export function mergeConversationMessages(
   current: ConversationMessage[], incoming: ConversationMessage[],
 ): ConversationMessage[] {
   const merged = current.map(message => ({ ...message }));
-  const seen = new Set(merged.map(message => `${message.role}\u0000${message.content.trim()}`));
   for (const message of incoming) {
     const content = message.content?.trim();
     if (!content) continue;
-    const key = `${message.role}\u0000${content}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push({ ...message, content });
+    mergeConversationMessage(merged, { ...message, content });
   }
   return merged;
 }
@@ -165,13 +161,52 @@ export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): Conversa
     const content = output.trim();
     if (!content || seen.has(content)) continue;
     seen.add(content);
-    messages.push({
+    mergeConversationMessage(messages, {
       role: 'assistant',
       content,
       timestamp: event.timestamp || new Date(0).toISOString(),
     });
   }
   return messages;
+}
+
+function mergeConversationMessage(messages: ConversationMessage[], incoming: ConversationMessage) {
+  const content = incoming.content.trim();
+  if (!content) return;
+  const incomingNormalized = normalizeConversationContent(content);
+  for (let index = 0; index < messages.length; index += 1) {
+    const existing = messages[index];
+    if (existing.role !== incoming.role) continue;
+    const existingNormalized = normalizeConversationContent(existing.content);
+    const relation = duplicateContentRelation(existingNormalized, incomingNormalized);
+    if (relation === 'same' || relation === 'existing_contains_incoming') return;
+    if (relation === 'incoming_contains_existing') {
+      messages[index] = { ...incoming, content };
+      return;
+    }
+  }
+  messages.push({ ...incoming, content });
+}
+
+function normalizeConversationContent(content: string): string {
+  return content
+    .replace(/\r/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+function duplicateContentRelation(
+  existing: string,
+  incoming: string,
+): 'none' | 'same' | 'existing_contains_incoming' | 'incoming_contains_existing' {
+  if (!existing || !incoming) return 'none';
+  if (existing === incoming) return 'same';
+  const minLength = Math.min(existing.length, incoming.length);
+  const maxLength = Math.max(existing.length, incoming.length);
+  if (minLength < 20 || minLength / maxLength < 0.18) return 'none';
+  if (existing.includes(incoming)) return 'existing_contains_incoming';
+  if (incoming.includes(existing)) return 'incoming_contains_existing';
+  return 'none';
 }
 
 export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {

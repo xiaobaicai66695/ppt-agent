@@ -23,23 +23,23 @@ type TemplateSelection struct {
 }
 
 type TemplateStrategy struct {
-	Mode          string `json:"mode"`
-	Template      string `json:"template"`
-	Theme         string `json:"theme"`
-	UseBackground bool   `json:"use_background"`
-	Background    string `json:"background,omitempty"`
-	Reason        string `json:"reason"`
-	PageCount     int    `json:"page_count,omitempty"`
+	Mode            string `json:"mode"`
+	Template        string `json:"template"`
+	Theme           string `json:"theme"`
+	UseVisualAssets bool   `json:"use_visual_assets"`
+	VisualHint      string `json:"visual_hint,omitempty"`
+	Reason          string `json:"reason"`
+	PageCount       int    `json:"page_count,omitempty"`
 }
 
 type TemplateRecommendation struct {
-	Strategy        TemplateStrategy               `json:"strategy"`
-	PrimaryTemplate TemplateCandidate              `json:"primary_template"`
-	RankedTemplates []TemplateCandidate            `json:"ranked_templates"`
-	Theme           *templates.ThemeInfo           `json:"theme,omitempty"`
-	VisualPolicy    string                         `json:"visual_policy"`
-	ComponentFocus  []string                       `json:"component_focus"`
-	Risks           []string                       `json:"risks,omitempty"`
+	Strategy        TemplateStrategy     `json:"strategy"`
+	PrimaryTemplate TemplateCandidate    `json:"primary_template"`
+	RankedTemplates []TemplateCandidate  `json:"ranked_templates"`
+	Theme           *templates.ThemeInfo `json:"theme,omitempty"`
+	VisualPolicy    string               `json:"visual_policy"`
+	ComponentFocus  []string             `json:"component_focus"`
+	Risks           []string             `json:"risks,omitempty"`
 }
 
 type TemplateCandidate struct {
@@ -201,6 +201,10 @@ func (s *Server) recommendTemplateStrategyWithIntent(intent *agentintent.Classif
 		strategy.Reason = "使用通用视觉风格，由主 Agent 根据主题动态规划内容"
 	}
 	strategy.Reason += "；专题视觉素材交由 Planner 使用图片搜索规划"
+	strategy.UseVisualAssets = preferredVisualAssets(intent)
+	if intent != nil {
+		strategy.VisualHint = strings.TrimSpace(intent.VisualHint)
+	}
 	return strategy, preset, nil
 }
 
@@ -271,8 +275,20 @@ func templateCandidateFromInfo(preset *templates.TemplateInfo, reason string) Te
 }
 
 func visualPolicyText(strategy TemplateStrategy) string {
-	_ = strategy
+	if !strategy.UseVisualAssets {
+		return "采用组件化信息表面，优先以文字、表格、流程和数据组件完成表达。"
+	}
+	if strategy.VisualHint != "" {
+		return "采用组件化信息表面与专题图片搜索，图片检索线索：" + strategy.VisualHint
+	}
 	return "采用组件化信息表面与专题图片搜索，Planner 会根据内容密度选择图文、表格、流程或长论述组件。"
+}
+
+func preferredVisualAssets(intent *agentintent.ClassificationResult) bool {
+	if intent != nil && intent.UseVisualAssets != nil {
+		return *intent.UseVisualAssets
+	}
+	return true
 }
 
 func componentFocusForStrategy(strategy TemplateStrategy, intent *agentintent.ClassificationResult) []string {
@@ -365,22 +381,20 @@ func (s *Server) outlineFromTemplate(query string, preset *templates.TemplateInf
 	}
 	return &deck.TaskOutline{
 		Template: preset.Name, Theme: strategy.Theme, Title: strings.TrimSpace(query),
-		ContentMode:   deck.OutlineContentModeTemplateScaffold,
-		UseBackground: strategy.UseBackground, RecommendedBackground: strategy.Background,
-		RecommendationReason: strategy.Reason, Slides: slides,
+		ContentMode:          deck.OutlineContentModeTemplateScaffold,
+		RecommendationReason: strategy.Reason,
+		Slides:               slides,
 	}
 }
 
 func (s *Server) recommendedOutlineFromTemplate(query string, preset *templates.TemplateInfo, strategy TemplateStrategy) *deck.TaskOutline {
 	return &deck.TaskOutline{
-		Template:              preset.Name,
-		Theme:                 strategy.Theme,
-		Title:                 strings.TrimSpace(query),
-		ContentMode:           deck.OutlineContentModeRecommendedStyle,
-		UseBackground:         strategy.UseBackground,
-		RecommendedBackground: strategy.Background,
-		RecommendationReason:  strategy.Reason,
-		SuggestedPageCount:    strategy.PageCount,
-		Slides:                []deck.SlideOutline{},
+		Template:             preset.Name,
+		Theme:                strategy.Theme,
+		Title:                strings.TrimSpace(query),
+		ContentMode:          deck.OutlineContentModeRecommendedStyle,
+		RecommendationReason: strategy.Reason,
+		SuggestedPageCount:   strategy.PageCount,
+		Slides:               []deck.SlideOutline{},
 	}
 }

@@ -12,12 +12,12 @@ func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
 	err := json.Unmarshal([]byte(`{
 		"template":"custom","theme":"ocean_soft","title":"测试",
 		"slides":[{"title":"数据","content_type":"content_slide","layout_variant":"icon_rows","description":"",
-		"content_plan":{"visual_intent":{"role":"icon","preferred_variant":"icon_rows"},"elements":[{"type":"bullet_list","items":[{"title":"增长","description":"20%"},"稳定"]}]}}]
+		"content_plan":{"visual_intent":{"role":"icon","preferred_variant":"icon_rows"},"components":[{"type":"bullet_list","items":[{"title":"增长","description":"20%"},"稳定"]}]}}]
 	}`), &outline)
 	if err != nil {
 		t.Fatalf("unmarshal outline: %v", err)
 	}
-	items := outline.Slides[0].ContentPlan.Elements[0].Items
+	items := outline.Slides[0].ContentPlan.Components[0].Items
 	if len(items) != 2 || items[0] != "增长: 20%" || items[1] != "稳定" {
 		t.Fatalf("items = %#v", items)
 	}
@@ -29,21 +29,21 @@ func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
 	}
 }
 
-func TestContentElementUnmarshalNormalizesTextAndDescriptionArrays(t *testing.T) {
-	var element ContentElement
+func TestPlanComponentUnmarshalNormalizesTextAndDescriptionArrays(t *testing.T) {
+	var component PlanComponent
 	if err := json.Unmarshal([]byte(`{
 		"type":"column",
 		"title":"自然风光",
 		"text":["天山天池","喀纳斯湖"],
 		"description":["高山湖泊","四季皆美"]
-	}`), &element); err != nil {
+	}`), &component); err != nil {
 		t.Fatal(err)
 	}
-	if element.Text != "天山天池\n喀纳斯湖" {
-		t.Fatalf("text = %q", element.Text)
+	if component.Text != "天山天池\n喀纳斯湖" {
+		t.Fatalf("text = %q", component.Text)
 	}
-	if element.Description != "高山湖泊\n四季皆美" {
-		t.Fatalf("description = %q", element.Description)
+	if component.Description != "高山湖泊\n四季皆美" || component.Body != component.Description {
+		t.Fatalf("description/body = %q/%q", component.Description, component.Body)
 	}
 }
 

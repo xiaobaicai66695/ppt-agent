@@ -431,7 +431,6 @@ func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.T
 		slide.Title = strings.TrimSpace(slide.Title)
 		slide.ContentType = strings.TrimSpace(slide.ContentType)
 		slide.Description = strings.TrimSpace(slide.Description)
-		slide.Background = ""
 		if s.templateLoader.GetLayout(slide.ContentType) == nil {
 			return nil, fmt.Errorf("第%d页 content_type=%q 不存在", i+1, slide.ContentType)
 		}
@@ -562,12 +561,12 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
     {
       "title": "实际标题",
       "content_type": "content_slide",
-      "background": "",
       "description": "与布局容量匹配的内容描述",
       "content_plan": {
         "summary": "一句话概括",
-        "elements": [
-          {"type": "bullet_list", "items": ["短要点1：具体事实", "短要点2：具体数据"]}
+        "components": [
+          {"id": "headline_1", "type": "headline", "text": "本页核心判断"},
+          {"id": "evidence_1", "type": "evidence_list", "items": ["短要点1：具体事实", "短要点2：具体数据"]}
         ]
       }
     }
@@ -577,9 +576,9 @@ func (s *Server) generateOutlineSlides(ctx context.Context, query string, outlin
 ## 生成契约
 - slides 数量和顺序与页面结构保持一致。
 - content_type 使用页面结构中的稳定英文 id。
-- background 是历史字段，保持为空；图片需求写入 content_plan.visual_intent 或 image 组件。
 - description 以各页容量目标为正常密度，内容完整性与版式容量共同决定最终长度。
-- content_plan 使用 bullet_list、numbered_list、key_point_card、table、chart_placeholder、callout、quote 等结构化字段。
+- content_plan.components 只使用组件契约中的稳定类型，如 headline、argument_block、evidence_list、feature_card、table、chart、image、callout、quote_block。
+- 需要图片时填写 visual_intent 或 image 组件的 asset_subject、asset_query、composition；下载后补齐 local_path 和署名字段。
 - 每页包含具体实体、数据、场景或案例；真实数据明确搜索项和来源方向。
 - 输出为一个 JSON 对象。`, query, themeName, slideContexts.String())
 
@@ -1064,7 +1063,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			Status:      deck.StatusPending,
 			ContentPlan: &deck.ContentPlan{
 				Summary: fmt.Sprintf("补充说明用户要求：%s", continueMessage),
-				Elements: []deck.ContentElement{{
+				Components: []deck.PlanComponent{{
 					Type:  "bullet_list",
 					Items: []string{continueMessage, "围绕原演示主题补充新的信息点", "保持与前后页面一致的叙事和视觉风格"},
 				}},
@@ -1470,9 +1469,11 @@ func (s *Server) handleUpdateUserAPIKey(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"configured": true,
-		"provider":   provider,
-		"masked_key": maskAPIKey(apiKey),
+		"configured":         true,
+		"provider":           provider,
+		"masked_key":         maskAPIKey(apiKey),
+		"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+		"updated_at":         time.Now(),
 	})
 }
 
@@ -1481,22 +1482,24 @@ func (s *Server) handleDeleteUserAPIKey(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除 API Key 配置失败: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "configured": false})
+	c.JSON(http.StatusOK, gin.H{
+		"status":             "ok",
+		"configured":         false,
+		"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+	})
 }
 
 func userModelAPIKey(userID int) string {
-	if userID <= 0 {
-		return ""
+	accountKey := ""
+	if userID > 0 && db.DB != nil {
+		key, err := db.GetUserAPIKey(uint(userID))
+		if err != nil {
+			logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
+		} else if key != nil {
+			accountKey = key.APIKey
+		}
 	}
-	key, err := db.GetUserAPIKey(uint(userID))
-	if err != nil {
-		logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
-		return ""
-	}
-	if key == nil {
-		return ""
-	}
-	return strings.TrimSpace(key.APIKey)
+	return agentutils.ResolveModelAPIKey(accountKey, os.Getenv("ARK_API_KEY"))
 }
 
 func maskAPIKey(apiKey string) string {
@@ -1739,13 +1742,54 @@ func (s *Server) handleAdminUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"users": users})
 }
 
+type adminTaskResponse struct {
+	ID         string    `json:"id"`
+	UserID     uint      `json:"user_id"`
+	UserEmail  string    `json:"user_email"`
+	Query      string    `json:"query"`
+	Status     string    `json:"status"`
+	DoneCount  int       `json:"done_count"`
+	TotalCount int       `json:"total_count"`
+	Duration   string    `json:"duration"`
+	Error      string    `json:"error"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 func (s *Server) handleAdminTasks(c *gin.Context) {
 	tasks, err := db.ListAllTaskRecords(100)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询任务列表失败: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+
+	users, err := db.ListAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询任务所属用户失败: " + err.Error()})
+		return
+	}
+	emails := make(map[uint]string, len(users))
+	for _, user := range users {
+		emails[user.ID] = user.Email
+	}
+
+	result := make([]adminTaskResponse, 0, len(tasks))
+	for _, task := range tasks {
+		result = append(result, adminTaskResponse{
+			ID:         task.ID,
+			UserID:     task.UserID,
+			UserEmail:  emails[task.UserID],
+			Query:      task.Query,
+			Status:     task.Status,
+			DoneCount:  task.DoneCount,
+			TotalCount: task.TotalCount,
+			Duration:   task.Duration,
+			Error:      task.Error,
+			CreatedAt:  task.CreatedAt,
+			UpdatedAt:  task.UpdatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"tasks": result})
 }
 
 func (s *Server) handleAdminLogAnalyses(c *gin.Context) {

@@ -75,7 +75,7 @@ watch(
 }
 .log-title { color: var(--text); }
 .log-badge {
-  font-size: 0.65rem; background: var(--bg-muted);
+  font-size: 0.65rem; background: var(--surface-muted);
   padding: 0.1rem 0.4rem; border-radius: 999px;
 }
 .log-scroll-state {
@@ -84,7 +84,7 @@ watch(
 }
 .log-box {
   flex: 1; min-height: 0;
-  background: var(--bg-base);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.7rem 0.9rem;
@@ -116,20 +116,20 @@ watch(
   width: 4px; height: 4px; border-radius: 50%;
   background: var(--text-disabled); flex-shrink: 0; margin-top: 0.4em;
 }
-.log-dot.worker { background: var(--log-worker-bg); animation: pulse 1s infinite; }
-.log-dot.file { background: var(--log-file-bg); }
-.log-dot.tool { background: var(--log-tool-bg); }
-.log-dot.error { background: var(--log-error-bg); }
+.log-dot.worker { background: var(--warning); animation: pulse 1s infinite; }
+.log-dot.file { background: var(--success); }
+.log-dot.tool { background: var(--info); }
+.log-dot.error { background: var(--danger); }
 
 .log-text {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
-.log-line.tool .log-text { color: var(--log-tool-text); }
-.log-line.error .log-text { color: var(--log-error-text); }
-.log-line.worker .log-text { color: var(--log-worker-text); font-weight: 500; }
-.log-line.file .log-text { color: var(--log-file-text); }
+.log-line.tool .log-text { color: var(--info); }
+.log-line.error .log-text { color: var(--danger); }
+.log-line.worker .log-text { color: var(--warning); font-weight: 500; }
+.log-line.file .log-text { color: var(--success); }
 .log-line.divider {
   justify-content: center; padding: 0.3rem 0; font-family: inherit;
 }
@@ -155,11 +155,11 @@ watch(
   border-bottom: 1px dashed var(--border); margin: 0.4em 0;
 }
 .log-text :deep(.md-code) {
-  background: var(--bg-muted); padding: 0.1em 0.3em;
+  background: var(--surface-muted); padding: 0.1em 0.3em;
   border-radius: 3px; font-size: 0.9em;
 }
 .log-text :deep(.md-path) {
-  background: var(--accent-soft); color: var(--accent);
+  background: var(--action-soft); color: var(--action-ink);
   padding: 0.1em 0.3em; border-radius: 3px;
 }
 .log-text :deep(strong) { font-weight: 600; color: var(--text); }

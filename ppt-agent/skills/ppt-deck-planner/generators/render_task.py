@@ -126,14 +126,7 @@ def find_task(manifest: dict[str, Any], task_id: str) -> dict[str, Any] | None:
 
 
 def normalize_content_type(content_type: str) -> str:
-    aliases = {
-        "bar_chart": "chart_slide",
-        "line_chart": "chart_slide",
-        "pie_chart": "chart_slide",
-        "doughnut_chart": "chart_slide",
-        "table": "comparison_table",
-    }
-    return aliases.get((content_type or "").strip(), content_type or "content_slide")
+    return (content_type or "").strip() or "content_slide"
 
 
 def accepted_params(func: Callable[..., Any], params: dict[str, Any]) -> dict[str, Any]:
@@ -316,18 +309,6 @@ def extract_items(plan: dict[str, Any], task: dict[str, Any]) -> list[str]:
             text = clean_text(component.get(key))
             if text:
                 result.append(text)
-    for element in plan.get("elements") or []:
-        if not isinstance(element, dict):
-            result.append(clean_text(element))
-            continue
-        for item in element.get("items") or []:
-            text = clean_text(item)
-            if text:
-                result.append(text)
-        for key in ("text", "description"):
-            text = clean_text(element.get(key))
-            if text:
-                result.append(text)
     if not result:
         result = split_text(plan.get("summary") or task.get("description") or task.get("title") or "")
     return [x for x in result if x][:8]
@@ -351,9 +332,11 @@ def agenda_items_from_manifest(manifest: dict[str, Any], current_task: dict[str,
     candidates = sections if len(sections) >= 2 else [task for task in tasks if usable(task)]
     result: list[str] = []
     for index, task in enumerate(candidates[:8], start=1):
-        page_index = safe_int(task.get("page_index"), index)
         title = clean_text(task.get("title"))
-        result.append(f"{page_index:02d}  {title}")
+        # Agenda numbers represent chapter order, never the absolute slide
+        # index. This keeps the TOC stable when cover, notes, or divider pages
+        # are inserted before a section.
+        result.append(f"{index:02d}  {title}")
     return result
 
 
@@ -382,13 +365,6 @@ def extract_cards(plan: dict[str, Any], items: list[str]) -> list[dict[str, str]
                 "icon": "",
                 "emphasis": clean_text(component.get("emphasis")),
             })
-    for element in plan.get("elements") or []:
-        if not isinstance(element, dict):
-            continue
-        title = clean_text(element.get("title"))
-        body = clean_text(element.get("description") or element.get("text"))
-        if title or body:
-            cards.append({"header": title or body[:16], "body": body or title, "icon": ""})
     if len(cards) < 3:
         for item in items:
             header, body = split_header_body(item)
@@ -463,9 +439,6 @@ def resolve_workdir_path(value: str, work_dir: Path | None) -> str:
 
 
 def background_from_task(task: dict[str, Any], work_dir: Path | None = None) -> str | None:
-    explicit = clean_text(task.get("background"))
-    if explicit:
-        return explicit
     plan = task.get("content_plan") if isinstance(task.get("content_plan"), dict) else {}
     visual_intent = plan.get("visual_intent") if isinstance(plan.get("visual_intent"), dict) else {}
     candidate = background_path_from_visual_item(visual_intent, work_dir)
@@ -523,7 +496,11 @@ def split_three(items: list[str], fallback: str) -> list[list[str]]:
 
 
 def extract_headers(plan: dict[str, Any], fallback: list[str]) -> list[str]:
-    headers = [clean_text(e.get("title")) for e in plan.get("elements", []) if isinstance(e, dict) and e.get("title")]
+    headers = [
+        clean_text(component.get("title"))
+        for component in semantic_components(plan)
+        if component.get("title")
+    ]
     headers = [h for h in headers if h]
     while len(headers) < len(fallback):
         headers.append(fallback[len(headers)])
@@ -555,9 +532,9 @@ def paragraph_from(items: list[str], summary: str) -> str:
 
 
 def first_by_type(plan: dict[str, Any], element_type: str) -> str:
-    for element in plan.get("elements") or []:
-        if isinstance(element, dict) and element.get("type") == element_type:
-            return clean_text(element.get("text") or element.get("description") or element.get("title"))
+    for component in semantic_components(plan):
+        if component.get("type") == element_type:
+            return clean_text(component.get("text") or component.get("body") or component.get("description") or component.get("title"))
     return ""
 
 
@@ -577,8 +554,7 @@ def nested_get(value: dict[str, Any], *keys: str) -> str:
 def section_number(task: dict[str, Any], manifest: dict[str, Any]) -> str:
     plan = task.get("content_plan") or {}
     explicit = (
-        task.get("section_number")
-        or plan.get("section_number")
+        plan.get("section_number")
         or plan.get("number")
         or nested_get(plan if isinstance(plan, dict) else {}, "visual_intent", "section_number")
     )

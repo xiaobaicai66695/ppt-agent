@@ -429,16 +429,14 @@ func resolveUserModelAPIKeyFromContext(ctx context.Context) string {
 }
 
 func resolveUserModelAPIKey(userID uint) string {
-	if userID == 0 || db.DB == nil {
-		return ""
+	accountKey := ""
+	if userID > 0 && db.DB != nil {
+		record, err := db.GetUserAPIKey(userID)
+		if err != nil {
+			logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
+		} else if record != nil {
+			accountKey = record.APIKey
+		}
 	}
-	record, err := db.GetUserAPIKey(userID)
-	if err != nil {
-		logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
-		return ""
-	}
-	if record == nil {
-		return ""
-	}
-	return strings.TrimSpace(record.APIKey)
+	return agentutils.ResolveModelAPIKey(accountKey, os.Getenv("ARK_API_KEY"))
 }

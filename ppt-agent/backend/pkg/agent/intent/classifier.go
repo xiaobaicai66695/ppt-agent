@@ -124,20 +124,20 @@ func normalizeLLMClassification(result *ClassificationResult) *ClassificationRes
 }
 
 func fallbackClassification(reason string) *ClassificationResult {
-	useBackground := true
+	useVisualAssets := true
 	return &ClassificationResult{
-		Intent:              IntentCreate,
-		IntentReasoning:     "模型路由不可用，使用固定的 Planner 生成流程：" + truncate(reason, 160),
-		Domain:              DomainUnknown,
-		Complexity:          Complexity{Level: 5, TopicComplexity: 5, PageCountEstimate: 12},
-		Confidence:          0,
-		SuggestedPageCount:  12,
-		SuggestedBackground: "minimalist_blue",
-		UseBackground:       &useBackground,
-		AgentType:           "planner",
-		Pipeline:            []string{"plan", "generate"},
-		Concurrency:         5,
-		RoutingSource:       "fallback",
+		Intent:             IntentCreate,
+		IntentReasoning:    "模型路由不可用，使用固定的 Planner 生成流程：" + truncate(reason, 160),
+		Domain:             DomainUnknown,
+		Complexity:         Complexity{Level: 5, TopicComplexity: 5, PageCountEstimate: 12},
+		Confidence:         0,
+		SuggestedPageCount: 12,
+		VisualHint:         "clean presentation workspace",
+		UseVisualAssets:    &useVisualAssets,
+		AgentType:          "planner",
+		Pipeline:           []string{"plan", "generate"},
+		Concurrency:        5,
+		RoutingSource:      "fallback",
 	}
 }
 
@@ -568,9 +568,9 @@ const routingSystemPrompt = `你是 PPT Agent 的任务路由器。请基于用�
 视觉推荐从以下合法 id 中选择：
 - template：tech-intro、tech-sharing、product-launch、weekly-report、pitch-deck、course-module、current-affairs、politics-ideology、design-defense、innovation-compete、research-report、activity-plan、personal-summary、short-class-talk、meeting-minutes、product-intro、training-course、project-proposal、generic
 - theme：government_red、patriotic_blue、debate_purple、civic_gold、activity_orange、report_green、simple_gray、ocean_soft、sage_calm、warm_terracotta、charcoal_light、berry_cream、lavender_mist、medical_blue、finance_gold、education_blue
-- suggested_background：不再表示本地背景主题，只写 1 个可辅助图片检索的视觉线索，例如 policy conference hall、aerial forest landscape、modern enterprise network、clean medical workspace。
+- visual_hint：写 1 个可辅助图片检索的视觉线索，例如 policy conference hall、aerial forest landscape、modern enterprise network、clean medical workspace。
 
-结合主题、受众、信息密度和视觉气质给出首选 template、theme 和 suggested_background。use_background 表示是否建议 Planner 规划外部图片素材；用户明确要求纯色或无图时设为 false，其他场景可设为 true。最终图片下载、署名和嵌入由 Planner 的图片搜索工具完成，分类器不写本地背景 id。
+结合主题、受众、信息密度和视觉气质给出首选 template、theme 和 visual_hint。use_visual_assets 表示是否建议 Planner 规划外部图片素材；用户明确要求纯色或无图时设为 false，其他场景可设为 true。最终图片下载、署名和嵌入由 Planner 的图片搜索工具完成，分类器不写本地背景 id。
 
 只返回 JSON，不要返回 Markdown：
 {
@@ -582,27 +582,27 @@ const routingSystemPrompt = `你是 PPT Agent 的任务路由器。请基于用�
   "confidence": 0.9,
   "suggested_theme": "",
   "suggested_templates": [],
-  "suggested_background": "modern enterprise workspace",
-  "use_background": true,
+  "visual_hint": "modern enterprise workspace",
+  "use_visual_assets": true,
   "agent_type": "planner",
   "pipeline": ["plan", "generate"],
   "concurrency": 5
 }`
 
 type llmRoutingResult struct {
-	Intent              string   `json:"intent"`
-	IntentReasoning     string   `json:"intent_reasoning"`
-	Domain              string   `json:"domain"`
-	ComplexityLevel     int      `json:"complexity_level"`
-	PageCountEstimate   int      `json:"page_count_estimate"`
-	Confidence          float64  `json:"confidence"`
-	SuggestedTheme      string   `json:"suggested_theme"`
-	SuggestedTemplates  []string `json:"suggested_templates"`
-	SuggestedBackground string   `json:"suggested_background"`
-	UseBackground       *bool    `json:"use_background"`
-	AgentType           string   `json:"agent_type"`
-	Pipeline            []string `json:"pipeline"`
-	Concurrency         int      `json:"concurrency"`
+	Intent             string   `json:"intent"`
+	IntentReasoning    string   `json:"intent_reasoning"`
+	Domain             string   `json:"domain"`
+	ComplexityLevel    int      `json:"complexity_level"`
+	PageCountEstimate  int      `json:"page_count_estimate"`
+	Confidence         float64  `json:"confidence"`
+	SuggestedTheme     string   `json:"suggested_theme"`
+	SuggestedTemplates []string `json:"suggested_templates"`
+	VisualHint         string   `json:"visual_hint"`
+	UseVisualAssets    *bool    `json:"use_visual_assets"`
+	AgentType          string   `json:"agent_type"`
+	Pipeline           []string `json:"pipeline"`
+	Concurrency        int      `json:"concurrency"`
 }
 
 func classificationFromLLM(raw llmRoutingResult) *ClassificationResult {
@@ -614,14 +614,14 @@ func classificationFromLLM(raw llmRoutingResult) *ClassificationResult {
 			Level:             raw.ComplexityLevel,
 			PageCountEstimate: raw.PageCountEstimate,
 		},
-		Confidence:          raw.Confidence,
-		SuggestedTheme:      raw.SuggestedTheme,
-		SuggestedTemplates:  raw.SuggestedTemplates,
-		SuggestedBackground: raw.SuggestedBackground,
-		UseBackground:       raw.UseBackground,
-		AgentType:           raw.AgentType,
-		Pipeline:            raw.Pipeline,
-		Concurrency:         raw.Concurrency,
+		Confidence:         raw.Confidence,
+		SuggestedTheme:     raw.SuggestedTheme,
+		SuggestedTemplates: raw.SuggestedTemplates,
+		VisualHint:         raw.VisualHint,
+		UseVisualAssets:    raw.UseVisualAssets,
+		AgentType:          raw.AgentType,
+		Pipeline:           raw.Pipeline,
+		Concurrency:        raw.Concurrency,
 	}
 }
 

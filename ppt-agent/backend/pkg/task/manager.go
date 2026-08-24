@@ -542,12 +542,14 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		intentAnchor.Intent = cfg.IntentResult.Intent.String()
 		intentAnchor.Domain = cfg.IntentResult.Domain.String()
 		intentAnchor.SuggestedPages = cfg.IntentResult.SuggestedPageCount
+		intentAnchor.VisualHint = cfg.IntentResult.VisualHint
+		if cfg.IntentResult.UseVisualAssets != nil {
+			intentAnchor.UseVisualAssets = *cfg.IntentResult.UseVisualAssets
+		}
 	}
 	if cfg.Outline != nil {
 		intentAnchor.Template = cfg.Outline.Template
 		intentAnchor.Theme = cfg.Outline.Theme
-		intentAnchor.UseBackground = cfg.Outline.UseBackground
-		intentAnchor.Background = cfg.Outline.RecommendedBackground
 		intentAnchor.Recommendation = cfg.Outline.RecommendationReason
 	}
 	runtimeMeta.RecordIntent(intentAnchor)
@@ -1387,15 +1389,14 @@ func outlineToManifest(outline *deck.TaskOutline, workDir string) *deck.TasksMan
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
 			Status:      deck.StatusPending,
 			CreatedAt:   time.Now().Format(time.RFC3339),
-			Background:  slide.Background,
 		}
 		// Carry through content_plan if present
 		if slide.ContentPlan != nil {
-			item.ContentPlan = &deck.ContentPlan{
-				Summary:  slide.ContentPlan.Summary,
-				Elements: make([]deck.ContentElement, len(slide.ContentPlan.Elements)),
+			copiedPlan := *slide.ContentPlan
+			if slide.ContentPlan.Components != nil {
+				copiedPlan.Components = append([]deck.PlanComponent(nil), slide.ContentPlan.Components...)
 			}
-			copy(item.ContentPlan.Elements, slide.ContentPlan.Elements)
+			item.ContentPlan = &copiedPlan
 		}
 		tasks = append(tasks, item)
 	}

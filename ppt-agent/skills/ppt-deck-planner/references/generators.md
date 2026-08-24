@@ -44,11 +44,11 @@ from generators import (
 | `prs` | `Optional[Presentation]` | `None` | 已有的 Presentation 对象，为 None 时自动创建 |
 | `palette` | `str` | `"ocean_soft"` | 配色方案名，由后端内置 theme 列表和 tasks.json 顶层 `theme` 决定 |
 | `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行；长 URL 会自动缩写为链接数量提示。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
-| `background` | `str` | `""` | 历史本地背景字段，新规划保持为空；专题图片通过 `image.local_path` 或 `visual_intent.local_path` 传入 |
+| `background` | `str` | `""` | 渲染器内部参数，由 `image.local_path` 或 `visual_intent.local_path` 注入；Planner 不填写顶层 `task.background` |
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
-合法 `content_type` 只以 `slide_types.md` 和 `templates/component_contracts.json` 为准。`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 这类历史别名只能在旧任务生成时兼容映射，不能写入新的任务计划。
+合法 `content_type` 只以 `slide_types.md` 和 `templates/component_contracts.json` 为准。`bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`、`table` 这类别名不能写入新的任务计划，运行时也不再兜底修正。
 
 ## 模板契约元数据
 
@@ -109,6 +109,7 @@ from generators import (
 
 - 标题/章节/引用等低密度页应按标题组实际高度居中，避免固定 y 坐标造成偏上或偏下。
 - 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
+- 标题页和章节分割页使用背景图片时，生成器会自动对背景做轻度模糊并叠加可读性遮罩；调用方只传递图片路径和语义构图，不控制模糊半径或透明度。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
@@ -123,8 +124,8 @@ from generators import (
 | author | str | `"张三"` |
 | date | str | `"2025年1月"` |
 | kicker | str | `"产品发布 · 2025"` (可选，标题上方小标签) |
-| layout_variant | str | 新规划保持为空；旧任务可传入但当前不触发独立渲染分支 |
-| background | str | `"artistic"` (可选，背景图片主题，为空则用纯色) |
+| layout_variant | str | 当前保持为空；标题页由组件与图片语义自适应 |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_section_divider — 章节分隔页
 | 参数 | 类型 | 示例 |
@@ -134,7 +135,7 @@ from generators import (
 | subtitle | str | `"从感知机到大模型"` |
 | kicker | str | `"第三章"` (可选，编号上方小标签) |
 | layout_variant | str | `"number_sidebar"`；当前实现的章节页结构 |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_agenda — 目录页
 | 参数 | 类型 | 示例 |
@@ -142,7 +143,9 @@ from generators import (
 | kicker | str | `"目录"` |
 | title | str | `"内容概览"` |
 | items | `List[str]` | `["01  背景", "02  方法", "03  结论"]` |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
+
+目录项前缀表示章节出现顺序，不是章节分割页的绝对 `page_index`。即使章节位于第 5、8、12 页，目录仍显示 `01`、`02`、`03`。
 
 #### generate_summary_slide — 总结页
 | 参数 | 类型 | 示例 |
@@ -152,7 +155,7 @@ from generators import (
 | thank_you | str | `"感谢聆听"` |
 | contact | str | `"{联系方式}"` |
 | kicker | str | `"总结"` (可选，标题上方小标签) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 ### 内容陈述类
 
@@ -165,7 +168,7 @@ from generators import (
 | kicker | str | `"要点 · 核心技术"` (可选，标题上方小标签) |
 | lede | str | `"一句话概括本页核心信息，在 section_header 和 bullets 之间作为引导段落"` (可选) |
 | layout_variant | str | 新规划保持为空；由 `content_plan.components` 和组件密度触发布局 |
-| background | str | `"minimalist_blue/images/1.jpg"` (可选，内容要点页可使用背景，生成器会加局部玻璃面板保证正文可读) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，生成器会加局部玻璃面板保证正文可读 |
 
 #### generate_quote_slide — 金句/引言页
 | 参数 | 类型 | 示例 |
@@ -173,14 +176,14 @@ from generators import (
 | quote | str | `"弱小和无知不是生存的障碍，傲慢才是"` |
 | attribution | str | `"— 刘慈欣《三体》"` |
 | kicker | str | `"金句"` (可选，引言上方小标签) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_image_text — 图文混排页
 | 参数 | 类型 | 示例 |
 |------|------|------|
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
-| layout_variant | str | 新规划保持为空；旧任务可传入但当前以组件和图片语义自适应 |
+| layout_variant | str | 当前保持为空；由组件和图片语义自适应 |
 | image_path | str | `"asset:photo_technology_device"`、注册 photo id 或本地文件路径；为空时自动选择语义默认图 |
 | header | str | `"核心技术突破"` |
 | paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
@@ -188,7 +191,7 @@ from generators import (
 | kicker | str | `"功能 · 核心"` (可选，标题上方小标签) |
 | sub_header | str | `"能力亮点"` (可选，header 与内容之间的次级标题) |
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 > **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。`image_path` 缺失或无效时，生成器会从 `photo` 素材中选择可替换的真实图片；禁止自行绘制图片占位符或传入虚构路径。
 
@@ -210,7 +213,7 @@ from generators import (
 | left_items | `List[dict]` | `[{"title": "...", "desc": "...", "metric": "↑ 30%"}, ...]` (可选，逐项卡片模式) |
 | right_items | `List[dict]` | 同上 (可选，逐项卡片模式) |
 | layout_variant | str | 新规划保持为空；对比结构优先用 `comparison_table` 或 `comparison_matrix` 组件表达 |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 > **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。
 
@@ -220,7 +223,7 @@ from generators import (
 | title | str | `"三种方案对比"` |
 | columns | `List[dict]` | `[{"header": "方案A", "bullets": ["优点1", "优点2"]}, ...]` ×3 |
 | kicker | str | `"能力矩阵"` (可选，标题上方小标签) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_card_grid — 卡片阵列
 | 参数 | 类型 | 示例 |
@@ -231,7 +234,7 @@ from generators import (
 | cards | `List[dict]` | `[{"header": "智能问答", "body": "基于大模型的自然语言交互系统，支持多轮对话，并结合企业知识库提供可追溯答案..."}, ...]` ×4-6 (body 目标80-140字，可渲染上限160字) |
 | kicker | str | `"能力 · 核心模块"` (可选，标题上方小标签) |
 | subtitle | str | `"全方位赋能企业数字化转型"` (可选，标题下方副标题) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 ### 流程与关系类
 
@@ -243,7 +246,7 @@ from generators import (
 | nodes | `List[dict]` | `[{"year": "2017", "event": "Transformer论文发表", "icon": "01"}, ...]` ×4-6 |
 | kicker | str | `"技术演进"` (可选，标题上方小标签) |
 | subtitle | str | `"从深度学习到大模型的时代跨越"` (可选，标题下方副标题) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_process_flow — 步骤流程图
 | 参数 | 类型 | 示例 |
@@ -253,7 +256,7 @@ from generators import (
 | steps | `List[dict]` | `[{"num": "01", "title": "数据收集", "desc": "采集多源数据"}, ...]` ×3-6 |
 | kicker | str | `"工程实践"` (可选，标题上方小标签) |
 | subtitle | str | `"端到端自动化训练流水线"` (可选，标题下方副标题) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 ### 数据与指标类
 
@@ -264,7 +267,7 @@ from generators import (
 | stats | `List[dict]` | `[{"number": "99.99", "unit": "%", "label": "系统可用性"}, ...]` ×2-4 |
 | kicker | str | `"年度成果"` (可选，标题上方小标签) |
 | subtitle | str | `"2025财年关键数据一览"` (可选，标题下方副标题) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_kpi_dashboard — 指标看板（固定 2x2 布局，最多 4 个 KPI）
 | 参数 | 类型 | 示例 |
@@ -273,7 +276,7 @@ from generators import (
 | title | str | `"核心业务指标"` |
 | kpis | `List[dict]` | `[{"value": "1248K", "label": "月活用户", "delta": "↑38% YoY", "baseline": "去年902K"}, ...]` ×4（固定 2x2 网格，最多 4 个） |
 | subtitle | str | `"业务线关键绩效数据"` (可选，标题下方副标题) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 > **强制规则**：每个 KPI 字典必须包含全部 4 个字段：`value`（具体数值+单位）、`label`（效果说明）、`delta`（变化趋势，如 ↑38%）、`baseline`（对比基准，如 vs 传统方案）。禁止使用占位符如 `"{数值}"`。数据必须真实（通过 search 获取）。
 
@@ -289,7 +292,7 @@ from generators import (
 | solution_block | str | `"基于深度图学习的实时检测..."` (2-3句方案) |
 | metrics | `List[dict]` | `[{"value": "99.99%", "label": "准确率", "trend": "↑"}, ...]` ×3 |
 | takeaway | str | `"图学习是风控的核心技术方向"` |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_deep_dive — 深入详解页（双栏）
 | 参数 | 类型 | 示例 |
@@ -304,7 +307,7 @@ from generators import (
 | case_example | `List[str]` | `["GPT-4：万亿参数，MMLU 86.4%", ...]` (3-4条) |
 | data_evidence | `List[str]` | `["推理延迟：320ms→18ms", "训练成本：$63M", ...]` (3条) |
 | supplement | `List[str]` | 可选补充信息 (0-2条) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_case_study — 案例研究页
 | 参数 | 类型 | 示例 |
@@ -315,7 +318,7 @@ from generators import (
 | problem | str | `"日均10万+咨询，人工应答率仅60%"` (痛点) |
 | solution | str | `"基于RAG+大模型的智能问答..."` (方案) |
 | results | `List[dict]` | `[{"metric": "应答率", "value": "95%", "comparison": "提升35%"}, ...]` ×4 |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 ### 数据与可视化类
 
@@ -328,7 +331,7 @@ from generators import (
 | chart_type | str | `"bar"`, `"pie"`, `"line"`, `"doughnut"`, `"stacked_bar"` |
 | data | `Dict` | `{"labels": ["Q1","Q2","Q3"], "datasets": [{"name": "2025", "values": [100,200,300]}]}` |
 | show_legend | bool | `True` (是否显示图例) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_icon_grid — 图标网格页
 | 参数 | 类型 | 示例 |
@@ -338,7 +341,7 @@ from generators import (
 | subtitle | str | `"构建完整AI技术体系"` (可选) |
 | layout | str | `"3x2"` 或 `"3x3"` 或 `"2x3"` |
 | icons | `List[dict]` | `[{"icon": "研", "label": "基础研究", "color": "primary"}, ...]` |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_swot_analysis — SWOT分析页
 | 参数 | 类型 | 示例 |
@@ -347,7 +350,7 @@ from generators import (
 | title | str | `"AI产品战略SWOT分析"` |
 | subtitle | str | `"基于市场与竞争格局"` (可选) |
 | swot | `Dict` | 包含 strengths/weaknesses/opportunities/threats，每个有 label/items |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_comparison_table — 对比表格页
 | 参数 | 类型 | 示例 |
@@ -358,7 +361,7 @@ from generators import (
 | headers | `List[str]` | `["对比维度", "方案A", "方案B", "方案C"]` |
 | rows | `List[List[str]]` | `[["功能丰富度", "★★★☆☆", "★★★★☆"], ...]` |
 | recommendation | str | `"综合考虑，建议选择 Azure ML"` (可选) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_image_hero — 视觉冲击页
 | 参数 | 类型 | 示例 |
@@ -367,7 +370,7 @@ from generators import (
 | subtitle | str | `"副标题说明"` (可选) |
 | description | str | `"描述文字"` (可选) |
 | overlay_color | str | `"primary"` (可选，颜色主题) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_kanban — 看板进度页
 | 参数 | 类型 | 示例 |
@@ -377,7 +380,7 @@ from generators import (
 | subtitle | str | `"版本规划"` (可选) |
 | columns | `List[dict]` | `[{"title": "待办", "cards": [{"title": "任务1", "priority": "high"}, ...]}, ...]` |
 | progress | int | `65` (整体进度百分比 0-100) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_brand_focus — 品牌价值聚焦页
 | 参数 | 类型 | 示例 |
@@ -388,7 +391,7 @@ from generators import (
 | center_text | str | `"核心\n理念"` (中心圆文字) |
 | surrounding_points | `List[dict]` | `[{"title": "创新", "desc": "持续创新驱动发展"}, ...]` (围绕中心的点) |
 | principles | `List[dict]` | `[{"title": "原则1", "desc": "描述"}, ...]` (右侧面板内容) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 #### generate_region_map — 区域版图页
 | 参数 | 类型 | 示例 |
@@ -398,7 +401,7 @@ from generators import (
 | subtitle | str | `"区域覆盖"` (可选) |
 | regions | `List[dict]` | `[{"label": "华东", "fill": "primary", "active": true}, ...]` (地图区域) |
 | regions_detail | `List[dict]` | `[{"title": "华东", "metrics": [{"label": "营收", "value": "12亿"}]}, ...]` (右侧详情) |
-| background | str | `"artistic"` (可选，背景图片主题) |
+| background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 ## 常见错误
 

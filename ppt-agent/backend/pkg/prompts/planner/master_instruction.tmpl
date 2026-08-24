@@ -22,18 +22,18 @@
 - PPT 标题：{{ .OutlineTitle }}
 - 模板：{{ .OutlineTemplate }}
 - 配色：{{ .OutlineTheme }}
-- 背景策略：{{if .ImageSearchAvailable}}外部图片搜索可用，专题视觉素材优先走 `visual_intent.asset_purpose=background` 和 `search_images`；`task.background` 默认留空{{else}}没有可用图片搜索时只保留 `visual_intent.asset_query`，`task.background` 默认留空{{end}}
+- 图片策略：{{if .ImageSearchAvailable}}外部图片搜索可用，专题视觉素材优先走 `visual_intent` 或 `image` 组件和 `search_images`{{else}}没有可用图片搜索时只记录 `visual_intent.asset_query`{{end}}
 
-`theme={{ .OutlineTheme }}` 是整套配色锚点；`background` 是历史本地背景字段，新规划保持为空。
+`theme={{ .OutlineTheme }}` 是整套配色锚点。
 
 {{if eq .OutlineContentMode "template_scaffold"}}
 ### 模板脚手架
 
-现有页数、顺序和 `content_type` 构成叙事脚手架。逐页围绕用户主题重写模板示例的 `title`、`description` 和 `content_plan`，并保留已有 `layout_variant`；`background` 作为历史字段保持为空。
+现有页数、顺序和 `content_type` 构成叙事脚手架。逐页围绕用户主题重写模板示例的 `title`、`description` 和 `content_plan`，并保留已有 `layout_variant`。
 {{else}}
 ### 用户大纲
 
-非空的 `title`、`description`、`content_plan`、`layout_variant` 和 `background` 代表用户约束。补齐空字段，并让新增内容与用户原文保持同一主题和语气。
+非空的 `title`、`description`、`content_plan` 和 `layout_variant` 代表用户约束。补齐空字段，并让新增内容与用户原文保持同一主题和语气。
 {{end}}
 
 ### 处理顺序
@@ -54,7 +54,7 @@
 - 推荐模板风格：`{{ .OutlineTemplate }}`
 - 推荐配色：`{{ .OutlineTheme }}`
 - 建议页数：`{{ .SuggestedPageCount }}`
-- 推荐图片线索：{{if .ImageSearchAvailable}}转换为外部背景图检索意图，不写本地 `background`{{else if .OutlineUseBackground}}`{{ .OutlineBackground }}` 仅作为后续图片搜索线索，`task.background` 留空{{else}}使用组件化信息表面，并在需要图片时记录 `visual_intent.asset_query`{{end}}
+- 推荐图片线索：{{if .ImageSearchAvailable}}把主题转换为 `visual_intent`/`image` 组件的外部图片检索意图{{else}}使用组件化信息表面，并在需要图片时记录 `visual_intent.asset_query`{{end}}
 - 推荐理由：{{ .StyleContext }}
 
 读取 `{{ .SkillsDir }}/ppt-deck-planner/templates/component_contracts.json` 获取组件语义、容量和变体。推荐模板只表示叙事类型，不再要求读取 full-deck 模板文件。根据用户主题重新设计叙事结构，建议页数作为复杂度目标；用户表达了精确页数时采用该页数，否则围绕建议值形成完整闭环。
@@ -66,12 +66,12 @@
 
 一次调用 `update_tasks_manifest(mode="initialize", title="...", theme="...", template="...", tasks=[...])` 创建全部页面草稿。每页包含稳定英文 `content_type`、具体 `description`、结构化 `content_plan`、组件计划和适用的视觉意图。随后调用 `review_tasks_manifest` 审核草稿；如果有问题，按返回 issues 修订并重新 review；通过后再调用 `update_tasks_manifest(mode="commit")` 落盘正式 DeckSpec。
 
-工具参数直接使用 schema 中的 `tasks` 对象数组；`content_plan.elements` 的 `text`、`title`、`description` 使用单个字符串，多值列表放入 `items`；正文引用优先使用中文引号“示例”，保持参数边界清晰。
+工具参数直接使用 schema 中的 `tasks` 对象数组；`content_plan.components` 中的 `text`、`title`、`body`、`description` 使用单个字符串，多值列表放入 `items`；正文引用优先使用中文引号“示例”，保持参数边界清晰。
 
 示例结构：
 
 ```json
-{"title":"标题","theme":"ocean_soft","template":"tech-intro","tasks":[{"task_id":"1","page_index":1,"title":"能力矩阵","content_type":"card_grid","description":"说明产品能力矩阵","background":"","output_file":"1_能力矩阵.pptx","status":"pending","content_plan":{"summary":"三层能力矩阵支撑端到端交付","slide_intent":"说明产品能力矩阵","visual_intent":{"role":"cards","asset_purpose":"background","asset_subject":"abstract enterprise network","asset_query":"abstract enterprise network, wide landscape, clean negative space","composition":"wide landscape, clean negative space on left","image_position":"background"},"components":[{"id":"headline_1","type":"headline","text":"三层能力矩阵支撑端到端交付","role":"main_point"},{"id":"feature_card_1","type":"feature_card","title":"数据接入","body":"统一连接业务库、文件和接口数据","emphasis":"primary"},{"id":"feature_card_2","type":"feature_card","title":"智能分析","body":"自动识别趋势、异常和关键指标","emphasis":"normal"}],"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3},"reviewer_status":{"planner_round":1,"locked":true,"issues":[]}}}]}
+{"title":"标题","theme":"ocean_soft","template":"tech-intro","tasks":[{"task_id":"1","page_index":1,"title":"能力矩阵","content_type":"card_grid","description":"说明产品能力矩阵","output_file":"1_能力矩阵.pptx","status":"pending","content_plan":{"summary":"三层能力矩阵支撑端到端交付","slide_intent":"说明产品能力矩阵","visual_intent":{"role":"cards","asset_purpose":"background","asset_subject":"abstract enterprise network","asset_query":"abstract enterprise network, wide landscape, clean negative space","composition":"wide landscape, clean negative space on left","image_position":"background"},"components":[{"id":"headline_1","type":"headline","text":"三层能力矩阵支撑端到端交付","role":"main_point"},{"id":"feature_card_1","type":"feature_card","title":"数据接入","body":"统一连接业务库、文件和接口数据","emphasis":"primary"},{"id":"feature_card_2","type":"feature_card","title":"智能分析","body":"自动识别趋势、异常和关键指标","emphasis":"normal"}],"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3},"reviewer_status":{"planner_round":1,"locked":true,"issues":[]}}}]}
 ```
 
 `content_type` 详见 `{{ .SkillsDir }}/ppt-deck-planner/references/slide_types.md`。
@@ -80,9 +80,9 @@
 ## 背景规划
 
 {{if .ImageSearchAvailable}}
-外部图片搜索可用时，`task.background` 不再作为默认视觉策略。默认尽量为每页规划可嵌入背景图或背景氛围图：在 `content_plan.visual_intent` 或 `image` 组件中写 `asset_purpose=background`、`asset_subject`、`asset_query` 和 `composition`，并调用 `search_images(download=true)` 保存本地图片和署名，再把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url`、`attribution` 写回对应字段。
+外部图片搜索可用时，默认尽量为每页规划可嵌入的背景图或场景图：在 `content_plan.visual_intent` 或 `image` 组件中写 `asset_purpose=background`、`asset_subject`、`asset_query` 和 `composition`，并调用 `search_images(download=true)` 保存本地图片和署名，再把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url`、`attribution` 写回对应字段。
 {{else}}
-当前没有可用的外部图片工具。不要规划旧本地背景主题；`task.background` 保持为空，使用组件化信息表面和 `visual_intent.asset_query` 记录后续可检索的图片意图。
+当前没有可用的外部图片工具。不要规划本地背景主题，使用组件化信息表面和 `visual_intent.asset_query` 记录后续可检索的图片意图。
 {{end}}
 
 ## 内容密度与版式匹配
@@ -130,11 +130,14 @@
 - `visual_intent.asset_subject` 写经过语义转换后的视觉主体或代理意象；`asset_query` 写可直接提交给图片 provider 的最终检索词，不直接复制用户标题。
 - `visual_intent.composition` 写语义构图约束，例如 `wide landscape, clean negative space on left, subject on right`，不写坐标或字号。
 - `image_position` 可用 `background`、`left`、`right`、`strip`、`inline`。
+- 标题页与 `section_divider` 如果使用背景图，生成器会自动做轻度模糊和可读性遮罩，Planner 只需给出 `asset_subject`、`asset_query`、`composition`，不要写模糊、透明度、透视或字号参数。
 - 只有同页 `layout_variant` 非空时，`preferred_variant` 才与它保持一致。
 - 视觉字段服务于叙事：视觉页填写具体意图，数据页使用 `chart` 或 `cards`，纯文字留白页可保持精简。
 - 版式优先观点与论据交替呈现，少用连续卡片罗列；除目录、分割页和纯数据页外，适合视觉解释的页面优先选 `image_text`、`case_study`、`example_detail` 或 `image_hero`，用图片承载背景/场景/证据，用文字承载判断和论证。
+- 默认多使用图文混排：当页面存在清晰观点和可视化论据时，优先安排 `image_text`、`case_study` 或 `example_detail`，让一侧承载判断与解释，另一侧承载真实场景图、案例图、数据或证据；不要连续堆叠同质卡片和列表。
 - `layout_variant` 只填写 `component_contracts.json` 中当前 content_type 的非空 `variants`。当前稳定值为 `section_divider.number_sidebar`；其他页面依靠 `content_type`、组件类型、组件数量和 `visual_intent` 触发生成器自适应布局。
 - `section_divider.content_plan.section_number` 必须是大章节序号（01、02、03），不是 `page_index`。例如第 6 页如果是第二个章节页，显示 `02`。
+- `agenda` 的目录编号必须使用章节出现顺序（01、02、03），不能复制分割页的 `page_index`；目录展示章节索引，不展示绝对页码。
 
 ## 无多模态模型的图片检索规划
 
@@ -157,7 +160,7 @@
 
 背景图优先写环境、光线、空间和留白，查询中排除 `text`、`logo`、`infographic`、`collage` 等版式词；实景图优先写可见对象、动作和环境，避免只写“行业趋势”“解决方案”“发展前景”等抽象名词。`asset_subject` 记录采用的视觉代理，`composition` 记录页面需要的留白方向，供 Reviewer 检查转换是否合理。
 
-顶层 `task.background` 是历史本地背景字段，新规划默认留空。外部图片的 `asset_purpose=background` 表示页面组件使用的专题背景。只有明确需要外部图片时才调用搜索工具，并将 `download=true` 返回的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写入对应 `image` 组件或 `visual_intent`，其中 `source_url` 和 `attribution` 用于保留来源页和摄影师署名。
+外部图片的 `asset_purpose=background` 表示页面组件使用的专题背景。只有明确需要外部图片时才调用搜索工具，并将 `download=true` 返回的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写入对应 `image` 组件或 `visual_intent`，其中 `source_url` 和 `attribution` 用于保留来源页和摄影师署名。
 
 ## Reflexion 计划审查与润色
 
@@ -171,7 +174,7 @@ Planner 不调用子 Agent，不调用页面生成工具，也不编写 Python�
 
 1. `content_type` 是合法稳定英文 id。
 2. `description`、`content_plan.slide_intent` 和 `content_plan.components` 足够具体，后端 compiler 可以直接转成 generator 参数。
-3. {{if .ImageSearchAvailable}}`background` 默认留空，专题背景图由 `visual_intent`/图片组件和素材搜索结果承载，并写入可嵌入的 `local_path`。{{else}}`background` 默认留空，专题图片只记录在 `visual_intent.asset_query` 中。{{end}}
+3. {{if .ImageSearchAvailable}}专题背景图由 `visual_intent`/图片组件和素材搜索结果承载，并写入可嵌入的 `local_path`。{{else}}专题图片只记录在 `visual_intent.asset_query` 中。{{end}}
 4. `output_file` 与页码一一对应，文件名稳定。
 5. `status` 初始为 `pending`。
 

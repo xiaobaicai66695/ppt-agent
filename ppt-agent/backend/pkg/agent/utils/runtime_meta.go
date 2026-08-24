@@ -115,16 +115,16 @@ type RuntimeBudgets struct {
 }
 
 type IntentAnchor struct {
-	Summary        string `json:"summary,omitempty"`
-	OriginalLength int    `json:"original_length,omitempty"`
-	Intent         string `json:"intent,omitempty"`
-	Domain         string `json:"domain,omitempty"`
-	SuggestedPages int    `json:"suggested_pages,omitempty"`
-	Template       string `json:"template,omitempty"`
-	Theme          string `json:"theme,omitempty"`
-	UseBackground  bool   `json:"use_background,omitempty"`
-	Background     string `json:"background,omitempty"`
-	Recommendation string `json:"recommendation,omitempty"`
+	Summary         string `json:"summary,omitempty"`
+	OriginalLength  int    `json:"original_length,omitempty"`
+	Intent          string `json:"intent,omitempty"`
+	Domain          string `json:"domain,omitempty"`
+	SuggestedPages  int    `json:"suggested_pages,omitempty"`
+	Template        string `json:"template,omitempty"`
+	Theme           string `json:"theme,omitempty"`
+	UseVisualAssets bool   `json:"use_visual_assets,omitempty"`
+	VisualHint      string `json:"visual_hint,omitempty"`
+	Recommendation  string `json:"recommendation,omitempty"`
 }
 
 type PlanSlide struct {
@@ -247,8 +247,8 @@ func (m *RuntimeMeta) RecordIntent(anchor IntentAnchor) {
 	m.IntentAnchor = anchor
 	m.recordEventLocked("intent_classified", "user_intent", "ok", anchor.Summary, map[string]any{
 		"intent": anchor.Intent, "domain": anchor.Domain, "suggested_pages": anchor.SuggestedPages,
-		"template": anchor.Template, "theme": anchor.Theme, "background": anchor.Background,
-		"use_background": anchor.UseBackground, "recommendation": anchor.Recommendation,
+		"template": anchor.Template, "theme": anchor.Theme, "visual_hint": anchor.VisualHint,
+		"use_visual_assets": anchor.UseVisualAssets, "recommendation": anchor.Recommendation,
 	})
 }
 
@@ -893,7 +893,7 @@ func publicToolRuntimeEventMetadata(name string, metadata map[string]any) map[st
 		"search_query": {}, "search_reason": {}, "source_count": {}, "source_titles": {}, "source_urls": {}, "search_results": {},
 		"image_query": {}, "asset_query": {}, "asset_purpose": {}, "asset_subject": {}, "composition": {},
 		"provider": {}, "total": {}, "total_pages": {}, "image_results": {},
-		"file_path": {}, "mode": {}, "slide_count": {}, "template": {}, "theme": {}, "background": {},
+		"file_path": {}, "mode": {}, "slide_count": {}, "template": {}, "theme": {},
 		"task_id": {}, "content_type": {}, "output_file": {}, "target": {},
 	}
 	public := make(map[string]any)
@@ -1025,7 +1025,6 @@ func addToolObservationFields(metadata map[string]any, name, args, result string
 		}
 		addJSONFieldAs(metadata, args, "template", "template")
 		addJSONFieldAs(metadata, args, "theme", "theme")
-		addJSONFieldAs(metadata, args, "background", "background")
 	}
 }
 

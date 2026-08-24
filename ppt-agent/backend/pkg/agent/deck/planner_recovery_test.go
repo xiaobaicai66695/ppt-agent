@@ -21,12 +21,10 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 		SkillsDir: skillsDir,
 		Query:     "介绍桂林",
 		Outline: &TaskOutline{
-			Template:              "product-intro",
-			Theme:                 "sage_calm",
-			ContentMode:           OutlineContentModeRecommendedStyle,
-			UseBackground:         true,
-			RecommendedBackground: "eco_nature",
-			SuggestedPageCount:    8,
+			Template:           "product-intro",
+			Theme:              "sage_calm",
+			ContentMode:        OutlineContentModeRecommendedStyle,
+			SuggestedPageCount: 8,
 		},
 		IntentResult: &agentintent.ClassificationResult{SuggestedPageCount: 8},
 	}
@@ -52,11 +50,6 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	}
 	if manifest.Tasks[5].ContentPlan == nil || manifest.Tasks[5].ContentPlan.SectionNumber != "02" {
 		t.Fatalf("second section number = %#v", manifest.Tasks[5].ContentPlan)
-	}
-	for i, task := range manifest.Tasks {
-		if task.Background != "" {
-			t.Fatalf("task %d should not recover legacy local background, got %q", i+1, task.Background)
-		}
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); err != nil {
 		t.Fatalf("tasks.json not written: %v", err)

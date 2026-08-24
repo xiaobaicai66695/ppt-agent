@@ -20,3 +20,15 @@ func TestModelAPIKeyFromConfigFallsBackToEnv(t *testing.T) {
 		t.Fatalf("modelAPIKeyFromConfig() = %q, want env-key", got)
 	}
 }
+
+func TestResolveModelAPIKeyPrefersAccountKey(t *testing.T) {
+	if got := ResolveModelAPIKey(" account-key ", "env-key"); got != "account-key" {
+		t.Fatalf("ResolveModelAPIKey() = %q, want account-key", got)
+	}
+}
+
+func TestResolveModelAPIKeyFallsBackToEnvironment(t *testing.T) {
+	if got := ResolveModelAPIKey("  ", " env-key "); got != "env-key" {
+		t.Fatalf("ResolveModelAPIKey() = %q, want env-key", got)
+	}
+}

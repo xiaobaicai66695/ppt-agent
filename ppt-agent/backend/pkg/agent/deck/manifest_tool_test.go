@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -26,7 +25,7 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 	result, err := tool.InvokableRun(context.Background(), `{
 		"mode":"patch",
 		"tasks":[
-			{"task_id":"1","title":"两会工作报告","description":"概括年度目标","layout_variant":"statement_cards","content_plan":{"summary":"年度目标","visual_intent":{"role":"cards","preferred_variant":"statement_cards"},"elements":[{"type":"bullet_list","items":["目标一","目标二"]}]}},
+			{"task_id":"1","title":"两会工作报告","description":"概括年度目标","layout_variant":"statement_cards","content_plan":{"summary":"年度目标","visual_intent":{"role":"cards","preferred_variant":"statement_cards"},"components":[{"type":"bullet_list","items":["目标一","目标二"]}]}},
 			{"task_id":"2","title":"核心议程","description":"列出四项议程"}
 		]
 	}`)
@@ -43,7 +42,7 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 	if got.Tasks[0].Title != "两会工作报告" || got.Tasks[1].Title != "核心议程" {
 		t.Fatalf("patch not applied: %#v", got.Tasks)
 	}
-	if got.Tasks[0].ContentPlan == nil || len(got.Tasks[0].ContentPlan.Elements) != 1 {
+	if got.Tasks[0].ContentPlan == nil || len(got.Tasks[0].ContentPlan.Components) != 1 {
 		t.Fatalf("content plan missing: %#v", got.Tasks[0].ContentPlan)
 	}
 	if got.Tasks[0].LayoutVariant != "statement_cards" {
@@ -57,7 +56,7 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 	}
 }
 
-func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
+func TestManifestToolAcceptsNarrativeAndListComponents(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "说明主流程优化", false)
 	args := `{
@@ -70,18 +69,18 @@ func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
 			"title":"为什么要优化主流程",
 			"content_type":"content_slide",
 			"description":"用一页说明优化必要性",
-			"background":"minimalist_blue/images/1.jpg",
 			"output_file":"1_flow.pptx",
 			"status":"pending",
 			"content_plan":{
 				"summary":"主流程需要先规划再润色",
 				"slide_intent":"说明主流程优化的必要性",
 				"components":[
-					{"id":"arg_1","type":"long_paragraph","title":"核心判断","body":"当前问题不是单页渲染能力不足，而是规划阶段没有给出足够完整的论述、证据和结论，导致后续只能渲染出泛化短句。"},
-					{"id":"steps_1","type":"ordered_list","title":"改造顺序","items":["先规划叙事结构","再审查并润色内容","最后按组件生成页面"]},
-					{"id":"list_1","type":"list_group","title":"验收点","items":["论点完整","列表清晰"]}
+					{"id":"arg_1","type":"argument_block","title":"核心判断","body":"当前问题不是单页渲染能力不足，而是规划阶段没有给出足够完整的论述、证据和结论，导致后续只能渲染出泛化短句。"},
+					{"id":"steps_1","type":"numbered_list","title":"改造顺序","items":["先规划叙事结构","再审查并润色内容","最后按组件生成页面"]},
+					{"id":"list_1","type":"list","title":"验收点","items":["论点完整","列表清晰"]},
+					{"id":"bg_1","type":"image","asset_purpose":"background","local_path":"assets/images/flow.jpg","caption":"流程背景"}
 				],
-				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3},
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":4},
 				"reviewer_status":{"planner_round":1,"locked":true,"issues":[]}
 			}
 		}]
@@ -103,7 +102,7 @@ func TestManifestToolNormalizesNarrativeAndListComponentAliases(t *testing.T) {
 	}
 	components := got.Tasks[0].ContentPlan.Components
 	if components[0].Type != "argument_block" || components[1].Type != "numbered_list" || components[2].Type != "list" {
-		t.Fatalf("component aliases not normalized: %#v", components)
+		t.Fatalf("components not preserved: %#v", components)
 	}
 }
 
@@ -148,11 +147,10 @@ func TestManifestToolPatchesOrderedTasksWithoutIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := newManifestTool(workDir)
-	tasks := `[
-		{"background":"","content_plan":{"summary":"封面新规划"}},
-		{"background":"","content_plan":{"summary":"内容新规划"}}
-	]`
-	args := `{"mode":"patch","tasks":` + strconv.Quote(tasks) + `}`
+	args := `{"mode":"patch","tasks":[
+		{"content_plan":{"summary":"封面新规划"}},
+		{"content_plan":{"summary":"内容新规划"}}
+	]}`
 
 	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
 		t.Fatal(err)
@@ -169,27 +167,6 @@ func TestManifestToolPatchesOrderedTasksWithoutIDs(t *testing.T) {
 	}
 }
 
-func TestManifestToolAcceptsTasksAsJSONArrayString(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `[
-		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
-		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
-	]`
-	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Tasks) != 2 || got.Tasks[0].Title != "封面" || got.Tasks[1].ContentType != "agenda" {
-		t.Fatalf("unexpected manifest: %#v", got.Tasks)
-	}
-}
-
 func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "介绍延安", false)
@@ -198,8 +175,8 @@ func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 		"theme":"government_red",
 		"template":"current-affairs",
 		"tasks":[
-			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","background":"party_government/images/1.jpg","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"延安主题封面","components":[{"id":"title_1","type":"deck_title","text":"介绍延安"}]}},
-			{"task_id":"2","page_index":2,"title":"红色历史","content_type":"content_slide","description":"介绍延安红色历史和精神传承","background":"party_government/images/2.jpg","output_file":"2_history.pptx","status":"pending","content_plan":{"summary":"延安红色历史形成精神传承","slide_intent":"概括延安历史价值","components":[{"id":"headline_1","type":"headline","text":"红色历史形成可持续的精神坐标"},{"id":"point_1","type":"key_point","title":"历史价值","body":"延安时期沉淀出组织建设、群众路线和艰苦奋斗等经验，成为后续党史教育和红色研学的重要内容。"}]}}
+			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"延安主题封面","components":[{"id":"title_1","type":"deck_title","text":"介绍延安"},{"id":"bg_1","type":"image","asset_purpose":"background","local_path":"assets/images/yanan-cover.jpg"}]}},
+			{"task_id":"2","page_index":2,"title":"红色历史","content_type":"content_slide","description":"介绍延安红色历史和精神传承","output_file":"2_history.pptx","status":"pending","content_plan":{"summary":"延安红色历史形成精神传承","slide_intent":"概括延安历史价值","components":[{"id":"headline_1","type":"headline","text":"红色历史形成可持续的精神坐标"},{"id":"point_1","type":"key_point","title":"历史价值","body":"延安时期沉淀出组织建设、群众路线和艰苦奋斗等经验，成为后续党史教育和红色研学的重要内容。"},{"id":"bg_2","type":"image","asset_purpose":"background","local_path":"assets/images/yanan-history.jpg"}]}}
 		]
 	}`
 
@@ -266,140 +243,6 @@ func TestManifestToolInfersInitializeTitleFromSlideTitle(t *testing.T) {
 	}
 }
 
-func TestManifestToolAcceptsLooseTaskObjectString(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
-		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}`
-	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
-		t.Fatalf("unexpected manifest: %#v", got.Tasks)
-	}
-}
-
-func TestManifestToolAcceptsTaskStringWithExtraDelimiters(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `[
-		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"}
-	]},
-	[
-		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
-	]}`
-	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
-		t.Fatalf("unexpected manifest: %#v", got.Tasks)
-	}
-}
-
-func TestManifestToolRecoversTasksFromWrappedArgumentString(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `{
-		"mode":"initialize",
-		"title":"被错误嵌套的参数",
-		"tasks":[
-			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},
-			{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
-		]
-	}}`
-	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
-		t.Fatalf("unexpected manifest: %#v", got.Tasks)
-	}
-}
-
-func TestManifestToolRecoversTaskStringWithTopLevelFieldFragments(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `[
-		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"}
-	],
-	"background":"minimalist_blue",
-	"content_plan":{"summary":"这个对象不是任务"},
-	[
-		{"task_id":"2","page_index":2,"title":"目录","content_type":"agenda","description":"目录描述","output_file":"2_agenda.pptx","status":"pending"}
-	]`
-	args := `{"mode":"initialize","title":"示例","theme":"ocean_soft","template":"generic","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Tasks) != 2 || got.Tasks[0].TaskID != "1" || got.Tasks[1].TaskID != "2" {
-		t.Fatalf("unexpected manifest: %#v", got.Tasks)
-	}
-}
-
-func TestManifestToolRecoversObservedMalformedTaskString(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `[
-		{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"核心信息"}}},
-		{"task_id":"2","page_index":2,"title":"未来展望","content_type":"content_slide","description":"介绍新疆在"一带一路"倡议下的发展机遇。","output_file":"2_future.pptx","status":"pending","content_plan":{"summary":"新疆是"一带一路"核心区。","elements":[{"type":"point","title":"发展机遇","text":["国际物流枢纽","清洁能源基地"],"description":["深化区域合作"]}]}}}
-	]}`
-	args := `{"mode":"initialize","title":"介绍新疆","theme":"ocean_soft","template":"product-intro","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Tasks) != 2 {
-		t.Fatalf("task count = %d, want 2", len(got.Tasks))
-	}
-	if got.Tasks[1].Description != `介绍新疆在"一带一路"倡议下的发展机遇。` {
-		t.Fatalf("description = %q", got.Tasks[1].Description)
-	}
-	element := got.Tasks[1].ContentPlan.Elements[0]
-	if element.Text != "国际物流枢纽\n清洁能源基地" || element.Description != "深化区域合作" {
-		t.Fatalf("element was not normalized: %#v", element)
-	}
-}
-
-func TestManifestToolDoesNotRecoverPartialTaskString(t *testing.T) {
-	workDir := t.TempDir()
-	tool := newManifestTool(workDir)
-	tasks := `[{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面描述","output_file":"1_cover.pptx","status":"pending"},{"task_id":"2"`
-	args := `{"mode":"initialize","title":"示例","tasks":` + strconv.Quote(tasks) + `}`
-
-	if _, err := tool.InvokableRun(context.Background(), args); err == nil {
-		t.Fatal("expected truncated task string error")
-	}
-	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
-		t.Fatalf("partial manifest should not be written, stat err=%v", err)
-	}
-}
-
 func TestManifestToolRejectsInvalidTasksString(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newManifestTool(workDir)
@@ -409,77 +252,6 @@ func TestManifestToolRejectsInvalidTasksString(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
 		t.Fatalf("manifest should not be written, stat err=%v", err)
-	}
-}
-
-func TestManifestToolDoesNotNormalizeLegacyLocalBackgrounds(t *testing.T) {
-	manifest := &TasksManifest{Title: "推荐背景", Tasks: []*TaskItem{
-		{TaskID: "1", PageIndex: 1, ContentType: "title_slide"},
-		{TaskID: "2", PageIndex: 2, ContentType: "agenda"},
-		{TaskID: "3", PageIndex: 3, ContentType: "content_slide"},
-	}}
-	workDir := t.TempDir()
-	if err := WriteTasksManifest(workDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	tool := newConfiguredManifestTool(workDir, t.TempDir(), &TaskOutline{
-		ContentMode:           OutlineContentModeRecommendedStyle,
-		UseBackground:         true,
-		RecommendedBackground: "minimalist_blue",
-	}, "推荐背景", false)
-	args := `{"mode":"patch","tasks":[{"task_id":"2","background":"missing/images/1.jpg"}]}`
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksDraftManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range manifest.Tasks {
-		if item.TaskID == "2" {
-			continue
-		}
-		if item.Background != "" {
-			t.Fatalf("task %q should keep empty legacy background, got %q", item.TaskID, item.Background)
-		}
-	}
-	if got.GetTask("2").Background != "missing/images/1.jpg" {
-		t.Fatalf("explicit patch should be preserved until final validator/generator ignores it, got %q", got.GetTask("2").Background)
-	}
-}
-
-func TestConfiguredManifestLeavesLocalBackgroundEmptyWhenImageSearchAvailable(t *testing.T) {
-	workDir := t.TempDir()
-	skillsDir := filepath.Join(t.TempDir(), "skills")
-
-	outline := &TaskOutline{
-		ContentMode:           OutlineContentModeRecommendedStyle,
-		UseBackground:         true,
-		RecommendedBackground: "minimalist_blue",
-	}
-	tool := newConfiguredManifestTool(workDir, skillsDir, outline, "低空经济", true)
-	args := `{
-		"mode":"initialize",
-		"title":"低空经济",
-		"theme":"ocean_soft",
-		"template":"research-report",
-		"tasks":[
-			{"task_id":"1","page_index":1,"title":"封面","content_type":"title_slide","description":"封面","output_file":"1_cover.pptx","status":"pending","content_plan":{"summary":"封面"}},
-			{"task_id":"2","page_index":2,"title":"场景","content_type":"image_text","description":"场景","background":"missing/images/1.jpg","output_file":"2_scene.pptx","status":"pending","content_plan":{"summary":"场景","visual_intent":{"asset_purpose":"background","asset_query":"aerial city skyline at blue hour, wide landscape, clean negative space"}}}
-		]
-	}`
-	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTasksDraftManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Tasks[0].Background != "" {
-		t.Fatalf("empty local background should stay empty when image search is available, got %q", got.Tasks[0].Background)
-	}
-	if got.Tasks[1].Background != "missing/images/1.jpg" {
-		t.Fatalf("draft should not be rewritten by local background fallback, got %q", got.Tasks[1].Background)
 	}
 }
 
@@ -767,7 +539,7 @@ func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
 	}
 }
 
-func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *testing.T) {
+func TestConfiguredManifestToolCommitsCanonicalSectionComponents(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "章节页", false)
 	args := `{
@@ -781,16 +553,16 @@ func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *test
 			"title":"背景与目标",
 			"content_type":"section_divider",
 			"description":"章节分隔页",
-			"background":"minimalist_blue/images/1.jpg",
 			"output_file":"1_section.pptx",
 			"status":"pending",
 			"content_plan":{
 				"summary":"进入背景章节",
 				"components":[
-					{"id":"section_title","type":"section_title","text":"背景与目标"},
-					{"id":"subtitle_1","type":"subtitle","text":"以数字化服务串联赛事体验和运营效率"}
+					{"id":"headline_1","type":"headline","text":"背景与目标"},
+					{"id":"subheadline_1","type":"subheadline","text":"以数字化服务串联赛事体验和运营效率"},
+					{"id":"bg_1","type":"image","asset_purpose":"background","local_path":"assets/images/section-bg.jpg","caption":"数字化服务场景背景"}
 				],
-				"capacity_hint":{"estimated_density":"sparse","overflow_risk":"low","component_count":2}
+				"capacity_hint":{"estimated_density":"sparse","overflow_risk":"low","component_count":3}
 			}
 		}]
 	}`
@@ -812,11 +584,11 @@ func TestConfiguredManifestToolNormalizesSectionComponentAliasesOnCommit(t *test
 	}
 	componentType := got.Tasks[0].ContentPlan.Components[0].Type
 	if componentType != "headline" {
-		t.Fatalf("section_title alias = %q, want headline", componentType)
+		t.Fatalf("section title component = %q, want headline", componentType)
 	}
 	subtitleType := got.Tasks[0].ContentPlan.Components[1].Type
 	if subtitleType != "subheadline" {
-		t.Fatalf("subtitle alias = %q, want subheadline", subtitleType)
+		t.Fatalf("section subtitle component = %q, want subheadline", subtitleType)
 	}
 }
 

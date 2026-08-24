@@ -146,8 +146,8 @@ export interface TemplateStrategy {
   mode: string;
   template: string;
   theme: string;
-  use_background: boolean;
-  background?: string;
+  use_visual_assets: boolean;
+  visual_hint?: string;
   reason: string;
   page_count?: number;
 }
@@ -212,22 +212,36 @@ export interface SlideOutline {
   title: string;
   content_type: string;
   description: string;
-  background?: string;
   content_plan?: ContentPlan;
 }
 
-export interface ContentElement {
+export interface PlanComponent {
+  id?: string;
   type: string;
-  items?: string[];
-  text?: string;
   title?: string;
+  text?: string;
+  body?: string;
   description?: string;
-  layout_hint?: string;
+  items?: string[];
+  local_path?: string;
+  asset_query?: string;
+  asset_purpose?: string;
+  [key: string]: unknown;
+}
+
+export interface VisualIntent {
+  asset_query?: string;
+  asset_purpose?: string;
+  local_path?: string;
+  [key: string]: unknown;
 }
 
 export interface ContentPlan {
   summary?: string;
-  elements?: ContentElement[];
+  slide_intent?: string;
+  components?: PlanComponent[];
+  visual_intent?: VisualIntent;
+  capacity_hint?: Record<string, unknown>;
 }
 
 export interface TaskOutline {
@@ -450,12 +464,12 @@ export interface UserApiKeyStatus {
 }
 
 export async function fetchUserApiKeyStatus(): Promise<UserApiKeyStatus> {
-	const res = await checkResponse(await apiFetch('/api/users/me/apikey', { headers: authHeaders() }));
+	const res = await checkResponse(await apiFetch('/api/users/me/api-key', { headers: authHeaders() }));
   return res.json();
 }
 
 export async function updateUserApiKey(apiKey: string, provider = 'ark'): Promise<UserApiKeyStatus> {
-	const res = await checkResponse(await apiFetch('/api/users/me/apikey', {
+	const res = await checkResponse(await apiFetch('/api/users/me/api-key', {
 		method: 'PUT',
 		headers: authHeaders(),
 		body: JSON.stringify({ provider, api_key: apiKey }),
@@ -464,7 +478,7 @@ export async function updateUserApiKey(apiKey: string, provider = 'ark'): Promis
 }
 
 export async function deleteUserApiKey(): Promise<void> {
-	await checkResponse(await apiFetch('/api/users/me/apikey', {
+	await checkResponse(await apiFetch('/api/users/me/api-key', {
 		method: 'DELETE',
 		headers: authHeaders(),
 	}));
@@ -505,6 +519,7 @@ export interface AdminUser {
 export interface AdminTaskRecord {
   id: string;
   user_id: number;
+  user_email?: string;
   query: string;
   status: string;
   done_count: number;
@@ -542,35 +557,30 @@ export interface AdminStyleProfile {
 }
 
 export async function fetchAdminStats(): Promise<AdminStats> {
-  const res = await apiFetch('/api/admin/stats', { headers: authHeaders() });
-  if (!res.ok) throw new Error('获取统计失败');
+  const res = await checkResponse(await apiFetch('/api/admin/stats', { headers: authHeaders() }));
   return res.json();
 }
 
 export async function fetchAdminUsers(): Promise<AdminUser[]> {
-  const res = await apiFetch('/api/admin/users', { headers: authHeaders() });
-  if (!res.ok) throw new Error('获取用户列表失败');
+  const res = await checkResponse(await apiFetch('/api/admin/users', { headers: authHeaders() }));
   const data = await res.json();
   return data.users || [];
 }
 
 export async function fetchAdminTasks(): Promise<AdminTaskRecord[]> {
-  const res = await apiFetch('/api/admin/tasks', { headers: authHeaders() });
-  if (!res.ok) throw new Error('获取任务列表失败');
+  const res = await checkResponse(await apiFetch('/api/admin/tasks', { headers: authHeaders() }));
   const data = await res.json();
   return data.tasks || [];
 }
 
 export async function fetchAdminLogAnalyses(): Promise<AdminLogAnalysis[]> {
-  const res = await apiFetch('/api/admin/log-analyses', { headers: authHeaders() });
-  if (!res.ok) throw new Error('获取日志分析失败');
+  const res = await checkResponse(await apiFetch('/api/admin/log-analyses', { headers: authHeaders() }));
   const data = await res.json();
   return data.analyses || [];
 }
 
 export async function fetchAdminStyleProfiles(): Promise<AdminStyleProfile[]> {
-  const res = await apiFetch('/api/admin/style-profiles', { headers: authHeaders() });
-  if (!res.ok) throw new Error('获取风格偏好失败');
+  const res = await checkResponse(await apiFetch('/api/admin/style-profiles', { headers: authHeaders() }));
   const data = await res.json();
   return data.profiles || [];
 }

@@ -329,10 +329,20 @@ func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig)
 }
 
 func modelAPIKeyFromConfig(cfg *ChatModelConfig) string {
+	accountKey := ""
 	if cfg != nil && cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
-		return strings.TrimSpace(*cfg.APIKey)
+		accountKey = *cfg.APIKey
 	}
-	return os.Getenv("ARK_API_KEY")
+	return ResolveModelAPIKey(accountKey, os.Getenv("ARK_API_KEY"))
+}
+
+// ResolveModelAPIKey applies the service-wide key precedence rule:
+// account-specific configuration wins, then the process environment fallback.
+func ResolveModelAPIKey(accountKey, environmentKey string) string {
+	if key := strings.TrimSpace(accountKey); key != "" {
+		return key
+	}
+	return strings.TrimSpace(environmentKey)
 }
 
 func (f *FallbackChatModel) shouldPause(idx int) (bool, time.Time) {

@@ -205,7 +205,6 @@ func recoveredContentPlan(topic, title, contentType string) *ContentPlan {
 			ImagePosition: position,
 			Caption:       title,
 		},
-		Elements:   recoveredElements(topic, title, contentType),
 		Components: recoveredComponents(topic, title, contentType),
 		CapacityHint: &CapacityHint{
 			EstimatedDensity: "normal",
@@ -276,33 +275,6 @@ func recoveredComponents(topic, title, contentType string) []PlanComponent {
 			{ID: "fact_card_1", Type: "fact_card", Title: "具体事实", Body: fmt.Sprintf("补充与%s直接相关的时间、地点、人物、数据、流程或案例，让页面从概念说明变成具备证据支撑的信息页。", title)},
 			{ID: "insight_1", Type: "insight", Title: "解释判断", Body: fmt.Sprintf("说明这些事实对理解%s有什么帮助，并提炼出观众应该记住的一句话结论。", topic)},
 			{ID: "recommendation_1", Type: "recommendation", Title: "讲述落点", Body: "收束到一个可行动或可复述的表达落点，例如下一步关注方向、实践建议、体验路线或汇报中的承接问题。"},
-		}
-	}
-}
-
-func recoveredElements(topic, title, contentType string) []ContentElement {
-	switch contentType {
-	case "agenda", "title_slide", "section_divider":
-		return nil
-	case "card_grid":
-		return []ContentElement{
-			{Type: "key_point_card", Title: "自然资源", Description: fmt.Sprintf("围绕%s的地理环境、景观资源和城市识别度展开，说明其成为主题核心的原因，并补充观众可以直接感知的代表性地点或场景。", topic)},
-			{Type: "key_point_card", Title: "历史文化", Description: fmt.Sprintf("补充%s的历史沿革、地方文化与代表性符号，让内容从表层介绍延伸到更稳定的城市气质、组织记忆或价值脉络。", topic)},
-			{Type: "key_point_card", Title: "体验场景", Description: "整理游客、用户或听众最容易感知的具体触点，包括路线、活动、消费、服务或工作流，增强页面的现场感。"},
-			{Type: "key_point_card", Title: "总结价值", Description: fmt.Sprintf("提炼%s对外传播、学习汇报或业务交流中的核心价值，形成可被观众复述的结论，而不是只停留在亮点罗列。", topic)},
-		}
-	case "two_column":
-		return []ContentElement{
-			{Type: "point", Title: "认知维度", Items: []string{fmt.Sprintf("从历史、地理、产业或系统结构视角解释%s为何值得介绍，并指出它与听众当前场景的关系。", topic), fmt.Sprintf("用具体地点、时间、人物、流程或案例支撑%s的主题表达，减少泛泛而谈。", topic)}},
-			{Type: "point", Title: "体验维度", Items: []string{fmt.Sprintf("从游览、文化、产品使用或工作过程角度组织%s的叙事材料，让内容具备真实触点。", topic), "把亮点转化为可被观众快速理解的行动建议、观察路径或后续讨论问题。"}},
-		}
-	default:
-		return []ContentElement{
-			{Type: "bullet_list", Items: []string{
-				fmt.Sprintf("先说明%s的基本背景和定位，帮助观众快速建立主题坐标，并明确这一页与整套 PPT 主线的关系。", topic),
-				fmt.Sprintf("再补充%s的代表性事实、地点、流程、人物或案例，让内容避免停留在泛泛介绍。", topic),
-				fmt.Sprintf("最后提炼%s带来的观察结论、行动建议或后续关注点，形成可以承接下一页的完整收束。", topic),
-			}},
 		}
 	}
 }

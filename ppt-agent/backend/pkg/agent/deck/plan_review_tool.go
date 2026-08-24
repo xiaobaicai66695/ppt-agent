@@ -190,7 +190,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 			Code:      "missing_background_image",
 			Severity:  "error",
 			PageIndex: page,
-			Message:   "页面缺少可执行背景图计划：应填写本地 background，或在 visual_intent/image 组件中使用 asset_purpose=background 并写入已下载 local_path。",
+			Message:   "页面缺少可执行图片计划：应在 visual_intent 或 image 组件中使用 asset_purpose=background，并写入已下载 local_path。",
 		})
 	} else {
 		report.BackgroundPages++
@@ -404,9 +404,6 @@ func hasNarrativeAnchor(components []PlanComponent) bool {
 func hasUsableBackgroundPlan(task *TaskItem) bool {
 	if task == nil {
 		return false
-	}
-	if strings.TrimSpace(task.Background) != "" {
-		return true
 	}
 	if task.ContentPlan == nil {
 		return false

@@ -222,3 +222,21 @@ func TestConversationMessagesWithFallbackDropsDuplicateFragments(t *testing.T) {
 		t.Fatalf("len(messages) = %d, want 1: %#v", len(got), got)
 	}
 }
+
+func TestConversationMessagesWithFallbackDropsContainedAssistantFragments(t *testing.T) {
+	full := "我将为您生成一份12页的PPT，主题为中小后端项目Git版本控制规范方案。\nPPT规划已完成，12页内容已提交。以下是各页概要：\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |"
+	fragment := "PPT规划已完成，12页内容已提交。以下是各页概要：\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |"
+	messages := []session.Message{
+		{Role: "assistant", Content: fragment, Timestamp: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)},
+		{Role: "assistant", Content: full, Timestamp: time.Date(2026, 8, 24, 10, 0, 1, 0, time.UTC)},
+	}
+
+	got := conversationMessagesWithFallback(messages, "", "", time.Time{})
+
+	if len(got) != 1 {
+		t.Fatalf("len(messages) = %d, want 1: %#v", len(got), got)
+	}
+	if got[0].Content != full {
+		t.Fatalf("kept content = %q, want full answer", got[0].Content)
+	}
+}

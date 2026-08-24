@@ -9,7 +9,6 @@ func TestMainAgentPromptDistinguishesTemplateScaffold(t *testing.T) {
 	outline := &TaskOutline{
 		Template: "generic", Theme: "ocean_soft", Title: "主题",
 		ContentMode:   OutlineContentModeTemplateScaffold,
-		UseBackground: false,
 		Slides:        []SlideOutline{{Title: "模板示例", ContentType: "title_slide"}},
 	}
 	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5)
@@ -28,15 +27,14 @@ func TestMainAgentPromptDistinguishesTemplateScaffold(t *testing.T) {
 	}
 }
 
-func TestMainAgentPromptKeepsLegacyBackgroundEmpty(t *testing.T) {
+func TestMainAgentPromptUsesImageIntentWithoutLocalBackgroundCatalog(t *testing.T) {
 	outline := &TaskOutline{
 		Template: "personal-summary", Theme: "charcoal_light", Title: "主题",
 		ContentMode:   OutlineContentModeTemplateScaffold,
-		UseBackground: true, RecommendedBackground: "party_government",
 		Slides: []SlideOutline{{Title: "封面", ContentType: "title_slide"}},
 	}
 	prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5, false)
-	for _, want := range []string{"没有可用图片搜索时只保留 `visual_intent.asset_query`", "`task.background` 默认留空", "`theme=charcoal_light` 是整套配色锚点"} {
+	for _, want := range []string{"没有可用图片搜索时只记录 `visual_intent.asset_query`", "`theme=charcoal_light` 是整套配色锚点"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
@@ -48,7 +46,7 @@ func TestMainAgentPromptKeepsLegacyBackgroundEmpty(t *testing.T) {
 	}
 
 	withImageSearch := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", outline, "两会总结", false, 5, true)
-	for _, want := range []string{"外部图片搜索可用", "`task.background` 默认留空", "背景氛围图"} {
+	for _, want := range []string{"外部图片搜索可用", "默认尽量为每页规划可嵌入的背景图或场景图", "search_images(download=true)"} {
 		if !strings.Contains(withImageSearch, want) {
 			t.Fatalf("image-search prompt missing %q", want)
 		}
@@ -99,16 +97,15 @@ func TestMainAgentPromptUsesRecommendedStyleWithoutTemplateSlides(t *testing.T) 
 	outline := &TaskOutline{
 		Template: "research-report", Theme: "report_green", Title: "主题",
 		ContentMode: OutlineContentModeRecommendedStyle, SuggestedPageCount: 11,
-		UseBackground: true, RecommendedBackground: "snowy_mountain",
 	}
 	prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5, false)
-	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "`snowy_mountain` 仅作为后续图片搜索线索", "重新设计叙事结构"} {
+	for _, want := range []string{"智能推荐提供视觉方向，不预设页面结构", "建议页数：`11`", "使用组件化信息表面，并在需要图片时记录 `visual_intent.asset_query`", "重新设计叙事结构"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q", want)
 		}
 	}
 	withImageSearch := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "模型推荐", outline, "生态报告", false, 5, true)
-	if !strings.Contains(withImageSearch, "转换为外部背景图检索意图，不写本地 `background`") {
+	if !strings.Contains(withImageSearch, "把主题转换为 `visual_intent`/`image` 组件的外部图片检索意图") {
 		t.Fatal("image-search prompt should turn recommended background into external image planning")
 	}
 	for _, forbidden := range []string{"整套每页使用", "同一主题目录"} {

@@ -28,7 +28,7 @@ func testTemplateServer(t *testing.T) *Server {
 	return &Server{templateLoader: loader}
 }
 
-func TestPresetSelectionSkipsLocalBackgroundWhenImageSearchConfigured(t *testing.T) {
+func TestPresetSelectionDoesNotExposeLocalBackgroundWhenImageSearchConfigured(t *testing.T) {
 	server := testTemplateServer(t)
 	t.Setenv("UNSPLASH_ACCESS_KEY", "test-access-key")
 
@@ -36,24 +36,22 @@ func TestPresetSelectionSkipsLocalBackgroundWhenImageSearchConfigured(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.UseBackground || strategy.Background != "" || outline.UseBackground || outline.RecommendedBackground != "" {
-		t.Fatalf("local background should be disabled when image search is configured: strategy=%#v outline=%#v", strategy, outline)
+	if strategy.VisualHint != "" || strategy.UseVisualAssets {
+		t.Fatalf("preset selection should not assign visual search policy: strategy=%#v outline=%#v", strategy, outline)
 	}
-	for _, slide := range outline.Slides {
-		if slide.Background != "" {
-			t.Fatalf("slide %q unexpectedly has local background %q", slide.ContentType, slide.Background)
-		}
+	if len(outline.Slides) == 0 {
+		t.Fatal("preset outline should keep template slides")
 	}
 }
 
 func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	server := testTemplateServer(t)
-	useBackground := true
+	useVisualAssets := true
 	intent := &agentintent.ClassificationResult{
 		IntentReasoning:    "行业研究需要数据驱动的叙事结构",
 		SuggestedTemplates: []string{"missing", "research-report"},
-		SuggestedTheme:     "report_green", SuggestedBackground: "minimalist_blue",
-		SuggestedPageCount: 13, UseBackground: &useBackground,
+		SuggestedTheme:     "report_green", VisualHint: "modern research workspace",
+		SuggestedPageCount: 13, UseVisualAssets: &useVisualAssets,
 	}
 	strategy, preset, err := server.recommendTemplateStrategyWithIntent(intent)
 	if err != nil {
@@ -68,21 +66,21 @@ func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	if _, err := server.getTheme(strategy.Theme); err != nil {
 		t.Fatalf("recommended missing theme %q", strategy.Theme)
 	}
-	if strategy.PageCount != 13 || strategy.Background != "" || strategy.UseBackground {
+	if strategy.PageCount != 13 || strategy.VisualHint != "modern research workspace" || !strategy.UseVisualAssets {
 		t.Fatalf("recommendation did not reuse LLM result: %#v", strategy)
 	}
 }
 
 func TestBuildTemplateRecommendationReturnsExplainableStrategy(t *testing.T) {
 	server := testTemplateServer(t)
-	useBackground := true
+	useVisualAssets := true
 	intent := &agentintent.ClassificationResult{
 		IntentReasoning:    "技术分享需要先讲概念，再讲架构与案例",
 		Domain:             agentintent.DomainTechnical,
 		SuggestedTemplates: []string{"tech-sharing"},
 		SuggestedTheme:     "ocean_soft",
 		SuggestedPageCount: 8,
-		UseBackground:      &useBackground,
+		UseVisualAssets:    &useVisualAssets,
 	}
 
 	rec, err := server.buildTemplateRecommendation("生成8页关于AI Agent工具调用机制的技术分享", intent)
@@ -133,15 +131,15 @@ func TestRecommendTemplateRouteDoesNotFallThroughToFrontend(t *testing.T) {
 
 func TestRecommendedTemplateDoesNotUseLegacyBackgroundPalette(t *testing.T) {
 	server := testTemplateServer(t)
-	useBackground := true
+	useVisualAssets := true
 	intent := &agentintent.ClassificationResult{
-		Intent:              agentintent.IntentCreate,
-		Domain:              agentintent.DomainGovernment,
-		SuggestedTemplates:  []string{"current-affairs"},
-		SuggestedTheme:      "patriotic_blue",
-		SuggestedBackground: "party_government",
-		SuggestedPageCount:  10,
-		UseBackground:       &useBackground,
+		Intent:             agentintent.IntentCreate,
+		Domain:             agentintent.DomainGovernment,
+		SuggestedTemplates: []string{"current-affairs"},
+		SuggestedTheme:     "patriotic_blue",
+		VisualHint:         "formal government meeting",
+		SuggestedPageCount: 10,
+		UseVisualAssets:    &useVisualAssets,
 	}
 	outline, strategy, err := server.resolveTemplateSelectionWithIntent("介绍延安", &TemplateSelection{Mode: "recommended"}, intent)
 	if err != nil {
@@ -150,8 +148,8 @@ func TestRecommendedTemplateDoesNotUseLegacyBackgroundPalette(t *testing.T) {
 	if strategy.Theme != "patriotic_blue" || outline.Theme != "patriotic_blue" {
 		t.Fatalf("theme = %q outline=%q, want patriotic_blue", strategy.Theme, outline.Theme)
 	}
-	if strategy.Background != "" || strategy.UseBackground || outline.UseBackground {
-		t.Fatalf("legacy background should not be used: strategy=%#v outline=%#v", strategy, outline)
+	if strategy.VisualHint != "formal government meeting" || !strategy.UseVisualAssets {
+		t.Fatalf("visual policy should be carried without legacy background: strategy=%#v outline=%#v", strategy, outline)
 	}
 }
 
@@ -168,17 +166,17 @@ func TestRecommendTemplateStrategyFallsBackToGeneric(t *testing.T) {
 
 func TestRecommendationProducesStyleGuidanceWithoutPresetSlides(t *testing.T) {
 	server := testTemplateServer(t)
-	useBackground := true
+	useVisualAssets := true
 	intent := &agentintent.ClassificationResult{
 		SuggestedTemplates: []string{"course-module"}, SuggestedTheme: "sage_calm",
-		SuggestedBackground: "vintage_chinese", SuggestedPageCount: 9, UseBackground: &useBackground,
+		VisualHint: "traditional Chinese culture detail", SuggestedPageCount: 9, UseVisualAssets: &useVisualAssets,
 	}
 	outline, strategy, err := server.resolveTemplateSelectionWithIntent("中国风传统文化主题分享", &TemplateSelection{Mode: "recommended"}, intent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.UseBackground || strategy.Background != "" {
-		t.Fatalf("strategy = %#v, want no legacy background", strategy)
+	if strategy.VisualHint == "" || !strategy.UseVisualAssets {
+		t.Fatalf("strategy = %#v, want visual search policy", strategy)
 	}
 	if outline.ContentMode != deck.OutlineContentModeRecommendedStyle || len(outline.Slides) != 0 {
 		t.Fatalf("recommended outline copied preset slides: %#v", outline)
@@ -190,10 +188,10 @@ func TestRecommendationProducesStyleGuidanceWithoutPresetSlides(t *testing.T) {
 
 func TestRecommendationUsesExplicitUserPageCountBeforeLLMSuggestion(t *testing.T) {
 	server := testTemplateServer(t)
-	useBackground := true
+	useVisualAssets := true
 	intent := &agentintent.ClassificationResult{
 		SuggestedTemplates: []string{"generic"}, SuggestedTheme: "ocean_soft",
-		SuggestedPageCount: 5, UseBackground: &useBackground,
+		SuggestedPageCount: 5, UseVisualAssets: &useVisualAssets,
 	}
 
 	outline, strategy, err := server.resolveTemplateSelectionWithIntent(
@@ -221,13 +219,8 @@ func TestPresetSelectionDoesNotAssignLegacyBackgrounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, slide := range outline.Slides {
-		if slide.Background != "" {
-			t.Fatalf("slide %q unexpectedly received legacy background %q", slide.ContentType, slide.Background)
-		}
-	}
-	if outline.UseBackground || outline.RecommendedBackground != "" {
-		t.Fatalf("outline should not use legacy background: %#v", outline)
+	if len(outline.Slides) == 0 {
+		t.Fatal("preset outline should keep template slides")
 	}
 }
 
@@ -237,13 +230,11 @@ func TestPresetSelectionIgnoresLegacyBackgroundThemeMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.Background != "" || strategy.UseBackground {
+	if strategy.VisualHint != "" || strategy.UseVisualAssets {
 		t.Fatalf("strategy should not use legacy background: %#v", strategy)
 	}
-	for _, slide := range outline.Slides {
-		if slide.Background != "" {
-			t.Fatalf("slide background = %q, want empty", slide.Background)
-		}
+	if len(outline.Slides) == 0 {
+		t.Fatal("preset outline should keep template slides")
 	}
 }
 
@@ -253,11 +244,11 @@ func TestPresetSelectionUsesTemplateWithoutDefaultBackground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.UseBackground || strategy.Background != "" {
+	if strategy.VisualHint != "" || strategy.UseVisualAssets {
 		t.Fatalf("strategy = %#v, want no legacy background", strategy)
 	}
-	if outline.Slides[0].Background != "" {
-		t.Fatal("expected title slide background to stay empty")
+	if len(outline.Slides) == 0 {
+		t.Fatal("expected preset slides")
 	}
 }
 
@@ -267,13 +258,11 @@ func TestPresetSelectionCanSuppressBackground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strategy.UseBackground {
-		t.Fatalf("strategy = %#v, want background suppressed", strategy)
+	if strategy.UseVisualAssets {
+		t.Fatalf("strategy = %#v, want visual assets suppressed", strategy)
 	}
-	for _, slide := range outline.Slides {
-		if slide.Background != "" {
-			t.Fatalf("slide %q unexpectedly has background %q", slide.ContentType, slide.Background)
-		}
+	if len(outline.Slides) == 0 {
+		t.Fatal("preset outline should keep template slides")
 	}
 }
 

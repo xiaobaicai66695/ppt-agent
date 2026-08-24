@@ -21,7 +21,7 @@ description: 指导 PPT Agent 规划 DeckSpec/tasks.json、选择 content_type�
 SlideExecutor 负责：
 
 - 读取 `tasks.json`。
-- 优先消费 `content_plan.components`；旧 `elements/summary/description` 只作为兼容兜底。
+- 只消费 `content_plan.components` 和 `visual_intent`；`description` 仅作为页面语义摘要，不承担组件渲染兜底。
 - 保持 `palette=manifest.theme`，逐字符使用 `task.output_file`。
 - 将 `layout_variant`、`source` 和图片字段传给 generator。
 
@@ -78,6 +78,8 @@ Python generators 负责：
 
 - 每个章节先用 1 页 `section_divider` 明确阶段主题；章节少于 2 个时可以省略分割页。
 - 内容页先确定本页主观点，再选择 2-4 个论据组件支撑；论据可以是事实、数据、图片、案例、引用或表格。
+- 除纯数据、流程、对比表和总结页外，默认优先使用“观点 + 论据”的图文混排：一侧承载判断与解释，另一侧用真实场景图、案例图、数据或证据承载论据，避免连续多页纯卡片或纯列表。
+- 标题页和章节分割页可以使用背景图，但生成器会自动做轻度模糊与可读性遮罩；规划只描述图片主体和构图，不填写 blur、透明度、透视或字号参数。
 - 深度说明页优先使用 `argument_block` 承载完整论述，再配列表、证据、KPI、图片或架构组件。
 - 对比、选型、方案评估优先用 `comparison_table` 或 `two_column`，并用 `recommendation` 给出结论。
 - 每 3-5 页安排一次节奏变化：章节页、图文页、数据页、案例页或总结页。
@@ -98,6 +100,8 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | `chart_slide` | 1 个主图表，1-3 个 dataset | 多图表拆页 |
 | `timeline` / `process_flow` | 4-6 个节点 | 超过 6 个拆页或按阶段聚合 |
 | `summary_slide` | 3-5 条总结 | 合并相似结论或拆出行动页 |
+
+`image_text`、`case_study`、`example_detail` 是默认的图文混排候选；当页面同时存在明确观点和可视化论据时，优先选择它们，而不是把全部信息拆成同质卡片。
 
 ## description 与 components
 
@@ -150,7 +154,9 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 
 调用 `search_images(download=true)` 后，必须把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写回对应 `image` 组件或 `visual_intent`。图片保存路径应在当前 PPT 任务工作目录内。
 
-顶层 `task.background` 是历史本地背景字段，新规划保持为空。外部图片用途写在 `visual_intent.asset_purpose` 或 `image.asset_purpose` 中。
+顶层 `task.background` 不属于当前契约。外部图片用途写在 `visual_intent.asset_purpose` 或 `image.asset_purpose` 中，已下载文件写入对应 `local_path`。
+
+标题页和 `section_divider` 的背景图片由生成器自动做轻度模糊和可读性遮罩，目的是降低复杂纹理、透视线条对标题可读性的干扰；Planner 不需要规划模糊参数。
 
 ## layout_variant
 
@@ -161,6 +167,8 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | content_type | layout_variant |
 |--------------|----------------|
 | `section_divider` | `number_sidebar` |
+
+`section_number` 和 `agenda` 目录编号都表示章节出现顺序（01、02、03），不能直接复制章节分割页的 `page_index`。目录展示章节索引，不展示绝对幻灯片页码。
 
 ## 计划审查
 

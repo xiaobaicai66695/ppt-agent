@@ -79,10 +79,7 @@ type TemplateData struct {
 	OutlineTheme           string           // 用户大纲中的主题名称（HasOutline=true 时使用）
 	OutlineTitle           string           // 用户大纲中的 PPT 标题（HasOutline=true 时使用）
 	OutlineContentMode     string           // template_scaffold 或 user_outline
-	OutlineUseBackground   bool             // 是否建议规划外部图片素材
-	OutlineBackground      string           // 任务入口提供的图片检索线索（历史字段名）
 	SuggestedPageCount     int              // 智能推荐的目标页数
-	AvailableBackgrounds   string           // 兼容字段；本地背景库已下线
 	StyleContext           string           // 用户风格偏好上下文，用于个性化生成
 	EnableQA               bool             // 兼容字段；新链路默认不在 Planner 阶段做 QA
 	Concurrency            int              // 渲染 worker pool 并发数（来自路由决策，默认 5）

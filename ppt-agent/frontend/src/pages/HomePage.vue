@@ -187,7 +187,7 @@ async function startCreation() {
         </div>
         <div>
           <span>视觉</span>
-          <strong>{{ recommendation.strategy.use_background ? '图片搜索优先' : '信息表面优先' }}</strong>
+          <strong>{{ recommendation.strategy.use_visual_assets ? '图片素材优先' : '信息表面优先' }}</strong>
           <small>由 Planner 按页面内容规划图片检索和图文混排</small>
         </div>
       </div>
@@ -392,7 +392,7 @@ async function startCreation() {
 .section-heading { margin-bottom: 16px; display: flex; align-items: end; justify-content: space-between; gap: 18px; }
 .section-heading h2 { margin: 5px 0 0; color: var(--text); font-size: 20px; letter-spacing: 0; }
 .catalog-count { color: var(--text-muted); font-size: 11px; }
-.catalog-error { min-height: 42px; margin: 0 0 14px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--warning-border); border-radius: 6px; color: var(--text-secondary); background: var(--warning-soft); font-size: 12px; }
+.catalog-error { min-height: 42px; margin: 0 0 14px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--warning-soft); font-size: 12px; }
 .catalog-error button { min-height: 34px; padding: 0 9px; flex: 0 0 auto; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); cursor: pointer; }
 
 .template-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }

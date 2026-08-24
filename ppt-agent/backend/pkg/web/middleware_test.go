@@ -65,9 +65,6 @@ func TestUserAPIKeyRoutesAreRegistered(t *testing.T) {
 		"GET /api/users/me/api-key",
 		"PUT /api/users/me/api-key",
 		"DELETE /api/users/me/api-key",
-		"GET /api/users/me/apikey",
-		"PUT /api/users/me/apikey",
-		"DELETE /api/users/me/apikey",
 	} {
 		if !slices.Contains(routes, want) {
 			t.Fatalf("route %q not registered; routes=%v", want, routes)

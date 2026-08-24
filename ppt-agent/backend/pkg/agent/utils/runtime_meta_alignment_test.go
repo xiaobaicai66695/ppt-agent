@@ -204,7 +204,7 @@ func TestRuntimeMetaExtractsObservableSearchAndManifestFields(t *testing.T) {
 
 	meta.RecordToolStart("search", `{"query":"延安 红色旅游 数据","reason":"核实最新文旅资料"}`)
 	meta.RecordToolEnd("search", "", `{"results":[{"title":"延安市人民政府","url":"https://www.yanan.gov.cn/a","description":"发布红色旅游接待数据","source":"延安市人民政府","date":"2026-07-01"},{"title":"百科","url":"https://baike.baidu.com/b"}]}`)
-	meta.RecordToolStart("update_tasks_manifest", `{"template":"generic","theme":"government_red","background":"party_government","tasks":[{"task_id":"slide-1"},{"task_id":"slide-2"}]}`)
+	meta.RecordToolStart("update_tasks_manifest", `{"template":"generic","theme":"government_red","tasks":[{"task_id":"slide-1"},{"task_id":"slide-2"}]}`)
 
 	if events[0].Metadata["search_query"] != "延安 红色旅游 数据" || events[0].Metadata["search_reason"] != "核实最新文旅资料" {
 		t.Fatalf("search args were not extracted: %#v", events[0].Metadata)

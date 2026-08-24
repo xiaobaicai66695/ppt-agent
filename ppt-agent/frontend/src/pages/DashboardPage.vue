@@ -1543,7 +1543,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .timeline-category.llm { color: var(--info); background: var(--info-soft); }
 .timeline-category.tool { color: var(--success); background: var(--success-soft); }
 .timeline-category.phase { color: var(--warning); background: var(--warning-soft); }
-.timeline-category.delivery { color: var(--accent); background: var(--accent-soft); }
+.timeline-category.delivery { color: var(--action-ink); background: var(--action-soft); }
 .timeline-category.compression { color: var(--info); background: var(--info-soft); box-shadow: inset 0 0 0 1px var(--divider); }
 .timeline-category.error { color: var(--danger); background: var(--danger-soft); }
 .timeline-main { min-width: 0; display: flex; flex-direction: column; }.timeline-main strong { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }.timeline-main small { color: var(--text-muted); }
@@ -1731,7 +1731,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .watch-step.planner .watch-dot,
 .watch-step.search .watch-dot { background: var(--info); }
 .watch-step.render .watch-dot { background: var(--success); }
-.watch-step.delivery .watch-dot { background: var(--accent); }
+.watch-step.delivery .watch-dot { background: var(--action-ink); }
 .watch-step.error .watch-dot,
 .watch-step.failed .watch-dot { background: var(--danger); }
 .watch-copy {

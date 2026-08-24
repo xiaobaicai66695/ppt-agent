@@ -18,13 +18,7 @@ func conversationMessagesWithFallback(messages []session.Message, fullAnswer, co
 		if message.Role == "assistant" {
 			hasAssistant = true
 		}
-		if len(result) > 0 {
-			last := result[len(result)-1]
-			if last.Role == message.Role && last.Content == message.Content {
-				continue
-			}
-		}
-		result = append(result, message)
+		result = appendConversationMessage(result, message)
 	}
 	if hasAssistant {
 		return result
@@ -44,4 +38,64 @@ func conversationMessagesWithFallback(messages []session.Message, fullAnswer, co
 		Role: "assistant", Content: legacy, Timestamp: fallbackAt,
 	})
 	return result
+}
+
+func appendConversationMessage(messages []session.Message, incoming session.Message) []session.Message {
+	incoming.Content = strings.TrimSpace(incoming.Content)
+	if incoming.Content == "" {
+		return messages
+	}
+	incomingNormalized := normalizeConversationContent(incoming.Content)
+	for i := range messages {
+		existing := messages[i]
+		if existing.Role != incoming.Role {
+			continue
+		}
+		relation := duplicateContentRelation(normalizeConversationContent(existing.Content), incomingNormalized)
+		if relation == duplicateSame || relation == duplicateExistingContainsIncoming {
+			return messages
+		}
+		if relation == duplicateIncomingContainsExisting {
+			messages[i] = incoming
+			return messages
+		}
+	}
+	return append(messages, incoming)
+}
+
+func normalizeConversationContent(content string) string {
+	return strings.ToLower(strings.Join(strings.Fields(content), ""))
+}
+
+type duplicateRelation int
+
+const (
+	duplicateNone duplicateRelation = iota
+	duplicateSame
+	duplicateExistingContainsIncoming
+	duplicateIncomingContainsExisting
+)
+
+func duplicateContentRelation(existing, incoming string) duplicateRelation {
+	if existing == "" || incoming == "" {
+		return duplicateNone
+	}
+	if existing == incoming {
+		return duplicateSame
+	}
+	minLength := len(existing)
+	maxLength := len(incoming)
+	if minLength > maxLength {
+		minLength, maxLength = maxLength, minLength
+	}
+	if minLength < 20 || float64(minLength)/float64(maxLength) < 0.18 {
+		return duplicateNone
+	}
+	if strings.Contains(existing, incoming) {
+		return duplicateExistingContainsIncoming
+	}
+	if strings.Contains(incoming, existing) {
+		return duplicateIncomingContainsExisting
+	}
+	return duplicateNone
 }
