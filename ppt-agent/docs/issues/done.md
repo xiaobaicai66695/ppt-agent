@@ -2,6 +2,30 @@
 
 ## 2026-08-24
 
+- ID: 20260824-manifest-tool-tasks-string-hotfix
+- Type: hotfix/deployment
+- Scope: Planner manifest tool input parsing
+- Completed: 2026-08-24 23:40 Asia/Shanghai
+- Changes:
+  - Fixed `update_tasks_manifest` so `tasks` accepts either a real JSON array or a valid JSON-array string produced by the model/tool-call layer.
+  - Kept strict current DeckSpec rules: invalid strings still fail, and no legacy `background` / `elements` / loose object extraction was restored.
+- Root Cause:
+  - Commit `ba0fd36` removed the old raw-input parser while cleaning historical compatibility. The deployed tool then tried to unmarshal `tasks` directly into `[]manifestTaskPatch`.
+  - The Planner's actual tool call encoded `tasks` as a string containing a JSON array, causing `json: cannot unmarshal string into Go struct field manifestToolInput.tasks`.
+- Verification:
+  - Local: `go test ./pkg/agent/deck` passed.
+  - Local: `go build ./...` passed.
+  - Online: deployed binary contains the new `tasks JSON array string` parser error text.
+  - Online: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Online: `GET http://127.0.0.1:8080/api/templates` returned 200 with `presets=19`.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Commit: `0feec40`
+  - Backend process: restarted to PID `2897132`, command `../ppt-agent-linux -mode web -addr :8080`.
+- Cleanup:
+  - Removed local hotfix Linux binary artifact.
+  - Removed remote `/tmp/ppt-agent-linux-0feec40`.
+
 - ID: 20260824-deck-planning-visuals-account-controls-deploy
 - Type: feature/fix/deployment
 - Scope: account API key, admin task visibility, frontend light UI, component-first DeckSpec, image visual planning, agenda numbering
