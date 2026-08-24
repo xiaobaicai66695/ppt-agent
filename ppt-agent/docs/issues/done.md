@@ -2,6 +2,35 @@
 
 ## 2026-08-24
 
+- ID: 20260824-deck-planning-visuals-account-controls-deploy
+- Type: feature/fix/deployment
+- Scope: account API key, admin task visibility, frontend light UI, component-first DeckSpec, image visual planning, agenda numbering
+- Completed: 2026-08-24 21:35 Asia/Shanghai
+- Changes:
+  - Deployed commit `ba0fd36` to `remote-dev:/ppt/ppt-agent`.
+  - Kept account API key priority as database key first, then environment fallback; exposed account API key settings in the frontend.
+  - Exposed admin task listing for the default administrator account, including task owner email in the task payload and UI.
+  - Removed legacy top-level DeckSpec `background` / `elements` planning fields from active backend, frontend API types, tests, and gold DeckSpecs; current image planning uses `visual_intent` or `image` components with downloaded `local_path`.
+  - Strengthened Planner/skill guidance for more image-text mixed layouts, title/section background blur masks, no perspective-heavy title backgrounds, and agenda numbering by section order instead of slide page index.
+- Verification:
+  - Local: `go test ./pkg/agent/deck ./pkg/web ./pkg/task ./pkg/agent/utils ./pkg/agent/intent` passed.
+  - Local: `go test ./test/plan_benchmark -run TestGoldDeckSpecsPassReviewer` passed.
+  - Local: `go test` for all backend packages except `pkg/tools/qa` passed; `pkg/tools/qa` remains blocked by missing local `pdftoppm` in PATH.
+  - Local: `go build ./...` passed.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed with 17 tests.
+  - Local: `npm run build` passed.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Backend process: restarted to PID `2868485`, command `../ppt-agent-linux -mode web -addr :8080`, working directory `/ppt/ppt-agent/backend`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Templates: `GET http://127.0.0.1:8080/api/templates` returned 200 with `presets=19`.
+  - Frontend: `GET http://127.0.0.1:8080/` returned 200 and served new `index-CgHDTW6l.js` / `index-BptfUB92.css` assets.
+  - Auth boundaries: unauthenticated `/api/users/me/api-key` and `/api/admin/tasks` returned 401.
+- Cleanup:
+  - Removed this deployment's local tar and Linux binary artifacts.
+  - Removed remote `/tmp/ppt-agent-src-ba0fd36.tar`, `/tmp/ppt-agent-frontend-dist-ba0fd36.tar`, `/tmp/ppt-agent-linux-ba0fd36`.
+  - Removed remote historical backup directories `/ppt/deploy-backups`, `/ppt/ppt-agent/backups`, `/ppt/ppt-agent/deploy_backups`, plus old backend `.env.bak.*` and probe binary temp files.
+
 - ID: 20260824-rename-visual-designer-to-deck-planner
 - Type: refactor/cleanup
 - Scope: skill naming, component-first template loading, legacy asset/background cleanup
