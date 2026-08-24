@@ -167,6 +167,29 @@ func TestManifestToolPatchesOrderedTasksWithoutIDs(t *testing.T) {
 	}
 }
 
+func TestManifestToolAcceptsTasksJSONArrayString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"字符串数组",
+		"theme":"ocean_soft",
+		"template":"generic",
+		"tasks":"[{\"task_id\":\"1\",\"page_index\":1,\"title\":\"封面\",\"content_type\":\"title_slide\",\"description\":\"封面描述\",\"output_file\":\"1_cover.pptx\",\"status\":\"pending\"}]"
+	}`
+
+	if _, err := tool.InvokableRun(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 1 || got.Tasks[0].Title != "封面" {
+		t.Fatalf("tasks string was not decoded: %#v", got.Tasks)
+	}
+}
+
 func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "介绍延安", false)

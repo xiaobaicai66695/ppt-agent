@@ -150,6 +150,14 @@ type manifestToolInput struct {
 	Tasks    []manifestTaskPatch `json:"tasks"`
 }
 
+type manifestToolRawInput struct {
+	Mode     string          `json:"mode"`
+	Title    string          `json:"title,omitempty"`
+	Theme    string          `json:"theme,omitempty"`
+	Template string          `json:"template,omitempty"`
+	Tasks    json.RawMessage `json:"tasks"`
+}
+
 type manifestTool struct {
 	workDir       string
 	fallbackTitle string
@@ -362,14 +370,43 @@ func ensureSectionNumber(item *TaskItem, sectionCount int) {
 }
 
 func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {
-	var input manifestToolInput
-	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
+	var raw manifestToolRawInput
+	if err := json.Unmarshal([]byte(argumentsInJSON), &raw); err != nil {
 		return manifestToolInput{}, err
 	}
-	if strings.TrimSpace(input.Mode) == "" {
+	if strings.TrimSpace(raw.Mode) == "" {
 		return manifestToolInput{}, fmt.Errorf("mode must not be empty")
 	}
+	tasks, err := parseManifestTaskPatches(raw.Tasks)
+	if err != nil {
+		return manifestToolInput{}, err
+	}
+	input := manifestToolInput{
+		Mode: raw.Mode, Title: raw.Title, Theme: raw.Theme, Template: raw.Template, Tasks: tasks,
+	}
 	return input, nil
+}
+
+func parseManifestTaskPatches(raw json.RawMessage) ([]manifestTaskPatch, error) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || string(raw) == "null" {
+		return nil, nil
+	}
+	var tasks []manifestTaskPatch
+	if err := json.Unmarshal(raw, &tasks); err == nil {
+		return tasks, nil
+	}
+	var encoded string
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		return nil, fmt.Errorf("tasks must be an array")
+	}
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" {
+		return nil, fmt.Errorf("tasks JSON array string must not be empty")
+	}
+	if err := json.Unmarshal([]byte(encoded), &tasks); err != nil {
+		return nil, fmt.Errorf("tasks JSON array string is invalid: %w", err)
+	}
+	return tasks, nil
 }
 
 func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManifest, error) {
