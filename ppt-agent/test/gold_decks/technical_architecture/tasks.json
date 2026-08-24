@@ -1,0 +1,133 @@
+{
+  "title": "PPT Agent 技术架构与质量门",
+  "theme": "ocean_soft",
+  "template": "tech-sharing",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "PPT Agent 技术架构与质量门",
+      "content_type": "title_slide",
+      "description": "封面页，介绍 PPT Agent 如何从用户需求生成 DeckSpec，再由确定性渲染器产出 PPT，并通过质量门控制风险。",
+      "output_file": "01_技术架构封面.pptx",
+      "status": "pending",
+      "background": "minimalist_blue/images/1.jpg",
+      "content_plan": {
+        "summary": "规划由 Agent 完成，视觉落地由 skill 中的确定性 Python generators 完成。",
+        "slide_intent": "建立技术分享的核心判断。",
+        "components": [
+          {"id": "deck_title", "type": "deck_title", "text": "PPT Agent 技术架构与质量门"},
+          {"id": "subheadline", "type": "subheadline", "text": "从用户意图、tasks.json 到确定性渲染与质量评估"},
+          {"id": "key_point", "type": "key_point", "title": "核心边界", "body": "LLM 负责规划语义契约，不手写 python-pptx；生成器负责字号、布局、背景和可读性。"}
+        ],
+        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_02",
+      "page_index": 2,
+      "title": "01 架构总览",
+      "content_type": "section_divider",
+      "layout_variant": "number_sidebar",
+      "description": "章节分隔页，进入架构总览部分。",
+      "output_file": "02_架构总览章节.pptx",
+      "status": "pending",
+      "background": "minimalist_blue/images/2.jpg",
+      "content_plan": {
+        "summary": "先看链路边界，再看任务契约和质量门。",
+        "slide_intent": "切换到系统架构说明。",
+        "section_number": "01",
+        "components": [
+          {"id": "marker", "type": "section_marker", "text": "01"},
+          {"id": "headline", "type": "headline", "text": "架构总览"}
+        ],
+        "visual_intent": {"preferred_variant": "number_sidebar"},
+        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 2}
+      }
+    },
+    {
+      "task_id": "slide_03",
+      "page_index": 3,
+      "title": "端到端链路：Planning 与 Rendering 解耦",
+      "content_type": "deep_dive",
+      "description": "深度架构页，说明 API 接收用户请求，Planner 产出 tasks.json，Reviewer 做确定性质量门，SlideExecutor 调用 render_task.py，Python generators 输出单页 PPTX，最后合并、生成缩略图并交付。",
+      "output_file": "03_端到端链路.pptx",
+      "status": "pending",
+      "background": "minimalist_blue/images/3.jpg",
+      "content_plan": {
+        "summary": "系统把不稳定的语义规划和稳定的视觉渲染分开，降低整轮生成失败面。",
+        "slide_intent": "解释为什么当前生产链路不是让 Agent 直接绘制 PPT。",
+        "components": [
+          {"id": "argument", "type": "argument_block", "body": "PPT Agent 的生产链路以 DeckSpec 为中心：Web API 先接收用户主题、模板、风格和大纲约束，Planner 只负责把这些输入转换为结构化 tasks.json；确定性 Reviewer 检查字段、组件容量、背景计划和质量门；SlideExecutor 逐页读取任务并调用 visual_designer 中的 render_task.py；Python generators 根据 content_type 和 content_plan.components 生成单页 PPTX；最后服务端合并文件、生成缩略图并返回下载地址。这个拆分让模型输出集中在语义层，避免每页都由 LLM 手写绘图代码。"},
+          {"id": "box_api", "type": "architecture_box", "title": "Web API", "body": "接收 query、outline、template、style_context"},
+          {"id": "box_planner", "type": "architecture_box", "title": "Planner", "body": "生成 title/theme/tasks/content_plan"},
+          {"id": "box_renderer", "type": "architecture_box", "title": "Renderer", "body": "render_task.py 调用既有 generators"},
+          {"id": "source", "type": "source_note", "text": "来源: docs/architecture/ppt-agent-current-architecture-summary.md；skills/visual_designer/SKILL.md"}
+        ],
+        "capacity_hint": {"estimated_density": "dense", "overflow_risk": "medium", "component_count": 5}
+      }
+    },
+    {
+      "task_id": "slide_04",
+      "page_index": 4,
+      "title": "tasks.json 是多 Agent 协作契约",
+      "content_type": "content_slide",
+      "description": "说明 tasks.json 的关键字段：task_id、page_index、content_type、description、content_plan、background、output_file、status。强调 content_type 必须是合法英文 id，content_plan 只能写语义组件。",
+      "output_file": "04_tasks契约.pptx",
+      "status": "pending",
+      "background": "minimalist_blue/images/4.jpg",
+      "content_plan": {
+        "summary": "DeckSpec 把用户意图、页面结构和渲染输入压缩成一个可审计契约。",
+        "slide_intent": "明确 tasks.json 的字段职责和错误边界。",
+        "components": [
+          {"id": "headline", "type": "headline", "text": "DeckSpec 是唯一跨阶段契约"},
+          {"id": "list", "type": "evidence_list", "items": ["身份字段: task_id、page_index、output_file 必须唯一且稳定，避免并发写入覆盖。", "布局字段: content_type 使用合法英文 id，layout_variant 只填已实现枚举。", "语义字段: description 和 content_plan.components 表达业务内容，不写坐标、字号或颜色。", "运行字段: status、qa_report、fix_attempts 只记录执行状态，不反向污染规划语义。"]},
+          {"id": "warning", "type": "risk_item", "title": "常见退化", "body": "如果把 content_type 写成中文布局名，或把组件写成视觉实现参数，SlideExecutor 会失去稳定映射。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_05",
+      "page_index": 5,
+      "title": "质量门：先硬校验，再语义 Judge",
+      "content_type": "process_flow",
+      "description": "流程页，说明 benchmark 质量验证顺序：JSON/schema 硬校验、确定性 plan review、Judge 语义评分、渲染产物检查、人工抽样校准。",
+      "output_file": "05_质量门流程.pptx",
+      "status": "pending",
+      "background": "minimalist_blue/images/1.jpg",
+      "content_plan": {
+        "summary": "结构错误交给代码，语义质量交给 Judge，最终视觉问题交给渲染截图和人工抽检。",
+        "slide_intent": "给出 benchmark 评估闭环。",
+        "components": [
+          {"id": "step_1", "type": "process_step", "title": "硬校验", "body": "检查 JSON、合法 content_type、唯一 page_index、组件容量和禁用渲染字段。"},
+          {"id": "step_2", "type": "process_step", "title": "确定性 Review", "body": "复用 review_tasks_manifest 检查 DeckSpec 草稿是否满足质量门。"},
+          {"id": "step_3", "type": "process_step", "title": "Judge 评分", "body": "另一个模型只评价意图覆盖、叙事、内容具体性、来源和视觉规划。"},
+          {"id": "step_4", "type": "process_step", "title": "渲染验证", "body": "用 gold tasks.json 调用 render_task.py，确认脚本链路能产出 PPTX。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_06",
+      "page_index": 6,
+      "title": "主要风险与下一步实验",
+      "content_type": "summary_slide",
+      "description": "总结页，归纳主要风险：Judge 偏差、事实真实性、渲染视觉缺陷、通用 Agent 擅自改写 gold；给出下一步：固定五份 gold、记录轨迹、截图人工抽检。",
+      "output_file": "06_风险与下一步.pptx",
+      "status": "pending",
+      "background": "minimalist_blue/images/2.jpg",
+      "content_plan": {
+        "summary": "benchmark 要同时看计划质量、脚本执行和最终视觉效果，不能只看某一层得分。",
+        "slide_intent": "收束技术分享并给出可执行实验方向。",
+        "components": [
+          {"id": "risk_1", "type": "risk_item", "title": "Judge 偏差", "body": "模型评分容易偏爱长文本，需要用人工样本校准评分阈值。"},
+          {"id": "risk_2", "type": "risk_item", "title": "事实真实性", "body": "Judge 不能替代事实核验，数据页仍需保留来源。"},
+          {"id": "risk_3", "type": "risk_item", "title": "执行漂移", "body": "通用 Agent 实验必须要求不改写 gold tasks.json，只调用 skill 脚本。"},
+          {"id": "recommendation", "type": "recommendation", "title": "下一步", "body": "先用五份 gold 跑通脚本执行，再接入 Planner 输出做 A/B。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    }
+  ]
+}

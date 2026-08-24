@@ -135,7 +135,8 @@ type ContentTone struct {
 	HumorLevel  int    `json:"humor_level"`  // 幽默程度 1-10
 }
 
-// SuccessPattern 成功模式
+// SuccessPattern 是历史兼容字段，仅用于只读推荐。
+// 新链路不再从任务完成结果自动写入成功模式。
 type SuccessPattern struct {
 	Domain          string  `json:"domain"`            // 应用领域
 	Template        string  `json:"template"`          // 成功使用的模板
@@ -156,13 +157,13 @@ type EnhancedProfile struct {
 	ContentTone      ContentTone      `json:"content_tone"`
 	SuccessPatterns  []SuccessPattern `json:"success_patterns"`
 
-	// 学习统计
+	// 历史统计，保留用于兼容已存储画像，不再由任务完成自动更新。
 	FirstTaskTime  time.Time `json:"first_task_time"`
 	LastActiveTime time.Time `json:"last_active_time"`
 	TotalTasks     int       `json:"total_tasks"`
 	SuccessRate    float64   `json:"success_rate"` // 任务成功率
 
-	// 领域偏好（基于任务历史）
+	// 领域偏好，作为用户显式画像/历史兼容数据读取，不再自动学习。
 	DomainPreferences map[string]int `json:"domain_preferences"` // 领域 -> 次数
 }
 
@@ -352,12 +353,10 @@ func (p *EnhancedProfile) Recommend(req *RecommendRequest) *RecommendResult {
 		Tips:      []string{},
 	}
 
-	// 添加个性化提示
-	if p.TaskCount > 5 {
-		result.Tips = append(result.Tips, fmt.Sprintf("根据您过去%d个任务的经验进行了优化", p.TaskCount))
-	}
-	if p.SuccessRate > 0.8 {
-		result.Tips = append(result.Tips, "您最近的任务完成率很高，继续保持!")
+	if p.hasExactDomainHistory(req.Domain) {
+		result.Tips = append(result.Tips, "已找到同领域历史偏好，推荐仅作为弱参考")
+	} else if hasSceneSensitivePreferenceFields(p) {
+		result.Tips = append(result.Tips, "未使用跨领域模板、配色和布局偏好")
 	}
 
 	return result
@@ -380,8 +379,8 @@ func (p *EnhancedProfile) suggestTemplate(domain, complexity string) string {
 }
 
 func (p *EnhancedProfile) suggestTheme(domain string) string {
-	if len(p.PreferredThemes) > 0 {
-		return p.PreferredThemes[0]
+	if theme := p.GetPreferredThemeForDomain(domain); theme != "" {
+		return theme
 	}
 	domainThemes := map[string]string{
 		"business":   "charcoal_light",
@@ -395,6 +394,17 @@ func (p *EnhancedProfile) suggestTheme(domain string) string {
 		return theme
 	}
 	return "simple_gray"
+}
+
+func hasSceneSensitivePreferenceFields(p *EnhancedProfile) bool {
+	if p == nil {
+		return false
+	}
+	return len(p.PreferredThemes) > 0 ||
+		len(p.PreferredColors) > 0 ||
+		len(p.LayoutPreferences) > 0 ||
+		len(p.SuccessPatterns) > 0 ||
+		len(p.SpecialNotes) > 0
 }
 
 func (p *EnhancedProfile) suggestPageCount(complexity int) int {
@@ -500,7 +510,8 @@ type RecommendResult struct {
 	Tips      []string `json:"tips"`
 }
 
-// UserProfile 表示从过去任务中学习的用户风格偏好
+// UserProfile 表示用户显式维护的偏好和确定性资料。
+// 生成结果、任务输出和 QA 评分不再自动写回该画像。
 type UserProfile struct {
 	UserID            int              `json:"user_id"`
 	PreferredThemes   []string         `json:"preferred_themes"`
@@ -516,152 +527,6 @@ type UserProfile struct {
 	UpdatedAt         time.Time        `json:"updated_at"`
 }
 
-// MergeWith 使用加权平均更新配置文件的样式数据
-func (p *UserProfile) MergeWith(new *ExtractedStyle) {
-	p.TaskCount++
-
-	if p.TaskCount <= 3 {
-		p.mergeColdStart(new)
-		return
-	}
-
-	weight := 1.0 / float64(p.TaskCount)
-	existingWeight := 1.0 - weight
-
-	p.mergeWeighted(new, existingWeight, weight)
-}
-
-func (p *UserProfile) mergeColdStart(new *ExtractedStyle) {
-	if len(new.Themes) > 0 {
-		p.PreferredThemes = deduplicate(append(p.PreferredThemes, new.Themes...))
-	}
-	if len(new.Colors) > 0 {
-		p.PreferredColors = deduplicate(append(p.PreferredColors, new.Colors...))
-	}
-	if len(new.ContentPatterns) > 0 {
-		p.ContentPatterns = deduplicate(append(p.ContentPatterns, new.ContentPatterns...))
-	}
-	if len(new.LayoutPreferences) > 0 {
-		p.LayoutPreferences = deduplicate(append(p.LayoutPreferences, new.LayoutPreferences...))
-	}
-	if new.LanguageTone != "" {
-		p.LanguageTone = new.LanguageTone
-	}
-	if new.PageCount > 0 {
-		p.TypicalPageCount = new.PageCount
-	}
-	if p.ContentTypes == nil {
-		p.ContentTypes = make(ContentTypeCount)
-	}
-	for ct, cnt := range new.ContentTypes {
-		p.ContentTypes[ct] += cnt
-	}
-	if len(new.SpecialNotes) > 0 {
-		p.SpecialNotes = deduplicate(append(p.SpecialNotes, new.SpecialNotes...))
-	}
-}
-
-func (p *UserProfile) mergeWeighted(new *ExtractedStyle, existingWeight, newWeight float64) {
-	p.PreferredThemes = mergeStringSliceWeighted(p.PreferredThemes, new.Themes, existingWeight, newWeight)
-	p.PreferredColors = mergeStringSliceWeighted(p.PreferredColors, new.Colors, existingWeight, newWeight)
-	p.ContentPatterns = mergeStringSliceWeighted(p.ContentPatterns, new.ContentPatterns, existingWeight, newWeight)
-	p.LayoutPreferences = mergeStringSliceWeighted(p.LayoutPreferences, new.LayoutPreferences, existingWeight, newWeight)
-
-	if new.LanguageTone != "" && p.LanguageTone == "" {
-		p.LanguageTone = new.LanguageTone
-	}
-
-	if new.PageCount > 0 {
-		p.TypicalPageCount = int(float64(p.TypicalPageCount)*existingWeight + float64(new.PageCount)*newWeight)
-	}
-
-	if p.ContentTypes == nil {
-		p.ContentTypes = make(ContentTypeCount)
-	}
-	for ct, cnt := range new.ContentTypes {
-		p.ContentTypes[ct] = int(float64(p.ContentTypes[ct])*existingWeight + float64(cnt)*newWeight)
-	}
-
-	if len(new.SpecialNotes) > 0 {
-		p.SpecialNotes = mergeStringSliceWeighted(p.SpecialNotes, new.SpecialNotes, existingWeight, newWeight)
-	}
-}
-
-// BuildStyleContext 生成人类可读的风格上下文字符串，用于注入到提示词
-func (p *UserProfile) BuildStyleContext() string {
-	if p.TaskCount == 0 && p.UserFacts.IsEmpty() {
-		return ""
-	}
-
-	var sb strings.Builder
-	if lines := p.UserFacts.PromptLines(); len(lines) > 0 {
-		sb.WriteString("\n\n【用户确定性资料】\n")
-		sb.WriteString(strings.Join(lines, "\n"))
-		sb.WriteString("\n")
-	}
-
-	if p.TaskCount == 0 {
-		return sb.String()
-	}
-
-	sb.WriteString("\n\n【用户风格偏好】（基于您过去 ")
-	sb.WriteString(intToStr(p.TaskCount))
-	sb.WriteString(" 次任务总结）\n")
-
-	if len(p.PreferredThemes) > 0 {
-		sb.WriteString("- 配色主题：")
-		sb.WriteString(strings.Join(p.PreferredThemes, "、"))
-		sb.WriteString("\n")
-	}
-	if len(p.PreferredColors) > 0 {
-		sb.WriteString("- 色彩搭配：")
-		sb.WriteString(strings.Join(p.PreferredColors, "、"))
-		sb.WriteString("\n")
-	}
-	if len(p.ContentPatterns) > 0 {
-		sb.WriteString("- 内容风格：")
-		sb.WriteString(strings.Join(p.ContentPatterns, "、"))
-		sb.WriteString("\n")
-	}
-	if len(p.LayoutPreferences) > 0 {
-		sb.WriteString("- 布局偏好：")
-		sb.WriteString(strings.Join(p.LayoutPreferences, "、"))
-		sb.WriteString("\n")
-	}
-	if p.LanguageTone != "" {
-		sb.WriteString("- 语言风格：")
-		sb.WriteString(p.LanguageTone)
-		sb.WriteString("\n")
-	}
-	if p.TypicalPageCount > 0 {
-		sb.WriteString("- 常用页数：约 ")
-		sb.WriteString(intToStr(p.TypicalPageCount))
-		sb.WriteString(" 页\n")
-	}
-	if len(p.SpecialNotes) > 0 {
-		for _, note := range p.SpecialNotes {
-			sb.WriteString("- ")
-			sb.WriteString(note)
-			sb.WriteString("\n")
-		}
-	}
-
-	sb.WriteString("请在生成PPT时遵循上述偏好。\n")
-	return sb.String()
-}
-
-func intToStr(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
-}
-
 func cleanFactValue(value string) string {
 	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 	if value == "" {
@@ -672,105 +537,6 @@ func cleanFactValue(value string) string {
 		return string(runes[:120])
 	}
 	return value
-}
-
-// ExtractedStyle 表示从单个任务中提取的样式数据
-type ExtractedStyle struct {
-	Themes            []string         `json:"themes,omitempty"`
-	Colors            []string         `json:"colors,omitempty"`
-	ContentPatterns   []string         `json:"content_patterns,omitempty"`
-	LayoutPreferences []string         `json:"layout_preferences,omitempty"`
-	LanguageTone      string           `json:"language_tone,omitempty"`
-	PageCount         int              `json:"page_count,omitempty"`
-	ContentTypes      ContentTypeCount `json:"content_types,omitempty"`
-	SpecialNotes      []string         `json:"special_notes,omitempty"`
-}
-
-// TaskItemInfo 是用于样式提取的任务项的简化表示
-type TaskItemInfo struct {
-	ContentType string `json:"content_type"`
-	Theme       string `json:"theme"`
-}
-
-// ExtractFromTasks 从任务项列表和主题中提取样式偏好
-func ExtractFromTasks(tasks []*TaskItemInfo, theme string) *ExtractedStyle {
-	es := &ExtractedStyle{
-		ContentTypes: make(ContentTypeCount),
-	}
-
-	es.PageCount = len(tasks)
-
-	for _, t := range tasks {
-		if t.ContentType != "" {
-			es.ContentTypes[t.ContentType]++
-		}
-	}
-
-	if theme != "" {
-		es.Themes = append(es.Themes, theme)
-	}
-
-	return es
-}
-
-// ExtractFromQuery 分析用户查询中的风格提示
-func ExtractFromQuery(query string) *ExtractedStyle {
-	es := &ExtractedStyle{}
-
-	queryLower := strings.ToLower(query)
-
-	colorMap := map[string][]string{
-		"科技": {"ocean_soft", "sage_calm"},
-		"技术": {"ocean_soft"},
-		"学术": {"ocean_soft", "sage_calm"},
-		"教学": {"sage_calm", "simple_gray"},
-		"商务": {"charcoal_light", "warm_terracotta"},
-		"路演": {"charcoal_light", "berry_cream"},
-		"政务": {"government_red", "patriotic_blue"},
-		"思政": {"patriotic_blue", "government_red"},
-		"答辩": {"debate_purple", "charcoal_light"},
-		"竞赛": {"civic_gold", "innovation_green"},
-		"创新": {"civic_gold", "berry_cream"},
-		"教育": {"sage_calm", "simple_gray"},
-		"环保": {"sage_calm", "report_green"},
-		"医疗": {"ocean_soft", "medical_blue"},
-		"金融": {"charcoal_light", "finance_gold"},
-		"简约": {"simple_gray", "sage_calm"},
-		"活泼": {"activity_orange", "berry_cream"},
-		"创意": {"berry_cream", "lavender_mist"},
-	}
-
-	for keyword, themes := range colorMap {
-		if strings.Contains(queryLower, keyword) {
-			es.Themes = append(es.Themes, themes...)
-			break
-		}
-	}
-
-	if strings.Contains(queryLower, "图文") || strings.Contains(queryLower, "图片") {
-		es.ContentPatterns = append(es.ContentPatterns, "图文并茂")
-	}
-	if strings.Contains(queryLower, "数据") || strings.Contains(queryLower, "图表") || strings.Contains(queryLower, "统计") {
-		es.ContentPatterns = append(es.ContentPatterns, "数据图表多")
-	}
-	if strings.Contains(queryLower, "案例") || strings.Contains(queryLower, "实例") {
-		es.ContentPatterns = append(es.ContentPatterns, "案例驱动")
-	}
-	if strings.Contains(queryLower, "对比") || strings.Contains(queryLower, "比较") {
-		es.ContentPatterns = append(es.ContentPatterns, "对比分析")
-	}
-
-	if strings.Contains(queryLower, "正式") || strings.Contains(queryLower, "汇报") || strings.Contains(queryLower, "述职") {
-		es.LanguageTone = "专业正式"
-	} else if strings.Contains(queryLower, "分享") || strings.Contains(queryLower, "培训") {
-		es.LanguageTone = "专业正式"
-	} else if strings.Contains(queryLower, "活泼") || strings.Contains(queryLower, "有趣") {
-		es.LanguageTone = "轻松活泼"
-	} else if strings.Contains(queryLower, "技术") || strings.Contains(queryLower, "学术") {
-		es.LanguageTone = "技术细节"
-	}
-
-	return es
 }
 
 // ProfileStore 管理以数据库为后端的用户风格配置文件
@@ -836,52 +602,6 @@ func (s *EnhancedProfileStore) SaveEnhanced(p *EnhancedProfile) {
 		UserFacts:         p.UserFacts,
 	}
 	s.saveExtendedPreferences(p.UserID, extPrefs)
-}
-
-// UpdateDomainPreference 更新领域偏好
-func (s *EnhancedProfileStore) UpdateDomainPreference(userID int, domain string) {
-	p := s.GetEnhanced(userID)
-	if p.DomainPreferences == nil {
-		p.DomainPreferences = make(map[string]int)
-	}
-	p.DomainPreferences[domain]++
-	s.SaveEnhanced(p)
-}
-
-// RecordSuccess 记录任务成功
-func (s *EnhancedProfileStore) RecordSuccess(userID int, domain, template, theme string, pageCount int) {
-	p := s.GetEnhanced(userID)
-	p.TotalTasks++
-
-	// 更新成功率
-	successCount := int(float64(p.TotalTasks) * p.SuccessRate)
-	successCount++
-	p.SuccessRate = float64(successCount) / float64(p.TotalTasks)
-
-	// 更新成功模式
-	found := false
-	for i := range p.SuccessPatterns {
-		if p.SuccessPatterns[i].Domain == domain {
-			p.SuccessPatterns[i].SuccessCount++
-			p.SuccessPatterns[i].AvgQualityScore = (p.SuccessPatterns[i].AvgQualityScore*float64(p.SuccessPatterns[i].SuccessCount-1) + 4.5) / float64(p.SuccessPatterns[i].SuccessCount)
-			found = true
-			break
-		}
-	}
-	if !found {
-		p.SuccessPatterns = append(p.SuccessPatterns, SuccessPattern{
-			Domain:          domain,
-			Template:        template,
-			Theme:           theme,
-			PageCount:       pageCount,
-			AvgQualityScore: 4.5,
-			SuccessCount:    1,
-		})
-	}
-
-	// 更新活跃时间
-	p.LastActiveTime = time.Now()
-	s.SaveEnhanced(p)
 }
 
 // extendedPreferences 扩展偏好存储结构
@@ -1043,62 +763,4 @@ func (ps *ProfileStore) Get(userID int) *UserProfile {
 func (ps *ProfileStore) Save(p *UserProfile) {
 	r := ps.toDBRecord(p)
 	db.UpsertUserStyleProfile(r)
-}
-
-// UpdateWithTask 使用从任务中提取的样式数据更新用户配置文件
-func (ps *ProfileStore) UpdateWithTask(userID int, extracted *ExtractedStyle) {
-	p := ps.Get(userID)
-	p.MergeWith(extracted)
-	ps.Save(p)
-}
-
-// ── Helper functions ──────────────────────────────────────────────────────
-
-func deduplicate(ss []string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, s := range ss {
-		lower := strings.ToLower(s)
-		if !seen[lower] {
-			seen[lower] = true
-			result = append(result, s)
-		}
-	}
-	return result
-}
-
-func mergeStringSliceWeighted(existing, new []string, ew, nw float64) []string {
-	if len(new) == 0 {
-		return existing
-	}
-	if len(existing) == 0 {
-		return new
-	}
-
-	counts := make(map[string]int)
-	for _, s := range existing {
-		counts[strings.ToLower(s)]++
-	}
-	for _, s := range new {
-		lower := strings.ToLower(s)
-		counts[lower] += int(nw / ew)
-	}
-
-	type pair struct {
-		s     string
-		count int
-	}
-	var pairs []pair
-	for s, c := range counts {
-		pairs = append(pairs, pair{s, c})
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].count > pairs[j].count
-	})
-
-	result := make([]string, 0, min(len(pairs), 5))
-	for i := 0; i < min(len(pairs), 5); i++ {
-		result = append(result, pairs[i].s)
-	}
-	return result
 }

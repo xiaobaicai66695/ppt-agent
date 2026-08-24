@@ -1,0 +1,42 @@
+[
+  {
+    "id": "business_kpi_review",
+    "name": "销售经营复盘 DeckSpec 质量",
+    "query": "做一份销售经营复盘 PPT，必须包含 KPI 仪表盘、趋势图、渠道对比和下季度行动计划",
+    "gold_manifest": "../../gold_decks/business_kpi_review/tasks.json",
+    "must_have": ["KPI 仪表盘", "趋势图", "渠道对比", "行动计划"],
+    "must_not": ["匿名数据", "连续纯 bullet 页"]
+  },
+  {
+    "id": "technical_architecture",
+    "name": "Agent 技术架构分享 DeckSpec 质量",
+    "query": "做一份 PPT 介绍 PPT Agent 的技术架构，包含规划、任务清单、渲染脚本、质量门和风险",
+    "gold_manifest": "../../gold_decks/technical_architecture/tasks.json",
+    "must_have": ["规划", "tasks.json", "渲染脚本", "质量门", "风险"],
+    "must_not": ["把 skill 当成手写 PPT 的提示词"]
+  },
+  {
+    "id": "product_launch",
+    "name": "产品发布 DeckSpec 质量",
+    "query": "做一份企业知识库问答产品发布 PPT，覆盖痛点、能力、数据、客户案例和上线计划",
+    "gold_manifest": "../../gold_decks/product_launch/tasks.json",
+    "must_have": ["痛点", "能力", "数据", "客户案例", "上线计划"],
+    "must_not": ["空泛宣传语"]
+  },
+  {
+    "id": "education_training",
+    "name": "培训课件 DeckSpec 质量",
+    "query": "做一份 45 分钟新员工数据安全培训课件，包含课程目标、风险场景、处理流程、案例和测验",
+    "gold_manifest": "../../gold_decks/education_training/tasks.json",
+    "must_have": ["课程目标", "风险场景", "处理流程", "案例", "测验"],
+    "must_not": ["只有制度条文罗列"]
+  },
+  {
+    "id": "government_report",
+    "name": "政务专项汇报 DeckSpec 质量",
+    "query": "做一份智慧社区建设阶段汇报 PPT，风格正式，包含建设进展、指标数据、时间线、问题和下一步",
+    "gold_manifest": "../../gold_decks/government_report/tasks.json",
+    "must_have": ["建设进展", "指标数据", "时间线", "问题", "下一步"],
+    "must_not": ["娱乐化表达", "缺少来源说明的数据"]
+  }
+]

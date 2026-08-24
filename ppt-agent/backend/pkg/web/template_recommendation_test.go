@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,6 +74,64 @@ func TestRecommendTemplateStrategyUsesTopicAndRealResources(t *testing.T) {
 	}
 	if strategy.PageCount != 13 || strategy.Background != "minimalist_blue" {
 		t.Fatalf("recommendation did not reuse LLM result: %#v", strategy)
+	}
+}
+
+func TestBuildTemplateRecommendationReturnsExplainableStrategy(t *testing.T) {
+	server := testTemplateServer(t)
+	useBackground := true
+	intent := &agentintent.ClassificationResult{
+		IntentReasoning:    "技术分享需要先讲概念，再讲架构与案例",
+		Domain:             agentintent.DomainTechnical,
+		SuggestedTemplates: []string{"tech-sharing"},
+		SuggestedTheme:     "ocean_soft",
+		SuggestedPageCount: 8,
+		UseBackground:      &useBackground,
+	}
+
+	rec, err := server.buildTemplateRecommendation("生成8页关于AI Agent工具调用机制的技术分享", intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Strategy.Template == "" || rec.PrimaryTemplate.Name == "" || len(rec.RankedTemplates) == 0 {
+		t.Fatalf("recommendation missing template details: %#v", rec)
+	}
+	if rec.Strategy.PageCount != 8 {
+		t.Fatalf("page count = %d, want 8", rec.Strategy.PageCount)
+	}
+	if rec.Theme == nil {
+		t.Fatal("recommendation should include theme detail")
+	}
+	if len(rec.ComponentFocus) == 0 || rec.VisualPolicy == "" {
+		t.Fatalf("recommendation missing explainable planning fields: %#v", rec)
+	}
+}
+
+func TestRecommendTemplateRouteDoesNotFallThroughToFrontend(t *testing.T) {
+	projectRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(&ServerConfig{
+		BaseDir:     t.TempDir(),
+		SkillsDir:   filepath.Join(projectRoot, "skills"),
+		FrontendDir: filepath.Join(projectRoot, "frontend", "dist"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/templates/recommend", strings.NewReader(`{"query":"生成3页AI产品方案汇报"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
+		t.Fatalf("recommend route fell through to frontend: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "primary_template") {
+		t.Fatalf("recommend route returned unexpected payload: %s", rec.Body.String())
 	}
 }
 

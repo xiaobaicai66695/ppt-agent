@@ -1,0 +1,140 @@
+{
+  "title": "企业知识库问答产品发布方案",
+  "theme": "warm_terracotta",
+  "template": "product-launch",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "企业知识库问答产品发布方案",
+      "content_type": "title_slide",
+      "description": "封面页，介绍面向内部员工和客户支持团队的企业知识库问答产品，聚焦搜索效率、可信回答和上线计划。",
+      "output_file": "01_产品发布封面.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/1.jpg",
+      "content_plan": {
+        "summary": "让企业知识从分散文档变成可追问、可溯源、可运营的问答入口。",
+        "slide_intent": "建立产品发布主题和价值主张。",
+        "components": [
+          {"id": "deck_title", "type": "deck_title", "text": "企业知识库问答产品发布方案"},
+          {"id": "subheadline", "type": "subheadline", "text": "可信检索增强、权限隔离、引用溯源与运营闭环"},
+          {"id": "key_point", "type": "key_point", "title": "发布对象", "body": "首批面向 1200 名客服、销售和交付人员开放内测。"}
+        ],
+        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_02",
+      "page_index": 2,
+      "title": "痛点：知识存在，但答案找不到",
+      "content_type": "image_text",
+      "description": "图文叙事页。说明企业知识分散在飞书文档、CRM 工单、PDF 手册和群聊问答中，客服平均查找资料耗时 6-8 分钟，新销售经常重复询问产品边界。",
+      "output_file": "02_用户痛点.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/2.jpg",
+      "content_plan": {
+        "summary": "知识分散造成响应慢、口径不一致和新人上手慢，问答入口需要同时解决检索与可信度。",
+        "slide_intent": "用具体场景说明产品为什么必要。",
+        "visual_intent": {
+          "role": "supporting_photo",
+          "asset_purpose": "scene",
+          "asset_subject": "customer support team searching documents on laptops",
+          "asset_query": "customer support team searching documents on laptops, office scene, wide landscape",
+          "composition": "wide office scene with clean negative space"
+        },
+        "components": [
+          {"id": "image", "type": "image", "title": "客服查找知识场景", "caption": "多系统切换导致回答延迟", "asset_purpose": "scene", "asset_query": "customer support team searching documents on laptops, office scene"},
+          {"id": "paragraph", "type": "paragraph", "body": "当前知识沉淀并不少，但入口割裂：产品说明在飞书文档，客户问题在 CRM 工单，实施手册以 PDF 存放，临时经验又散落在群聊。客服面对复杂问题时需要跨 3-5 个系统检索，平均查找资料耗时 6-8 分钟；新销售在报价、功能边界和竞品问答上反复询问资深同事，造成响应效率和对外口径不稳定。"},
+          {"id": "callout", "type": "callout", "title": "核心矛盾", "body": "不是缺少文档，而是缺少能理解问题、返回出处并持续学习的统一入口。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_03",
+      "page_index": 3,
+      "title": "产品能力：回答、溯源、权限、运营",
+      "content_type": "card_grid",
+      "description": "能力矩阵页，展示语义检索、答案生成、引用溯源、权限隔离、反馈闭环、运营看板六项能力。",
+      "output_file": "03_产品能力.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/3.jpg",
+      "content_plan": {
+        "summary": "产品不只提供聊天入口，还要把可信回答、权限控制和知识运营连成闭环。",
+        "slide_intent": "展示发布版本的核心能力边界。",
+        "components": [
+          {"id": "card_1", "type": "feature_card", "title": "语义检索", "body": "支持按自然语言问题检索飞书文档、PDF 手册和历史工单片段，减少关键词不匹配。"},
+          {"id": "card_2", "type": "feature_card", "title": "可信回答", "body": "基于检索片段生成答案，并限制模型只使用命中文档范围内的信息。"},
+          {"id": "card_3", "type": "feature_card", "title": "引用溯源", "body": "每段关键答案展示文档标题、更新时间和原文链接，便于复核。"},
+          {"id": "card_4", "type": "feature_card", "title": "权限隔离", "body": "继承部门、项目和客户维度权限，避免跨团队暴露敏感资料。"},
+          {"id": "card_5", "type": "feature_card", "title": "反馈闭环", "body": "用户可标记无效回答，运营人员按问题聚类补文档或调知识库。"},
+          {"id": "card_6", "type": "feature_card", "title": "运营看板", "body": "统计高频问题、无答案率、引用文档热度和团队使用率。"}
+        ],
+        "capacity_hint": {"estimated_density": "dense", "overflow_risk": "medium", "component_count": 6}
+      }
+    },
+    {
+      "task_id": "slide_04",
+      "page_index": 4,
+      "title": "内测数据：答案命中率达到 78%",
+      "content_type": "stat_slide",
+      "description": "关键数字页，展示内测两周结果：答案命中率 78%，平均首答时间 4.2 秒，客服资料查找耗时下降 41%。来源为 2026 年 7 月内测埋点与客服访谈。",
+      "output_file": "04_内测数据.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/4.jpg",
+      "content_plan": {
+        "summary": "内测已经证明产品能缩短查找时间，但仍需通过知识补齐提升无答案场景。",
+        "slide_intent": "用数据支撑发布价值。",
+        "components": [
+          {"id": "stat_1", "type": "stat", "title": "答案命中率", "body": "内测问题中 78% 能返回可采纳答案。", "data": {"value": "78%", "label": "答案命中率"}},
+          {"id": "stat_2", "type": "stat", "title": "首答时间", "body": "平均首答时间 4.2 秒，满足客服现场使用。", "data": {"value": "4.2 秒", "label": "平均首答时间"}},
+          {"id": "stat_3", "type": "stat", "title": "查找耗时", "body": "资料查找耗时下降 41%，新人收益最明显。", "data": {"value": "-41%", "label": "资料查找耗时"}},
+          {"id": "source", "type": "source_note", "text": "来源: 2026-07 内测埋点日志；客服团队 18 人访谈纪要"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_05",
+      "page_index": 5,
+      "title": "客户案例：华东客服中心试点",
+      "content_type": "case_study",
+      "description": "案例页，介绍华东客服中心 38 名坐席试点知识库问答，接入 1260 篇产品文档和 8400 条历史工单，复杂问题平均处理时长从 18 分钟降到 12 分钟。",
+      "output_file": "05_客户案例.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/1.jpg",
+      "content_plan": {
+        "summary": "华东客服中心试点显示，知识问答对复杂问题处理效率提升最明显。",
+        "slide_intent": "用命名试点案例增强发布可信度。",
+        "components": [
+          {"id": "case", "type": "case_snapshot", "title": "华东客服中心", "body": "38 名坐席接入知识库问答，覆盖售前咨询、实施配置和故障排查三类场景。"},
+          {"id": "argument", "type": "argument_block", "body": "试点团队先接入 1260 篇产品文档和 8400 条历史工单，按产品线、客户等级和问题类型建立权限标签。上线两周后，坐席在处理复杂配置问题时不再依赖群内人工求助，系统会返回可引用的手册段落和相似工单。复杂问题平均处理时长从 18 分钟降到 12 分钟，班组长将无答案问题每周回收给知识运营补齐。"},
+          {"id": "metric_1", "type": "kpi_metric", "title": "处理时长", "body": "复杂问题平均处理时长明显下降。", "data": {"value": "12 分钟", "label": "复杂问题平均处理时长", "delta": "较试点前 -33%", "baseline": "试点前 18 分钟"}},
+          {"id": "source", "type": "source_note", "text": "来源: 华东客服中心试点复盘 2026-07-18"}
+        ],
+        "capacity_hint": {"estimated_density": "dense", "overflow_risk": "medium", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_06",
+      "page_index": 6,
+      "title": "上线计划：三阶段扩展到全公司",
+      "content_type": "timeline",
+      "description": "上线时间线页，展示 8 月灰度、9 月全客服上线、10 月扩展销售和交付团队，包含每阶段验收口径。",
+      "output_file": "06_上线计划.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/2.jpg",
+      "content_plan": {
+        "summary": "上线先控制知识范围和权限风险，再逐步扩展到高频使用团队。",
+        "slide_intent": "明确产品发布后的推进路径。",
+        "components": [
+          {"id": "node_1", "type": "timeline_node", "title": "2026-08 灰度", "body": "客服二线和产品运营 80 人试用，验收答案采纳率与无答案问题池。"},
+          {"id": "node_2", "type": "timeline_node", "title": "2026-09 客服上线", "body": "覆盖全部 420 名客服坐席，接入工单系统侧边栏入口。"},
+          {"id": "node_3", "type": "timeline_node", "title": "2026-10 扩展", "body": "开放销售和交付团队，补齐报价、竞品和实施交付知识。"},
+          {"id": "callout", "type": "callout", "title": "上线门槛", "body": "灰度阶段答案命中率稳定高于 80%，且权限误召回为 0。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    }
+  ]
+}

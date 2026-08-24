@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -31,22 +30,19 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/style"
 )
 
-// Engine 智能学习引擎，整合意图识别、路由、偏好学习和模式分析
+// Engine 承载意图识别、路由和只读画像推荐。
+// 历史包名保留为 learning，但自动学习、反馈分析和任务完成写画像已停用。
 type Engine struct {
 	classifier       *intent.Classifier
 	router           *router.Engine
-	collector        *Collector
-	updater          *Updater
-	analyzer         *Analyzer
 	profileStore     *style.EnhancedProfileStore
 	textModelFactory interface{}
-	mu               sync.RWMutex
 }
 
 // EngineConfig 引擎配置
 type EngineConfig struct {
 	EnableLLMClassification bool // 是否启用LLM意图分类
-	EnableLearning          bool // 是否启用持续学习
+	EnableLearning          bool // deprecated: 自动学习已停用，仅保留字段兼容旧配置
 	EnableProfileMatch      bool // 是否启用画像匹配
 }
 
@@ -60,7 +56,7 @@ func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory int
 	if cfg == nil {
 		cfg = &EngineConfig{
 			EnableLLMClassification: true,
-			EnableLearning:          true,
+			EnableLearning:          false,
 			EnableProfileMatch:      true,
 		}
 	}
@@ -81,32 +77,26 @@ func NewEngine(cfg *EngineConfig, modelFactory interface{}, textModelFactory int
 	// 初始化路由引擎
 	e.router = router.NewEngine(e.classifier)
 
-	// 初始化学习组件
-	if cfg.EnableLearning {
-		e.updater = NewUpdater(e.profileStore, e.makeGenerateModelFactory(textModelFactory))
-		e.collector = NewCollector(nil)
-		e.analyzer = NewAnalyzer(e.makeTextModelFactoryForAnalyzer(textModelFactory))
-		// 建立 Collector → Updater 的连接
-		e.collector.SetUpdater(e.updater)
-	}
-
 	logger.Info("intelligent_engine_initialized",
 		"llm_classification", cfg.EnableLLMClassification,
-		"learning", cfg.EnableLearning,
+		"learning", false,
 		"profile_match", cfg.EnableProfileMatch,
-		"llm_enabled", modelFactory != nil)
+		"llm_enabled", hasCallableFactory(modelFactory))
 
 	return e
 }
 
 // makeClassifierFactory 将通用 modelFactory 适配为 intent.Classifier 需要的类型
 func (e *Engine) makeClassifierFactory(modelFactory interface{}) func(ctx context.Context) (model.ToolCallingChatModel, error) {
-	if modelFactory == nil {
+	if !hasCallableFactory(modelFactory) {
 		return nil
 	}
 
 	switch f := modelFactory.(type) {
 	case func(ctx context.Context) (model.ToolCallingChatModel, error):
+		if reflect.ValueOf(f).IsNil() {
+			return nil
+		}
 		return f
 	default:
 		return nil
@@ -115,6 +105,9 @@ func (e *Engine) makeClassifierFactory(modelFactory interface{}) func(ctx contex
 
 // callModelFactory 动态调用 modelFactory（支持多种函数签名）
 func callModelFactory(modelFactory interface{}, ctx context.Context) (interface{}, error) {
+	if !hasCallableFactory(modelFactory) {
+		return nil, fmt.Errorf("modelFactory 为空")
+	}
 	fn := reflect.ValueOf(modelFactory)
 	fnType := fn.Type()
 	if fnType.Kind() != reflect.Func || fnType.NumIn() != 1 || fnType.NumOut() != 2 {
@@ -133,28 +126,11 @@ func callModelFactory(modelFactory interface{}, ctx context.Context) (interface{
 	return result[0].Interface(), nil
 }
 
-// makeGenerateModelFactory 将通用 modelFactory 适配为 Updater 所需的 GenerateModel 工厂。
-func (e *Engine) makeGenerateModelFactory(factory interface{}) func(ctx context.Context) (GenerateModel, error) {
-	if factory == nil {
-		return nil
-	}
-	return func(ctx context.Context) (GenerateModel, error) {
-		result, err := callModelFactory(factory, ctx)
-		if err != nil {
-			return nil, err
-		}
-		if gm, ok := result.(GenerateModel); ok {
-			return gm, nil
-		}
-		return nil, fmt.Errorf("modelFactory 返回值不满足 GenerateModel 接口: %T", result)
-	}
-}
-
 // makeTextModelFactory 将通用 textModelFactory 适配为 intent.Classifier 需要的类型
 func (e *Engine) makeTextModelFactory(factory interface{}) func(ctx context.Context) (interface {
 	Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 }, error) {
-	if factory == nil {
+	if !hasCallableFactory(factory) {
 		return nil
 	}
 
@@ -174,11 +150,15 @@ func (e *Engine) makeTextModelFactory(factory interface{}) func(ctx context.Cont
 	}
 }
 
-// makeTextModelFactoryForAnalyzer 将通用 textModelFactory 适配为 Analyzer 需要的类型
-func (e *Engine) makeTextModelFactoryForAnalyzer(factory interface{}) func(ctx context.Context) (interface {
-	Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
-}, error) {
-	return e.makeTextModelFactory(factory)
+func hasCallableFactory(factory interface{}) bool {
+	if factory == nil {
+		return false
+	}
+	v := reflect.ValueOf(factory)
+	if !v.IsValid() || v.Kind() != reflect.Func {
+		return false
+	}
+	return !v.IsNil()
 }
 
 // ProcessTask 处理任务入口
@@ -198,8 +178,11 @@ func (e *Engine) ProcessTask(ctx context.Context, query string, userID int) (*Pr
 		result.Intent = intentResult
 	}
 
-	// Step 2: 获取用户画像
-	profile := e.profileStore.GetEnhanced(userID)
+	// Step 2: 获取用户画像。未登录的公开接口没有用户画像，不能访问 DB。
+	profile := style.NewEnhancedProfile(userID)
+	if userID > 0 {
+		profile = e.profileStore.GetEnhanced(userID)
+	}
 	result.Profile = profile
 
 	// Step 3: reuse the same LLM classification for routing. Routing must not
@@ -212,65 +195,10 @@ func (e *Engine) ProcessTask(ctx context.Context, query string, userID int) (*Pr
 		result.Routing = routingResult
 	}
 
-	// Step 4: 记录学习信号（任务开始）
-	if e.collector != nil {
-		e.collector.RecordImplicitFeedback(userID, "", "task_start", 0)
-	}
-
 	return result, nil
 }
 
-// RecordFeedback 记录用户反馈
-func (e *Engine) RecordFeedback(userID int, taskID string, feedback *Feedback) {
-	if e.collector == nil {
-		return
-	}
-
-	switch feedback.Type {
-	case "rating":
-		e.collector.RecordExplicitFeedback(userID, taskID, feedback.Rating, feedback.Data)
-	case "edit":
-		e.collector.RecordEditAction(userID, taskID, feedback.PageIndex, feedback.Before, feedback.After)
-	case "completion":
-		e.collector.RecordTaskCompletion(userID, taskID, feedback.Duration, feedback.Rating)
-	case "abandon":
-		e.collector.RecordAbandonTask(userID, taskID, feedback.Reason, feedback.Progress)
-	}
-}
-
-// UpdateProfileFromTask 从任务更新用户画像
-func (e *Engine) UpdateProfileFromTask(userID int, task *TaskContext) {
-	if e.updater == nil {
-		return
-	}
-
-	// 提取风格
-	extracted := &style.ExtractedStyle{
-		Themes:    task.Themes,
-		Colors:    task.Colors,
-		PageCount: task.PageCount,
-	}
-
-	// 更新画像
-	e.profileStore.UpdateWithTask(userID, extracted)
-
-	// 更新领域偏好
-	if task.Domain != "" && task.Domain != "unknown" {
-		e.profileStore.UpdateDomainPreference(userID, task.Domain)
-	}
-
-	// 记录成功
-	if task.Success && task.Domain != "" && task.Domain != "unknown" {
-		e.profileStore.RecordSuccess(userID, task.Domain, task.Template, task.Theme, task.PageCount)
-	}
-
-	// 记录学习信号
-	if e.collector != nil {
-		e.collector.RecordTaskCompletion(userID, task.TaskID, task.Duration, task.QualityScore)
-	}
-}
-
-// GetRecommendations 获取个性化推荐
+// GetRecommendations 获取只读画像推荐
 func (e *Engine) GetRecommendations(userID int, domain string) *style.RecommendResult {
 	profile := e.profileStore.GetEnhanced(userID)
 	if profile == nil {
@@ -283,25 +211,13 @@ func (e *Engine) GetRecommendations(userID int, domain string) *style.RecommendR
 	})
 }
 
-// GetUserInsights 获取用户洞察
-func (e *Engine) GetUserInsights(userID int) *InsightsReport {
-	if e.analyzer == nil {
-		return nil
-	}
-	return e.analyzer.GenerateInsights(userID)
-}
-
 // GetProfile 获取用户画像
 func (e *Engine) GetProfile(userID int) *style.EnhancedProfile {
 	return e.profileStore.GetEnhanced(userID)
 }
 
 // Close 关闭引擎
-func (e *Engine) Close() {
-	if e.collector != nil {
-		e.collector.Close()
-	}
-}
+func (e *Engine) Close() {}
 
 // ProcessingResult 处理结果
 type ProcessingResult struct {
@@ -313,34 +229,6 @@ type ProcessingResult struct {
 	Intent  *intent.ClassificationResult
 	Routing *intent.RoutingDecision
 	Profile *style.EnhancedProfile
-}
-
-// Feedback 用户反馈
-type Feedback struct {
-	Type      string
-	Rating    float64
-	PageIndex int
-	Before    string
-	After     string
-	Duration  time.Duration
-	Reason    string
-	Progress  float64
-	Data      map[string]interface{}
-}
-
-// TaskContext 任务上下文
-type TaskContext struct {
-	TaskID       string
-	UserID       int
-	Domain       string
-	Template     string
-	Theme        string
-	PageCount    int
-	Duration     time.Duration
-	Success      bool
-	QualityScore float64
-	Themes       []string
-	Colors       []string
 }
 
 func now() time.Time {

@@ -226,6 +226,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	tpls := engine.Group("/api/templates")
 	{
 		tpls.GET("", s.handleListTemplates)
+		tpls.POST("/recommend", s.handleRecommendTemplate)
 		tpls.GET("/:name", s.handleGetTemplate)
 		tpls.GET("/layouts", s.handleListLayouts)
 	}

@@ -12,32 +12,32 @@ html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
   --rail-width: 216px;
   --topbar-height: 58px;
 
-  --canvas: #f2f4f4;
+  --canvas: #f4f6f2;
   --surface: #ffffff;
-  --surface-muted: #f6f7f7;
-  --surface-hover: #ecefef;
-  --surface-pressed: #e3e7e7;
-  --nav-surface: #191c1e;
-  --nav-text: #f3f5f5;
-  --nav-muted: #9da5aa;
+  --surface-muted: #f0f4f1;
+  --surface-hover: #e7eee9;
+  --surface-pressed: #dbe5df;
+  --nav-surface: #17312e;
+  --nav-text: #f6fbf8;
+  --nav-muted: #a7bbb5;
 
-  --text: #171a1c;
-  --text-secondary: #50585e;
-  --text-muted: #747e84;
-  --text-disabled: #a9b0b4;
+  --text: #1b2523;
+  --text-secondary: #4f5e59;
+  --text-muted: #72817b;
+  --text-disabled: #a9b5b0;
 
-  --border: #dce1e2;
-  --border-strong: #c4cbcd;
-  --divider: #e7eaeb;
+  --border: #d9e2de;
+  --border-strong: #bdcbc6;
+  --divider: #e5ece8;
 
-  --action: #57d5c7;
-  --action-strong: #73e0d4;
-  --action-ink: #075e57;
-  --action-soft: #e2f7f4;
-  --info: #2f6fed;
-  --info-soft: #eaf0ff;
-  --accent-coral: #d9654a;
-  --accent-coral-soft: #fff0ec;
+  --action: #2dd4bf;
+  --action-strong: #5eead4;
+  --action-ink: #0f766e;
+  --action-soft: #def7f1;
+  --info: #2563eb;
+  --info-soft: #e9efff;
+  --accent-coral: #d97706;
+  --accent-coral-soft: #fff3df;
   --success: #17845b;
   --success-soft: #e7f6ef;
   --warning: #a86f00;
@@ -85,10 +85,10 @@ html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
   --bg-hover: var(--surface-hover);
   --text-primary: var(--text);
   --accent: var(--action-ink);
-  --accent-hover: #064d48;
+  --accent-hover: #115e59;
   --accent-soft: var(--action-soft);
   --accent-light: var(--action-soft);
-  --accent-border: #a9e7df;
+  --accent-border: #a7e6da;
   --accent-text: var(--action-ink);
   --color-primary: var(--action-ink);
   --error: var(--danger);
@@ -97,7 +97,7 @@ html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
   --warning-border: #efd38f;
   --info-soft: #eaf0ff;
   --border-light: var(--divider);
-  --border-focus: var(--action-ink);
+  --border-focus: #2dd4bf;
   --status-running-bg: var(--info-soft);
   --status-running-text: var(--info);
   --status-pending-bg: var(--action-soft);

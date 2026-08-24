@@ -8,11 +8,12 @@ import {
   LayoutTemplate,
   LoaderCircle,
   Palette,
+  ShieldCheck,
   Sparkles,
   WandSparkles,
 } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
-import { createTask, fetchPresets, isLoggedIn, type PresetTemplate } from '../api';
+import { createTask, fetchPresets, isLoggedIn, recommendTemplate, type PresetTemplate, type TemplateRecommendation } from '../api';
 import { authState } from '../stores/auth';
 import { resolveCreationSelection } from '../utils/creation';
 
@@ -29,7 +30,10 @@ const selectedKey = ref('recommended');
 const catalogLoading = ref(false);
 const catalogError = ref('');
 const creating = ref(false);
+const recommending = ref(false);
 const createError = ref('');
+const recommendation = ref<TemplateRecommendation | null>(null);
+const recommendationBrief = ref('');
 
 const choices = computed<Choice[]>(() => [
   { kind: 'recommended', key: 'recommended' },
@@ -44,7 +48,19 @@ const selectedLabel = computed(() => {
   if (choice.kind === 'custom') return '自定义编排';
   return choice.template.display_name;
 });
-const canStart = computed(() => brief.value.trim().length > 0 && !creating.value);
+const canStart = computed(() => brief.value.trim().length > 0 && !creating.value && !recommending.value);
+const recommendationReady = computed(() => (
+  selectedChoice.value.kind === 'recommended'
+  && recommendation.value
+  && recommendationBrief.value === brief.value.trim()
+));
+const startButtonLabel = computed(() => {
+  if (creating.value) return '创建中';
+  if (recommending.value) return '推荐中';
+  if (selectedChoice.value.kind === 'custom') return '打开编排';
+  if (selectedChoice.value.kind === 'recommended' && !recommendationReady.value) return '生成推荐';
+  return '确认生成';
+});
 
 async function loadCatalog() {
   catalogLoading.value = true;
@@ -78,6 +94,19 @@ async function startCreation() {
 
   if (choice.kind === 'custom') {
     await router.push({ path: '/compose', query: { brief: query, mode: 'custom' } });
+    return;
+  }
+
+  if (selectedChoice.value.kind === 'recommended' && !recommendationReady.value) {
+    recommending.value = true;
+    try {
+      recommendation.value = await recommendTemplate(query);
+      recommendationBrief.value = query;
+    } catch (error) {
+      createError.value = error instanceof Error ? error.message : '模板推荐失败，请重试';
+    } finally {
+      recommending.value = false;
+    }
     return;
   }
 
@@ -125,13 +154,47 @@ async function startCreation() {
             <span>{{ selectedLabel }}</span>
           </div>
           <button class="start-button" type="button" :disabled="!canStart" @click="startCreation">
-            <LoaderCircle v-if="creating" :size="18" class="spin" />
-            <span>{{ selectedChoice.kind === 'custom' ? '打开编排' : creating ? '创建中' : '开始生成' }}</span>
-            <ArrowRight v-if="!creating" :size="18" />
+            <LoaderCircle v-if="creating || recommending" :size="18" class="spin" />
+            <span>{{ startButtonLabel }}</span>
+            <ArrowRight v-if="!creating && !recommending" :size="18" />
           </button>
         </div>
         <p v-if="createError" class="creation-error" role="alert">{{ createError }}</p>
       </div>
+    </section>
+
+    <section v-if="recommendationReady && recommendation" class="recommendation-panel" aria-label="推荐策略预览">
+      <div class="recommendation-summary">
+        <span class="recommendation-badge"><ShieldCheck :size="16" /> 推荐已生成</span>
+        <h2>{{ recommendation.primary_template.display_name || '智能推荐方案' }}</h2>
+        <p>{{ recommendation.strategy.reason }}</p>
+      </div>
+      <div class="recommendation-grid">
+        <div>
+          <span>模板</span>
+          <strong>{{ recommendation.strategy.template }}</strong>
+          <small>{{ recommendation.primary_template.description }}</small>
+        </div>
+        <div>
+          <span>页数</span>
+          <strong>{{ recommendation.strategy.page_count || '动态' }} 页</strong>
+          <small>Planner 会按章节和内容密度细化</small>
+        </div>
+        <div>
+          <span>配色</span>
+          <strong>{{ recommendation.theme?.display_name || recommendation.strategy.theme }}</strong>
+          <small>{{ recommendation.visual_policy }}</small>
+        </div>
+        <div>
+          <span>视觉</span>
+          <strong>{{ recommendation.strategy.use_background ? '图片/背景优先' : '信息表面优先' }}</strong>
+          <small>{{ recommendation.background?.display_name || '由 Planner 搜索或按页面内容决定' }}</small>
+        </div>
+      </div>
+      <div class="component-focus">
+        <span v-for="item in recommendation.component_focus" :key="item">{{ item }}</span>
+      </div>
+      <p v-if="recommendation.risks?.length" class="recommendation-risk">{{ recommendation.risks.join('；') }}</p>
     </section>
 
     <section class="template-section" aria-labelledby="template-heading">
@@ -250,6 +313,81 @@ async function startCreation() {
 .start-button:disabled { border-color: var(--border-strong); color: var(--text-disabled); background: var(--surface-pressed); cursor: not-allowed; }
 .creation-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
 
+.recommendation-panel {
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid #c9ddd7;
+  border-radius: 8px;
+  background: #fbfdfb;
+  box-shadow: var(--shadow-xs);
+}
+.recommendation-summary {
+  display: grid;
+  gap: 7px;
+}
+.recommendation-badge {
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 5px;
+  color: var(--action-ink);
+  background: var(--action-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+.recommendation-summary h2 { margin: 0; color: var(--text); font-size: 18px; }
+.recommendation-summary p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.65; }
+.recommendation-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+.recommendation-grid > div {
+  min-width: 0;
+  min-height: 104px;
+  padding: 11px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.recommendation-grid span { color: var(--text-muted); font-size: 10px; font-weight: 750; }
+.recommendation-grid strong { margin-top: 8px; overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.recommendation-grid small {
+  display: -webkit-box;
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.component-focus {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.component-focus span {
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: #315550;
+  background: #edf5f2;
+  font-size: 11px;
+  font-weight: 650;
+}
+.recommendation-risk {
+  margin: 11px 0 0;
+  color: var(--warning);
+  font-size: 12px;
+}
+
 .template-section { margin-top: 42px; }
 .section-heading { margin-bottom: 16px; display: flex; align-items: end; justify-content: space-between; gap: 18px; }
 .section-heading h2 { margin: 5px 0 0; color: var(--text); font-size: 20px; letter-spacing: 0; }
@@ -296,6 +434,7 @@ async function startCreation() {
   .creation-copy { padding-top: 0; }
   .creation-copy h2 { font-size: 28px; }
   .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .recommendation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
   :global(.home-workspace) { padding: 20px 14px 42px; }
@@ -305,6 +444,7 @@ async function startCreation() {
   .start-button { width: 100%; }
   .section-heading { align-items: flex-start; }
   .template-grid { grid-template-columns: 1fr; }
+  .recommendation-grid { grid-template-columns: 1fr; }
   .template-card { display: grid; grid-template-columns: 132px minmax(0, 1fr); }
   .template-media, .special-media { height: 100%; min-height: 86px; aspect-ratio: auto; border-right: 1px solid var(--divider); border-bottom: 0; }
   .template-copy { min-height: 86px; justify-content: center; }

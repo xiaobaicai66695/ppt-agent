@@ -1,0 +1,131 @@
+{
+  "title": "2026 Q2 销售经营复盘",
+  "theme": "charcoal_light",
+  "template": "weekly-report",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "2026 Q2 销售经营复盘",
+      "content_type": "title_slide",
+      "description": "封面页，说明复盘范围为 2026 Q2 销售经营，重点关注收入达成、渠道结构、趋势变化和下季度行动。",
+      "output_file": "01_销售经营复盘封面.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/1.jpg",
+      "content_plan": {
+        "summary": "以收入达成、渠道效率和行动计划为主线复盘 2026 Q2。",
+        "slide_intent": "建立复盘主题和会议边界。",
+        "components": [
+          {"id": "deck_title", "type": "deck_title", "text": "2026 Q2 销售经营复盘"},
+          {"id": "subheadline", "type": "subheadline", "text": "收入达成、渠道效率、趋势判断与 Q3 行动"},
+          {"id": "key_scope", "type": "key_point", "title": "复盘范围", "body": "数据口径覆盖 2026 年 4-6 月企业软件订阅业务，金额单位为万元。"}
+        ],
+        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_02",
+      "page_index": 2,
+      "title": "复盘路径",
+      "content_type": "agenda",
+      "description": "目录页，按目标达成、趋势变化、渠道结构、问题归因、Q3 行动展开。",
+      "output_file": "02_复盘路径.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/2.jpg",
+      "content_plan": {
+        "summary": "从结果到原因再到行动，形成经营复盘闭环。",
+        "slide_intent": "让听众理解整套汇报的分析顺序。",
+        "components": [
+          {"id": "toc_1", "type": "toc_item", "title": "01 目标达成", "body": "收入、订单数、客单价和续费率的关键表现"},
+          {"id": "toc_2", "type": "toc_item", "title": "02 趋势变化", "body": "月度收入和线索转化率的变化趋势"},
+          {"id": "toc_3", "type": "toc_item", "title": "03 渠道结构", "body": "直销、伙伴、线上投放三类渠道对比"},
+          {"id": "toc_4", "type": "toc_item", "title": "04 Q3 行动", "body": "聚焦高意向线索、伙伴赋能和续费预警"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_03",
+      "page_index": 3,
+      "title": "核心 KPI：收入超额但续费承压",
+      "content_type": "kpi_dashboard",
+      "description": "KPI 仪表盘页。收入 1860 万，目标 1750 万，达成率 106.3%；新增付费客户 142 家，环比 +18%；续费率 86.5%，低于目标 90%，需要 Q3 建立预警池。来源为公司 CRM 与财务确认表。",
+      "output_file": "03_核心KPI.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/3.jpg",
+      "content_plan": {
+        "summary": "Q2 收入与新增客户跑赢目标，但续费率低于目标形成下季度主要风险。",
+        "slide_intent": "用 KPI 看板快速给出经营结果判断。",
+        "components": [
+          {"id": "kpi_revenue", "type": "kpi_metric", "title": "收入", "body": "Q2 订阅收入超过季度目标，主要由企业版扩容订单拉动。", "data": {"value": "1860 万", "label": "订阅收入", "delta": "目标达成率 106.3%", "baseline": "季度目标 1750 万"}},
+          {"id": "kpi_customers", "type": "kpi_metric", "title": "新增客户", "body": "新增付费客户达到 142 家，教育和制造行业线索转化贡献最大。", "data": {"value": "142 家", "label": "新增付费客户", "delta": "环比 +18%", "baseline": "Q1 为 120 家"}},
+          {"id": "kpi_renewal", "type": "kpi_metric", "title": "续费率", "body": "续费率低于目标，集中出现在 50 人以下中小客户。", "data": {"value": "86.5%", "label": "到期续费率", "delta": "低于目标 3.5pct", "baseline": "季度目标 90%"}},
+          {"id": "source", "type": "source_note", "text": "来源: 公司 CRM 2026 Q2 pipeline export；财务收入确认表 2026-07-03"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_04",
+      "page_index": 4,
+      "title": "月度趋势：6 月冲刺拉高季度结果",
+      "content_type": "chart_slide",
+      "description": "柱线组合趋势页。展示 4 月、5 月、6 月收入分别为 520、610、730 万，线索转化率分别为 9.8%、10.7%、12.4%。结论是 6 月大单确认拉高收入，但前两个月转化改善更能代表常态能力。",
+      "output_file": "04_月度趋势.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/4.jpg",
+      "content_plan": {
+        "summary": "6 月收入冲刺贡献明显，转化率连续三个月提升说明销售动作正在变稳。",
+        "slide_intent": "用趋势图解释季度结果的时间分布和可持续性。",
+        "components": [
+          {"id": "chart", "type": "chart", "title": "月度收入与线索转化率", "data": {"chart_type": "bar", "labels": ["4月", "5月", "6月"], "datasets": [{"name": "订阅收入(万元)", "values": [520, 610, 730]}, {"name": "线索转化率(%)", "values": [9.8, 10.7, 12.4]}]}},
+          {"id": "insight_1", "type": "insight", "title": "收入判断", "body": "6 月确认两笔年框扩容单，单月收入占季度 39.2%，需要拆分大单影响后看常态增长。"},
+          {"id": "insight_2", "type": "insight", "title": "转化判断", "body": "转化率从 9.8% 提升至 12.4%，主要来自 SDR 线索分层和演示预约 SLA 缩短。"},
+          {"id": "source", "type": "source_note", "text": "来源: CRM 商机阶段日志与财务收入确认表，统计时间 2026-07-03"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_05",
+      "page_index": 5,
+      "title": "渠道对比：伙伴渠道客单价高但周期长",
+      "content_type": "comparison_table",
+      "description": "渠道对比表，比较直销、伙伴、线上投放在收入、客单价、销售周期、主要问题上的差异，并给出 Q3 资源倾斜建议。",
+      "output_file": "05_渠道对比.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/1.jpg",
+      "content_plan": {
+        "summary": "直销贡献收入规模，伙伴渠道贡献高客单价，线上投放需要严格控制获客成本。",
+        "slide_intent": "帮助管理层判断 Q3 渠道资源投入方向。",
+        "components": [
+          {"id": "matrix", "type": "comparison_matrix", "data": {"headers": ["维度", "直销", "伙伴", "线上投放"], "rows": [["Q2收入", "920万", "680万", "260万"], ["平均客单价", "18.4万", "34.0万", "6.5万"], ["平均销售周期", "42天", "68天", "21天"], ["主要问题", "大客户排期拥堵", "方案共创周期长", "低意向线索占比高"]]}},
+          {"id": "recommendation", "type": "recommendation", "title": "资源建议", "body": "Q3 保持直销大客户跟进强度，同时为伙伴渠道配置售前共创包；线上投放只保留高转化行业词。"},
+          {"id": "source", "type": "source_note", "text": "来源: CRM 渠道归因字段；市场投放成本台账 2026 Q2"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_06",
+      "page_index": 6,
+      "title": "Q3 行动计划：把增长转化为可复制机制",
+      "content_type": "process_flow",
+      "description": "行动计划流程页，包含高意向线索池、伙伴共创包、续费预警、周度经营看板四个动作，每个动作给出负责人和预期产出。",
+      "output_file": "06_Q3行动计划.pptx",
+      "status": "pending",
+      "background": "business_gradient/images/2.jpg",
+      "content_plan": {
+        "summary": "Q3 行动从线索、伙伴、续费和经营节奏四处入手，把单季冲刺改造成持续机制。",
+        "slide_intent": "将复盘结论转化为可执行动作。",
+        "components": [
+          {"id": "step_1", "type": "process_step", "title": "高意向线索池", "body": "市场部每周沉淀 A/B 级线索，销售总监在 48 小时内分派跟进，目标提升演示到商机转化。"},
+          {"id": "step_2", "type": "process_step", "title": "伙伴共创包", "body": "售前团队沉淀行业方案、报价模板和竞品问答，缩短伙伴项目方案周期。"},
+          {"id": "step_3", "type": "process_step", "title": "续费预警", "body": "客户成功团队按到期时间、使用频率和工单情绪建立红黄绿池。"},
+          {"id": "step_4", "type": "process_step", "title": "周度看板", "body": "经营会上固定复盘 pipeline 新增、推进、卡点和风险订单。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    }
+  ]
+}

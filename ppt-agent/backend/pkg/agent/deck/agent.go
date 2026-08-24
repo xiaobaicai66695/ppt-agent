@@ -242,14 +242,14 @@ func availableBackgroundCatalog(skillsDir string) string {
 	return strings.Join(items, ", ")
 }
 
-// ── 智能学习引擎 ──────────────────────────────────────────────────────────
+// ── 意图路由与只读画像引擎 ─────────────────────────────────────────────────
 
 var globalLearningEngine *agentlearning.Engine
 var learningEngineOnce sync.Once
 var learningEngineFactory interface{}
 var textLearningEngineFactory interface{}
 
-// InitLearningEngine 初始化全局学习引擎（由 main.go 在 modelFactory 可用后调用）
+// InitLearningEngine 初始化全局意图路由与只读画像引擎（由 main.go 在 modelFactory 可用后调用）
 // factory 是 ServerConfig.AIModelFactory 的工厂函数
 // textFactory 是 ServerConfig.TextModelFactory 的工厂函数（轻量级模型，节省意图分类成本）
 func InitLearningEngine(factory, textFactory interface{}) {
@@ -257,12 +257,12 @@ func InitLearningEngine(factory, textFactory interface{}) {
 	textLearningEngineFactory = textFactory
 }
 
-// GetLearningEngine 获取全局学习引擎实例
+// GetLearningEngine 获取全局意图路由与只读画像引擎实例
 func GetLearningEngine() *agentlearning.Engine {
 	learningEngineOnce.Do(func() {
 		cfg := &agentlearning.EngineConfig{
 			EnableLLMClassification: true,
-			EnableLearning:          true,
+			EnableLearning:          false,
 			EnableProfileMatch:      true,
 		}
 		globalLearningEngine = agentlearning.NewEngine(cfg, learningEngineFactory, textLearningEngineFactory)
@@ -321,40 +321,6 @@ func ProcessUserIntent(ctx context.Context, query string, userID int) (*PPTTaskC
 	}
 
 	return cfg, nil
-}
-
-// RecordUserFeedback 记录用户反馈
-func RecordUserFeedback(userID int, taskID string, feedback *agentlearning.Feedback) {
-	engine := GetLearningEngine()
-	if engine != nil {
-		engine.RecordFeedback(userID, taskID, feedback)
-	}
-}
-
-// UpdateUserProfileFromTask 从任务更新用户画像
-func UpdateUserProfileFromTask(userID int, task *agentlearning.TaskContext) {
-	engine := GetLearningEngine()
-	if engine != nil {
-		engine.UpdateProfileFromTask(userID, task)
-	}
-}
-
-// GetUserRecommendations 获取用户推荐
-func GetUserRecommendations(userID int, domain string) *style.RecommendResult {
-	engine := GetLearningEngine()
-	if engine != nil {
-		return engine.GetRecommendations(userID, domain)
-	}
-	return nil
-}
-
-// GetUserInsights 获取用户洞察
-func GetUserInsights(userID int) *agentlearning.InsightsReport {
-	engine := GetLearningEngine()
-	if engine != nil {
-		return engine.GetUserInsights(userID)
-	}
-	return nil
 }
 
 // enhanceStyleContextWithProfile 根据当前领域筛选用户画像后增强 StyleContext。

@@ -50,6 +50,13 @@ Thumbs.db
 
 # Test output
 test/
+!test/
+test/*
+!test/plan_benchmark/
+!test/plan_benchmark/**
+test/plan_benchmark/results/
+!test/gold_decks/
+!test/gold_decks/**
 
 # Build artifacts
 *.tsbuildinfo

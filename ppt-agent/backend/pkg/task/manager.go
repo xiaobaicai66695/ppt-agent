@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +14,6 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
-	agentlearning "github.com/cloudwego/ppt-agent/pkg/agent/learning"
 	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
@@ -906,28 +903,10 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	// 再构建并写入 conversation_content。
 	ts.persistConversationContent()
 
-	// 触发任务完成回调，更新用户风格偏好
+	// 触发任务完成回调。当前基线不从生成产物自动学习用户偏好，避免把系统选择反写成用户记忆。
 	if tm.onTaskComplete != nil && ts.Info.UserID > 0 && ts.Info.Status == TaskStatusCompleted {
 		go tm.onTaskComplete(ts.Info.UserID, ts.Info.WorkDir, ts.Info.Query)
 	}
-
-	// ── 记录学习信号 ──
-	// 从 tasks.json 中收集 QA 结果，计算真实质量分数
-	qualityScore := calculateQualityScoreFromQA(ts.Info.WorkDir)
-	learnDomain, learnTemplate, learnTheme, learnPageCount := learningTaskContext(cfg, ts.Info.WorkDir, ts.Info.TotalCount)
-
-	deck.UpdateUserProfileFromTask(ts.Info.UserID, &agentlearning.TaskContext{
-		TaskID:       ts.Info.ID,
-		UserID:       ts.Info.UserID,
-		Domain:       learnDomain,
-		Template:     learnTemplate,
-		Theme:        learnTheme,
-		Duration:     durationFromResult(result),
-		Success:      ts.Info.Status == TaskStatusCompleted,
-		QualityScore: qualityScore,
-		PageCount:    learnPageCount,
-		Themes:       nonEmptyStrings(learnTheme),
-	})
 }
 
 func shouldSyncDeliveryAfterRun(workDir string, taskFailed bool) bool {
@@ -938,45 +917,6 @@ func shouldSyncDeliveryAfterRun(workDir string, taskFailed bool) bool {
 		return false
 	}
 	return true
-}
-
-func learningTaskContext(cfg *deck.PPTTaskConfig, workDir string, fallbackPageCount int) (domain, template, theme string, pageCount int) {
-	pageCount = fallbackPageCount
-	if cfg != nil {
-		if cfg.IntentResult != nil {
-			domain = cfg.IntentResult.Domain.String()
-		}
-		if cfg.Outline != nil {
-			template = cfg.Outline.Template
-			theme = cfg.Outline.Theme
-			if len(cfg.Outline.Slides) > 0 {
-				pageCount = len(cfg.Outline.Slides)
-			}
-		}
-	}
-	if manifest, err := deck.ReadTasksManifest(workDir); err == nil && manifest != nil {
-		if strings.TrimSpace(manifest.Template) != "" {
-			template = manifest.Template
-		}
-		if strings.TrimSpace(manifest.Theme) != "" {
-			theme = manifest.Theme
-		}
-		if len(manifest.Tasks) > 0 {
-			pageCount = len(manifest.Tasks)
-		}
-	}
-	return strings.TrimSpace(domain), strings.TrimSpace(template), strings.TrimSpace(theme), pageCount
-}
-
-func nonEmptyStrings(values ...string) []string {
-	var result []string
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			result = append(result, value)
-		}
-	}
-	return result
 }
 
 func applyDeliverySnapshotOutcome(ts *TaskState, delivery DeliverySnapshot) bool {
@@ -1031,13 +971,6 @@ func persistRuntimeEvent(event utils.RuntimeEvent) {
 	}); err != nil {
 		logger.Warn("persist_runtime_event_failed", "task_id", event.TaskID, "event_id", event.ID, "error", err.Error())
 	}
-}
-
-func durationFromResult(result *deck.PPTTaskResult) time.Duration {
-	if result == nil {
-		return 0
-	}
-	return result.Duration
 }
 
 // detectAndBroadcastPhase 从 Planner 工具事件推断当前阶段并广播进度事件。
@@ -1638,90 +1571,4 @@ func sanitizeFilename(name string) string {
 		"\"", "_", "<", "_", ">", "_", "|", "_", "\n", "_",
 	)
 	return replacer.Replace(name)
-}
-
-// calculateQualityScoreFromQA 从 tasks.json 中的 QA 结果计算质量分数
-// 返回 0-5 的分数，0 表示没有 QA 结果
-func calculateQualityScoreFromQA(workDir string) float64 {
-	manifest, err := deck.ReadTasksManifest(workDir)
-	if err != nil || manifest == nil || len(manifest.Tasks) == 0 {
-		return 4.0 // 没有 QA 结果时返回默认值
-	}
-
-	var totalScore float64
-	var qaCount int
-	var highIssueCount int
-
-	for _, task := range manifest.Tasks {
-		// 只处理已 QA 的任务
-		if task.QAReport == "" {
-			continue
-		}
-
-		// 从 QA 报告中提取评分信息
-		score := extractScoreFromQAReport(task.QAReport)
-		if score > 0 {
-			totalScore += score
-			qaCount++
-		}
-
-		// 检查是否有 high 级别问题
-		if strings.Contains(task.QAReport, "high") || strings.Contains(task.QAReport, "严重") {
-			highIssueCount++
-		}
-	}
-
-	if qaCount == 0 {
-		return 4.0 // 没有有效的 QA 结果
-	}
-
-	// 计算平均分
-	avgScore := totalScore / float64(qaCount)
-
-	// 如果有 high 级别问题，降低分数
-	if highIssueCount > 0 {
-		penalty := float64(highIssueCount) * 0.5
-		if penalty > 2.0 {
-			penalty = 2.0
-		}
-		avgScore -= penalty
-	}
-
-	// 确保分数在有效范围内
-	if avgScore < 1.0 {
-		avgScore = 1.0
-	}
-	if avgScore > 5.0 {
-		avgScore = 5.0
-	}
-
-	return avgScore
-}
-
-// extractScoreFromQAReport 从 QA 报告文本中提取评分
-// 报告格式可能是自然语言，需要从中提取 1-5 的评分
-func extractScoreFromQAReport(report string) float64 {
-	// 尝试匹配常见的评分模式
-	patterns := []string{
-		`(?i)score[:\s]*(\d+(?:\.\d+)?)`,              // score: 4.5 或 score 4
-		`(?i)评分[:\s]*(\d+(?:\.\d+)?)`,                 // 评分: 4
-		`(?i)rating[:\s]*(\d+(?:\.\d+)?)`,             // rating: 4
-		`(?i)quality[:\s]*(\d+(?:\.\d+)?)`,            // quality: 4
-		`(?i)质量[:\s]*(\d+(?:\.\d+)?)`,                 // 质量: 4
-		`(?i)(\d+(?:\.\d+)?)\s*(?:分|分制)`,              // 4分 或 4.5分
-		`(?i)(?:优秀|good|excellent).*?(\d+(?:\.\d+)?)`, // 优秀 4.5
-		`(?i)(\d+(?:\.\d+)?).*?(?:优秀|good|excellent)`, // 4.5 优秀
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		if matches := re.FindStringSubmatch(report); len(matches) > 1 {
-			score, err := strconv.ParseFloat(matches[1], 64)
-			if err == nil && score >= 1 && score <= 5 {
-				return score
-			}
-		}
-	}
-
-	return 0 // 无法提取评分
 }

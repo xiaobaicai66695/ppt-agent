@@ -330,7 +330,7 @@ async function startGeneration() {
 </script>
 
 <template>
-  <AppShell :title="pptTitle || '编排演示'" eyebrow="Outline editor" content-class="compose-workspace">
+  <AppShell :title="pptTitle || '高级编排'" eyebrow="Plan studio" content-class="compose-workspace">
     <template #actions>
       <span class="page-count">{{ slides.length }} 页</span>
       <button class="toolbar-action primary" type="button" :disabled="slides.length === 0 || generating || !topicTrimmed" @click="startGeneration">
@@ -345,7 +345,7 @@ async function startGeneration() {
         <input id="ppt-title" v-model="pptTitle" placeholder="未命名演示" />
       </div>
       <div>
-        <label for="topic-input">内容目标</label>
+        <label for="topic-input">生成目标</label>
         <textarea id="topic-input" v-model="topicInput" rows="2" :disabled="slides.length === 0" placeholder="说明受众、场景、重点结论和期望页数。" />
       </div>
       <div class="theme-field">
@@ -410,7 +410,7 @@ async function startGeneration() {
 
       <section class="outline-panel" aria-labelledby="outline-heading">
         <header class="panel-header">
-          <div><span class="panel-kicker">页面轨道</span><h2 id="outline-heading">演示结构</h2></div>
+          <div><span class="panel-kicker">高级模式</span><h2 id="outline-heading">页面结构</h2></div>
           <button class="add-slide-button" type="button" @click="addBlankSlide"><ListPlus :size="17" /><span>添加页面</span></button>
         </header>
 

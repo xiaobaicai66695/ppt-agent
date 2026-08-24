@@ -1,0 +1,154 @@
+{
+  "title": "智慧社区建设阶段汇报",
+  "theme": "government_red",
+  "template": "politics-ideology",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "智慧社区建设阶段汇报",
+      "content_type": "title_slide",
+      "description": "正式政务风格封面页，汇报智慧社区建设阶段成果、指标数据、问题和下一步安排。",
+      "output_file": "01_阶段汇报封面.pptx",
+      "status": "pending",
+      "background": "party_government/images/1.jpg",
+      "content_plan": {
+        "summary": "围绕基础设施、便民服务、治理协同和下一步安排进行阶段汇报。",
+        "slide_intent": "建立正式汇报语境和主题范围。",
+        "components": [
+          {"id": "deck_title", "type": "deck_title", "text": "智慧社区建设阶段汇报"},
+          {"id": "subheadline", "type": "subheadline", "text": "建设进展、运行成效、问题清单与下一步计划"},
+          {"id": "key_point", "type": "key_point", "title": "汇报范围", "body": "覆盖 2026 年 1-7 月试点社区建设和运行情况。"}
+        ],
+        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_02",
+      "page_index": 2,
+      "title": "汇报提纲",
+      "content_type": "agenda",
+      "description": "目录页，包含建设进展、指标成效、推进时间线、问题清单、下一步工作五个部分。",
+      "output_file": "02_汇报提纲.pptx",
+      "status": "pending",
+      "background": "party_government/images/2.jpg",
+      "content_plan": {
+        "summary": "汇报按进展、成效、时间线、问题、计划五个部分展开。",
+        "slide_intent": "给领导和参会单位提供清晰阅读路径。",
+        "components": [
+          {"id": "toc_1", "type": "toc_item", "title": "01 建设进展", "body": "平台、设备、数据和服务接入情况。"},
+          {"id": "toc_2", "type": "toc_item", "title": "02 指标成效", "body": "办事效率、事件处置和居民满意度。"},
+          {"id": "toc_3", "type": "toc_item", "title": "03 推进时间线", "body": "试点启动、平台上线、扩面验收节点。"},
+          {"id": "toc_4", "type": "toc_item", "title": "04 问题与下一步", "body": "数据共享、基层培训和运维机制。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_03",
+      "page_index": 3,
+      "title": "01 建设进展",
+      "content_type": "section_divider",
+      "layout_variant": "number_sidebar",
+      "description": "章节分隔页，进入建设进展部分。",
+      "output_file": "03_建设进展章节.pptx",
+      "status": "pending",
+      "background": "party_government/images/3.jpg",
+      "content_plan": {
+        "summary": "试点建设已从平台搭建进入常态运行。",
+        "slide_intent": "切换到阶段建设成果说明。",
+        "section_number": "01",
+        "components": [
+          {"id": "marker", "type": "section_marker", "text": "01"},
+          {"id": "headline", "type": "headline", "text": "建设进展"}
+        ],
+        "visual_intent": {"preferred_variant": "number_sidebar"},
+        "capacity_hint": {"estimated_density": "sparse", "overflow_risk": "low", "component_count": 2}
+      }
+    },
+    {
+      "task_id": "slide_04",
+      "page_index": 4,
+      "title": "建设进展：四类能力基本形成",
+      "content_type": "content_slide",
+      "description": "建设进展页，说明智慧社区平台、物联感知设备、数据治理、便民服务四类能力已形成初步闭环，覆盖 12 个试点社区。",
+      "output_file": "04_建设进展.pptx",
+      "status": "pending",
+      "background": "party_government/images/4.jpg",
+      "content_plan": {
+        "summary": "12 个试点社区已完成平台上线、设备接入和便民服务试运行。",
+        "slide_intent": "用结构化要点说明建设成果。",
+        "components": [
+          {"id": "headline", "type": "headline", "text": "从平台建设进入常态运行"},
+          {"id": "list", "type": "evidence_list", "items": ["平台建设: 智慧社区综合管理平台完成统一登录、事件流转、居民服务和数据看板四个模块上线。", "设备接入: 门禁、消防、井盖、水电表等 1860 台物联设备纳入统一告警管理。", "数据治理: 完成 12 个社区楼栋、房屋、人口、重点人群基础数据清洗和编码。", "便民服务: 线上报修、政策咨询、养老探访预约等 18 项服务进入试运行。"]},
+          {"id": "source", "type": "source_note", "text": "来源: 区智慧社区建设专班月报 2026 年 7 月"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 3}
+      }
+    },
+    {
+      "task_id": "slide_05",
+      "page_index": 5,
+      "title": "指标成效：事件处置效率明显提升",
+      "content_type": "stat_slide",
+      "description": "指标数据页，展示试点社区覆盖 12 个、接入设备 1860 台、事件平均处置时长从 36 小时降至 18 小时、居民线上办事满意度 92.4%。",
+      "output_file": "05_指标成效.pptx",
+      "status": "pending",
+      "background": "party_government/images/5.jpg",
+      "content_plan": {
+        "summary": "平台联动让基层事件处置时长下降 50%，居民线上办事满意度保持在 90% 以上。",
+        "slide_intent": "用关键指标展示阶段成效。",
+        "components": [
+          {"id": "stat_1", "type": "stat", "title": "试点覆盖", "body": "首批完成 12 个社区平台接入和试运行。", "data": {"value": "12 个", "label": "试点社区"}},
+          {"id": "stat_2", "type": "stat", "title": "设备接入", "body": "1860 台物联设备纳入统一告警。", "data": {"value": "1860 台", "label": "接入设备"}},
+          {"id": "stat_3", "type": "stat", "title": "处置时长", "body": "事件平均处置时长从 36 小时降至 18 小时。", "data": {"value": "-50%", "label": "平均处置时长"}},
+          {"id": "source", "type": "source_note", "text": "来源: 区智慧社区平台运行日志 2026-01 至 2026-07；12345 工单回访记录"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    },
+    {
+      "task_id": "slide_06",
+      "page_index": 6,
+      "title": "推进时间线：三阶段完成试点闭环",
+      "content_type": "timeline",
+      "description": "时间线页，展示 2026 年 1 月试点启动、3 月平台联调、5 月服务上线、7 月阶段验收、9 月扩面计划。",
+      "output_file": "06_推进时间线.pptx",
+      "status": "pending",
+      "background": "party_government/images/1.jpg",
+      "content_plan": {
+        "summary": "试点按启动、联调、上线、验收、扩面五个节点推进，下一步重点转入规模化复制。",
+        "slide_intent": "说明项目推进节奏和后续安排。",
+        "components": [
+          {"id": "node_1", "type": "timeline_node", "title": "2026-01", "body": "完成 12 个试点社区摸底和建设方案确认。"},
+          {"id": "node_2", "type": "timeline_node", "title": "2026-03", "body": "平台完成统一登录、事件流转和数据看板联调。"},
+          {"id": "node_3", "type": "timeline_node", "title": "2026-05", "body": "18 项便民服务上线试运行，社区网格员开始使用移动端。"},
+          {"id": "node_4", "type": "timeline_node", "title": "2026-07", "body": "完成阶段验收，形成问题清单和扩面建议。"},
+          {"id": "node_5", "type": "timeline_node", "title": "2026-09", "body": "计划扩展到第二批 20 个社区，优先复制事件流转和养老探访服务。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 5}
+      }
+    },
+    {
+      "task_id": "slide_07",
+      "page_index": 7,
+      "title": "问题与下一步",
+      "content_type": "summary_slide",
+      "description": "总结页，提出数据共享接口不统一、基层人员使用熟练度不均、设备运维响应机制仍需完善三类问题，并给出下一步行动。",
+      "output_file": "07_问题与下一步.pptx",
+      "status": "pending",
+      "background": "party_government/images/2.jpg",
+      "content_plan": {
+        "summary": "下一阶段要把试点经验固化成数据标准、培训机制和运维责任清单。",
+        "slide_intent": "形成正式汇报的收束和请示事项。",
+        "components": [
+          {"id": "risk_1", "type": "risk_item", "title": "数据接口", "body": "部分部门系统接口标准不一致，导致事件数据回流和人口数据更新仍需人工核对。"},
+          {"id": "risk_2", "type": "risk_item", "title": "基层培训", "body": "网格员对移动端事件分派、退回和归档操作熟练度不均。"},
+          {"id": "risk_3", "type": "risk_item", "title": "设备运维", "body": "物联设备告警后维修单位响应 SLA 仍未全部纳入平台监管。"},
+          {"id": "recommendation", "type": "recommendation", "title": "下一步", "body": "8 月完成数据接口清单和培训手册，9 月启动第二批 20 个社区扩面，10 月纳入第三方运维考核。"}
+        ],
+        "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low", "component_count": 4}
+      }
+    }
+  ]
+}

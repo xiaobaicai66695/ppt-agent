@@ -142,6 +142,38 @@ export interface TemplateSelection {
   template?: string;
 }
 
+export interface TemplateStrategy {
+  mode: string;
+  template: string;
+  theme: string;
+  use_background: boolean;
+  background?: string;
+  reason: string;
+  page_count?: number;
+}
+
+export interface TemplateCandidate {
+  name: string;
+  display_name: string;
+  description: string;
+  category: string;
+  thumbnail: string;
+  slide_count: number;
+  tags: string[];
+  reason: string;
+}
+
+export interface TemplateRecommendation {
+  strategy: TemplateStrategy;
+  primary_template: TemplateCandidate;
+  ranked_templates: TemplateCandidate[];
+  theme?: ThemeInfo;
+  background?: BackgroundTheme;
+  visual_policy: string;
+  component_focus: string[];
+  risks?: string[];
+}
+
 export async function createTask(query: string, templateSelection?: TemplateSelection): Promise<TaskInfo> {
   const res = await checkResponse(await apiFetch('/api/tasks', {
     method: 'POST',
@@ -271,6 +303,15 @@ export async function fetchPresets(): Promise<PresetTemplate[]> {
 	const res = await checkResponse(await apiFetch('/api/templates'));
   const data = await res.json();
   return data.presets || [];
+}
+
+export async function recommendTemplate(query: string): Promise<TemplateRecommendation> {
+	const res = await checkResponse(await apiFetch('/api/templates/recommend', {
+		method: 'POST',
+		headers: authHeaders(),
+		body: JSON.stringify({ query }),
+	}));
+  return res.json();
 }
 
 export async function fetchPreset(name: string): Promise<PresetTemplate | null> {
@@ -442,66 +483,6 @@ export async function deleteUserApiKey(): Promise<void> {
 		method: 'DELETE',
 		headers: authHeaders(),
 	}));
-}
-
-// ── User feedback API ──────────────────────────────────────────────────────────────
-
-export interface FeedbackRequest {
-  type: 'rating' | 'edit' | 'completion' | 'abandon';
-  task_id?: string;
-  rating?: number;
-  page_index?: number;
-  before?: string;
-  after?: string;
-  reason?: string;
-  progress?: number;
-}
-
-export async function submitFeedback(feedback: FeedbackRequest): Promise<void> {
-	await checkResponse(await apiFetch('/api/feedback', {
-		method: 'POST',
-		headers: authHeaders(),
-		body: JSON.stringify(feedback),
-	}));
-}
-
-export async function submitRating(taskId: string, rating: number): Promise<void> {
-  return submitFeedback({ type: 'rating', task_id: taskId, rating });
-}
-
-export async function submitEditAction(taskId: string, pageIndex: number, before: string, after: string): Promise<void> {
-  return submitFeedback({ type: 'edit', task_id: taskId, page_index: pageIndex, before, after });
-}
-
-export async function submitCompletion(taskId: string, rating: number): Promise<void> {
-  return submitFeedback({ type: 'completion', task_id: taskId, rating });
-}
-
-export async function submitAbandon(taskId: string, reason: string, progress: number): Promise<void> {
-  return submitFeedback({ type: 'abandon', task_id: taskId, reason, progress });
-}
-
-// ── User insights API ──────────────────────────────────────────────────────────────
-
-export interface UserInsight {
-  type: string;
-  insight: string;
-  suggestion: string;
-  confidence: number;
-}
-
-export interface InsightsReport {
-  user_id: number;
-  summary: string;
-  patterns: UserInsight[];
-  recommendations: string[];
-  generated_at: string;
-}
-
-export async function fetchUserInsights(): Promise<InsightsReport | null> {
-	const res = await checkResponse(await apiFetch('/api/users/me/insights', { headers: authHeaders() }));
-  const data = await res.json();
-  return data.insights;
 }
 
 // ── Recommendations API ──────────────────────────────────────────────────────────────
