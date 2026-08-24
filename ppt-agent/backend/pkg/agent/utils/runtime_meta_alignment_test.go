@@ -154,8 +154,11 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 		t.Fatalf("token detail missing: %#v", llmEnd.Metadata)
 	}
 	snapshot := meta.Snapshot()
-	if snapshot.RecentEvents[0].Metadata != nil || snapshot.RecentEvents[1].Metadata != nil || snapshot.RecentEvents[2].Metadata != nil {
-		t.Fatalf("snapshot summary should omit tool/input metadata: %#v", snapshot.RecentEvents)
+	if snapshot.RecentEvents[0].Metadata["args_preview"] == nil || snapshot.RecentEvents[1].Metadata["result_preview"] == nil {
+		t.Fatalf("snapshot summary should keep bounded tool previews: %#v", snapshot.RecentEvents)
+	}
+	if snapshot.RecentEvents[0].Metadata["args"] != nil || snapshot.RecentEvents[1].Metadata["result"] != nil || snapshot.RecentEvents[2].Metadata != nil {
+		t.Fatalf("snapshot summary should omit raw tool payloads and llm inputs: %#v", snapshot.RecentEvents)
 	}
 	if got := snapshot.RecentEvents[3].Metadata["assistant_output"]; got != "done" {
 		t.Fatalf("snapshot summary should keep assistant output, got %#v", snapshot.RecentEvents[3].Metadata)
@@ -200,7 +203,7 @@ func TestRuntimeMetaExtractsObservableSearchAndManifestFields(t *testing.T) {
 	})
 
 	meta.RecordToolStart("search", `{"query":"延安 红色旅游 数据","reason":"核实最新文旅资料"}`)
-	meta.RecordToolEnd("search", "", `{"results":[{"title":"延安市人民政府","url":"https://www.yanan.gov.cn/a"},{"title":"百科","url":"https://baike.baidu.com/b"}]}`)
+	meta.RecordToolEnd("search", "", `{"results":[{"title":"延安市人民政府","url":"https://www.yanan.gov.cn/a","description":"发布红色旅游接待数据","source":"延安市人民政府","date":"2026-07-01"},{"title":"百科","url":"https://baike.baidu.com/b"}]}`)
 	meta.RecordToolStart("update_tasks_manifest", `{"template":"generic","theme":"government_red","background":"party_government","tasks":[{"task_id":"slide-1"},{"task_id":"slide-2"}]}`)
 
 	if events[0].Metadata["search_query"] != "延安 红色旅游 数据" || events[0].Metadata["search_reason"] != "核实最新文旅资料" {
@@ -212,6 +215,14 @@ func TestRuntimeMetaExtractsObservableSearchAndManifestFields(t *testing.T) {
 	}
 	if events[1].Metadata["source_count"] != 2 {
 		t.Fatalf("search source count was not extracted: %#v", events[1].Metadata)
+	}
+	searchResults, ok := events[1].Metadata["search_results"].([]any)
+	if !ok || len(searchResults) != 2 {
+		t.Fatalf("readable search results were not extracted: %#v", events[1].Metadata)
+	}
+	firstResult, ok := searchResults[0].(map[string]any)
+	if !ok || firstResult["description"] != "发布红色旅游接待数据" || firstResult["source"] != "延安市人民政府" {
+		t.Fatalf("search result details invalid: %#v", searchResults[0])
 	}
 	titles, ok := events[1].Metadata["source_titles"].([]string)
 	if !ok || len(titles) != 2 || titles[0] != "延安市人民政府" {

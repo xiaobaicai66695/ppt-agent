@@ -29,7 +29,7 @@ import SlidePreviewCard from '../components/SlidePreviewCard.vue';
 import ConversationComposer from '../components/ConversationComposer.vue';
 import RuntimeEventDetail from '../components/RuntimeEventDetail.vue';
 import {
-  compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages, mergeRuntimeMeta, mergeSlideDeliveries,
+  compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages, mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries,
   nextReplayCursor, recoverConversationMessages, runtimeEventDetailLabel, runtimeEventKindLabel,
   runtimeEventNameLabel, runtimeEventStatusLabel, summarizeTaskTitle,
 } from '../utils/workbench';
@@ -371,6 +371,26 @@ async function selectRuntimeEvent(evt: RuntimeEvent) {
 function selectRuntimeEventById(id: number) {
   const event = runtimeTimelineAll.value.find(evt => evt.id === id);
   if (event) selectRuntimeEvent(event);
+}
+
+async function loadInlineRuntimeEvent(eventId: number) {
+  const taskId = selectedId.value;
+  if (!taskId || eventId <= 0) return;
+  const existing = runtimeMeta.value?.recent_events?.find(event => event.id === eventId);
+  if (existing?.metadata_loaded) return;
+  try {
+    const detail = await fetchRuntimeEvent(taskId, eventId);
+    if (selectedId.value !== taskId) return;
+    const current = runtimeMeta.value || { elapsed_ms: 0 };
+    runtimeMeta.value = {
+      ...current,
+      recent_events: mergeRuntimeEvents(current.recent_events || [], [{ ...detail, metadata_loaded: true }]),
+    };
+  } catch (error) {
+    if (selectedId.value === taskId) {
+      composerError.value = error instanceof Error ? `工具结果加载失败：${error.message}` : '工具结果加载失败';
+    }
+  }
 }
 
 const sampleQueries = [
@@ -1431,6 +1451,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
         :notice="composerNotice"
         :activity="selectedTask ? liveActivity : undefined"
         :runtime-events="runtimeTimelineAll"
+        @load-tool-detail="loadInlineRuntimeEvent"
         @submit="submitComposer"
       />
     </main>

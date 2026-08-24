@@ -204,7 +204,10 @@ func ListRuntimeEventSummaries(taskID string) ([]RuntimeEventRecord, error) {
 	ctx, cancel := withOperationTimeout()
 	defer cancel()
 	var events []RuntimeEventRecord
-	err := DB.WithContext(ctx).Select("id", "task_id", "event_id", "timestamp", "elapsed_ms", "kind", "phase", "name", "status", "detail", "created_at").
+	// Metadata is needed here so the web layer can derive a bounded, redacted
+	// public summary for inline tool previews. Raw payloads are never returned by
+	// the conversation endpoint.
+	err := DB.WithContext(ctx).Select("id", "task_id", "event_id", "timestamp", "elapsed_ms", "kind", "phase", "name", "status", "detail", "metadata", "created_at").
 		Where("task_id = ?", taskID).
 		Order("event_id ASC").
 		Find(&events).Error

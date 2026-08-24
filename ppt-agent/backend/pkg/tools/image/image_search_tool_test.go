@@ -126,3 +126,28 @@ func TestImageSearchToolMapsUnauthorizedError(t *testing.T) {
 		t.Fatal("tool result leaked the access key")
 	}
 }
+
+func TestImageSearchToolUsesTwoCandidatesAndCapsLargeRequests(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Query().Get("per_page"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"total":0,"total_pages":0,"results":[]}`))
+	}))
+	defer server.Close()
+
+	client, err := unsplash.NewClient("test-key", unsplash.WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := NewImageSearchTool(client, t.TempDir())
+	if _, err := tool.InvokableRun(context.Background(), `{"query":"city skyline"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.InvokableRun(context.Background(), `{"query":"city skyline","per_page":12}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(requested) != 2 || requested[0] != "2" || requested[1] != "3" {
+		t.Fatalf("per_page requests = %#v, want [2 3]", requested)
+	}
+}

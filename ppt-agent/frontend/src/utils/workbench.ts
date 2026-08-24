@@ -211,6 +211,14 @@ export interface InlineToolImagePreview {
   download_error?: string;
 }
 
+export interface InlineToolSearchResult {
+  title: string;
+  url: string;
+  description?: string;
+  source?: string;
+  date?: string;
+}
+
 export interface InlineToolPreview {
   key: string;
   name: string;
@@ -224,7 +232,9 @@ export interface InlineToolPreview {
   args_preview?: string;
   result_preview?: string;
   source_urls: string[];
+  search_results: InlineToolSearchResult[];
   image_results: InlineToolImagePreview[];
+  metadata_loaded?: boolean;
 }
 
 export interface InlineToolGroupPreview {
@@ -331,7 +341,13 @@ function isToolLikeRuntimeEvent(event: RuntimeEvent): boolean {
 
 function toolPreviewFromEvent(event: RuntimeEvent, status: string): InlineToolPreview {
   const metadata = event.metadata || {};
-  const imageResults = metadataImageResults(metadata.image_results);
+  const resultPayload = metadataResultRecord(metadata);
+  const imageResults = metadataImageResults(metadata.image_results).length
+    ? metadataImageResults(metadata.image_results)
+    : metadataImageResults(resultPayload?.photos);
+  const searchResults = metadataSearchResults(metadata.search_results).length
+    ? metadataSearchResults(metadata.search_results)
+    : metadataSearchResults(resultPayload?.results);
   return {
     key: `tool:${event.id || runtimeEventFingerprint(event)}`,
     name: event.name || event.phase || 'tool',
@@ -344,10 +360,11 @@ function toolPreviewFromEvent(event: RuntimeEvent, status: string): InlineToolPr
     end_event_id: event.kind?.toLowerCase().endsWith('_start') ? undefined : event.id,
     args_preview: firstMetadataString(metadata, 'args', 'arguments', 'args_preview', 'arguments_preview')
       || synthesizeToolArgsPreview(event),
-    result_preview: firstMetadataString(metadata, 'result', 'result_preview', 'output_preview', 'error')
-      || synthesizeToolResultPreview(event, imageResults),
+    result_preview: preferredToolResultPreview(event, imageResults, searchResults, resultPayload),
     source_urls: metadataArray(metadata.source_urls),
+    search_results: searchResults,
     image_results: imageResults,
+    metadata_loaded: event.metadata_loaded,
   };
 }
 
@@ -357,12 +374,31 @@ function mergeToolPreview(preview: InlineToolPreview, event: RuntimeEvent, statu
   preview.end_event_id = event.id;
   preview.elapsed_ms = event.elapsed_ms || preview.elapsed_ms;
   preview.detail = runtimeEventDetailLabel(event);
-  preview.result_preview = firstMetadataString(metadata, 'result', 'result_preview', 'output_preview', 'error')
-    || synthesizeToolResultPreview(event, metadataImageResults(metadata.image_results))
+  const resultPayload = metadataResultRecord(metadata);
+  const images = metadataImageResults(metadata.image_results).length
+    ? metadataImageResults(metadata.image_results)
+    : metadataImageResults(resultPayload?.photos);
+  const searchResults = metadataSearchResults(metadata.search_results).length
+    ? metadataSearchResults(metadata.search_results)
+    : metadataSearchResults(resultPayload?.results);
+  preview.result_preview = preferredToolResultPreview(event, images, searchResults, resultPayload)
     || preview.result_preview;
   preview.source_urls = metadataArray(metadata.source_urls) || preview.source_urls;
-  const images = metadataImageResults(metadata.image_results);
   if (images.length > 0) preview.image_results = images;
+  if (searchResults.length > 0) preview.search_results = searchResults;
+  preview.metadata_loaded = event.metadata_loaded ?? preview.metadata_loaded;
+}
+
+function preferredToolResultPreview(
+  event: RuntimeEvent,
+  images: InlineToolImagePreview[],
+  searchResults: InlineToolSearchResult[],
+  resultPayload?: Record<string, unknown>,
+): string {
+  const name = event.name || '';
+  const synthesized = synthesizeToolResultPreview(event, images, searchResults, resultPayload);
+  if ((name === 'search' || name === 'search_images') && synthesized) return synthesized;
+  return firstMetadataString(event.metadata || {}, 'result', 'result_preview', 'output_preview', 'error') || synthesized;
 }
 
 function groupAdjacentInlineTools(items: InlineConversationItem[]): InlineConversationItem[] {
@@ -435,7 +471,12 @@ function synthesizeToolArgsPreview(event: RuntimeEvent): string {
   return compactJSONPreview(data);
 }
 
-function synthesizeToolResultPreview(event: RuntimeEvent, images: InlineToolImagePreview[]): string {
+function synthesizeToolResultPreview(
+  event: RuntimeEvent,
+  images: InlineToolImagePreview[],
+  searchResults: InlineToolSearchResult[],
+  resultPayload?: Record<string, unknown>,
+): string {
   const metadata = event.metadata || {};
   const name = event.name || '';
   const data: Record<string, unknown> = {};
@@ -444,16 +485,19 @@ function synthesizeToolResultPreview(event: RuntimeEvent, images: InlineToolImag
   }
   if (name === 'search') {
     const urls = metadataArray(metadata.source_urls);
+    const sourceCount = Number(metadata.source_count || 0) || searchResults.length || urls.length;
     data.query = metadata.search_query;
-    data.sources = urls.length;
-    data.top_sources = urls.slice(0, 3);
-    if (urls.length === 0) data.note = metadata.error || '未返回可展示来源';
+    if (sourceCount > 0) data.sources = sourceCount;
+    data.top_sources = searchResults.map(item => item.title).filter(Boolean).slice(0, 3);
+    if (sourceCount === 0) data.note = metadata.error || '本次检索没有匹配来源，可调整关键词后重试';
   } else if (name === 'search_images') {
     data.query = metadata.image_query || metadata.asset_query;
-    data.images = images.length;
+    data.provider = metadata.provider || resultPayload?.provider;
+    data.total = metadata.total || resultPayload?.total;
+    if (images.length > 0) data.images = images.length;
     data.downloaded = images.filter(image => image.local_path).length;
     data.attribution = images.map(image => image.attribution || image.photographer).filter(Boolean).slice(0, 3);
-    if (images.length === 0) data.note = metadata.error || '未返回可展示图片';
+    if (images.length === 0) data.note = metadata.error || '本次检索没有匹配图片，可调整视觉主体后重试';
   } else if (name === 'read_file') {
     data.status = runtimeEventStatusLabel(event.status);
     data.file = metadata.file_path;
@@ -600,6 +644,37 @@ function metadataImageResults(value: unknown): InlineToolImagePreview[] {
       };
     })
     .filter(item => item.preview_url || item.image_url || item.source_url || item.local_path);
+}
+
+function metadataSearchResults(value: unknown): InlineToolSearchResult[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(item => item !== null && typeof item === 'object' && !Array.isArray(item))
+    .slice(0, 5)
+    .map(item => {
+      const record = item as Record<string, unknown>;
+      const text = (key: string) => String(record[key] || '').trim();
+      return {
+        title: text('title') || text('url') || '未命名来源',
+        url: text('url'),
+        description: text('description'),
+        source: text('source'),
+        date: text('date'),
+      };
+    })
+    .filter(item => item.title || item.url || item.description);
+}
+
+function metadataResultRecord(metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+  const raw = metadata.result ?? metadata.result_preview;
+  if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  const parsed = parsePreviewPayload(raw);
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : undefined;
 }
 
 export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {

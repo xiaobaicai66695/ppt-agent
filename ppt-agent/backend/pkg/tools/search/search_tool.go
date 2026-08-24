@@ -134,6 +134,8 @@ type SearchResult struct {
 	Title       string `json:"title"`
 	URL         string `json:"url"`
 	Description string `json:"description"`
+	Source      string `json:"source,omitempty"`
+	Date        string `json:"date,omitempty"`
 }
 
 // --- 百度千帆 API 请求/响应结构 ---
@@ -236,10 +238,19 @@ func (t *searchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 	combinedContent.WriteString("=== 搜索结果 ===\n\n")
 
 	for i, ref := range refs {
+		resultDescription := cleanText(ref.Snippet)
+		if resultDescription == "" {
+			resultDescription = cleanText(ref.Content)
+		}
+		if len([]rune(resultDescription)) > 280 {
+			resultDescription = string([]rune(resultDescription)[:280]) + "..."
+		}
 		results = append(results, SearchResult{
 			Title:       ref.Title,
 			URL:         ref.URL,
-			Description: ref.Website,
+			Description: resultDescription,
+			Source:      ref.Website,
+			Date:        ref.Date,
 		})
 
 		text := ref.Content

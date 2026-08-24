@@ -127,7 +127,7 @@ func NewClient(accessKey string, options ...ClientOption) (*Client, error) {
 	client := &Client{
 		accessKey:        accessKey,
 		baseURL:          baseURL,
-		httpClient:       &http.Client{Timeout: 30 * time.Second},
+		httpClient:       &http.Client{Timeout: 60 * time.Second},
 		maxDownloadBytes: defaultMaxImageBytes,
 		allowedDownloadHosts: map[string]struct{}{
 			"unsplash.com": {},

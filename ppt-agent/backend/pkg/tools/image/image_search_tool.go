@@ -35,6 +35,11 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/params"
 )
 
+const (
+	defaultPlannerImagesPerCall = 2
+	maxPlannerImagesPerCall     = 3
+)
+
 var imageSearchToolInfo = &schema.ToolInfo{
 	Name: "search_images",
 	Desc: `搜索适合 PPT 专题页使用的图片，当前 provider 为 Unsplash。
@@ -81,7 +86,7 @@ var imageSearchToolInfo = &schema.ToolInfo{
 		},
 		"per_page": {
 			Type: "integer",
-			Desc: "返回数量，1-30，默认 6",
+			Desc: "返回候选数量，1-3，默认 2；整轮任务优先复用候选图，避免重复批量下载",
 		},
 		"download": {
 			Type: "boolean",
@@ -172,7 +177,13 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		return marshalImageSearchError(err.Error())
 	}
 	if input.PerPage == 0 {
-		input.PerPage = 6
+		input.PerPage = defaultPlannerImagesPerCall
+	}
+	if input.PerPage < 1 {
+		input.PerPage = 1
+	}
+	if input.PerPage > maxPlannerImagesPerCall {
+		input.PerPage = maxPlannerImagesPerCall
 	}
 	if purpose == "background" && input.Orientation == "" {
 		input.Orientation = "landscape"

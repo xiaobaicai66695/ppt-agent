@@ -35,11 +35,11 @@ func TestVisibleMessageContentKeepsRawPlannerOutput(t *testing.T) {
 	}
 }
 
-func TestStreamTimeoutDefaultsToEightMinutes(t *testing.T) {
+func TestStreamTimeoutDefaultsToFifteenMinutes(t *testing.T) {
 	t.Setenv("STREAM_TIMEOUT", "")
 
-	if got := streamTimeout(); got != 8*time.Minute {
-		t.Fatalf("streamTimeout() = %s, want 8m", got)
+	if got := streamTimeout(); got != 15*time.Minute {
+		t.Fatalf("streamTimeout() = %s, want 15m", got)
 	}
 }
 
@@ -54,8 +54,8 @@ func TestStreamTimeoutUsesEnvValue(t *testing.T) {
 func TestStreamTimeoutInvalidEnvFallsBack(t *testing.T) {
 	t.Setenv("STREAM_TIMEOUT", "soon")
 
-	if got := streamTimeout(); got != 8*time.Minute {
-		t.Fatalf("streamTimeout() = %s, want 8m", got)
+	if got := streamTimeout(); got != 15*time.Minute {
+		t.Fatalf("streamTimeout() = %s, want 15m", got)
 	}
 }
 

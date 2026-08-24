@@ -152,8 +152,11 @@ func TestHandleGetConversationIncludesPersistedRuntimeTimeline(t *testing.T) {
 	if len(payload.RuntimeMeta.RecentEvents) != 3 {
 		t.Fatalf("recent_events = %#v", payload.RuntimeMeta.RecentEvents)
 	}
-	if payload.RuntimeMeta.RecentEvents[0].Metadata != nil || payload.RuntimeMeta.RecentEvents[1].Metadata != nil {
-		t.Fatalf("conversation timeline should omit tool metadata: %#v", payload.RuntimeMeta.RecentEvents)
+	if payload.RuntimeMeta.RecentEvents[0].Metadata["args_preview"] == nil || payload.RuntimeMeta.RecentEvents[1].Metadata["result_preview"] == nil {
+		t.Fatalf("conversation timeline should expose bounded tool previews: %#v", payload.RuntimeMeta.RecentEvents)
+	}
+	if payload.RuntimeMeta.RecentEvents[0].Metadata["args"] != nil || payload.RuntimeMeta.RecentEvents[1].Metadata["result"] != nil {
+		t.Fatalf("conversation timeline should omit raw tool payloads: %#v", payload.RuntimeMeta.RecentEvents)
 	}
 	if got := payload.RuntimeMeta.RecentEvents[2].Metadata["assistant_output"]; got != "## 规划\n\n开始拆分页面。" {
 		t.Fatalf("conversation timeline should keep assistant_output only, got %#v", payload.RuntimeMeta.RecentEvents[2].Metadata)

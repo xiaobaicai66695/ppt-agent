@@ -290,7 +290,7 @@ describe('workbench utilities', () => {
       status: 'ok',
       metadata: {
         args_preview: '{"query":"aerial city skyline","asset_purpose":"background","download":true}',
-        result_preview: '{"provider":"unsplash","total":12,"photos":[{"id":"a"},{"id":"b"}]}',
+        result: '{"provider":"unsplash","total":12,"photos":[{"id":"a","preview_url":"https://images.unsplash.com/a.jpg"},{"id":"b","preview_url":"https://images.unsplash.com/b.jpg"}]}',
       },
     }]);
 
@@ -302,8 +302,10 @@ describe('workbench utilities', () => {
     expect(formatToolPreviewFields(tool, 'result')).toEqual([
       { label: '服务', value: 'unsplash' },
       { label: '总数', value: '12' },
-      { label: '图片结果', value: '2 项' },
+      { label: '图片数量', value: '2' },
+      { label: '已下载', value: '0' },
     ]);
+    expect(tool.image_results).toHaveLength(2);
   });
 
   it('prefers full tool result over truncated preview for readable fields', () => {
@@ -317,14 +319,21 @@ describe('workbench utilities', () => {
       status: 'ok',
       metadata: {
         result_preview: '{"results":[{"title":"截断',
-        result: '{"results":[{"title":"政策原文","url":"https://example.com/policy"}],"content":"这是一段很长的搜索正文摘要，用于说明前端应该解析完整 result 而不是截断 preview。"}',
+        result: '{"results":[{"title":"政策原文","url":"https://example.com/policy","description":"政策明确了试点范围和执行时间。","source":"示例政府网","date":"2026-08-01"}],"content":"这是一段很长的搜索正文摘要，用于说明前端应该解析完整 result 而不是截断 preview。"}',
       },
     }]);
 
     expect(formatToolPreviewFields(tool, 'result')).toEqual([
-      { label: '搜索结果', value: '1 项' },
-      { label: '结果摘要', value: '这是一段很长的搜索正文摘要，用于说明前端应该解析完整 result 而不是截断 preview。' },
+      { label: '来源数量', value: '1' },
+      { label: '主要来源', value: '政策原文' },
     ]);
+    expect(tool.search_results).toEqual([{
+      title: '政策原文',
+      url: 'https://example.com/policy',
+      description: '政策明确了试点范围和执行时间。',
+      source: '示例政府网',
+      date: '2026-08-01',
+    }]);
   });
 
   it('derives concise live activity without exposing tool arguments', () => {

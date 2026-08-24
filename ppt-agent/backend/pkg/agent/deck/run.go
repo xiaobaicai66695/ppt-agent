@@ -45,11 +45,11 @@ const (
 func streamTimeout() time.Duration {
 	v := os.Getenv("STREAM_TIMEOUT")
 	if v == "" {
-		return 8 * time.Minute
+		return 15 * time.Minute
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		return 8 * time.Minute
+		return 15 * time.Minute
 	}
 	return d
 }

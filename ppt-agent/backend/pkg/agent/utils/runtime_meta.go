@@ -852,18 +852,60 @@ func RuntimeEventSummary(event RuntimeEvent) RuntimeEvent {
 
 func publicRuntimeEventMetadata(event RuntimeEvent) map[string]any {
 	kind := strings.ToLower(strings.TrimSpace(event.Kind))
-	if !strings.Contains(kind, "llm") || strings.Contains(kind, "start") {
+	if strings.HasPrefix(kind, "tool_") || strings.HasPrefix(kind, "slide_render_") {
+		return publicToolRuntimeEventMetadata(event.Name, event.Metadata)
+	}
+	if strings.Contains(kind, "llm") && !strings.Contains(kind, "start") {
+		output, ok := event.Metadata["assistant_output"].(string)
+		if !ok {
+			return nil
+		}
+		output = strings.TrimSpace(output)
+		if output == "" {
+			return nil
+		}
+		return map[string]any{"assistant_output": truncateString(redactRuntimeMetadataString("assistant_output", output), runtimeMetadataRawStringLimit)}
+	}
+	return nil
+}
+
+func publicToolRuntimeEventMetadata(name string, metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
 		return nil
 	}
-	output, ok := event.Metadata["assistant_output"].(string)
-	if !ok {
+	normalized := make(map[string]any, len(metadata)+8)
+	if args, _ := metadata["args"].(string); strings.TrimSpace(args) != "" {
+		for key, value := range compactToolMetadata(name, args, "") {
+			normalized[key] = value
+		}
+	}
+	if result, _ := metadata["result"].(string); strings.TrimSpace(result) != "" {
+		args, _ := metadata["args"].(string)
+		for key, value := range compactToolMetadata(name, args, result) {
+			normalized[key] = value
+		}
+	}
+	for key, value := range metadata {
+		normalized[key] = value
+	}
+	allowed := map[string]struct{}{
+		"args_preview": {}, "result_preview": {}, "error": {},
+		"search_query": {}, "search_reason": {}, "source_count": {}, "source_titles": {}, "source_urls": {}, "search_results": {},
+		"image_query": {}, "asset_query": {}, "asset_purpose": {}, "asset_subject": {}, "composition": {},
+		"provider": {}, "total": {}, "total_pages": {}, "image_results": {},
+		"file_path": {}, "mode": {}, "slide_count": {}, "template": {}, "theme": {}, "background": {},
+		"task_id": {}, "content_type": {}, "output_file": {}, "target": {},
+	}
+	public := make(map[string]any)
+	for key := range allowed {
+		if value, ok := normalized[key]; ok {
+			public[key] = value
+		}
+	}
+	if len(public) == 0 {
 		return nil
 	}
-	output = strings.TrimSpace(output)
-	if output == "" {
-		return nil
-	}
-	return map[string]any{"assistant_output": truncateString(redactRuntimeMetadataString("assistant_output", output), runtimeMetadataRawStringLimit)}
+	return public
 }
 
 func (m *RuntimeMeta) recordEventLocked(kind, name, status, detail string, metadata map[string]any) {
@@ -943,10 +985,13 @@ func addToolObservationFields(metadata map[string]any, name, args, result string
 	case "search":
 		addJSONFieldAs(metadata, args, "query", "search_query")
 		addJSONFieldAs(metadata, args, "reason", "search_reason")
-		if count, titles, errText := extractSearchSummary(result, 5); count > 0 || errText != "" {
+		if count, titles, searchResults, errText := extractSearchSummary(result, 5); count > 0 || errText != "" {
 			metadata["source_count"] = count
 			if len(titles) > 0 {
 				metadata["source_titles"] = titles
+			}
+			if len(searchResults) > 0 {
+				metadata["search_results"] = searchResults
 			}
 			if errText != "" {
 				metadata["error"] = errText
@@ -1018,31 +1063,50 @@ func countManifestTasks(raw string) int {
 	return 0
 }
 
-func extractSearchSummary(raw string, limit int) (int, []string, string) {
+func extractSearchSummary(raw string, limit int) (int, []string, []map[string]any, string) {
 	if strings.TrimSpace(raw) == "" {
-		return 0, nil, ""
+		return 0, nil, nil, ""
 	}
 	var parsed struct {
 		Results []struct {
-			Title string `json:"title"`
+			Title       string `json:"title"`
+			URL         string `json:"url"`
+			Description string `json:"description"`
+			Source      string `json:"source"`
+			Date        string `json:"date"`
 		} `json:"results"`
 		Error string `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		return 0, nil, ""
+		return 0, nil, nil, ""
 	}
 	titles := make([]string, 0, minInt(len(parsed.Results), limit))
+	results := make([]map[string]any, 0, minInt(len(parsed.Results), limit))
 	for _, result := range parsed.Results {
 		title := truncateString(strings.TrimSpace(result.Title), 120)
-		if title == "" {
+		url := truncateString(strings.TrimSpace(result.URL), 240)
+		if title == "" && url == "" {
 			continue
 		}
-		titles = append(titles, title)
-		if len(titles) >= limit {
+		if title != "" {
+			titles = append(titles, title)
+		}
+		item := map[string]any{"title": title, "url": url}
+		if description := truncateString(strings.TrimSpace(result.Description), 320); description != "" {
+			item["description"] = description
+		}
+		if source := truncateString(strings.TrimSpace(result.Source), 100); source != "" {
+			item["source"] = source
+		}
+		if date := truncateString(strings.TrimSpace(result.Date), 40); date != "" {
+			item["date"] = date
+		}
+		results = append(results, item)
+		if len(results) >= limit {
 			break
 		}
 	}
-	return len(parsed.Results), titles, truncateString(strings.TrimSpace(parsed.Error), 180)
+	return len(parsed.Results), titles, results, truncateString(strings.TrimSpace(parsed.Error), 180)
 }
 
 func extractSearchURLs(raw string, limit int) []string {

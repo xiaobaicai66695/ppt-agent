@@ -26,11 +26,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string];
   submit: [];
+  'load-tool-detail': [eventId: number];
 }>();
 
 const thread = ref<HTMLElement | null>(null);
 const showHistory = ref(props.messages.length > 0);
 const autoFollowThread = ref(true);
+const requestedToolEvents = ref(new Set<number>());
 
 const modeLabel = computed(() => ({
   create: '创建演示',
@@ -126,6 +128,26 @@ function previewImageUrl(item: { preview_url?: string; image_url?: string }): st
 function previewImageLabel(item: { attribution?: string; photographer?: string; description?: string }): string {
   return String(item.attribution || item.photographer || item.description || '图片预览').trim();
 }
+
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '查看来源';
+  }
+}
+
+function handleToolToggle(
+  event: Event,
+  tool: { end_event_id?: number; start_event_id?: number; metadata_loaded?: boolean },
+) {
+  const details = event.currentTarget as HTMLDetailsElement | null;
+  if (!details?.open || tool.metadata_loaded) return;
+  const eventId = tool.end_event_id || tool.start_event_id;
+  if (!eventId || requestedToolEvents.value.has(eventId)) return;
+  requestedToolEvents.value = new Set([...requestedToolEvents.value, eventId]);
+  emit('load-tool-detail', eventId);
+}
 </script>
 
 <template>
@@ -194,6 +216,7 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
                 :key="tool.key"
                 class="inline-tool-card"
                 :open="tool.status === 'running' || tool.image_results.length > 0"
+                @toggle="handleToolToggle($event, tool)"
               >
                 <summary>
                   <span class="tool-state" :class="toolStatusIcon(tool.status)">
@@ -207,8 +230,26 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
                   </span>
                 </summary>
                 <div class="tool-card-body">
-                  <div v-if="tool.source_urls.length" class="tool-source-list">
-                    <a v-for="url in tool.source_urls" :key="url" :href="url" target="_blank" rel="noreferrer">{{ url }}</a>
+                  <div v-if="tool.search_results.length" class="tool-search-results">
+                    <a
+                      v-for="result in tool.search_results"
+                      :key="`${result.url}:${result.title}`"
+                      class="tool-search-result"
+                      :href="result.url || undefined"
+                      :target="result.url ? '_blank' : undefined"
+                      rel="noreferrer"
+                    >
+                      <span class="tool-result-head">
+                        <strong>{{ result.title }}</strong>
+                        <small>{{ result.source || sourceHost(result.url) }}<template v-if="result.date"> · {{ result.date }}</template></small>
+                      </span>
+                      <p v-if="result.description">{{ result.description }}</p>
+                    </a>
+                  </div>
+                  <div v-else-if="tool.source_urls.length" class="tool-source-list">
+                    <a v-for="url in tool.source_urls" :key="url" :href="url" target="_blank" rel="noreferrer">
+                      <strong>{{ sourceHost(url) }}</strong><span>{{ url }}</span>
+                    </a>
                   </div>
                   <div v-if="tool.image_results.length" class="tool-image-grid">
                     <a
@@ -244,6 +285,12 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
                       </dl>
                     </div>
                   </div>
+                  <p
+                    v-if="requestedToolEvents.has(tool.end_event_id || tool.start_event_id || 0) && !tool.metadata_loaded && !tool.search_results.length && !tool.image_results.length"
+                    class="tool-detail-loading"
+                  >
+                    <LoaderCircle :size="13" class="spin" />正在读取完整调用结果
+                  </p>
                 </div>
               </details>
             </div>
@@ -388,23 +435,46 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
   border-top: 1px solid var(--divider);
   background: var(--surface);
 }
+.tool-search-results {
+  display: grid;
+  gap: 7px;
+}
+.tool-search-result {
+  min-width: 0;
+  padding: 9px 10px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--divider);
+  border-radius: 5px;
+  color: var(--text);
+  background: #fbfcfd;
+  text-decoration: none;
+}
+.tool-search-result:hover { border-color: #aac9c5; background: var(--action-soft); }
+.tool-result-head { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tool-result-head strong { min-width: 0; color: var(--action-ink); font-size: 12px; line-height: 1.45; }
+.tool-result-head small { flex: 0 0 auto; color: var(--text-muted); font-size: 10px; }
+.tool-search-result p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
 .tool-source-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 6px;
 }
 .tool-source-list a {
   max-width: 100%;
-  padding: 3px 6px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   overflow: hidden;
   border: 1px solid var(--divider);
   border-radius: 4px;
   color: var(--info);
   background: var(--info-soft);
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-decoration: none;
 }
+.tool-source-list a strong { flex: 0 0 auto; color: var(--action-ink); }
+.tool-source-list a span { min-width: 0; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
 .tool-image-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
@@ -444,6 +514,7 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
 }
+.tool-detail-loading { margin: 0; display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 10px; }
 .tool-preview-block {
   min-width: 0;
   display: grid;
@@ -511,6 +582,7 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
   .composer-identity small { white-space: normal; }
   .conversation-thread { max-height: 46dvh; }
   .markdown-body { font-size: 12px; }
+  .tool-result-head { align-items: flex-start; flex-direction: column; gap: 2px; }
   .input-shell textarea { font-size: 16px; }
 }
 

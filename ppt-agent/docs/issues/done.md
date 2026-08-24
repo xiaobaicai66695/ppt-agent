@@ -2,6 +2,30 @@
 
 ## 2026-08-24
 
+- ID: 20260824-readable-inline-tool-results-and-image-budget
+- Type: fix/performance
+- Scope: inline tool result preview, runtime event summaries, image search budget, stream timeout
+- Completed: 2026-08-24 13:55 Asia/Shanghai
+- Changes:
+  - Loaded complete runtime-event details when an inline chat tool card is expanded, then rendered web search results as title/source/date/summary rows and image search results as thumbnail previews instead of raw JSON or empty counters.
+  - Kept bounded, redacted search/image metadata in conversation summaries while excluding raw `args/result`; restored metadata selection in the persisted event summary query so refreshed and historical tasks remain readable.
+  - Changed image search to 2 candidates by default and at most 3 per call, added an approximately 20-candidate Planner soft budget, and encouraged reuse across slides with similar visual intent.
+  - Increased Unsplash request timeout to 60 seconds and the Agent stream idle timeout default and online configuration to 15 minutes.
+  - Corrected the online startup working directory to `/ppt/ppt-agent/backend`, restoring `skills_loaded count=1` and valid slide-type discovery.
+- Verification:
+  - Local: `npm run test -- workbench` passed with 22 tests; `npm run build` passed.
+  - Local: focused Go tests for deck, runtime metadata, DB, web, search, image search, and Unsplash passed; `go build ./...` passed.
+  - Online API probe: the configured primary model returned HTTP 200 to a minimal completion request, ruling out API-key, balance, permission, and rate-limit status errors at verification time.
+  - Online task replay: conversation summary returned 5 readable sources; four image calls exposed `[0, 0, 2, 2]` previews, with no call above 2 and no raw JSON leakage; the event-detail endpoint returned all 5 search results.
+  - The first smoke task reached Planner review but the prior 5-minute idle guard paused one upstream stream with no output; the effective guard was then increased to 15 minutes as requested.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Backend process: PID `2756167`, command `../ppt-agent-linux -mode web -addr :8080`, started from `/ppt/ppt-agent/backend`.
+  - Health and frontend: `/api/health` and `/` returned HTTP 200; deployed bundle `DashboardPage-fmFqBo1h.js` contains inline detail loading and readable search/image result rendering.
+- Cleanup:
+  - Deleted the online smoke task and confirmed subsequent lookup returned 404.
+  - Removed remote smoke credentials, task ID, and staged `.new` binary; no backup binary was retained.
+
 - ID: 20260824-inline-tool-trace-stream-order
 - Type: fix
 - Scope: frontend conversation timeline, runtime tool metadata
