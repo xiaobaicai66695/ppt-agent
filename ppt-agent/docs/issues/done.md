@@ -1,5 +1,28 @@
 # Done
 
+## 2026-08-25
+
+- ID: 20260825-conversation-cumulative-output-trim
+- Type: fix
+- Scope: frontend inline agent trace, backend conversation history
+- Completed: 2026-08-25 10:23 Asia/Shanghai
+- Changes:
+  - Fixed cumulative assistant output deduplication so a later model message that repeats the previous prefix after a tool call only displays the new suffix.
+  - Routed live `streamingContent` through the same conversation merge logic, preventing the bottom assistant block from repeatedly showing the same text while new content appears above it.
+  - Added frontend and backend regression tests for the microservice governance PPT trace shape shown in the UI.
+- Verification:
+  - Local: `npm test -- --run src/utils/workbench.test.ts` passed with 25 tests.
+  - Local: `npm run build` passed.
+  - Local: `go test ./pkg/web` passed.
+  - Local: `go build ./...` passed.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`
+  - Backend process: restarted from PID `2897132` to PID `3043915`, command `../ppt-agent-linux -mode web -addr :8080`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+  - Frontend: deployed new `dist` asset `DashboardPage-Btp8q8q8.js`; smoke confirmed the compiled bundle contains cumulative assistant suffix trimming.
+- Cleanup:
+  - Removed this deployment's uploaded `/tmp` binary, dist archive, and source patch files from the server.
+
 ## 2026-08-24
 
 - ID: 20260824-manifest-tool-tasks-string-hotfix
