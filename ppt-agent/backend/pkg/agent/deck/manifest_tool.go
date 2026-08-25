@@ -189,7 +189,7 @@ func (t *manifestTool) Info(context.Context) (*schema.ToolInfo, error) {
 func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
 	input, err := parseManifestToolInput(argumentsInJSON)
 	if err != nil {
-		return "", fmt.Errorf("invalid manifest tool input: %w", err)
+		return manifestToolRecoverableError("", "draft", err), nil
 	}
 
 	var manifest *TasksManifest
@@ -197,13 +197,13 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 	switch strings.ToLower(strings.TrimSpace(input.Mode)) {
 	case "initialize":
 		if len(input.Tasks) == 0 {
-			return "", fmt.Errorf("tasks must not be empty")
+			return manifestToolRecoverableError(input.Mode, t.writeTarget(), fmt.Errorf("tasks must not be empty")), nil
 		}
 		manifest, err = t.initializeManifest(input)
 		target = t.writeTarget()
 	case "patch":
 		if len(input.Tasks) == 0 {
-			return "", fmt.Errorf("tasks must not be empty")
+			return manifestToolRecoverableError(input.Mode, t.writeTarget(), fmt.Errorf("tasks must not be empty")), nil
 		}
 		manifest, err = t.patchManifest(input)
 		target = t.writeTarget()
@@ -236,12 +236,12 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		err = fmt.Errorf("unsupported mode %q", input.Mode)
 	}
 	if err != nil {
-		return "", err
+		return manifestToolRecoverableError(input.Mode, target, err), nil
 	}
 	normalizeManifestLayoutVariants(manifest)
 	if !t.shouldDeferValidation() {
 		if err := validateManifestForWrite(manifest); err != nil {
-			return "", err
+			return manifestToolRecoverableError(input.Mode, target, err), nil
 		}
 	}
 	if err := t.writeManifest(manifest); err != nil {
@@ -251,6 +251,24 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		"ok": true, "mode": input.Mode, "target": target, "updated": len(input.Tasks), "total": len(manifest.Tasks),
 	})
 	return string(result), nil
+}
+
+func manifestToolRecoverableError(mode, target string, err error) string {
+	payload := map[string]any{
+		"ok":          false,
+		"mode":        strings.TrimSpace(mode),
+		"target":      target,
+		"error":       err.Error(),
+		"next_action": "修正 update_tasks_manifest 的结构化 JSON 参数后重新调用；tasks 必须是完整对象数组，字符串形式必须是合法 JSON 数组且不能截断、混入未转义引号或非 JSON 字符。",
+	}
+	if payload["mode"] == "" {
+		payload["mode"] = "unknown"
+	}
+	if payload["target"] == "" {
+		payload["target"] = "draft"
+	}
+	result, _ := json.Marshal(payload)
+	return string(result)
 }
 
 func (t *manifestTool) writeTarget() string {

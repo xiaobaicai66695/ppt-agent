@@ -122,8 +122,12 @@ func TestManifestToolLeavesFileUnchangedOnInvalidPatch(t *testing.T) {
 	}
 
 	tool := newManifestTool(workDir)
-	if _, err := tool.InvokableRun(context.Background(), `{"mode":"patch","tasks":[{"task_id":"missing","title":"不应写入"}]}`); err == nil {
-		t.Fatal("expected missing task error")
+	result, err := tool.InvokableRun(context.Background(), `{"mode":"patch","tasks":[{"task_id":"missing","title":"不应写入"}]}`)
+	if err != nil {
+		t.Fatalf("planner-correctable patch errors should be returned as tool results: %v", err)
+	}
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `"next_action"`) {
+		t.Fatalf("invalid patch should return recoverable tool result, got %s", result)
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {
@@ -270,8 +274,12 @@ func TestManifestToolRejectsInvalidTasksString(t *testing.T) {
 	workDir := t.TempDir()
 	tool := newManifestTool(workDir)
 
-	if _, err := tool.InvokableRun(context.Background(), `{"mode":"initialize","title":"示例","tasks":"not-json"}`); err == nil {
-		t.Fatal("expected invalid tasks string error")
+	result, err := tool.InvokableRun(context.Background(), `{"mode":"initialize","title":"示例","tasks":"not-json"}`)
+	if err != nil {
+		t.Fatalf("invalid tasks JSON should be returned for planner correction, got tool error %v", err)
+	}
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `tasks JSON array string is invalid`) {
+		t.Fatalf("invalid tasks string should return recoverable result, got %s", result)
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
 		t.Fatalf("manifest should not be written, stat err=%v", err)
@@ -636,8 +644,12 @@ func TestManifestToolRejectsInvalidComponentPlan(t *testing.T) {
 			}
 		}]
 	}`
-	if _, err := tool.InvokableRun(context.Background(), args); err == nil {
-		t.Fatal("expected invalid component type error")
+	result, err := tool.InvokableRun(context.Background(), args)
+	if err != nil {
+		t.Fatalf("invalid component plan should be returned for planner correction, got tool error %v", err)
+	}
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `unsupported type`) {
+		t.Fatalf("invalid component plan should return recoverable result, got %s", result)
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
 		t.Fatalf("invalid component plan should not be written, stat err=%v", err)

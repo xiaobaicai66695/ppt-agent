@@ -194,7 +194,8 @@ validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile
 
 - 单页生成失败：只重试对应页面，每页最多 2 次；仍失败时将该页标记为 `failed` 并报告页码。
 - `generating` 状态超过 30 分钟：恢复为 `pending` 后重新调度。
-- DeckSpec commit 校验失败：依据工具错误修正草稿结构化参数并重试一次；第二次失败时保留原草稿并报告错误。
+- `update_tasks_manifest` 返回 `ok:false`：不要结束任务；先读取 `error` 和 `next_action`，在当前规划阶段修正 JSON 参数、组件类型或缺失字段，然后重新调用同一模式。常见原因包括 `tasks` 不是对象数组、JSON 字符串被截断、引号未转义、组件类型不在契约内。
+- DeckSpec commit/review 未通过：依据工具返回的 critique 或校验错误修正草稿结构化参数，再重新 review/commit；不要直接进入页面生成链路。
 - tasks.json 解析失败：停止页面调度并报告结构化错误，由原子 manifest 工具保护已有文件。
 
 ## 工具速查
