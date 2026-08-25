@@ -56,6 +56,14 @@ func appendConversationMessage(messages []session.Message, incoming session.Mess
 			return messages
 		}
 		if relation == duplicateIncomingContainsExisting {
+			if suffix, ok := cumulativeConversationSuffix(existing.Content, incoming.Content); ok {
+				incoming.Content = suffix
+				if incoming.Content == "" {
+					return messages
+				}
+				incomingNormalized = normalizeConversationContent(incoming.Content)
+				continue
+			}
 			messages[i] = incoming
 			return messages
 		}
@@ -98,4 +106,13 @@ func duplicateContentRelation(existing, incoming string) duplicateRelation {
 		return duplicateIncomingContainsExisting
 	}
 	return duplicateNone
+}
+
+func cumulativeConversationSuffix(existing, incoming string) (string, bool) {
+	existing = strings.TrimSpace(existing)
+	incoming = strings.TrimSpace(incoming)
+	if existing == "" || incoming == "" || !strings.HasPrefix(incoming, existing) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(incoming, existing)), true
 }

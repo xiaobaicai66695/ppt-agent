@@ -223,6 +223,24 @@ func TestConversationMessagesWithFallbackDropsDuplicateFragments(t *testing.T) {
 	}
 }
 
+func TestConversationMessagesWithFallbackTrimsCumulativeAssistantPrefix(t *testing.T) {
+	prefix := "我将为您创建一个关于微服务项目治理的20页PPT。首先，让我读取组件契约文件以了解可用的组件类型和版式。"
+	suffix := "我已了解组件契约。现在让我规划20页的微服务项目治理PPT。"
+	messages := []session.Message{
+		{Role: "assistant", Content: prefix, Timestamp: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)},
+		{Role: "assistant", Content: prefix + "\n\n" + suffix, Timestamp: time.Date(2026, 8, 24, 10, 0, 1, 0, time.UTC)},
+	}
+
+	got := conversationMessagesWithFallback(messages, "", "", time.Time{})
+
+	if len(got) != 2 {
+		t.Fatalf("len(messages) = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].Content != prefix || got[1].Content != suffix {
+		t.Fatalf("messages = %#v, want prefix then suffix", got)
+	}
+}
+
 func TestConversationMessagesWithFallbackDropsContainedAssistantFragments(t *testing.T) {
 	full := "我将为您生成一份12页的PPT，主题为中小后端项目Git版本控制规范方案。\nPPT规划已完成，12页内容已提交。以下是各页概要：\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |"
 	fragment := "PPT规划已完成，12页内容已提交。以下是各页概要：\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |"

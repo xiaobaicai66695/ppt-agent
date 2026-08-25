@@ -60,11 +60,11 @@ const visibleMessages = computed(() => {
   const messages = [...displayMessages.value];
   const content = props.streamingContent?.trim();
   if (content && !streamingAlreadyShown.value) {
-    messages.push({
+    return mergeConversationMessages(messages, [{
       role: 'assistant',
       content,
       timestamp: props.streamingTimestamp || new Date(0).toISOString(),
-    });
+    }]);
   }
   return messages;
 });

@@ -118,6 +118,50 @@ describe('workbench utilities', () => {
     expect(merged[0].content).toBe(fullAnswer);
   });
 
+  it('keeps only the new assistant suffix when a cumulative output follows tools', () => {
+    const prefix = '我将为您创建一个关于微服务项目治理的20页PPT。首先，让我读取组件契约文件以了解可用的组件类型和版式。';
+    const suffix = '我已了解组件契约。现在让我规划20页的微服务项目治理PPT。';
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: prefix },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'tool_end',
+        name: 'read_file',
+        status: 'ok',
+        metadata: { file_path: 'component_contracts.json' },
+      },
+      {
+        id: 3,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:03Z',
+        elapsed_ms: 3000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: `${prefix}\n\n${suffix}` },
+      },
+    ];
+
+    const messages = runtimeAssistantOutputMessages(events);
+    const items = deriveInlineConversationItems(messages, events);
+
+    expect(messages.map(message => message.content)).toEqual([prefix, suffix]);
+    expect(items.map(item => item.type)).toEqual(['message', 'tool_group', 'message']);
+    expect(items[2].type === 'message' ? items[2].message.content : '').not.toContain(prefix);
+  });
+
   it('keeps the fuller assistant output when runtime events are cumulative', () => {
     const events: RuntimeEvent[] = [
       {

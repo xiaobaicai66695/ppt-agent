@@ -150,10 +150,15 @@ export function mergeConversationMessages(
 export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): ConversationMessage[] {
   const messages: ConversationMessage[] = [];
   const seen = new Set<string>();
+  let toolEventSinceAssistant = false;
   for (const event of [...events].sort((a, b) => {
     if (a.id > 0 && b.id > 0 && a.id !== b.id) return a.id - b.id;
     return Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
   })) {
+    if (isToolLikeRuntimeEvent(event)) {
+      toolEventSinceAssistant = true;
+      continue;
+    }
     const kind = (event.kind || '').toLowerCase();
     if (!kind.includes('llm') || kind.includes('start')) continue;
     const output = event.metadata?.assistant_output;
@@ -165,15 +170,20 @@ export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): Conversa
       role: 'assistant',
       content,
       timestamp: event.timestamp || new Date(0).toISOString(),
-    });
+    }, { splitCumulativePrefix: toolEventSinceAssistant });
+    toolEventSinceAssistant = false;
   }
   return messages;
 }
 
-function mergeConversationMessage(messages: ConversationMessage[], incoming: ConversationMessage) {
-  const content = incoming.content.trim();
+function mergeConversationMessage(
+  messages: ConversationMessage[],
+  incoming: ConversationMessage,
+  options: { splitCumulativePrefix?: boolean } = { splitCumulativePrefix: true },
+) {
+  let content = incoming.content.trim();
   if (!content) return;
-  const incomingNormalized = normalizeConversationContent(content);
+  let incomingNormalized = normalizeConversationContent(content);
   for (let index = 0; index < messages.length; index += 1) {
     const existing = messages[index];
     if (existing.role !== incoming.role) continue;
@@ -181,6 +191,13 @@ function mergeConversationMessage(messages: ConversationMessage[], incoming: Con
     const relation = duplicateContentRelation(existingNormalized, incomingNormalized);
     if (relation === 'same' || relation === 'existing_contains_incoming') return;
     if (relation === 'incoming_contains_existing') {
+      const suffix = options.splitCumulativePrefix ? cumulativeConversationSuffix(existing.content, content) : null;
+      if (suffix !== null) {
+        content = suffix;
+        if (!content) return;
+        incomingNormalized = normalizeConversationContent(content);
+        continue;
+      }
       messages[index] = { ...incoming, content };
       return;
     }
@@ -207,6 +224,14 @@ function duplicateContentRelation(
   if (existing.includes(incoming)) return 'existing_contains_incoming';
   if (incoming.includes(existing)) return 'incoming_contains_existing';
   return 'none';
+}
+
+function cumulativeConversationSuffix(existing: string, incoming: string): string | null {
+  const existingTrimmed = existing.trim();
+  const incomingTrimmed = incoming.trim();
+  if (!existingTrimmed || !incomingTrimmed) return null;
+  if (!incomingTrimmed.startsWith(existingTrimmed)) return null;
+  return incomingTrimmed.slice(existingTrimmed.length).replace(/^\s+/, '').trim();
 }
 
 export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {
