@@ -7,8 +7,8 @@
 ## 方向清单
 
 - **Agent Harness 与可观测性**：持续完善 RuntimeMeta、可回放轨迹、预算与熔断、结构化 handoff、工具结果协议和用户可感知的实时状态。已有基线：`PPT-HARNESS-*`、`PPT-OBS-001`、`PPT-OBS-002`、`PPT-OBS-003`、`PPT-FLOW-002`。
-- **PPT 视觉质量与 Visual Designer 能力**：持续建设模板契约、容量控制、动态排版、本地素材、多版式变体、主题图片、视觉节奏和低 AI 感评估体系。已有基线：`PPT-SKILL-*`、`PPT-QUALITY-*`；当前预研：`docs/research/2026-08-04-ppt-visual-quality-iteration.md`。
-- **专题素材准备与图片获取工具**：后续补充可追溯的图片搜索、下载、去重、授权登记和专题素材包能力；当前因缺少通用图片获取工具，Planner 只记录 `content_plan.visual_intent.asset_query`，不在生成链路中联网取图。
+- **PPT 视觉质量与 PPT Deck Planner 能力**：持续建设组件契约、容量控制、动态排版、图文混排、多版式变体、搜索图片嵌入、视觉节奏和低 AI 感评估体系。已有基线：`PPT-SKILL-*`、`PPT-QUALITY-*`；当前预研：`docs/research/2026-08-04-ppt-visual-quality-iteration.md`。
+- **专题素材准备与图片获取工具**：持续补充可追溯的图片搜索、下载、去重、授权登记、复用预算和专题素材包能力；当前基线是 Planner 在规划阶段转换搜索词，并把下载结果落到任务工作区供生成器嵌入。
 - **生成编排与交付闭环**：持续优化 LLM 路由、并行生成、manifest 原子更新、代码元数据终态、会话续写和失败恢复，降低任务时延并保证 N/N 可靠交付。已有基线：`PPT-FLOW-001`、`PPT-FLOW-002`、`PPT-UX-004`、`PPT-STATUS-001`。
 - **前端创作与交付工作台**：持续改善统一会话、模板选择与编排、过程可观测性、渐进式预览、错误分态和跨尺寸工作台体验。已有基线：`PPT-UI-001`、`PPT-DELIVERY-001`、`PPT-UX-002`、`PPT-UX-003`。
 - **评估、工程治理与运行可靠性**：持续建设质量评估集、轨迹/结果验证、Linux 部署、数据库与缩略图转换可靠性、敏感信息和仓库产物治理。已有基线：`PPT-HARNESS-003`、`PPT-CLEAN-001`、`PPT-OPS-001`、`PPT-THUMB-001`。

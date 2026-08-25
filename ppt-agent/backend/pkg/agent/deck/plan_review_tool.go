@@ -119,7 +119,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 		return
 	}
 	plan := task.ContentPlan
-	if strings.TrimSpace(plan.Summary) == "" {
+	if !hasPlanNarrativeSummary(task, plan) {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "error", PageIndex: page, Message: "content_plan.summary 为空。"})
 	}
 	if strings.TrimSpace(plan.SlideIntent) == "" && !isSimpleTitleLikeSlide(task.ContentType) {
@@ -134,9 +134,9 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 	if !hasUsableBackgroundPlan(task) {
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:      "missing_background_image",
-			Severity:  "error",
+			Severity:  "warning",
 			PageIndex: page,
-			Message:   "页面缺少可执行图片计划：应在 visual_intent 或 image 组件中使用 asset_purpose=background，并填写 asset_query 或已下载 local_path。",
+			Message:   "页面缺少可执行背景图片计划；如当前任务需要视觉背景，应在 visual_intent 或 image 组件中使用 asset_purpose=background，并填写 asset_query 或已下载 local_path。",
 		})
 	} else {
 		report.BackgroundPages++
@@ -174,7 +174,7 @@ func finalizePlanReviewReport(report *PlanReviewReport, manifest *TasksManifest)
 	report.IssueCount = len(report.Issues)
 	report.Passed = !hasBlockingPlanReviewIssue(report.Issues)
 	if report.Passed {
-		report.Summary = fmt.Sprintf("规划审核通过：%d 页均满足结构、组件容量和背景图质量门。", report.TotalSlides)
+		report.Summary = fmt.Sprintf("规划审核通过：%d 页均满足结构、组件容量和阻塞性质量门。", report.TotalSlides)
 		report.NextActions = []string{"由 Go workflow 原子提交正式 tasks.json"}
 	} else {
 		report.Summary = fmt.Sprintf("规划审核未通过：发现 %d 个问题，需要按页修订后重新 review。", report.IssueCount)
@@ -347,6 +347,26 @@ func hasNarrativeAnchor(components []PlanComponent) bool {
 	for _, component := range components {
 		switch strings.TrimSpace(component.Type) {
 		case "headline", "deck_title", "argument_block", "insight", "recommendation", "key_point", "quote_block":
+			return true
+		}
+	}
+	return false
+}
+
+func hasPlanNarrativeSummary(task *TaskItem, plan *ContentPlan) bool {
+	if plan == nil {
+		return false
+	}
+	for _, value := range []string{plan.Summary, plan.SlideIntent} {
+		if runeLen(value) >= 8 {
+			return true
+		}
+	}
+	if task != nil && runeLen(task.Description) >= 16 {
+		return true
+	}
+	for _, component := range plan.Components {
+		if runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) >= 16 {
 			return true
 		}
 	}

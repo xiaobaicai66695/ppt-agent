@@ -23,7 +23,7 @@ func (m *learningRoutingModel) Generate(context.Context, []*schema.Message, ...i
 	return schema.AssistantMessage(`{
 		"intent":"create","intent_reasoning":"生成地域介绍演示","domain":"creative",
 		"complexity_level":5,"page_count_estimate":12,"confidence":0.91,
-		"suggested_theme":"ocean_soft","suggested_templates":[],
+		"suggested_theme":"ocean_soft",
 		"agent_type":"planner","pipeline":["plan","generate"],"concurrency":5
 	}`, nil), nil
 }

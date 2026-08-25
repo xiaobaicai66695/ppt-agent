@@ -1,7 +1,6 @@
 package router
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/intent"
@@ -12,7 +11,6 @@ func TestEnhanceWithProfileSkipsSceneSensitivePreferencesAcrossDomains(t *testin
 	matcher := NewProfileMatcher()
 	classification := &intent.ClassificationResult{
 		Domain:             intent.DomainAcademic,
-		SuggestedTemplates: []string{"design-defense"},
 		SuggestedTheme:     "ocean_soft",
 		SuggestedPageCount: 6,
 		Complexity: intent.Complexity{
@@ -37,9 +35,6 @@ func TestEnhanceWithProfileSkipsSceneSensitivePreferencesAcrossDomains(t *testin
 
 	matcher.EnhanceWithProfile(classification, profile)
 
-	if !reflect.DeepEqual(classification.SuggestedTemplates, []string{"design-defense"}) {
-		t.Fatalf("cross-domain templates should not be prepended: %#v", classification.SuggestedTemplates)
-	}
 	if classification.SuggestedTheme != "ocean_soft" {
 		t.Fatalf("cross-domain theme should not override current suggestion: %s", classification.SuggestedTheme)
 	}
@@ -51,8 +46,7 @@ func TestEnhanceWithProfileSkipsSceneSensitivePreferencesAcrossDomains(t *testin
 func TestEnhanceWithProfileUsesSameDomainHistoryAsFallback(t *testing.T) {
 	matcher := NewProfileMatcher()
 	classification := &intent.ClassificationResult{
-		Domain:             intent.DomainBusiness,
-		SuggestedTemplates: []string{"product-launch"},
+		Domain: intent.DomainBusiness,
 	}
 	profile := &style.EnhancedProfile{
 		UserProfile: style.UserProfile{
@@ -71,9 +65,6 @@ func TestEnhanceWithProfileUsesSameDomainHistoryAsFallback(t *testing.T) {
 
 	matcher.EnhanceWithProfile(classification, profile)
 
-	if len(classification.SuggestedTemplates) == 0 || classification.SuggestedTemplates[0] != "pitch-deck" {
-		t.Fatalf("same-domain template should be prepended: %#v", classification.SuggestedTemplates)
-	}
 	if classification.SuggestedTheme != "charcoal_light" {
 		t.Fatalf("same-domain theme should fill empty suggestion, got %q", classification.SuggestedTheme)
 	}

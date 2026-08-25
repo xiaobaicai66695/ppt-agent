@@ -204,12 +204,6 @@ func (m *ProfileMatcher) EnhanceWithProfile(classification *intent.Classificatio
 	if ep, ok := profile.(EnhancedProfileProvider); ok {
 		domain := classification.Domain.String()
 
-		// 使用同领域历史偏好增强推荐。跨领域模板不前置，避免历史场景污染当前规划。
-		if templates := preferredTemplatesForDomain(ep, domain); len(templates) > 0 {
-			classification.SuggestedTemplates = append(templates, classification.SuggestedTemplates...)
-			classification.SuggestedTemplates = deduplicateStringSlice(classification.SuggestedTemplates, 5)
-		}
-
 		// 典型页数只在当前任务没有页数估算时补位；显式/模型识别出的页数优先。
 		if typicalPages := ep.GetTypicalPageCount(); typicalPages > 0 {
 			if classification.Complexity.PageCountEstimate == 0 && classification.SuggestedPageCount == 0 {
@@ -228,21 +222,12 @@ func (m *ProfileMatcher) EnhanceWithProfile(classification *intent.Classificatio
 
 // EnhancedProfileProvider 用户画像接口
 type EnhancedProfileProvider interface {
-	GetPreferredTemplates() []string
 	GetTypicalPageCount() int
 	GetPreferredTheme() string
 }
 
 type domainAwareProfileProvider interface {
-	GetPreferredTemplatesForDomain(domain string) []string
 	GetPreferredThemeForDomain(domain string) string
-}
-
-func preferredTemplatesForDomain(profile EnhancedProfileProvider, domain string) []string {
-	if p, ok := profile.(domainAwareProfileProvider); ok {
-		return p.GetPreferredTemplatesForDomain(domain)
-	}
-	return nil
 }
 
 func preferredThemeForDomain(profile EnhancedProfileProvider, domain string) string {
@@ -250,20 +235,4 @@ func preferredThemeForDomain(profile EnhancedProfileProvider, domain string) str
 		return p.GetPreferredThemeForDomain(domain)
 	}
 	return ""
-}
-
-func deduplicateStringSlice(ss []string, maxLen int) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, s := range ss {
-		lower := strings.ToLower(s)
-		if !seen[lower] {
-			seen[lower] = true
-			result = append(result, s)
-			if len(result) >= maxLen {
-				break
-			}
-		}
-	}
-	return result
 }

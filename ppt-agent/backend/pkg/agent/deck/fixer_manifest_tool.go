@@ -62,7 +62,7 @@ func (t *draftTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	if err != nil {
 		return "", err
 	}
-	return (&manifestTool{workDir: t.workDir, draftFirst: true, requireReview: true}).InvokableRun(ctx, string(payload), opts...)
+	return (&manifestTool{workDir: t.workDir, draftFirst: true}).InvokableRun(ctx, string(payload), opts...)
 }
 
 type selectedTasksPatchTool struct {

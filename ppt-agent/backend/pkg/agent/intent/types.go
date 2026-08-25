@@ -154,7 +154,6 @@ type ClassificationResult struct {
 	Urgency            Urgency    // 紧迫度
 	Confidence         float64    // 分类置信度 0-1
 	SuggestedActions   []string   // 建议的下一步动作
-	SuggestedTemplates []string   // 建议的模板
 	SuggestedTheme     string     // 建议的配色主题
 	VisualHint         string     // 建议的图片检索线索
 	UseVisualAssets    *bool      // 是否建议在适合页面规划外部图片

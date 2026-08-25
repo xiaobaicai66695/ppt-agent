@@ -6,7 +6,7 @@ import re
 from copy import deepcopy
 from typing import Literal
 
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR_TYPE
@@ -231,6 +231,7 @@ def set_image_background(
     brightness: float = 0.95,
     palette: str = "ocean_soft",
     blur_radius: float = 0,
+    fit_mode: Literal["contain", "cover"] = "cover",
 ):
     """
     为幻灯片设置图片背景。
@@ -241,6 +242,8 @@ def set_image_background(
         brightness: 亮度调整 (0.0-1.0)，值越小背景越暗。推荐值 0.9-1.0
         blur_radius: 高斯模糊半径。标题页和章节分割页使用轻度模糊，
             避免复杂背景或透视结构压低文字可读性。
+        fit_mode: 背景适配方式。默认 cover，等比铺满画布并允许边缘适度裁剪；
+            contain 完整保留原图，并用同图的模糊扩展层填满比例不一致的留白。
 
     Example:
         set_image_background(slide, "D:/path/to/background.jpg")
@@ -249,29 +252,23 @@ def set_image_background(
         print(f"Warning: Background image not found: {image_path}")
         return
 
-    img = Image.open(image_path)
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+    with Image.open(image_path) as source:
+        img = source.convert("RGB")
 
     if brightness < 1.0:
         img = ImageEnhance.Brightness(img).enhance(brightness)
 
-    # 调整为幻灯片尺寸 16:9 (像素为单位)
-    target_w, target_h = 1920, 1080
-    img_ratio = img.width / img.height
-    target_ratio = target_w / target_h
-
-    if img_ratio > target_ratio:
-        new_h = target_h
-        new_w = int(new_h * img_ratio)
+    # 按当前演示文稿的真实宽高比生成背景，不再假设所有页面都固定为 16:9。
+    presentation = slide.part.package.presentation_part.presentation
+    slide_w, slide_h = presentation.slide_width, presentation.slide_height
+    if slide_w >= slide_h:
+        target_w = 1920
+        target_h = max(1, round(target_w * slide_h / slide_w))
     else:
-        new_w = target_w
-        new_h = int(new_w / img_ratio)
+        target_h = 1920
+        target_w = max(1, round(target_h * slide_w / slide_h))
 
-    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    left = (new_w - target_w) // 2
-    top = (new_h - target_h) // 2
-    img = img.crop((left, top, left + target_w, top + target_h))
+    img = _fit_background_image(img, (target_w, target_h), fit_mode)
     if blur_radius > 0:
         img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
@@ -281,40 +278,67 @@ def set_image_background(
         temp_path = tmp.name
     img.save(temp_path, quality=95)
 
-    # 添加图片到 slide 的 relationships，获取 rId
-    img_shape = slide.shapes.add_picture(temp_path, 0, 0)
-    r_id = None
-    for rid, rel in slide.part._rels.items():
-        if 'image' in rel.reltype.lower():
-            r_id = rid
-            break
-
-    # 构建原生 <p:bg> blipFill XML（背景图片在所有形状之下）
-    from lxml import etree
-    bgPr = etree.Element(qn("p:bgPr"))
-    blipFill = etree.SubElement(bgPr, qn("a:blipFill"))
-    blipFill.set("dpi", "0")
-    blip = etree.SubElement(blipFill, qn("a:blip"))
-    blip.set(qn("r:embed"), r_id)
-    stretch = etree.SubElement(blipFill, qn("a:stretch"))
-    etree.SubElement(stretch, qn("a:fillRect"))
-    etree.SubElement(bgPr, qn("a:effectLst"))
-
-    bg = etree.Element(qn("p:bg"))
-    bg.append(bgPr)
-
-    # 替换 p:cSld 中的 background
-    p_cSld = slide._element.find(qn("p:cSld"))
-    existing_bg = p_cSld.find(qn("p:bg"))
-    if existing_bg is not None:
-        p_cSld.remove(existing_bg)
-    p_cSld.insert(0, bg)
+    # 保留一个与画布严格同尺寸的底层图片锚点，确保 python-pptx 保存/拆页后
+    # 媒体 relationship 不会丢失，同时避免原图原生尺寸造成整页越界。
+    img_shape = slide.shapes.add_picture(
+        temp_path,
+        0,
+        0,
+        width=slide_w,
+        height=slide_h,
+    )
+    img_shape.name = "Background image anchor"
+    # 只保留这一个底层图片来源。原生 p:bg 会随测试时扩大的页面继续铺满，
+    # 既造成越界误报，也会让部分查看器和图片锚点出现双重缩放差异。
+    sp_tree = slide.shapes._spTree
+    sp_tree.remove(img_shape._element)
+    sp_tree.insert(2, img_shape._element)
 
     os.remove(temp_path)
 
     # 自动添加磨砂玻璃叠加层，提升内容可读性
     # add_frosted_glass_overlay 返回适合玻璃背景的颜色映射
     return add_frosted_glass_overlay(slide, palette)
+
+
+def _fit_background_image(
+    image: Image.Image,
+    target_size: tuple[int, int],
+    fit_mode: Literal["contain", "cover"] = "cover",
+) -> Image.Image:
+    """Return a slide-sized background without stretching the source image."""
+    if fit_mode == "cover":
+        return ImageOps.fit(
+            image,
+            target_size,
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
+    if fit_mode != "contain":
+        raise ValueError(f"Unsupported background fit_mode: {fit_mode}")
+
+    # 先生成一层铺满画布的模糊同图背景，再将完整原图等比居中覆盖。
+    # 这样既能保留全部画面，也不会出现黑边、白边或非等比拉伸。
+    backdrop = ImageOps.fit(
+        image,
+        target_size,
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
+    backdrop = ImageEnhance.Brightness(backdrop).enhance(0.82)
+    backdrop = backdrop.filter(
+        ImageFilter.GaussianBlur(radius=max(18, round(min(target_size) * 0.025)))
+    )
+
+    foreground = ImageOps.contain(
+        image,
+        target_size,
+        method=Image.Resampling.LANCZOS,
+    )
+    left = (target_size[0] - foreground.width) // 2
+    top = (target_size[1] - foreground.height) // 2
+    backdrop.paste(foreground, (left, top))
+    return backdrop
 
 
 def add_frosted_glass_overlay(slide, palette: str = "ocean_soft"):

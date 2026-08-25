@@ -5,7 +5,7 @@
 ## 项目背景
 
 - 工作区根目录：`D:\environment\codeGo\llm-examples\projects`。
-- 主要项目：`ppt-agent`，一个基于 CloudWeGo Eino ADK 的多 Agent PPT 生成系统。
+- 主要项目：`ppt-agent`，一个基于 CloudWeGo Eino ADK 的 Planner + Reviewer + Workflow PPT 生成系统。
 - 辅助项目："D:\environment\codeGo\llm-examples\eino-examples"，里面有eino框架的接口使用示例。
 - harness工程的辅助设计文档"D:\桌面\个人信息\agent相关学习\深入理解-AI-Agent-李博杰-v1.2(1).pdf"
 - 不要套用旧 ITSM 项目的目录、技术栈或验证命令；当前工作区以 PPT 生成、Go 后端、Vue 前端和 Python PPT 生成器为核心。
@@ -19,11 +19,13 @@
 ## 仓库边界
 
 - 根目录包含：
+  - `docs`：PPT Agent 统一文档目录，包含 architecture、research、decisions、issues、workflows、eval 和 `迭代记录`。
   - `ppt-agent/backend`：Go 后端服务、Agent 编排、Web API、任务管理、模型 fallback、prompt 模板。
   - `ppt-agent/frontend`：Vue 3 + TypeScript + Vite 前端。
   - `ppt-agent/skills/ppt-deck-planner`：PPT Deck Planner skill、组件契约、Python `python-pptx` 生成器和参考文档。
-  - `ppt-agent/doc`、`ppt-agent/test`、`ppt-agent/scripts`：项目文档、测试和辅助脚本。
+  - `ppt-agent/test`、`ppt-agent/scripts`：测试和辅助脚本。
   - `ppt-plugin/skills`：插件/skill 分发相关内容。
+- 文档只维护在工作区根目录 `docs/` 下；不要再向 `ppt-agent/docs/` 新增 research、issues、architecture、decisions 或迭代记录。发现旧路径文档时，应迁入根目录对应分类并删除旧入口。
 - 修改代码前，应在工作区根目录或相关子项目查看 `git status`。不要回滚与当前任务无关的用户改动。
 - 除非任务明确涉及，不要编辑或清理：
   - `node_modules`
@@ -40,8 +42,8 @@
 - 后端技术栈：Go、Gin、CloudWeGo Eino ADK、MySQL/本地任务状态、SSE 流式事件。
 - 入口：`ppt-agent/backend/main.go`。
 - 主要模块：
-  - `pkg/agent/deep`：DeepAgent 主流程、SlideExecutor、Reviewer、Fixer、任务清单类型。
-  - `pkg/prompts/deep`：主 Agent、单页执行器、审查器、修复器 prompt 模板。
+  - `pkg/agent/deck`：PPTPlanner、TaskPlanReviewer、PPTFixer、DeckSpec 草稿/审查/提交和并发渲染 workflow。
+  - `pkg/prompts/planner`、`pkg/prompts/reviewer`、`pkg/prompts/fixer`：三个 Agent 的独立职责提示词。
   - `pkg/web`：HTTP API、任务创建、模板接口、文件下载、缩略图生成。
   - `pkg/task`：任务生命周期管理。
   - `pkg/templates`：模板和背景资源加载。
@@ -51,7 +53,7 @@
   - `content_type` 必须保持为生成器支持的稳定英文 id，不要写成中文显示名。
   - `description`、`content_plan`、`background`、`theme` 的含义要和前端、模板 loader、Python 生成器保持一致。
   - prompt 中不要加入互相冲突的指令，例如一处禁止某工具、一处又要求使用该工具验证。
-  - 大纲模式如果跳过规划阶段，必须确保 outline 已经补齐并通过 schema 校验。
+  - 大纲是 Planner 的结构化输入，不跳过规划与 Reviewer 质量门。
 - 处理模型质量问题时，不要只调温度或换模型；优先检查结构化输入、prompt 契约、fallback 后能力差异、上下文压缩是否丢失关键信息。
 
 ## 前端开发约定
@@ -115,7 +117,7 @@
 
 ```powershell
 go test ./...
-go test ./pkg/web ./pkg/task ./pkg/agent/deep
+go test ./pkg/web ./pkg/task ./pkg/agent/deck
 go build ./...
 ```
 
@@ -202,9 +204,15 @@ python skills/ppt-deck-planner/generators/generator.py
 
 - [组件级规划迁移](./docs/architecture/ppt-agent-component-plan-migration.md)
 
+- [Planner、Task Reviewer 与 PPT Fixer 职责边界](./docs/architecture/deckspec-planner-reviewer-fixer-boundary.md)
+
 - [长期迭代方向](./docs/issues/todo.md)
 
 - [已完成事项归档](./docs/issues/done.md)
+
+- [模板编排与 Agent UI 预研](./docs/research/2026-08-24-template-orchestration-and-agent-ui.md)
+
+- [2026-08-25 运行修复与上线记录](./docs/迭代记录/2026-08-25-ppt-agent-runtime-and-deployment-log.md)
 
 - [人机协作迭代工作流](./docs/workflows/human-agent-iteration.md)
 

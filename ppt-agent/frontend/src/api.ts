@@ -137,50 +137,11 @@ async function checkResponse(res: Response): Promise<Response> {
   return res;
 }
 
-export interface TemplateSelection {
-  mode: 'recommended' | 'preset';
-  template?: string;
-}
-
-export interface TemplateStrategy {
-  mode: string;
-  template: string;
-  theme: string;
-  use_visual_assets: boolean;
-  visual_hint?: string;
-  reason: string;
-  page_count?: number;
-}
-
-export interface TemplateCandidate {
-  name: string;
-  display_name: string;
-  description: string;
-  category: string;
-  thumbnail: string;
-  slide_count: number;
-  tags: string[];
-  reason: string;
-}
-
-export interface TemplateRecommendation {
-  strategy: TemplateStrategy;
-  primary_template: TemplateCandidate;
-  ranked_templates: TemplateCandidate[];
-  theme?: ThemeInfo;
-  visual_policy: string;
-  component_focus: string[];
-  risks?: string[];
-}
-
-export async function createTask(query: string, templateSelection?: TemplateSelection): Promise<TaskInfo> {
+export async function createTask(query: string): Promise<TaskInfo> {
   const res = await checkResponse(await apiFetch('/api/tasks', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({
-      query,
-      ...(templateSelection ? { template_selection: templateSelection } : {}),
-    }),
+	body: JSON.stringify({ query }),
   }));
   return res.json();
 }
@@ -248,25 +209,8 @@ export interface TaskOutline {
   template: string;
   theme: string;
   title: string;
-  content_mode?: 'template_scaffold' | 'user_outline' | 'recommended_style';
+  content_mode?: 'user_outline';
   slides: SlideOutline[];
-}
-
-export interface PresetTemplate {
-  name: string;
-  display_name: string;
-  type: string;
-  description: string;
-  category: string;
-  default_palette: string;
-  tags: string[];
-  thumbnail: string;
-  slide_count: number;
-  default_slides: {
-    title: string;
-    content_type: string;
-    description: string;
-  }[];
 }
 
 export interface AtomicLayout {
@@ -302,27 +246,6 @@ export interface ThemeInfo {
   accent: string;
   background: string;
   tags: string[];
-}
-
-export async function fetchPresets(): Promise<PresetTemplate[]> {
-	const res = await checkResponse(await apiFetch('/api/templates'));
-  const data = await res.json();
-  return data.presets || [];
-}
-
-export async function recommendTemplate(query: string): Promise<TemplateRecommendation> {
-	const res = await checkResponse(await apiFetch('/api/templates/recommend', {
-		method: 'POST',
-		headers: authHeaders(),
-		body: JSON.stringify({ query }),
-	}));
-  return res.json();
-}
-
-export async function fetchPreset(name: string): Promise<PresetTemplate | null> {
-  const res = await apiFetch(`/api/templates/${name}`);
-  if (!res.ok) return null;
-  return res.json();
 }
 
 export async function fetchLayouts(): Promise<AtomicLayout[]> {

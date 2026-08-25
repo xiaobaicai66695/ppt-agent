@@ -23,7 +23,7 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 		Outline: &TaskOutline{
 			Template:           "product-intro",
 			Theme:              "sage_calm",
-			ContentMode:        OutlineContentModeRecommendedStyle,
+			ContentMode:        OutlineContentModeUserOutline,
 			SuggestedPageCount: 8,
 		},
 		IntentResult: &agentintent.ClassificationResult{SuggestedPageCount: 8},

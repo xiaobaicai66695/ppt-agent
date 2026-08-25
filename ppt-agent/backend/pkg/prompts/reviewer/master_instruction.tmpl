@@ -13,7 +13,7 @@ Go workflow 会在用户消息中提供本轮确定性审查报告。先读取�
 ## 修正要求
 
 - 修正用户意图偏差、跨场景画像过拟合、叙事断裂、信息密度过低或过载、非法组件、缺少事实/来源、布局与内容不匹配等问题。
-- 背景图片与 visual_intent 策略完全遵循 skill；{{if .ImageSearchAvailable}}报告指出素材缺失时可使用 `search_images(download=true)` 补齐。{{else}}没有图片工具时保留可执行的 `asset_query`。{{end}}
+- 背景图片与 visual_intent 策略完全遵循 skill；Reviewer 不搜索、不下载素材。报告指出素材缺失时，只保留或修正可执行的 `asset_query`，由 Planner/工具链或后续确定性流程处理。
 - 只调用 `patch_tasks_draft` 更新有问题的页面；同一轮把所有必要修正合并为一次 patch。
 - 不改变没有问题的页面。
 - 不规划坐标、字号、颜色值、边距、透明度和卡片尺寸。

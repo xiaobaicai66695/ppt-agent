@@ -17,7 +17,6 @@
 package deck
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/components/model"
 
 	agentcontentplan "github.com/cloudwego/ppt-agent/pkg/agent/contentplan"
 	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
@@ -47,8 +45,6 @@ type PPTTaskConfig struct {
 	Query         string // user's original topic description (for content generation in outline mode)
 	Concurrency   int
 	Operator      commandline.Operator
-	QAModelFn     func(ctx context.Context) (model.ToolCallingChatModel, error)
-	Skills        string
 	SkillsDir     string // skills 目录的绝对路径，用于构造 read_file 可用的模板路径
 	ModelAPIKey   string // account-level model key override; empty uses env fallback
 	CompressorOpt CompressorOption
@@ -58,7 +54,6 @@ type PPTTaskConfig struct {
 	RuntimeMeta       *agentutils.RuntimeMeta
 	Outline           *TaskOutline // 用户编排的大纲；作为 Planner 草稿约束，不跳过规划与审查
 	StyleContext      string       // 用户风格偏好上下文，用于注入到 prompt
-	EnableQA          bool         // 是否启用 QA 质检（由 ENABLE_QA 环境变量控制）
 
 	// 智能优化字段
 	UserID          int                               // 用户ID
@@ -429,9 +424,7 @@ type TaskOutline struct {
 }
 
 const (
-	OutlineContentModeTemplateScaffold = "template_scaffold"
-	OutlineContentModeUserOutline      = "user_outline"
-	OutlineContentModeRecommendedStyle = "recommended_style"
+	OutlineContentModeUserOutline = "user_outline"
 )
 
 func decodeComponentText(data json.RawMessage) (string, error) {

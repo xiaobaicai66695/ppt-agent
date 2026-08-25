@@ -31,7 +31,7 @@ LLM 负责：
 ```text
 用户输入 / outline
   ↓
-意图识别、模板/配色/背景推荐、用户画像门控
+意图识别、页面能力/配色/视觉素材方向判断、用户画像门控
   ↓
 PPTPlanner 生成 DeckSpec 草稿
   ↓
@@ -59,7 +59,7 @@ DeckRenderWorkflow 按页并发渲染
 | 规划编排 | `ppt-agent/backend/pkg/agent/deck` | Planner、manifest 工具、草稿/提交、恢复、并发渲染 workflow |
 | Prompt | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立职责提示词 |
 | 用户画像 | `ppt-agent/backend/pkg/style`、`pkg/agent/learning` | 确定性用户事实直接注入，显式偏好只读参考，历史风格偏好按领域相似度门控 |
-| 模板加载 | `ppt-agent/backend/pkg/templates` | 组件化 preset、页面类型契约和 theme 元数据 |
+| 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 `component_contracts.json` 页面类型契约和 theme 元数据；不再维护固定整套 preset |
 | 前端工作台 | `ppt-agent/frontend/src` | 生成入口、任务列表、预览下载、会话、执行观察和运行状态 |
 | PPT Deck Planner 与生成器 | `ppt-agent/skills/ppt-deck-planner` | Skill 契约、组件 schema、Python generator、图片落盘和渲染测试 |
 
@@ -73,7 +73,7 @@ DeckRenderWorkflow 按页并发渲染
 {
   "title": "整套 PPT 标题",
   "theme": "ocean_soft",
-  "template": "business-report",
+  "template": "dynamic",
   "tasks": [
     {
       "task_id": "3",
@@ -104,6 +104,7 @@ DeckRenderWorkflow 按页并发渲染
 - 组件只表达语义内容、关系和优先级，不写坐标、字号、颜色、透明度、边距等视觉参数。
 - 背景图和实景图通过 `visual_intent.local_path` 或 `image.local_path` 引用任务工作区文件；`background` 仅作为历史字段处理。
 - `output_file` 必须唯一、有序、可由后端安全拼接。
+- 固定整套 preset、模板推荐 API 和本地背景目录已经移出主链路；`template` 字段仅保留为兼容/来源标记，不再驱动页面结构。
 
 ## 5. 组件优先生成器
 
@@ -160,7 +161,7 @@ base.py / python-pptx
 下一阶段建议围绕主流程继续推进：
 
 1. 为 PPTPlanner、TaskPlanReviewer、PPTFixer 的交接增加更多 fixture 与低成本线上回归样例。
-2. 把 `templates/component_contracts.json` 作为后端校验、Planner 审查和生成器能力暴露的单一契约入口。
+2. 把 `templates/component_contracts.json` 继续作为后端校验、Planner 审查和生成器能力暴露的单一契约入口。
 3. 继续扩展组件族：长论述、列表、表格、图表、流程、案例、架构图分别走独立渲染族，减少“一切变卡片”。
 4. 建立低成本线上 smoke fixture，覆盖 agenda、argument_block、comparison_table、kpi_dashboard 和缩略图交付。
 5. 将 done/todo/decisions 继续作为架构基线记录，不再把每个小 bug 写成长期历史。

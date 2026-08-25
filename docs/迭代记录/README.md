@@ -19,4 +19,5 @@
 | `2026-08-03-ppt-template-entry-recommendation-hardening.md` | content plan 宽容解析、主 Agent 模板双模式、首页单次模板选择与智能推荐 |
 | `2026-08-03-auth-jwt-db-decoupling.md` | 有效 JWT 与数据库瞬时故障解耦、管理员权限 503 语义及远端链路诊断 |
 | `2026-08-05-visual-designer-asset-library-refresh.md` | 离线图标/背景/内容图片素材契约刷新与图文页可替换默认图片 |
+| `2026-08-25-ppt-agent-runtime-and-deployment-log.md` | inline 工具预览、assistant 流式去重、图片背景嵌入和 2026-08-21 至 2026-08-25 上线流水 |
 | `99-迭代过程（历史归档）.md` | 早期架构演进、PPT 生成、上下文管理和技术债务归档 |

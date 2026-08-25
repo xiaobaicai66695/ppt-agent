@@ -777,9 +777,6 @@ export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
     read_file: '正在读取模板与设计规范',
     update_tasks_manifest: '正在整理页面内容',
     task: '正在并行生成幻灯片',
-    python3: '正在渲染幻灯片',
-    bash: '正在执行生成工具',
-    batch_convert: '正在整理演示文件',
   };
   const phaseLabels: Record<string, string> = {
     preparing: '正在准备任务',

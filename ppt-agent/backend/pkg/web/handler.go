@@ -130,9 +130,8 @@ func (s *Server) handleMe(c *gin.Context) {
 
 func (s *Server) handleCreateTask(c *gin.Context) {
 	var req struct {
-		Query             string             `json:"query"`
-		Outline           *deck.TaskOutline  `json:"outline,omitempty"`
-		TemplateSelection *TemplateSelection `json:"template_selection,omitempty"`
+		Query   string            `json:"query"`
+		Outline *deck.TaskOutline `json:"outline,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Query) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
@@ -146,31 +145,11 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	cfg.UserID = uid
 	cfg.ModelAPIKey = userModelAPIKey(uid)
 
-	// 推荐模式需要先拿到结构化意图结果，模板选择与 TaskManager 共用这一次分类。
-	if req.Outline == nil && req.TemplateSelection != nil && strings.EqualFold(strings.TrimSpace(req.TemplateSelection.Mode), "recommended") {
-		routingCtx, cancel := context.WithTimeout(c.Request.Context(),
-			time.Duration(agentutils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 30))*time.Second)
-		intentCfg, err := deck.ProcessUserIntent(routingCtx, req.Query, uid)
-		cancel()
-		if err != nil {
-			logger.Warn("template_recommendation_intent_failed", "error", err.Error())
-		} else if intentCfg != nil {
-			mergeIntentTaskConfig(cfg, intentCfg)
-		}
-	}
-
 	// 如果有 outline，先做服务端兜底校验/补齐；TaskManager 只将其写入规划草稿。
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
 		outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "outline 处理失败: " + err.Error()})
-			return
-		}
-		cfg.Outline = outline
-	} else if req.TemplateSelection != nil {
-		outline, _, err := s.resolveTemplateSelectionWithIntent(req.Query, req.TemplateSelection, cfg.IntentResult)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "模板选择失败: " + err.Error()})
 			return
 		}
 		cfg.Outline = outline
@@ -193,23 +172,6 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	sess.AddUserMessage(req.Query)
 
 	c.JSON(http.StatusCreated, info)
-}
-
-func mergeIntentTaskConfig(target, source *deck.PPTTaskConfig) {
-	if target == nil || source == nil {
-		return
-	}
-	target.UserID = source.UserID
-	target.IntentResult = source.IntentResult
-	target.RoutingDecision = source.RoutingDecision
-	target.EnhancedProfile = source.EnhancedProfile
-	if strings.TrimSpace(source.StyleContext) != "" {
-		if strings.TrimSpace(target.StyleContext) != "" {
-			target.StyleContext += "\n" + source.StyleContext
-		} else {
-			target.StyleContext = source.StyleContext
-		}
-	}
 }
 
 func (s *Server) handleGetTask(c *gin.Context) {
@@ -310,21 +272,6 @@ func (s *Server) handleCancelTask(c *gin.Context) {
 
 // ── Template handlers ────────────────────────────────────────────────────────
 
-func (s *Server) handleListTemplates(c *gin.Context) {
-	list := s.templateLoader.ListPresets()
-	c.JSON(http.StatusOK, gin.H{"presets": list})
-}
-
-func (s *Server) handleGetTemplate(c *gin.Context) {
-	name := c.Param("name")
-	t := s.templateLoader.GetPreset(name)
-	if t == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "模板不存在"})
-		return
-	}
-	c.JSON(http.StatusOK, t)
-}
-
 func (s *Server) handleListLayouts(c *gin.Context) {
 	layouts := s.templateLoader.ListLayouts()
 	c.JSON(http.StatusOK, gin.H{"layouts": layouts})
@@ -333,15 +280,6 @@ func (s *Server) handleListLayouts(c *gin.Context) {
 func (s *Server) handleListThemes(c *gin.Context) {
 	themes := s.templateLoader.ListThemes()
 	c.JSON(http.StatusOK, gin.H{"themes": themes})
-}
-
-func (s *Server) handleListBackgrounds(c *gin.Context) {
-	backgrounds := s.templateLoader.ListBackgrounds()
-	c.JSON(http.StatusOK, gin.H{"backgrounds": backgrounds})
-}
-
-func (s *Server) handleBackgroundPreview(c *gin.Context) {
-	c.JSON(http.StatusGone, gin.H{"error": "local background catalog has been removed; use image search assets instead"})
 }
 
 func (s *Server) handleAIExpand(c *gin.Context) {
@@ -423,9 +361,7 @@ func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.T
 	if strings.TrimSpace(outline.Title) == "" {
 		outline.Title = strings.TrimSpace(query)
 	}
-	if outline.ContentMode != deck.OutlineContentModeTemplateScaffold {
-		outline.ContentMode = deck.OutlineContentModeUserOutline
-	}
+	outline.ContentMode = deck.OutlineContentModeUserOutline
 
 	for i := range outline.Slides {
 		slide := &outline.Slides[i]

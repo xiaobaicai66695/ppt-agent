@@ -15,16 +15,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
-	"github.com/cloudwego/eino-ext/adk/backend/local"
 	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/coze-dev/cozeloop-go"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent"
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
@@ -67,30 +64,12 @@ func main() {
 		logger.Info("callback_handler_registered", "type", "cozeloop")
 	}
 
-	// Skill backend
-	localBE, err := local.NewBackend(ctx, &local.Config{})
-	if err != nil {
-		logger.Error("local_backend_failed", "error", err.Error())
-		return
-	}
-
 	skillsDir := filepath.Join(pwd, "..", "skills")
-	_, err = skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
-		Backend: localBE,
-		BaseDir: skillsDir,
-	})
-	if err != nil {
-		logger.Error("skill_backend_failed", "error", err.Error())
+	if _, err := os.Stat(filepath.Join(skillsDir, "ppt-deck-planner", "SKILL.md")); err != nil {
+		logger.Error("deck_planner_skill_missing", "dir", skillsDir, "error", err.Error())
 		return
 	}
-
-	loadedSkills, err := agent.LoadSkillsFromDir(ctx, skillsDir)
-	if err != nil {
-		logger.Error("load_skills_failed", "error", err.Error())
-		return
-	}
-	skillsContent := agent.FormatSkillsForPrompt(loadedSkills)
-	logger.Info("skills_loaded", "count", len(loadedSkills), "dir", skillsDir)
+	logger.Info("deck_planner_skill_ready", "dir", skillsDir)
 
 	// MySQL 初始化
 	dsn := os.Getenv("MYSQL_DSN")
@@ -108,9 +87,9 @@ func main() {
 
 	switch *modeFlag {
 	case "web":
-		runWebMode(pwd, skillsContent, skillsDir, *addrFlag)
+		runWebMode(pwd, skillsDir, *addrFlag)
 	default:
-		runCLIMode(ctx, pwd, skillsContent, skillsDir)
+		runCLIMode(ctx, pwd, skillsDir)
 	}
 
 	if cozeLoopClient != nil {
@@ -124,7 +103,7 @@ func main() {
 // Web mode
 // ---------------------------------------------------------------------------
 
-func runWebMode(pwd, skillsContent, skillsDir, addr string) {
+func runWebMode(pwd, skillsDir, addr string) {
 	outputBase := filepath.Join(pwd, "..", "weboutput")
 
 	// Shared operator (stateless, safe to reuse).
@@ -144,15 +123,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 		}
 		cfg.Concurrency = concurrency
 		cfg.Operator = operator
-		cfg.QAModelFn = func(ctx context.Context) (model.ToolCallingChatModel, error) {
-			if strings.TrimSpace(cfg.ModelAPIKey) != "" {
-				return agentutils.NewQAModel(ctx, agentutils.WithAPIKey(cfg.ModelAPIKey))
-			}
-			return agentutils.NewQAModel(ctx)
-		}
-		cfg.Skills = skillsContent
 		cfg.SkillsDir = skillsDir
-		cfg.EnableQA = false
 		return deck.NewPPTPlannerAgent(ctx, cfg)
 	}
 
@@ -240,7 +211,7 @@ func runWebMode(pwd, skillsContent, skillsDir, addr string) {
 // CLI mode (existing behaviour)
 // ---------------------------------------------------------------------------
 
-func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
+func runCLIMode(ctx context.Context, pwd, skillsDir string) {
 	interactive := os.Getenv("INTERACTIVE") != "false"
 
 	taskID := uuid.New().String()
@@ -269,11 +240,11 @@ func runCLIMode(ctx context.Context, pwd, skillsContent, skillsDir string) {
 
 	logger.Info("agent_mode_selected", "mode", "planner")
 	hm := human.NewManager(interactive)
-	runPlannerCLI(ctx, queryContent, taskID, outputDir, operator, skillsContent, skillsDir, interactive, hm)
+	runPlannerCLI(ctx, queryContent, taskID, outputDir, operator, skillsDir, interactive, hm)
 }
 
 func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
-	operator *command.LocalOperator, skillsContent, skillsDir string, interactive bool, hm *human.Manager) {
+	operator *command.LocalOperator, skillsDir string, interactive bool, hm *human.Manager) {
 
 	concurrency := 5
 	if envConcurrency := os.Getenv("PLANNER_CONCURRENCY"); envConcurrency != "" {
@@ -283,18 +254,12 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	}
 	logger.Info("cli_planner_config", "concurrency", concurrency)
 
-	qaModelFn := func(ctx context.Context) (model.ToolCallingChatModel, error) {
-		return agentutils.NewQAModel(ctx)
-	}
-
 	logger.Info("planner_creating")
 	agent, err := deck.NewPPTPlannerAgent(ctx, &deck.PPTTaskConfig{
 		WorkDir:     outputDir,
 		TaskID:      taskID,
 		Concurrency: concurrency,
 		Operator:    operator,
-		QAModelFn:   qaModelFn,
-		Skills:      skillsContent,
 		SkillsDir:   skillsDir,
 	})
 	if err != nil {

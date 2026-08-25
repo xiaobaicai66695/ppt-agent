@@ -34,7 +34,7 @@ import (
 	"text/template"
 )
 
-//go:embed planner/*.tmpl reviewer/*.tmpl fixer/*.tmpl style/*.tmpl log_analysis/*.tmpl
+//go:embed planner/*.tmpl reviewer/*.tmpl fixer/*.tmpl log_analysis/*.tmpl
 var FS embed.FS
 
 // templateFuncs 提供给所有模板的函数映射。
@@ -56,71 +56,13 @@ func parseWithFuncs(pattern string) (*template.Template, error) {
 
 // TemplateData 跨提示模板使用的数据字段。
 type TemplateData struct {
-	SystemPrompt           string           // 注入的系统级指令（skills、rules）
-	Input                  string           // 用户原始请求
-	ExecutorContext        string           // 当前执行状态摘要
-	Step                   string           // 当前步骤/任务
-	Skills                 string           // 加载的 skill 内容
-	WorkDir                string           // 工作目录绝对路径
-	SkillsDir              string           // Skills 目录绝对路径
-	TmplDir                string           // 模板目录绝对路径
-	TasksJSON              string           // tasks.json 绝对路径
-	TemplateCatalog        string           // 内联模板目录表（用于 PPT Planner）
-	UserQuery              string           // 用户查询（用于 planner/replanner）
-	CurrentTime            string           // 当前时间
-	ExecutedCount          string           // 已执行的幻灯片数量
-	TotalCount             string           // 总幻灯片数量
-	RemainingPlan          string           // 剩余幻灯片计划
-	QASummary              string           // QA 结果摘要
-	HasOutline             bool             // 用户是否提供了结构化大纲（仍由 Planner 补全）
-	HasStyleRecommendation bool             // 智能推荐只提供视觉风格，由主 Agent 动态规划页面
-	OutlineQuery           string           // 用户原始主题查询（HasOutline=true 时用于内容生成）
-	OutlineTemplate        string           // 用户大纲中的模板名称（HasOutline=true 时使用）
-	OutlineTheme           string           // 用户大纲中的主题名称（HasOutline=true 时使用）
-	OutlineTitle           string           // 用户大纲中的 PPT 标题（HasOutline=true 时使用）
-	OutlineContentMode     string           // template_scaffold 或 user_outline
-	SuggestedPageCount     int              // 智能推荐的目标页数
-	StyleContext           string           // 用户风格偏好上下文，用于个性化生成
-	EnableQA               bool             // 兼容字段；新链路默认不在 Planner 阶段做 QA
-	Concurrency            int              // 渲染 worker pool 并发数（来自路由决策，默认 5）
-	ImageSearchAvailable   bool             // 是否已配置 Unsplash 图片搜索工具
-	UserPreferences        *UserPreferences // 用户学习到的偏好，用于个性化生成
-}
-
-// UserPreferences 用户学习到的偏好，用于个性化 PPT 生成
-type UserPreferences struct {
-	LanguageTone     string               // 例如："专业商务"、"轻松活泼"
-	PreferredColors  []string             // 例如：["charcoal_light", "ocean_soft"]
-	PreferredLayouts []string             // 例如：["left-image", "two-column"]
-	PreferredFonts   []string             // 例如：["微软雅黑", "思源黑体"]
-	PreferredThemes  []string             // 例如：["tech-intro", "pitch-deck"]
-	AnimationLevel   string               // 例如："minimal"、"moderate"、"rich"
-	TypicalPageCount int                  // 用户的典型页数
-	SuccessPatterns  []SuccessPatternInfo // 历史成功模式
-	BrandElements    *BrandPreferenceInfo // 品牌元素
-	ChartPreferences *ChartPreferenceInfo // 图表偏好
-}
-
-// SuccessPatternInfo 用户历史中的成功模式
-type SuccessPatternInfo struct {
-	Domain   string  // 例如："business"、"technical"
-	Template string  // 模板名称
-	Theme    string  // 主题名称
-	AvgScore float64 // 平均质量评分
-}
-
-// BrandPreferenceInfo 用户品牌元素偏好
-type BrandPreferenceInfo struct {
-	LogoPosition  string // 例如："bottom-right"、"top-left"
-	FooterText    string // 页脚文字
-	WatermarkText string // 水印文字
-}
-
-// ChartPreferenceInfo 用户图表偏好
-type ChartPreferenceInfo struct {
-	PreferredTypes []string // 例如：["bar"、"line"]
-	Use3D          bool
-	ColorScheme    string
+	SkillsDir            string
+	TasksJSON            string
+	HasOutline           bool
+	OutlineQuery         string
+	SuggestedPageCount   int
+	StyleContext         string
+	ImageSearchAvailable bool
 }
 
 // Render 使用给定数据执行命名模板并返回渲染后的字符串。
@@ -166,36 +108,6 @@ func RenderLogAnalysis(name string, data *LogAnalysisData) (string, error) {
 	}
 
 	return buf.String(), nil
-}
-
-// RenderStyleExtraction 渲染风格提取提示。
-func RenderStyleExtraction(system, user string, data *StyleExtractionData) (sysOut, userOut string, err error) {
-	sysTmpl, err := template.ParseFS(FS, "style/"+system)
-	if err != nil {
-		return "", "", fmt.Errorf("prompts: parse style/%s: %w", system, err)
-	}
-	userTmpl, err := template.ParseFS(FS, "style/"+user)
-	if err != nil {
-		return "", "", fmt.Errorf("prompts: parse style/%s: %w", user, err)
-	}
-
-	var sysBuf, userBuf bytes.Buffer
-	if err := sysTmpl.Execute(&sysBuf, data); err != nil {
-		return "", "", fmt.Errorf("prompts: execute style/%s: %w", system, err)
-	}
-	if err := userTmpl.Execute(&userBuf, data); err != nil {
-		return "", "", fmt.Errorf("prompts: execute style/%s: %w", user, err)
-	}
-	return sysBuf.String(), userBuf.String(), nil
-}
-
-// StyleExtractionData 风格提取提示的模板数据。
-type StyleExtractionData struct {
-	UserQuery    string
-	Theme        string
-	PageCount    int
-	ContentTypes string
-	TextContent  string
 }
 
 // LogAnalysisData 日志分析模板数据结构

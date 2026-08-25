@@ -1,6 +1,6 @@
 # Generators 参考文档
 
-本文档是 SlideExecutor 生成 PPT 时的生成器函数参考。当前生成器已切换为组件式布局：各 `generate_xxx` 函数保留兼容入口，但内部统一把参数和 `content_plan.components` 转成语义组件，再由 `generators/component_layout.py` 决定页面结构。
+本文档是当前 deck workflow 调用 Python generators 生成 PPT 时的函数参考。运行时由后端 `render_worker_pool` 调用 `generators/render_task.py`，按 `task_id` 从 `tasks.json` 读取页面规划并构造 generator 参数。当前生成器已切换为组件式布局：各 `generate_xxx` 函数保留兼容入口，但内部统一把参数和 `content_plan.components` 转成语义组件，再由 `generators/component_layout.py` 决定页面结构。
 
 ## 导入方式
 
@@ -44,7 +44,7 @@ from generators import (
 | `prs` | `Optional[Presentation]` | `None` | 已有的 Presentation 对象，为 None 时自动创建 |
 | `palette` | `str` | `"ocean_soft"` | 配色方案名，由后端内置 theme 列表和 tasks.json 顶层 `theme` 决定 |
 | `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行；长 URL 会自动缩写为链接数量提示。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
-| `background` | `str` | `""` | 渲染器内部参数，由 `image.local_path` 或 `visual_intent.local_path` 注入；Planner 不填写顶层 `task.background` |
+| `background` | `str` | `""` | 渲染器内部参数，由 `image.local_path` 或 `visual_intent.local_path` 注入；默认按 `cover` 等比铺满并允许边缘适度裁剪，所有背景自动模糊；Planner 不填写顶层 `task.background` |
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
@@ -109,7 +109,8 @@ from generators import (
 
 - 标题/章节/引用等低密度页应按标题组实际高度居中，避免固定 y 坐标造成偏上或偏下。
 - 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
-- 标题页和章节分割页使用背景图片时，生成器会自动对背景做轻度模糊并叠加可读性遮罩；调用方只传递图片路径和语义构图，不控制模糊半径或透明度。
+- 背景图片默认使用 `cover` 适配：按当前幻灯片真实宽高比等比铺满，允许边缘被适度裁剪，但底层图片锚点必须严格限制在幻灯片画布内。内部 helper 保留 `contain`，供明确要求完整显示原图时使用同图模糊扩展层补边；Planner 不控制该参数。
+- 所有带背景图的页面都会在完成尺寸适配后自动做轻度模糊并叠加可读性遮罩；标题页和章节分割页使用更强一级的模糊。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径或透明度。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
@@ -414,4 +415,4 @@ from generators import (
 
 - 常规页面生成必须复用 `skills/ppt-deck-planner/generators` 包，不在 Agent 生成代码中手写底层 `python-pptx` 绘制逻辑。
 - 当需求明确涉及视觉质量、背景、容量或布局能力时，可以修改对应 generator 和 `base.py` helper，但必须同步本文件、模板契约和聚焦 smoke 验证。
-- 修改导出函数签名时，同步 `generators/__init__.py`、SlideExecutor prompt 和相关模板 JSON；仅修改内部实现时不需要改导出表。
+- 修改导出函数签名时，同步 `generators/__init__.py`、`generators/render_task.py`、后端调用契约和相关模板 JSON；仅修改内部实现时不需要改导出表。

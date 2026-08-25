@@ -1,8 +1,10 @@
 import unittest
+from io import BytesIO
 from pathlib import Path
 import sys
 import tempfile
 import zipfile
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -10,8 +12,8 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT))
 
 from generators import render_task
-from generators import new_presentation, save_slide
-from generators.base import compact_source_text
+from generators import new_presentation, save_presentation, save_slide, set_image_background
+from generators.base import PALETTES, compact_source_text
 from generators.comparison_table_generator import generate as generate_comparison_table
 from generators.kpi_dashboard_generator import generate as generate_kpi_dashboard
 from generators.component_layout import (
@@ -243,6 +245,64 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("背景图负责建立政策发布场景", slide_xml)
         self.assertNotIn("visual_intent_image", slide_xml)
+
+    def test_background_contain_preserves_full_portrait_image_and_canvas_bounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            image_path = work_dir / "portrait.png"
+            portrait = Image.new("RGB", (300, 900), color=(30, 180, 60))
+            portrait.paste((230, 30, 30), (0, 0, 300, 180))
+            portrait.paste((30, 60, 230), (0, 720, 300, 900))
+            portrait.save(image_path)
+
+            prs = new_presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            set_image_background(slide, str(image_path), brightness=1.0, fit_mode="contain")
+            output = work_dir / "portrait-background.pptx"
+            save_presentation(prs, str(output))
+
+            anchors = [shape for shape in slide.shapes if shape.name == "Background image anchor"]
+            self.assertEqual(len(anchors), 1)
+            self.assertEqual(anchors[0].left, 0)
+            self.assertEqual(anchors[0].top, 0)
+            self.assertEqual(anchors[0].width, prs.slide_width)
+            self.assertEqual(anchors[0].height, prs.slide_height)
+
+            with zipfile.ZipFile(output) as package:
+                media = [name for name in package.namelist() if name.startswith("ppt/media/")]
+                self.assertEqual(len(media), 1)
+                rendered_background = Image.open(BytesIO(package.read(media[0]))).convert("RGB")
+
+            self.assertEqual(rendered_background.size, (1920, 1080))
+            top_center = rendered_background.getpixel((960, 8))
+            bottom_center = rendered_background.getpixel((960, 1071))
+            self.assertGreater(top_center[0], 180, top_center)
+            self.assertGreater(bottom_center[2], 180, bottom_center)
+
+    def test_all_background_slides_receive_blur(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "background.jpg"
+            Image.new("RGB", (640, 360), color=(90, 120, 150)).save(image_path)
+
+            with patch(
+                "generators.component_layout.set_image_background",
+                return_value=PALETTES["ocean_soft"],
+            ) as background_mock:
+                render_component_slide(
+                    title="普通内容页",
+                    content_type="content_slide",
+                    background=str(image_path),
+                    components=[{"type": "key_point", "body": "正文页背景也需要轻度模糊。"}],
+                )
+                render_component_slide(
+                    title="章节页",
+                    content_type="section_divider",
+                    background=str(image_path),
+                    components=[{"type": "section_marker", "text": "01"}],
+                )
+
+            self.assertEqual(background_mock.call_args_list[0].kwargs["blur_radius"], 4)
+            self.assertEqual(background_mock.call_args_list[1].kwargs["blur_radius"], 8)
 
     def test_agenda_uses_manifest_titles_not_summary_blob(self):
         manifest = {

@@ -40,7 +40,7 @@ func TestEnhanceStyleContextSkipsSceneSensitivePreferencesAcrossDomains(t *testi
 	mustContain(t, ctx, "部门/团队: 产品研发部")
 	mustContain(t, ctx, "职位/身份: 解决方案架构师")
 	mustContain(t, ctx, "语言风格参考: 专业正式")
-	mustContain(t, ctx, "已跳过历史模板/配色/布局/备注等场景敏感偏好")
+	mustContain(t, ctx, "已跳过历史配色、布局和备注等场景敏感偏好")
 	mustNotContain(t, ctx, "#111111")
 	mustNotContain(t, ctx, "two-column")
 	mustNotContain(t, ctx, "pitch-deck")
@@ -69,7 +69,8 @@ func TestEnhanceStyleContextIncludesSameDomainPreferences(t *testing.T) {
 	mustContain(t, ctx, "#111111")
 	mustContain(t, ctx, "two-column")
 	mustContain(t, ctx, "用户偏好深色背景")
-	mustContain(t, ctx, "pitch-deck")
+	mustContain(t, ctx, "同领域历史成功经验")
+	mustNotContain(t, ctx, "pitch-deck")
 }
 
 func mustContain(t *testing.T, s, want string) {

@@ -165,7 +165,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		s.logAnalysis.Start()
 	}
 
-	// 初始化组件优先模板加载器。预设模板由内置推荐目录提供，页面类型来自 component_contracts.json。
+	// 页面能力只从 component_contracts.json 加载。
 	s.templateLoader = templates.NewComponentLoader(filepath.Join(cfg.SkillsDir, "ppt-deck-planner"))
 
 	// 认证路由（公开）
@@ -216,21 +216,14 @@ func NewServer(cfg *ServerConfig) *Server {
 		recommendations.GET("", s.handleGetRecommendations)
 	}
 
-	// 模板路由（公开）
+	// 组件布局路由（公开）
 	tpls := engine.Group("/api/templates")
 	{
-		tpls.GET("", s.handleListTemplates)
-		tpls.POST("/recommend", s.handleRecommendTemplate)
-		tpls.GET("/:name", s.handleGetTemplate)
 		tpls.GET("/layouts", s.handleListLayouts)
 	}
 
 	// 主题路由（公开）
 	engine.GET("/api/themes", s.handleListThemes)
-
-	// 背景图片主题路由（公开）
-	engine.GET("/api/backgrounds", s.handleListBackgrounds)
-	engine.GET("/api/backgrounds/:name/preview", s.handleBackgroundPreview)
 
 	// AI 路由（公开）
 	ai := engine.Group("/api/ai")
@@ -272,6 +265,10 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	// 静态前端
 	engine.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "api route not found"})
+			return
+		}
 		serveStatic(c, frontendDir)
 	})
 

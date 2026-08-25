@@ -6,7 +6,7 @@
 
 `ppt-agent` 是一个“Web 工作台 + Go 多 Agent 编排 + Python PPT 生成器”的 PPT 生成系统。核心链路是：
 
-1. 前端选择模板/原子布局，形成 `TaskOutline`。
+1. 前端直接提交智能规划请求，或在自定义编排中选择合法页面类型形成 `TaskOutline`。
 2. Go Web API 校验并补齐 outline，创建任务工作目录。
 3. `TaskManager` 完成意图识别、用户画像门控和路由决策，并通过 SSE 推送进度。
 4. `PPTPlanner` 无论有无 outline，都通过 `update_tasks_manifest` 一次性生成完整 `tasks.draft.json`。
@@ -42,8 +42,8 @@ flowchart LR
 | 任务生命周期 | `ppt-agent/backend/pkg/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
 | 规划与渲染编排 | `ppt-agent/backend/pkg/agent/deck` | `PPTPlanner`、`TaskPlanReviewer`、`PPTFixer`、manifest 草稿/提交、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、继续修复或 Agent prompt 时看这里 |
 | Prompt 模板 | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
-| 工具层 | `ppt-agent/backend/pkg/tools` | `read_file`、`search`、`batch_convert`、QA 等 Eino tool，以及 Python 路径工具 | 改工具能力、安全边界、转换行为、搜索策略时看这里 |
-| 模板加载 | `ppt-agent/backend/pkg/templates` | 读取组件化 preset、页面类型契约和 theme 元数据 | 改模板元数据、前端模板列表、后端 outline 校验时看这里 |
+| 工具层 | `ppt-agent/backend/pkg/tools` | 当前 Agent 只注册 `read_file`、`search`、`search_images`；转换脚本属于确定性基础设施 | 改工具能力、安全边界、搜索策略时看这里 |
+| 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 `component_contracts.json` 页面类型契约和 theme 元数据 | 改页面类型元数据、前端 layout 列表、后端 outline 校验时看这里 |
 | 前端工作台 | `ppt-agent/frontend/src` | Vue 3 页面、API 类型、任务 Dashboard、模板编排、缩略图预览 | 改用户流程、展示状态、API 类型、SSE 消费时看这里 |
 | PPT Deck Planner 与生成器 | `ppt-agent/skills/ppt-deck-planner` | Skill 说明、组件契约、生成器、图片落盘契约和测试 | 改页面视觉质量、布局容量、生成参数、素材体系时看这里 |
 | 评估/脚本 | `ppt-agent/scripts`、`docs/eval` | 本地评估、生成质量用例、辅助脚本 | 改质量回归、批量 smoke test、评估指标时看这里 |
@@ -59,20 +59,19 @@ flowchart LR
 - `agentFactory` 为每个任务创建新的 `deck.NewPPTPlannerAgent`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
 - `web.NewServer` 负责路由、模板 loader、任务管理器、风格画像、日志分析服务。
 
-### 3.2 模板编排到任务创建
+### 3.2 智能规划 / 自定义编排到任务创建
 
-前端 `ComposePage.vue` 读取：
+当前新建任务不再依赖固定整套模板推荐。首页智能规划直接提交用户输入，由意图识别和 Planner 动态生成 DeckSpec；自定义编排页只读取页面能力和配色：
 
-- `/api/templates`：组件化 preset / 推荐候选元数据。
-- `/api/templates/layouts`：组件化页面类型和容量契约。
+- `/api/templates/layouts`：组件化页面类型和容量契约。该路径保留历史命名，但只表示 layout contract，不返回整套 preset。
 - `/api/themes`：后端内置配色。
-- `/api/backgrounds`：历史背景接口；新规划优先使用搜索图片写入 `visual_intent.local_path` 或 `image.local_path`。
+- 图片/背景不再通过本地背景目录 API 选择；规划阶段通过图片搜索写入 `visual_intent.local_path` 或 `image.local_path`。
 
 用户点击开始生成时，前端构造：
 
 ```ts
 interface TaskOutline {
-  template: string;
+  template?: string;
   theme: string;
   title: string;
   slides: {
@@ -88,7 +87,8 @@ interface TaskOutline {
 后端 `handleCreateTask` 会调用 `prepareOutline`：
 
 - 校验 `content_type` 必须存在于 `templates/component_contracts.json` 支持的页面类型中。
-- `theme` 不存在时回退到 `ocean_soft`。
+- `theme` 不存在时由意图识别和 Planner 选择，最终由 Go 校验兜底。
+- `template` 仅为兼容/来源标记，不再匹配固定 preset。
 - `background` 是历史字段；新规划应保持为空，图片素材走 `visual_intent` / `image` 组件。
 - `description` 太短或缺少 `content_plan` 时，通过 `/api/ai/generate-outline` 同一套逻辑补齐。
 
@@ -100,7 +100,7 @@ interface TaskOutline {
 {
   "title": "PPT 标题",
   "theme": "ocean_soft",
-  "template": "tech-intro",
+      "template": "dynamic",
   "tasks": [
     {
       "task_id": "slide-1",
@@ -142,6 +142,8 @@ interface TaskOutline {
 ```
 
 上例中的 `components` 和 `capacity_hint` 是当前主契约。生成链路应以 `content_plan.components` 为唯一组件数据源；`description` 只作为页面意图摘要，不能再让旧 `elements` 或顶层 `background` 兼容路径反向污染渲染结果。
+
+固定整套 preset、模板推荐 API、本地背景 API 和旧缩略图目录不再是运行契约。当前唯一权威页面能力目录是 `skills/ppt-deck-planner/templates/component_contracts.json`。
 
 状态含义：
 
@@ -232,16 +234,16 @@ interface TaskOutline {
 
 ### 4.4 Visual QA / Fixer
 
-Visual QA 是生成后的可选质量审查分支，和渲染前 Plan Reviewer 分工不同。当前 web 主链路默认关闭在线 QA；若后续要恢复，需要同时检查 `cfg.EnableQA`、环境变量、路由决策和成本策略。相关代码在：
+Visual QA 是生成后的可选质量审查分支，和渲染前 Plan Reviewer 分工不同。当前 web 主链路不再注册 LLM QA Tool；若后续要恢复，应重新设计成本策略、截图输入和 fixer 交互，而不是把旧 tool 直接接回主链路。当前保留的是确定性 PPTX 转缩略图基础设施，相关代码在：
 
-- `backend/pkg/tools/qa`
-- `backend/pkg/tools/batch_convert.go`
+- `backend/pkg/tools/qa/pptx_qa_converter.py`
+- `backend/pkg/web/thumbnail.go`
 
 活动范围：
 
-- 改视觉 QA 规则：看 QA tool、PPTX 转 PDF/JPG 脚本和截图判定 prompt。
+- 改视觉 QA 规则：先补新的截图判定设计，再接入 fixer；不要复用已删除的旧 QA tool 契约。
 - 改修复策略：看生成器参数、`tasks.json.qa_report` 和 `fix_attempts`。
-- 改默认成本策略：看 `cfg.EnableQA`、路由决策和环境变量。
+- 改缩略图转换：看确定性 PPTX 转 PDF/JPG 脚本、`thumbnail.go` 和前端预览状态。
 
 ## 5. 前端架构
 
@@ -308,14 +310,14 @@ SSE 消费重点：
 
 | 变更类型 | 必看文件 | 典型验证 |
 | --- | --- | --- |
-| 新增/修改模板预设 | `skills/ppt-deck-planner/templates/component_contracts.json`、`backend/pkg/templates/loader.go`、`frontend/src/pages/ComposePage.vue` | 模板/契约解析、前端模板加载 |
+| 新增/修改页面类型契约 | `skills/ppt-deck-planner/templates/component_contracts.json`、`backend/pkg/templates/loader.go`、`frontend/src/pages/ComposePage.vue` | 契约解析、前端 layout 加载 |
 | 新增原子布局 | `templates/component_contracts.json`、`generators/*_generator.py`、`generators/__init__.py`、`references/generators.md`、`frontend/src/pages/ComposePage.vue` | `py_compile`、单页生成、前端 layout 列表 |
 | 改 PPT 视觉质量 | `SKILL.md`、`generators/base.py`、具体 generator、`layout_intelligence.py`、模板 contract | 相关模板 PPTX 生成、PDF/PNG 渲染检查 |
 | 改内容规划质量 | `pkg/web/handler.go` 的 outline 补齐、`pkg/prompts/planner/*.tmpl`、`pkg/agent/deck/manifest_tool.go`、模板 contract | 后端相关测试、手工 outline JSON 样例 |
 | 改规划审查/润色 | `pkg/agent/deck` 的规划流程、`pkg/prompts/planner` 新增 reviewer/refiner prompt、`tasks.json` schema、RuntimeMeta | DeckSpec fixture、无模型 schema 测试、低成本 1-2 页生成冒烟 |
 | 改组件级计划 | `pkg/agent/deck/types.go`、`manifest_tool.go`、`skills/ppt-deck-planner/templates/component_contracts.json`、相关 generator | schema 测试、组件容量测试、单页渲染样例 |
 | 改任务状态/进度 | `pkg/task/manager.go`、`pkg/agent/deck/types.go`、`pkg/web/streamer.go`、`frontend/src/types.ts`、`DashboardPage.vue` | Go 单元测试、SSE 手工/最小任务 |
-| 改下载/缩略图 | `pkg/web/handler.go`、`thumbnail.go`、`tools/batch_convert.go`、`SlidePreviewCard.vue` | 单文件下载、缩略图 404/503/成功路径 |
+| 改下载/缩略图 | `pkg/web/handler.go`、`thumbnail.go`、`tools/qa/pptx_qa_converter.py`、`SlidePreviewCard.vue` | 单文件下载、缩略图 404/503/成功路径 |
 | 改继续对话/再生成 | `pkg/web/handler.go` 的 continue 分支、`pkg/task/manager.go`、`pkg/agent/deck/run.go`、`DashboardPage.vue` | 运行中排队、完成后继续、指定页再生成 |
 | 改模型/fallback/token | `pkg/agent/utils/model.go`、`compressor.go`、`runtime_meta.go`、`main.go` | 聚焦 Go 测试、无凭据时说明不可跑真实模型 |
 | 改认证/管理后台 | `pkg/auth`、`pkg/db`、`pkg/web/middleware.go`、`frontend/src/stores/auth.ts`、`AdminPage.vue` | 登录/鉴权路径、DB 可用性 |
@@ -391,12 +393,7 @@ Go 先输出结构化问题，TaskPlanReviewer 只修正对应草稿；通过后
 
 ### 8.6 工具安全边界
 
-`python3` 工具会把模型生成代码写成临时 `.py` 并执行，已有大小、危险模式和超时限制，但它不是完整沙箱。涉及执行能力时要关注：
-
-- `backend/pkg/tools/python_runner.go`
-- `backend/pkg/tools/pythonutil`
-- `backend/pkg/agent/command/operator.go`
-- 工作目录限制和输出文件检查
+当前 Planner / Reviewer / Fixer 不再暴露通用 shell、Python 执行或文件编辑工具。涉及执行能力时要先确认是否真的需要给 LLM 新增工具；能由 Go workflow 和 Python generator 确定性完成的能力，应放在代码层。
 
 `tasks.json` 应通过 `update_tasks_manifest` 这类结构化工具写入。不要重新引入让 LLM 直接覆盖任务清单的通用写文件路径。
 
@@ -419,8 +416,8 @@ Go 先输出结构化问题，TaskPlanReviewer 只修正对应草稿；通过后
 ## 10. 后续演进建议
 
 1. 为 PPTPlanner -> TaskPlanReviewer -> Go Commit 质量门增加更多 fixture 和低成本线上回归任务。
-2. 将 `content_plan` 升级为组件级 DeckSpec，首批覆盖 `content_slide`、`card_grid`、`two_column`、`kpi_dashboard`、`chart_slide`。
-3. 将 `templates/component_contracts.json` 的 contract 用于后端 outline 补齐、Planner 审查和布局选择，而不是只作为展示元数据。
+2. 继续扩展组件级 DeckSpec，覆盖更多可复用语义组件和低成本 fixture。
+3. 将 `templates/component_contracts.json` 的 contract 用于后端 outline 补齐、Planner 审查和布局选择，避免 prompt、Go 校验和 Python 生成器分散维护。
 4. 统一 `content_type -> generator -> component schema` 映射表，避免 prompt、文档、Go 校验和 Python 导出面分散维护。
 5. 为缩略图转换建立明确状态字段，让前端区分“PPTX 未生成”“缩略图转换中”“转换失败”“文件不存在”。
 6. 将生成器 smoke test 固化为脚本，覆盖所有组件化页面类型的 PPTX/PDF/PNG 视觉回归。

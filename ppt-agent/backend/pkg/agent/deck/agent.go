@@ -61,7 +61,7 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 		Name:        "PPTPlanner",
 		Description: "PPT 规划代理，无论有无大纲都负责生成完整的 DeckSpec 规划草稿，不负责审查和渲染。",
 		Model:       chatModel,
-		Instruction: buildPlannerInstructionWithImageSearch(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision), imageSearchAvailable),
+		Instruction: buildPlannerInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, imageSearchAvailable),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: plannerTools},
 		},
@@ -82,23 +82,16 @@ func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agen
 		return nil, fmt.Errorf("创建 Reviewer 模型失败: %w", err)
 	}
 
-	imageSearchAvailable := false
-	var reviewerTools []tool.BaseTool
-	reviewerTools = append(reviewerTools,
+	reviewerTools := []tool.BaseTool{
 		newDraftTasksPatchTool(cfg.WorkDir),
 		tools.NewReadFileTool(cfg.Operator),
-		tools.NewSearchTool(),
-	)
-	if client, imageErr := unsplash.NewClientFromEnv(); imageErr == nil {
-		imageSearchAvailable = true
-		reviewerTools = append(reviewerTools, tools.NewImageSearchTool(client, cfg.WorkDir))
 	}
 
 	reviewer, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "TaskPlanReviewer",
 		Description: "DeckSpec 质量审查代理，只根据审查报告修正 tasks.draft.json，不负责渲染或生成后的定点修复。",
 		Model:       chatModel,
-		Instruction: buildReviewerInstruction(cfg, imageSearchAvailable),
+		Instruction: buildReviewerInstruction(cfg),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: reviewerTools},
 		},
@@ -196,77 +189,22 @@ func getConcurrency(route *agentintent.RoutingDecision) int {
 // 当提供大纲时，tasks.json 已经预填充了用户的幻灯片计划。
 // query 提供用户原始主题描述用于内容生成。
 // concurrency 是后续渲染 worker pool 的并发提示。
-func buildPlannerInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int) string {
-	return buildPlannerInstructionWithImageSearch(
-		workDir,
-		skillsDir,
-		styleContext,
-		outline,
-		query,
-		enableQA,
-		concurrency,
-		unsplash.IsConfigured(),
-	)
-}
-
-func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int, imageSearchAvailable bool) string {
+func buildPlannerInstruction(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, imageSearchAvailable bool) string {
 	tasksJSON := filepath.Join(workDir, tasksDraftFileName)
-
-	const templateCatalog = `| 模板文件 | 适用场景 | 页数 |
-|---------|---------|------|
-| tech-intro.json | 新技术介绍、行业科普、知识分享，从基础概念到应用实践，适合非技术受众 | 18页 |
-| tech-sharing.json | 内部技术分享、技术培训、架构讲解，有章节划分，注重内容深度 | 18页 |
-| product-launch.json | 新产品发布会、产品宣讲、客户演示，强调价值主张和差异化优势 | 14页 |
-| weekly-report.json | 团队周报、项目月报、工作汇报，简洁高效，数据驱动 | 9页 |
-| pitch-deck.json | 创业路演，投资人演示、商业计划，逻辑严密，数据驱动，说服力强 | 16页 |
-| course-module.json | 教学课件、培训材料、知识分享，内容系统化，便于学习理解 | 17页 |
-| current-affairs.json | 时政热点分析、政策解读、国际形势分析，稳重专业，数据支撑强 | 14页 |
-| politics-ideology.json | 思政教育、团课培训、爱国主义教育，价值观明确，结构清晰 | 16页 |
-| design-defense.json | 课程设计、毕业设计、项目答辩，逻辑清晰，技术扎实 | 12页 |
-| innovation-compete.json | 大创/挑战杯/互联网+等科创竞赛汇报，创新性强，数据支撑 | 16页 |
-| research-report.json | 市场调研、行业分析、可行性研究，数据详实，结论明确 | 14页 |
-| activity-plan.json | 团建活动、校园活动、节日策划，活泼有创意，执行清晰 | 10页 |
-| personal-summary.json | 个人总结、述职报告、年终总结，重点突出，成果可见 | 10页 |
-| short-class-talk.json | 课堂5-10分钟短时分享、课题介绍，精简高效，快速传达 | 6页 |
-| meeting-minutes.json | 会议记录、工作例会、项目评审会，结构清晰，行动明确 | 8页 |
-| product-intro.json | 产品介绍、客户演示、功能展示，突出价值，增强信任 | 12页 |
-| training-course.json | 内部培训、新人入职培训、技能培训，知识系统，互动引导 | 16页 |
-| project-proposal.json | 新项目立项、项目申请、资源申请，理由充分，方案可行 | 12页 |`
-
-	// 当用户提供了大纲时，tasks.json 已经包含 template/theme
-	// 读取它以便告知代理使用什么
-	outlineTemplate := ""
-	outlineTheme := ""
-	outlineTitle := ""
-	outlineContentMode := ""
 	suggestedPageCount := 0
-	outlineQuery := query // user's original topic description
 	hasOutline := outline != nil && len(outline.Slides) > 0
-	hasStyleRecommendation := outline != nil && outline.ContentMode == OutlineContentModeRecommendedStyle
 	if outline != nil {
-		outlineTemplate = outline.Template
-		outlineTheme = outline.Theme
-		outlineTitle = outline.Title
-		outlineContentMode = outline.ContentMode
 		suggestedPageCount = outline.SuggestedPageCount
 	}
 
 	data := &prompts.TemplateData{
-		TasksJSON:              tasksJSON,
-		TemplateCatalog:        templateCatalog,
-		StyleContext:           styleContext,
-		HasOutline:             hasOutline,
-		HasStyleRecommendation: hasStyleRecommendation,
-		OutlineQuery:           outlineQuery,
-		OutlineTemplate:        outlineTemplate,
-		OutlineTheme:           outlineTheme,
-		OutlineTitle:           outlineTitle,
-		OutlineContentMode:     outlineContentMode,
-		SuggestedPageCount:     suggestedPageCount,
-		SkillsDir:              skillsDir,
-		EnableQA:               enableQA,
-		Concurrency:            concurrency,
-		ImageSearchAvailable:   imageSearchAvailable,
+		TasksJSON:            tasksJSON,
+		StyleContext:         styleContext,
+		HasOutline:           hasOutline,
+		OutlineQuery:         query,
+		SuggestedPageCount:   suggestedPageCount,
+		SkillsDir:            skillsDir,
+		ImageSearchAvailable: imageSearchAvailable,
 	}
 
 	instruction, err := prompts.RenderPlanner("master_instruction", data)
@@ -276,13 +214,12 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 	return instruction
 }
 
-func buildReviewerInstruction(cfg *PPTTaskConfig, imageSearchAvailable bool) string {
+func buildReviewerInstruction(cfg *PPTTaskConfig) string {
 	data := &prompts.TemplateData{
-		TasksJSON:            filepath.Join(cfg.WorkDir, tasksDraftFileName),
-		OutlineQuery:         cfg.Query,
-		SkillsDir:            cfg.SkillsDir,
-		StyleContext:         cfg.StyleContext,
-		ImageSearchAvailable: imageSearchAvailable,
+		TasksJSON:    filepath.Join(cfg.WorkDir, tasksDraftFileName),
+		OutlineQuery: cfg.Query,
+		SkillsDir:    cfg.SkillsDir,
+		StyleContext: cfg.StyleContext,
 	}
 	instruction, err := prompts.RenderReviewer("master_instruction", data)
 	if err != nil {
@@ -359,10 +296,6 @@ func ProcessUserIntent(ctx context.Context, query string, userID int) (*PPTTaskC
 	if result.Intent != nil {
 		var sb strings.Builder
 		sb.WriteString(result.Intent.IntentReasoning)
-		if len(result.Intent.SuggestedTemplates) > 0 {
-			sb.WriteString("\n推荐模板: ")
-			sb.WriteString(strings.Join(result.Intent.SuggestedTemplates, ", "))
-		}
 		if result.Intent.SuggestedTheme != "" {
 			sb.WriteString("\n推荐配色: ")
 			sb.WriteString(result.Intent.SuggestedTheme)
@@ -404,7 +337,7 @@ func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedP
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n【用户偏好参考】\n")
-	sb.WriteString("- 使用原则: 当前主题、用户显式大纲、显式模板/配色选择优先；历史偏好仅作弱参考，冲突时忽略。\n")
+	sb.WriteString("- 使用原则: 当前主题、用户显式大纲和显式配色要求优先；历史偏好仅作弱参考，冲突时忽略。\n")
 	if strings.TrimSpace(domain) != "" && !strings.EqualFold(domain, "unknown") {
 		sb.WriteString(fmt.Sprintf("- 当前识别领域: %s\n", domain))
 	}
@@ -424,7 +357,7 @@ func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedP
 	if hasExactDomainHistory(profile, domain) {
 		sb.WriteString("- 同领域历史可参考项:\n")
 		if theme := profile.GetPreferredThemeForDomain(domain); theme != "" {
-			sb.WriteString(fmt.Sprintf("  - 历史常用主题/模板风格: %s\n", theme))
+			sb.WriteString(fmt.Sprintf("  - 历史常用配色主题: %s\n", theme))
 		}
 		if len(profile.PreferredColors) > 0 {
 			sb.WriteString(fmt.Sprintf("  - 历史配色参考: %s\n", profile.PreferredColors[0]))
@@ -440,7 +373,7 @@ func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedP
 			sb.WriteString(fmt.Sprintf("  - 历史备注参考: %s\n", strings.Join(notes, "；")))
 		}
 		if len(profile.SuccessPatterns) > 0 {
-			sb.WriteString("  - 历史成功经验:\n")
+			sb.WriteString("  - 同领域历史成功经验:\n")
 		}
 		for i, sp := range profile.SuccessPatterns {
 			if i >= 2 { // 最多显示2个
@@ -449,11 +382,10 @@ func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedP
 			if !strings.EqualFold(strings.TrimSpace(sp.Domain), strings.TrimSpace(domain)) {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("\n  • %s领域使用%s模板，评分%.1f",
-				sp.Domain, sp.Template, sp.AvgQualityScore))
+			sb.WriteString(fmt.Sprintf("\n  - %s 领域历史质量评分 %.1f", sp.Domain, sp.AvgQualityScore))
 		}
 	} else if hasSceneSensitivePreferences(profile) {
-		sb.WriteString("- 已跳过历史模板/配色/布局/备注等场景敏感偏好：未找到当前领域的历史证据。\n")
+		sb.WriteString("- 已跳过历史配色、布局和备注等场景敏感偏好：未找到当前领域的历史证据。\n")
 	}
 
 	// 显式品牌资产可跨领域复用，但仍低于当前任务中用户显式选择。

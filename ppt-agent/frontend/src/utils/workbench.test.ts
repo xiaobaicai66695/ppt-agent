@@ -493,10 +493,10 @@ describe('workbench utilities', () => {
 	  id, task_id: 'task-1', timestamp: `2026-08-05T00:00:0${id}Z`, elapsed_ms: id * 1000,
 	  kind: 'tool_end', name, status: 'ok', metadata,
 	});
-	const persisted = [event(1, 'read_file'), event(2, 'edit_file')];
-	const tail = [event(2, 'edit_file', { result: 'updated' }), event(3, 'python3')];
+	const persisted = [event(1, 'read_file'), event(2, 'patch_tasks_draft')];
+	const tail = [event(2, 'patch_tasks_draft', { result: 'updated' }), event(3, 'update_tasks_manifest')];
 	const merged = mergeRuntimeEvents(persisted, tail);
-	expect(merged.map(item => item.name)).toEqual(['read_file', 'edit_file', 'python3']);
+	expect(merged.map(item => item.name)).toEqual(['read_file', 'patch_tasks_draft', 'update_tasks_manifest']);
 	expect(merged[1].metadata).toEqual({ result: 'updated' });
 
 	const meta = mergeRuntimeMeta({ elapsed_ms: 1, recent_events: persisted }, { elapsed_ms: 3, recent_events: tail });

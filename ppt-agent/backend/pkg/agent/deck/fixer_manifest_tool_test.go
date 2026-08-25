@@ -32,6 +32,21 @@ const validToolTestManifest = `{
   }]
 }`
 
+func writeValidFinalManifest(t *testing.T, workDir string) {
+	t.Helper()
+	draftTool := newDraftManifestTool(workDir, nil, "组件计划")
+	if _, err := draftTool.InvokableRun(context.Background(), validToolTestManifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTasksManifest(workDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDraftPatchToolCannotInitializeOrCommit(t *testing.T) {
 	workDir := t.TempDir()
 	configured := newDraftManifestTool(workDir, nil, "组件计划")
@@ -100,10 +115,7 @@ func TestPlannerManifestToolOnlyAllowsInitialize(t *testing.T) {
 
 func TestSelectedTasksPatchToolRejectsUnauthorizedPage(t *testing.T) {
 	workDir := t.TempDir()
-	manifestTool := newManifestTool(workDir)
-	if _, err := manifestTool.InvokableRun(context.Background(), validToolTestManifest); err != nil {
-		t.Fatal(err)
-	}
+	writeValidFinalManifest(t, workDir)
 
 	fixer := newSelectedTasksPatchTool(workDir, []string{"1"})
 	result, err := fixer.InvokableRun(context.Background(), `{"tasks":[{"task_id":"2","title":"越权修改"}]}`)
@@ -124,10 +136,7 @@ func TestSelectedTasksPatchToolRejectsUnauthorizedPage(t *testing.T) {
 
 func TestSelectedTasksPatchToolPreservesRuntimeIdentity(t *testing.T) {
 	workDir := t.TempDir()
-	manifestTool := newManifestTool(workDir)
-	if _, err := manifestTool.InvokableRun(context.Background(), validToolTestManifest); err != nil {
-		t.Fatal(err)
-	}
+	writeValidFinalManifest(t, workDir)
 
 	fixer := newSelectedTasksPatchTool(workDir, []string{"1"})
 	result, err := fixer.InvokableRun(context.Background(), `{"tasks":[{"task_id":"1","page_index":2,"title":"新标题"}]}`)
@@ -141,10 +150,7 @@ func TestSelectedTasksPatchToolPreservesRuntimeIdentity(t *testing.T) {
 
 func TestSelectedTasksPatchToolAcceptsTasksJSONArrayString(t *testing.T) {
 	workDir := t.TempDir()
-	manifestTool := newManifestTool(workDir)
-	if _, err := manifestTool.InvokableRun(context.Background(), validToolTestManifest); err != nil {
-		t.Fatal(err)
-	}
+	writeValidFinalManifest(t, workDir)
 
 	fixer := newSelectedTasksPatchTool(workDir, []string{"1"})
 	result, err := fixer.InvokableRun(context.Background(), `{"tasks":"[{\"task_id\":\"1\",\"title\":\"字符串定点修复\"}]"}`)

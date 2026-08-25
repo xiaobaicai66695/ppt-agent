@@ -187,85 +187,6 @@ func NewEnhancedProfile(userID int) *EnhancedProfile {
 	}
 }
 
-// GetPreferredTemplates 获取用户偏好的模板列表
-func (p *EnhancedProfile) GetPreferredTemplates() []string {
-	// 从成功模式中提取
-	templates := make(map[string]int)
-	for _, sp := range p.SuccessPatterns {
-		templates[sp.Template] += sp.SuccessCount
-	}
-
-	// 从 ContentTypes 中推断模板偏好
-	contentTypeToTemplate := map[string][]string{
-		"title_slide":     {"tech-intro", "pitch-deck", "course-module"},
-		"content_slide":   {"tech-intro", "weekly-report"},
-		"section_divider": {"tech-intro", "course-module"},
-		"chart_slide":     {"research-report", "pitch-deck"},
-		"summary_slide":   {"tech-intro", "course-module"},
-	}
-
-	for ct, count := range p.ContentTypes {
-		if ts, ok := contentTypeToTemplate[ct]; ok {
-			for _, t := range ts {
-				templates[t] += count
-			}
-		}
-	}
-
-	// 排序返回
-	type templateCount struct {
-		template string
-		count    int
-	}
-	var tc []templateCount
-	for t, c := range templates {
-		tc = append(tc, templateCount{t, c})
-	}
-	sort.Slice(tc, func(i, j int) bool { return tc[i].count > tc[j].count })
-
-	result := make([]string, 0, len(tc))
-	for _, t := range tc {
-		result = append(result, t.template)
-	}
-	return result
-}
-
-// GetPreferredTemplatesForDomain returns scene-sensitive template preferences
-// only when the current task domain has matching historical evidence.
-func (p *EnhancedProfile) GetPreferredTemplatesForDomain(domain string) []string {
-	domain = normalizeDomainName(domain)
-	if domain == "" {
-		return nil
-	}
-
-	templates := make(map[string]int)
-	for _, sp := range p.SuccessPatterns {
-		if !sameDomain(domain, sp.Domain) || strings.TrimSpace(sp.Template) == "" {
-			continue
-		}
-		templates[sp.Template] += maxInt(sp.SuccessCount, 1)
-	}
-
-	if len(templates) == 0 && p.hasExactDomainHistory(domain) {
-		contentTypeToTemplate := map[string][]string{
-			"title_slide":     {"tech-intro", "pitch-deck", "course-module"},
-			"content_slide":   {"tech-intro", "weekly-report"},
-			"section_divider": {"tech-intro", "course-module"},
-			"chart_slide":     {"research-report", "pitch-deck"},
-			"summary_slide":   {"tech-intro", "course-module"},
-		}
-		for ct, count := range p.ContentTypes {
-			if ts, ok := contentTypeToTemplate[ct]; ok {
-				for _, t := range ts {
-					templates[t] += count
-				}
-			}
-		}
-	}
-
-	return sortedTemplateNames(templates)
-}
-
 // GetTypicalPageCount 获取用户典型页数
 func (p *EnhancedProfile) GetTypicalPageCount() int {
 	if p.TypicalPageCount > 0 {
@@ -337,16 +258,7 @@ func (p *EnhancedProfile) GetTopDomain() string {
 
 // Recommend 生成个性化推荐
 func (p *EnhancedProfile) Recommend(req *RecommendRequest) *RecommendResult {
-	// 计算复杂度对应的领域字符串
-	complexityStr := "medium"
-	if req.Complexity >= 7 {
-		complexityStr = "high"
-	} else if req.Complexity <= 3 {
-		complexityStr = "low"
-	}
-
 	result := &RecommendResult{
-		Template:  p.suggestTemplate(req.Domain, complexityStr),
 		Theme:     p.suggestTheme(req.Domain),
 		PageCount: p.suggestPageCount(req.Complexity),
 		Animation: p.AnimationLevel.String(),
@@ -356,26 +268,10 @@ func (p *EnhancedProfile) Recommend(req *RecommendRequest) *RecommendResult {
 	if p.hasExactDomainHistory(req.Domain) {
 		result.Tips = append(result.Tips, "已找到同领域历史偏好，推荐仅作为弱参考")
 	} else if hasSceneSensitivePreferenceFields(p) {
-		result.Tips = append(result.Tips, "未使用跨领域模板、配色和布局偏好")
+		result.Tips = append(result.Tips, "未使用跨领域配色和布局偏好")
 	}
 
 	return result
-}
-
-func (p *EnhancedProfile) suggestTemplate(domain, complexity string) string {
-	domainTemplates := map[string][]string{
-		"business":   {"pitch-deck", "product-launch"},
-		"technical":  {"tech-sharing", "tech-intro"},
-		"academic":   {"course-module", "design-defense"},
-		"government": {"politics-ideology", "current-affairs"},
-		"personal":   {"personal-summary", "weekly-report"},
-		"creative":   {"activity-plan", "product-launch"},
-	}
-
-	if templates, ok := domainTemplates[domain]; ok {
-		return templates[0]
-	}
-	return "tech-intro"
 }
 
 func (p *EnhancedProfile) suggestTheme(domain string) string {
@@ -503,7 +399,6 @@ type RecommendRequest struct {
 
 // RecommendResult 推荐结果
 type RecommendResult struct {
-	Template  string   `json:"template"`
 	Theme     string   `json:"theme"`
 	PageCount int      `json:"page_count"`
 	Animation string   `json:"animation"`

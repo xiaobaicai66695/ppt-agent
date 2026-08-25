@@ -66,7 +66,7 @@ master_instruction.tmpl
 - `ppt-agent/backend/pkg/agent/deck/agent.go:304` 的 `enhanceStyleContextWithProfile()` 会再次注入历史配色、布局、模板风格、成功经验等高敏感字段。
 - `ppt-agent/backend/pkg/style/profile.go:149` 的 `GetPreferredTemplates()` 会从全局成功模式和 `ContentTypes` 推断模板，未按当前领域过滤。
 - `ppt-agent/backend/pkg/agent/learning/updater.go:230` 要求 LLM 对画像字段做追加式更新，`applyProfileUpdates()` 对 themes/colors/layout/content_types/domain_preferences 也是追加或累加。
-- `ppt-agent/doc/learning-system-domain-match.md` 已经识别出“领域相关性判断”这个方向，但实现层仍未真正落地。
+- `docs/architecture/ppt-agent-preference-memory-boundary.md` 已经将用户画像边界收敛为显式画像、意图路由和只读推荐，后续偏好能力应以该文档为准。
 
 ## 问题判断
 
@@ -93,7 +93,7 @@ master_instruction.tmpl
 
 ### 5. 设计文档与实现脱节
 
-`ppt-agent/doc/learning-system-domain-match.md` 已提出字段敏感性分级、领域重叠度、只注入 global preferences 等方案。但当前代码中的 `EnhanceWithProfile()`、`BuildStyleContext()`、`enhanceStyleContextWithProfile()` 仍是全量/半全量注入。
+当前架构已在 `docs/architecture/ppt-agent-preference-memory-boundary.md` 中将字段敏感性和画像注入边界前移为架构约束；旧实现中的 `EnhanceWithProfile()`、`BuildStyleContext()`、`enhanceStyleContextWithProfile()` 全量/半全量注入问题只作为历史问题保留。
 
 ## 市面成熟产品调研
 
@@ -231,4 +231,4 @@ PPT Agent 目前更接近“隐式历史画像强注入”，而成熟产品更�
 ## 关联事项
 
 - TODO: `docs/issues/todo.md#PPT-QUALITY-010`
-- 现有设计参考：`ppt-agent/doc/learning-system-domain-match.md`
+- 现有设计参考：`docs/architecture/ppt-agent-preference-memory-boundary.md`

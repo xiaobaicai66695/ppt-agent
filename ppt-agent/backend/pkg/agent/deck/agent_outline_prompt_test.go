@@ -15,7 +15,7 @@ func TestPlannerPromptAlwaysInitializesCompleteDraft(t *testing.T) {
 		},
 	}
 	for _, outline := range outlines {
-		prompt := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", outline, "用户主题", false, 5, false)
+		prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", outline, "用户主题", false)
 		for _, want := range []string{
 			"无论是否有用户大纲",
 			"update_tasks_manifest(mode=\"initialize\")",
@@ -36,7 +36,7 @@ func TestPlannerPromptAlwaysInitializesCompleteDraft(t *testing.T) {
 }
 
 func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
-	withoutTool := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", nil, "生态报告", false, 5, false)
+	withoutTool := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", nil, "生态报告", false)
 	for _, want := range []string{"背景图片策略", "以 skill 为准", "visual_intent.asset_query"} {
 		if !strings.Contains(withoutTool, want) {
 			t.Fatalf("planner prompt missing skill boundary %q", want)
@@ -46,7 +46,7 @@ func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
 		t.Fatal("planner should not advertise unavailable image search")
 	}
 
-	withTool := buildPlannerInstructionWithImageSearch("/tmp/work", "/tmp/skills", "", nil, "生态报告", false, 5, true)
+	withTool := buildPlannerInstruction("/tmp/work", "/tmp/skills", "", nil, "生态报告", true)
 	for _, want := range []string{"search_images(download=true)", "来源页和摄影师署名"} {
 		if !strings.Contains(withTool, want) {
 			t.Fatalf("configured planner prompt missing %q", want)
@@ -56,7 +56,7 @@ func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
 
 func TestReviewerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
 	cfg := &PPTTaskConfig{WorkDir: "/tmp/work", SkillsDir: "/tmp/skills", Query: "用户主题"}
-	reviewer := buildReviewerInstruction(cfg, false)
+	reviewer := buildReviewerInstruction(cfg)
 	for _, want := range []string{"TaskPlanReviewer", "tasks.draft.json", "patch_tasks_draft", "所有必要修正合并为一次 patch"} {
 		if !strings.Contains(reviewer, want) {
 			t.Fatalf("reviewer prompt missing %q", want)

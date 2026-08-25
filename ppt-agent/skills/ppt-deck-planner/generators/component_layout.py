@@ -166,7 +166,7 @@ def render_component_slide(
     layout_variant: str = "",
     background: str | None = None,
 ) -> Presentation:
-    background_blur = 6 if content_type in {"title_slide", "section_divider"} else 0
+    background_blur = 8 if content_type in {"title_slide", "section_divider"} else 4
     prs, slide, colors = setup_slide(prs, palette, background, blur_radius=background_blur)
     components = normalize_components(components or [], title=title, subtitle=subtitle, content_type=content_type)
 

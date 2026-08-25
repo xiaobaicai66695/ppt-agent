@@ -57,6 +57,10 @@ type readFileTool struct {
 	op commandline.Operator
 }
 
+type options struct {
+	op commandline.Operator
+}
+
 func (r *readFileTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return readToolInfo, nil
 }

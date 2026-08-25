@@ -38,7 +38,7 @@ func TestClassifierUsesOneLLMRouteAndRouterReusesIt(t *testing.T) {
 	model := &routingTextModel{content: `{
 		"intent":"create","intent_reasoning":"用户要求制作地域介绍演示",
 		"domain":"creative","complexity_level":6,"page_count_estimate":18,
-		"confidence":0.94,"suggested_theme":"ocean_soft","suggested_templates":["tech-intro"],
+		"confidence":0.94,"suggested_theme":"ocean_soft",
 		"visual_hint":"snowy mountain landscape","use_visual_assets":true,
 		"agent_type":"planner","pipeline":["plan","generate"],"concurrency":5
 	}`}

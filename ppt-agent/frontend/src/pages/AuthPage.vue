@@ -199,7 +199,7 @@ function switchMode(next: 'code' | 'password') {
       </div>
     </section>
 
-    <aside class="auth-preview" aria-label="模板预览">
+    <aside class="auth-preview" aria-label="生成效果预览">
       <div class="preview-copy">
         <span>从结构到成稿</span>
         <h2>你的内容，一页一页抵达。</h2>
@@ -207,17 +207,17 @@ function switchMode(next: 'code' | 'password') {
       </div>
       <div class="preview-stack" aria-hidden="true">
         <figure class="preview-main">
-          <img src="/templates/thumbs/research-report.jpg" alt="" width="640" height="360" />
+          <img src="/deck-previews/deck-preview-1.jpg" alt="" width="640" height="360" />
         </figure>
         <figure class="preview-secondary first">
-          <img src="/templates/thumbs/pitch-deck.jpg" alt="" width="640" height="360" />
+          <img src="/deck-previews/deck-preview-2.jpg" alt="" width="640" height="360" />
         </figure>
         <figure class="preview-secondary second">
-          <img src="/templates/thumbs/tech-sharing.jpg" alt="" width="640" height="360" />
+          <img src="/deck-previews/deck-preview-3.jpg" alt="" width="640" height="360" />
         </figure>
       </div>
       <div class="preview-facts">
-        <span><CheckCircle2 :size="16" /> 真实模板预览</span>
+        <span><CheckCircle2 :size="16" /> 真实生成效果</span>
         <span><CheckCircle2 :size="16" /> 单页渐进交付</span>
         <span><CheckCircle2 :size="16" /> 可继续修改</span>
       </div>

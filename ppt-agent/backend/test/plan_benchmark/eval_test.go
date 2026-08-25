@@ -132,7 +132,6 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 				Concurrency: 1,
 				Operator:    operator,
 				SkillsDir:   filepath.Join(projectRoot(t), "skills"),
-				EnableQA:    false,
 			}
 			agent, err := deck.NewPPTPlannerAgent(ctx, cfg)
 			if err != nil {

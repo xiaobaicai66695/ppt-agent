@@ -115,21 +115,6 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 	},
 }
 
-var manifestToolInfo = &schema.ToolInfo{
-	Name: "update_tasks_manifest",
-	Desc: "以结构化、原子方式初始化或批量更新 DeckSpec。initialize/patch 只保存规划草稿，不做完整 DeckSpec 硬校验；审查完成后 commit 才校验并发布 tasks.json。不要使用 edit_file 修改 tasks.json。",
-	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"mode":     {Type: schema.String, Required: true, Desc: "initialize、patch 或 commit"},
-		"title":    {Type: schema.String, Desc: "PPT 标题；initialize 模式建议填写，缺省时系统会从任务上下文推断"},
-		"theme":    {Type: schema.String, Desc: "配色英文 ID"},
-		"template": {Type: schema.String, Desc: "整套模板英文 ID"},
-		"tasks": {
-			Type: schema.Array, Desc: "要初始化或更新的页面列表；initialize/patch 必填，commit 可省略",
-			ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: manifestTaskPatchSchema},
-		},
-	}),
-}
-
 var plannerManifestToolInfo = &schema.ToolInfo{
 	Name: "update_tasks_manifest",
 	Desc: "一次性初始化完整 DeckSpec 规划草稿。Planner 只能使用 initialize，审查、修订和提交由后续阶段负责。",
@@ -181,14 +166,9 @@ type manifestTool struct {
 	workDir       string
 	fallbackTitle string
 	draftFirst    bool
-	requireReview bool
 }
 
 type plannerManifestTool struct{ inner *manifestTool }
-
-func newManifestTool(workDir string) tool.InvokableTool {
-	return &manifestTool{workDir: workDir}
-}
 
 func newPlannerManifestTool(workDir string, outline *TaskOutline, query string) tool.InvokableTool {
 	return &plannerManifestTool{inner: newDraftManifestTool(workDir, outline, query)}
@@ -199,7 +179,6 @@ func newDraftManifestTool(workDir string, outline *TaskOutline, query string) *m
 		workDir:       workDir,
 		fallbackTitle: compactManifestTitle(query),
 		draftFirst:    true,
-		requireReview: true,
 	}
 	if outline != nil && strings.TrimSpace(outline.Title) != "" {
 		inner.fallbackTitle = compactManifestTitle(outline.Title)
@@ -230,7 +209,7 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 }
 
 func (t *manifestTool) Info(context.Context) (*schema.ToolInfo, error) {
-	return manifestToolInfo, nil
+	return plannerManifestToolInfo, nil
 }
 
 func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
@@ -254,31 +233,6 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		}
 		manifest, err = t.patchManifest(input)
 		target = t.writeTarget()
-	case "commit":
-		var committed *TasksManifest
-		var ok bool
-		var commitErr error
-		if t != nil && t.requireReview {
-			committed, ok, commitErr = CommitReviewedTasksDraftManifestIfPresent(t.workDir)
-		} else {
-			committed, ok, commitErr = CommitTasksDraftManifestIfPresent(t.workDir)
-		}
-		if commitErr != nil {
-			result, _ := json.Marshal(map[string]any{
-				"ok": false, "mode": input.Mode, "target": "draft", "committed": false, "error": commitErr.Error(),
-			})
-			return string(result), nil
-		}
-		if !ok {
-			committed, commitErr = ReadTasksManifest(t.workDir)
-			if commitErr != nil {
-				return "", fmt.Errorf("no draft manifest to commit and final tasks.json is unavailable: %w", commitErr)
-			}
-		}
-		result, _ := json.Marshal(map[string]any{
-			"ok": true, "mode": input.Mode, "target": "final", "committed": ok, "total": len(committed.Tasks),
-		})
-		return string(result), nil
 	default:
 		err = fmt.Errorf("unsupported mode %q", input.Mode)
 	}
@@ -469,6 +423,9 @@ func parseManifestTaskPatches(raw json.RawMessage) ([]manifestTaskPatch, error) 
 		return nil, fmt.Errorf("tasks JSON array string must not be empty")
 	}
 	if err := json.Unmarshal([]byte(encoded), &tasks); err != nil {
+		if recovered, ok := recoverManifestTasksFromEmbeddedArray(encoded); ok {
+			return recovered, nil
+		}
 		if recovered, ok := recoverManifestTasksFromKnownFieldSpill(encoded); ok {
 			return recovered, nil
 		}
@@ -478,6 +435,57 @@ func parseManifestTaskPatches(raw json.RawMessage) ([]manifestTaskPatch, error) 
 		return nil, fmt.Errorf("tasks JSON array string is invalid: %w", err)
 	}
 	return tasks, nil
+}
+
+func recoverManifestTasksFromEmbeddedArray(encoded string) ([]manifestTaskPatch, bool) {
+	array, ok := firstBalancedJSONArray(encoded)
+	if !ok || strings.TrimSpace(array) == strings.TrimSpace(encoded) {
+		return nil, false
+	}
+	var tasks []manifestTaskPatch
+	if err := json.Unmarshal([]byte(array), &tasks); err != nil {
+		return nil, false
+	}
+	return tasks, true
+}
+
+func firstBalancedJSONArray(value string) (string, bool) {
+	start := strings.Index(value, "[")
+	if start < 0 {
+		return "", false
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(value); i++ {
+		ch := value[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return value[start : i+1], true
+			}
+		}
+	}
+	return "", false
 }
 
 func recoverManifestTasksFromExtraContentPlanClose(encoded string) ([]manifestTaskPatch, bool) {
@@ -682,26 +690,6 @@ func WriteTasksDraftManifest(workDir string, manifest *TasksManifest) error {
 		return err
 	}
 	return nil
-}
-
-func CommitTasksDraftManifestIfPresent(workDir string) (*TasksManifest, bool, error) {
-	manifest, err := ReadTasksDraftManifest(workDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	if err := validateManifestForWrite(manifest); err != nil {
-		return nil, false, fmt.Errorf("draft DeckSpec is invalid: %w", err)
-	}
-	if err := WriteTasksManifest(workDir, manifest); err != nil {
-		return nil, false, err
-	}
-	if err := os.Remove(filepath.Join(workDir, tasksDraftFileName)); err != nil && !os.IsNotExist(err) {
-		return nil, false, err
-	}
-	return manifest, true, nil
 }
 
 func CommitReviewedTasksDraftManifestIfPresent(workDir string) (*TasksManifest, bool, error) {
