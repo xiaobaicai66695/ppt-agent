@@ -117,6 +117,37 @@ func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
 	}
 }
 
+func TestTaskStateNormalizesCumulativeAnswerChunks(t *testing.T) {
+	var turns []string
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-cumulative", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+		assistantTurnFn: func(_, _ string, content string) {
+			turns = append(turns, content)
+		},
+	}
+	prefix := "我将为您规划一份关于“银发友好社区：从适老改造到服务运营”的演示文稿。首先，让我读取组件契约文件以了解可用的组件类型。"
+	suffix := "我将为“银发友好社区：从适老改造到服务运营”设计一份15页的演示文稿。先搜索一些背景资料确保内容准确。"
+
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: prefix})
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: prefix + "\n\n" + suffix})
+	ts.Broadcast(SSERichEvent{Type: "answer_end"})
+
+	if len(ts.Events) < 2 {
+		t.Fatalf("events = %#v, want at least two answer events", ts.Events)
+	}
+	if ts.Events[0].Content != prefix || strings.TrimSpace(ts.Events[1].Content) != suffix {
+		t.Fatalf("answer events = (%q, %q), want prefix then suffix", ts.Events[0].Content, ts.Events[1].Content)
+	}
+	want := prefix + "\n\n" + suffix
+	if got := ts.FullAnswer(); got != want {
+		t.Fatalf("full answer = %q, want %q", got, want)
+	}
+	if len(turns) != 1 || turns[0] != want {
+		t.Fatalf("turns = %#v, want %q", turns, want)
+	}
+}
+
 func TestTaskStateTelemetryDoesNotEnterAssistantTurn(t *testing.T) {
 	var turns []string
 	ts := &TaskState{

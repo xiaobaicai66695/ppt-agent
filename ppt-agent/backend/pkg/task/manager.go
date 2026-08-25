@@ -217,14 +217,17 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 	} else if event.ID > ts.nextEventID {
 		ts.nextEventID = event.ID
 	}
+	// 累积 LLM 回答内容到 fullAnswer，任务结束时一次性写入 DB。
+	// 有些模型/框架会把 answer chunk 作为累计文本发出，这里先转成
+	// 可显示的增量，避免 SSE 实时流、事件回放和会话持久化重复展示。
+	if event.Type == "answer" && event.Content != "" {
+		event.Content = normalizeAnswerChunk(ts.answerTurn.String(), event.Content)
+		ts.fullAnswer.WriteString(event.Content)
+		ts.answerTurn.WriteString(event.Content)
+	}
 	ts.Events = append(ts.Events, event)
 	if len(ts.Events) > 500 {
 		ts.Events = ts.Events[len(ts.Events)-300:]
-	}
-	// 累积 LLM 回答内容到 fullAnswer，任务结束时一次性写入 DB
-	if event.Type == "answer" && event.Content != "" {
-		ts.fullAnswer.WriteString(event.Content)
-		ts.answerTurn.WriteString(event.Content)
 	}
 	var completedTurn string
 	isTurnBoundary := event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete"
@@ -252,6 +255,33 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		}
 		ts.Mu.Unlock()
 	}
+}
+
+func normalizeAnswerChunk(currentTurn, chunk string) string {
+	current := strings.TrimSpace(currentTurn)
+	incoming := strings.TrimSpace(chunk)
+	if incoming == "" {
+		return ""
+	}
+	if current == "" {
+		return chunk
+	}
+	if incoming == current {
+		return ""
+	}
+	if strings.HasPrefix(incoming, current) {
+		suffix := strings.TrimPrefix(incoming, current)
+		if strings.TrimSpace(suffix) == "" {
+			return ""
+		}
+		return suffix
+	}
+	currentNormalized := strings.ToLower(strings.Join(strings.Fields(current), ""))
+	incomingNormalized := strings.ToLower(strings.Join(strings.Fields(incoming), ""))
+	if len(incomingNormalized) >= 20 && strings.Contains(currentNormalized, incomingNormalized) {
+		return ""
+	}
+	return chunk
 }
 
 // SubscribeFrom atomically snapshots buffered events newer than afterEventID

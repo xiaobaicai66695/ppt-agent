@@ -138,13 +138,33 @@ export function recoverConversationMessages(session: ConversationSession): Conve
 export function mergeConversationMessages(
   current: ConversationMessage[], incoming: ConversationMessage[],
 ): ConversationMessage[] {
-  const merged = current.map(message => ({ ...message }));
-  for (const message of incoming) {
+  const merged: ConversationMessage[] = [];
+  for (const message of [...current, ...incoming]) {
     const content = message.content?.trim();
     if (!content) continue;
     mergeConversationMessage(merged, { ...message, content });
   }
   return merged;
+}
+
+export function appendAssistantStreamContent(current: string, chunk: string): string {
+  const existing = current || '';
+  const incoming = chunk || '';
+  if (!incoming) return existing;
+  const existingTrimmed = existing.trim();
+  const incomingTrimmed = incoming.trim();
+  if (!existingTrimmed) return incoming;
+  if (!incomingTrimmed) return existing;
+  if (existingTrimmed === incomingTrimmed) return existing;
+  if (incomingTrimmed.startsWith(existingTrimmed)) {
+    return incomingTrimmed;
+  }
+  const incomingNormalized = normalizeConversationContent(incomingTrimmed);
+  const existingNormalized = normalizeConversationContent(existingTrimmed);
+  if (incomingNormalized.length >= 20 && existingNormalized.includes(incomingNormalized)) {
+    return existing;
+  }
+  return `${existing}${incoming}`;
 }
 
 export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): ConversationMessage[] {

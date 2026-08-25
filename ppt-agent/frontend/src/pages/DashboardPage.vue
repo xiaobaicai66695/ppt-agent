@@ -29,7 +29,7 @@ import SlidePreviewCard from '../components/SlidePreviewCard.vue';
 import ConversationComposer from '../components/ConversationComposer.vue';
 import RuntimeEventDetail from '../components/RuntimeEventDetail.vue';
 import {
-  compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages, mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries,
+  appendAssistantStreamContent, compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages, mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries,
   nextReplayCursor, recoverConversationMessages, runtimeEventDetailLabel, runtimeEventKindLabel,
   runtimeEventNameLabel, runtimeEventStatusLabel, summarizeTaskTitle,
 } from '../utils/workbench';
@@ -104,7 +104,7 @@ async function loadConversation(taskId: string, replace = false) {
     if (selectedId.value !== taskId) return;
     const recovered = recoverConversationMessages(session);
     conversationMessages.value = replace
-      ? recovered
+      ? mergeConversationMessages([], recovered)
       : mergeConversationMessages(conversationMessages.value, recovered);
     if (logLines.value.length === 0) restoreFromConversation(session);
     if (session.files?.length) finalFiles.value = session.files;
@@ -131,15 +131,15 @@ function appendAssistantDelta(delta: string) {
   if (!streamingAssistant.value && !streamingAssistantStartedAt.value) {
     streamingAssistantStartedAt.value = new Date().toISOString();
   }
-  streamingAssistant.value += delta;
+  streamingAssistant.value = appendAssistantStreamContent(streamingAssistant.value, delta);
 }
 
 function finalizeAssistantTurn() {
   const content = streamingAssistant.value.trim();
   if (content) {
-    conversationMessages.value = [...conversationMessages.value, {
+    conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
       role: 'assistant', content, timestamp: streamingAssistantStartedAt.value || new Date().toISOString(),
-    }];
+    }]);
   }
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
@@ -841,7 +841,7 @@ function saveCache(id: string) {
     activeWorkers: activeWorkers.value,
     batches: [...batches.value],
     runtimeMeta: runtimeMeta.value ? { ...runtimeMeta.value } : null,
-    conversationMessages: conversationMessages.value.map(message => ({ ...message })),
+    conversationMessages: mergeConversationMessages([], conversationMessages.value),
     streamingAssistant: streamingAssistant.value,
     streamingAssistantStartedAt: streamingAssistantStartedAt.value,
     lastSeenEventID,
@@ -863,7 +863,7 @@ function restoreCache(id: string): boolean {
   activeWorkers.value = c.activeWorkers;
   batches.value = c.batches;
   runtimeMeta.value = c.runtimeMeta;
-  conversationMessages.value = c.conversationMessages.map(message => ({ ...message }));
+  conversationMessages.value = mergeConversationMessages([], c.conversationMessages);
   streamingAssistant.value = c.streamingAssistant;
   streamingAssistantStartedAt.value = c.streamingAssistantStartedAt || '';
   lastSeenEventID = c.lastSeenEventID;

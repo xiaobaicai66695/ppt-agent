@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem } from '../types';
 import {
-  canonicalOutputFile, compactRuntimeEvents, deriveInlineConversationItems, deriveInlineToolPreviews,
+  appendAssistantStreamContent, canonicalOutputFile, compactRuntimeEvents, deriveInlineConversationItems, deriveInlineToolPreviews,
   deriveLiveActivity, deriveObservableSteps, formatToolPreviewFields, mergeConversationMessages,
   mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
   runtimeAssistantOutputMessages, runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
@@ -116,6 +116,35 @@ describe('workbench utilities', () => {
 
     expect(merged).toHaveLength(1);
     expect(merged[0].content).toBe(fullAnswer);
+  });
+
+  it('compacts duplicated assistant prefixes already present in restored messages', () => {
+    const prefix = '我将为您规划一份关于“银发友好社区：从适老改造到服务运营”的演示文稿。首先，让我读取组件契约文件以了解可用的组件类型。';
+    const suffix = '我将为“银发友好社区：从适老改造到服务运营”设计一份15页的演示文稿。先搜索一些背景资料确保内容准确。';
+
+    const merged = mergeConversationMessages([
+      { role: 'user', content: '「银发友好社区：从适老改造到服务运营」', timestamp: 'a' },
+      { role: 'assistant', content: prefix, timestamp: 'b' },
+      { role: 'assistant', content: `${prefix}\n\n${suffix}`, timestamp: 'c' },
+    ], []);
+
+    expect(merged.map(message => message.content)).toEqual([
+      '「银发友好社区：从适老改造到服务运营」',
+      prefix,
+      suffix,
+    ]);
+  });
+
+  it('keeps one live assistant stream when chunks are cumulative snapshots', () => {
+    const first = '我将为您规划一份关于“银发友好社区”的演示文稿。';
+    const second = `${first}首先，让我读取组件契约文件。`;
+
+    const streamed = appendAssistantStreamContent(
+      appendAssistantStreamContent('', first),
+      second,
+    );
+
+    expect(streamed).toBe(second);
   });
 
   it('keeps only the new assistant suffix when a cumulative output follows tools', () => {
