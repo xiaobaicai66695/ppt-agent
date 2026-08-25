@@ -9,8 +9,8 @@
 1. 前端选择模板/原子布局，形成 `TaskOutline`。
 2. Go Web API 校验并补齐 outline，创建任务工作目录。
 3. `TaskManager` 完成意图识别、用户画像门控和路由决策，并通过 SSE 推送进度。
-4. `PPTPlanner` 通过 `update_tasks_manifest` 生成/维护 `tasks.json`。
-5. 目标主流程在渲染前增加 Planner -> Reviewer -> Refiner 质量门，确保 DeckSpec 的结构、容量、场景匹配和组件计划可执行。
+4. `PPTPlanner` 无论有无 outline，都通过 `update_tasks_manifest` 一次性生成完整 `tasks.draft.json`。
+5. `TaskPlanReviewer` 根据 Go 硬校验报告批量修正草稿，Go 最多执行三轮并在通过后提交 `tasks.json`。
 6. `DeckRenderWorkflow` 按 `task_id` 并发调用 Python `render_task.py`，由 `generators` 包生成单页 `.pptx`。
 7. 后端轮询 `tasks.json` 和工作目录，发现 PPTX 后推送 `file_ready`，前端请求下载和缩略图。
 
@@ -21,13 +21,13 @@ flowchart LR
   W --> TM["backend/pkg/task<br/>TaskManager"]
   TM --> PI["intent / learning / router<br/>意图与画像门控"]
   PI --> PL["backend/pkg/agent/deck<br/>PPTPlanner"]
-  PL --> M["tasks.json<br/>DeckSpec / TasksManifest"]
-  M --> RV["Plan Reviewer<br/>结构/容量/场景审查"]
-  RV --> RF["Plan Refiner<br/>组件级润色与修订"]
-  RF --> M
+  PL --> D["tasks.draft.json<br/>规划草稿"]
+  D --> RV["TaskPlanReviewer<br/>按 Go issues 批量修正"]
+  RV --> D
+  D --> M["Go Validator / Commit<br/>tasks.json"]
   M --> DR["DeckRenderWorkflow<br/>按 task_id 并发"]
   DR --> PY["render_task.py"]
-  PY --> G["skills/visual_designer/generators"]
+  PY --> G["skills/ppt-deck-planner/generators"]
   G --> O["weboutput/<user>-<task>/<page>.pptx"]
   W --> TH["thumbnail / qa_images"]
   TH --> F
@@ -40,12 +40,12 @@ flowchart LR
 | Web 入口 | `ppt-agent/backend/main.go` | 读取 `.env`、初始化 logger/callback/skill/backend/db，组装 web/cli 两种启动模式 | 改服务启动、模型工厂、skill 路径、输出目录时看这里 |
 | HTTP API | `ppt-agent/backend/pkg/web` | Gin 路由、认证、任务接口、模板接口、AI 补全、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
 | 任务生命周期 | `ppt-agent/backend/pkg/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
-| 规划与渲染编排 | `ppt-agent/backend/pkg/agent/deck` | `PPTPlanner`、manifest 工具、`tasks.json` 类型、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、outline 直通、Agent prompt 时看这里 |
-| Prompt 模板 | `ppt-agent/backend/pkg/prompts/planner` | `PPTPlanner` 主指令；目标态会增加规划审查与润色指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
+| 规划与渲染编排 | `ppt-agent/backend/pkg/agent/deck` | `PPTPlanner`、`TaskPlanReviewer`、`PPTFixer`、manifest 草稿/提交、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、继续修复或 Agent prompt 时看这里 |
+| Prompt 模板 | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
 | 工具层 | `ppt-agent/backend/pkg/tools` | `read_file`、`search`、`batch_convert`、QA 等 Eino tool，以及 Python 路径工具 | 改工具能力、安全边界、转换行为、搜索策略时看这里 |
-| 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 full-deck/single-page JSON，暴露 theme/background | 改模板元数据、前端模板列表、后端 outline 校验时看这里 |
+| 模板加载 | `ppt-agent/backend/pkg/templates` | 读取组件化 preset、页面类型契约和 theme 元数据 | 改模板元数据、前端模板列表、后端 outline 校验时看这里 |
 | 前端工作台 | `ppt-agent/frontend/src` | Vue 3 页面、API 类型、任务 Dashboard、模板编排、缩略图预览 | 改用户流程、展示状态、API 类型、SSE 消费时看这里 |
-| PPT 生成器 | `ppt-agent/skills/visual_designer` | skill 说明、模板、生成器、素材、背景、转换脚本 | 改页面视觉质量、布局容量、生成参数、素材体系时看这里 |
+| PPT Deck Planner 与生成器 | `ppt-agent/skills/ppt-deck-planner` | Skill 说明、组件契约、生成器、图片落盘契约和测试 | 改页面视觉质量、布局容量、生成参数、素材体系时看这里 |
 | 评估/脚本 | `ppt-agent/scripts`、`docs/eval` | 本地评估、生成质量用例、辅助脚本 | 改质量回归、批量 smoke test、评估指标时看这里 |
 
 ## 3. 核心运行流程
@@ -63,10 +63,10 @@ flowchart LR
 
 前端 `ComposePage.vue` 读取：
 
-- `/api/templates`：预设 full-deck 模板。
-- `/api/templates/layouts`：原子 single-page 布局。
+- `/api/templates`：组件化 preset / 推荐候选元数据。
+- `/api/templates/layouts`：组件化页面类型和容量契约。
 - `/api/themes`：后端内置配色。
-- `/api/backgrounds`：后端内置背景主题。
+- `/api/backgrounds`：历史背景接口；新规划优先使用搜索图片写入 `visual_intent.local_path` 或 `image.local_path`。
 
 用户点击开始生成时，前端构造：
 
@@ -87,9 +87,9 @@ interface TaskOutline {
 
 后端 `handleCreateTask` 会调用 `prepareOutline`：
 
-- 校验 `content_type` 必须存在于 `templates/single-page/*.json`。
+- 校验 `content_type` 必须存在于 `templates/component_contracts.json` 支持的页面类型中。
 - `theme` 不存在时回退到 `ocean_soft`。
-- `background` 不存在时清空。
+- `background` 是历史字段；新规划应保持为空，图片素材走 `visual_intent` / `image` 组件。
 - `description` 太短或缺少 `content_plan` 时，通过 `/api/ai/generate-outline` 同一套逻辑补齐。
 
 ### 3.3 `tasks.json` 是主协作契约
@@ -108,15 +108,14 @@ interface TaskOutline {
       "title": "页面标题",
       "content_type": "content_slide",
       "description": "页面内容描述",
-      "content_plan": {},
-      "background": "",
       "output_file": "1_页面标题.pptx",
       "status": "pending",
       "content_plan": {
         "summary": "页面核心信息",
         "visual_intent": {
-          "role": "cards",
-          "preferred_variant": "numbered_cards"
+          "role": "image_text",
+          "asset_query": "community service center interior",
+          "local_path": "assets/images/slide-1-bg.jpg"
         },
         "components": [
           {
@@ -142,7 +141,7 @@ interface TaskOutline {
 }
 ```
 
-上例中的 `components` 和 `capacity_hint` 是目标态字段，当前代码仍以 `summary`、`visual_intent`、`elements` 为主要结构。迁移时应保持兼容：旧 generator 可以继续消费 `description` / `elements`，新 generator 优先消费组件级计划。
+上例中的 `components` 和 `capacity_hint` 是当前主契约。生成链路应以 `content_plan.components` 为唯一组件数据源；`description` 只作为页面意图摘要，不能再让旧 `elements` 或顶层 `background` 兼容路径反向污染渲染结果。
 
 状态含义：
 
@@ -173,16 +172,16 @@ interface TaskOutline {
 
 职责：
 
-- 无 outline 时选择 full-deck 模板、页数、配色、背景策略，并创建 `tasks.json`。
-- 有 outline 时忠实补齐后端已写入的 `tasks.json`，避免改写用户明确编排。
-- 输出页级 DeckSpec：`content_type`、`layout_variant`、`description`、`content_plan`、`background`、`output_file`。
-- 目标态输出组件级 DeckSpec：每页包含 `components`、`capacity_hint`、`slide_intent` 和必要事实/数据来源。
+- 无论是否有 outline，都生成完整 DeckSpec 草稿；outline 作为用户结构约束，不跳过规划。
+- 一次性 initialize 完整页面数组，不逐页 patch、不自审、不 commit。
+- 输出组件级 DeckSpec：每页包含 `content_type`、`layout_variant`、`description`、`content_plan.components`、`capacity_hint`、`slide_intent`、必要事实/数据来源和图片素材引用。
 - 只负责规划和结构化内容，不负责坐标、字号、颜色、边距等底层绘制。
 
 工具：
 
 - `read_file`
 - `search`
+- `search_images`
 - `update_tasks_manifest`
 
 风险点：
@@ -192,7 +191,7 @@ interface TaskOutline {
 - `description` 和 `content_plan` 是渲染器输入，不应塞超出布局容量的长段落。
 - 用户画像只应注入确定性信息和同场景偏好；跨场景历史风格应被 Reviewer 拦截，避免过拟合。
 
-### 4.2 Plan Reviewer / Plan Refiner
+### 4.2 `TaskPlanReviewer`
 
 这是目标态主流程新增的渲染前质量门。它不是视觉 QA，也不读取生成后的截图；它审查的是 DeckSpec 本身是否值得进入渲染。
 
@@ -203,11 +202,11 @@ interface TaskOutline {
 - 检查 `content_type`、`layout_variant` 和组件计划是否符合模板容量。
 - 检查用户画像使用是否过拟合：确定性信息可直接使用，风格偏好必须经过场景相似度门控。
 - 输出结构化 issues，例如 `intent_mismatch`、`profile_overfit`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`。
-- Refiner 只根据 issues 修订 DeckSpec，不做文学化改写，也不改底层视觉参数。
+- Reviewer 只根据 issues 批量修订 DeckSpec，不做文学化改写，也不改底层视觉参数。
 
 循环策略：
 
-- 默认最多 2 到 3 轮。
+- Go workflow 固定最多 3 轮，并负责每轮重新校验。
 - 通过后锁定 DeckSpec，再进入渲染。
 - 未通过时应返回可解释失败原因或降级为页级 `content_plan`，不得无声进入渲染。
 
@@ -220,16 +219,16 @@ interface TaskOutline {
 - 渲染前读取并校验工作目录下的 `tasks.json`。
 - 根据任务状态筛选需要生成的页面。
 - 按 `RoutingDecision` 和 `cfg.Concurrency` 决定并发数。
-- 每个 worker 调用 `skills/visual_designer/generators/render_task.py --task-id <id>`。
+- 每个 worker 调用 `skills/ppt-deck-planner/generators/render_task.py --task-id <id>`。
 - 渲染开始前把单页状态 patch 为 `generating`，成功后 patch 为 `done`，失败后 patch 为 `failed`。
 - 生成后 reconcile 输出文件和缩略图命名，形成最终交付结果。
 
 必须同步维护的权威资料：
 
-- `skills/visual_designer/references/generators.md`
-- `skills/visual_designer/generators/__init__.py`
+- `skills/ppt-deck-planner/references/generators.md`
+- `skills/ppt-deck-planner/templates/component_contracts.json`
+- `skills/ppt-deck-planner/generators/__init__.py`
 - 对应 `generators/*_generator.py`
-- 对应 `templates/single-page/*.json`
 
 ### 4.4 Visual QA / Fixer
 
@@ -286,41 +285,35 @@ SSE 消费重点：
 
 ## 6. PPT 生成器架构
 
-`skills/visual_designer` 是生成器和模板系统的根。
+`skills/ppt-deck-planner` 是当前 DeckSpec 规划契约和确定性 PPT 生成器的根。
 
 | 路径 | 作用 |
 | --- | --- |
 | `SKILL.md` | Planner 填充 DeckSpec / `tasks.json` 的内容规划约束，不应承载底层字号、坐标和绘制细节 |
 | `references/generators.md` | `render_task.py` 和生成器参数权威来源 |
-| `references/palettes.md` | 配色说明 |
-| `templates/full-decks/*.json` | 前端预设模板列表和默认页面结构 |
-| `templates/full-decks/*.py` | Planner 读取的模板结构/设计参考 |
-| `templates/single-page/*.json` | 原子布局元数据、字段、容量 contract |
-| `templates/single-page/*.py` | 单页设计规范参考 |
+| `templates/component_contracts.json` | 页面类型、组件类型、容量和必填字段 contract |
 | `generators/__init__.py` | 生成器导出注册面 |
 | `generators/base.py` | 底层版式、文本、背景、保存 helper |
 | `generators/layout_intelligence.py` | 内容密度、动态字号、版面平衡 |
-| `generators/asset_manager.py` | 本地素材 manifest 读取 |
-| `assets/manifest.json` | 本地图标、背景、纹理索引 |
-| `background_templates/` | 主题背景预览和资源 |
+| `generators/component_layout.py` | 组件级渲染、图文混排、列表、表格、论述块和目录等布局 |
 
 生成器改动的同步规则：
 
-1. 新增 `content_type`：同步 `single-page/*.json`、`full-decks/*.json`、对应 generator、`generators/__init__.py`、`references/generators.md`、前端 `contentTypeLabels`。
+1. 新增 `content_type`：同步 `templates/component_contracts.json`、对应 generator、`generators/__init__.py`、`references/generators.md`、前端 `contentTypeLabels`。
 2. 改生成器参数：同步 `references/generators.md`、Planner prompt、模板 JSON contract、测试样例。
-3. 改背景主题：同步 `templates.Loader.loadBackgrounds`、`background_templates` 资源、`background_manager.py` palette 映射、前端背景展示。
+3. 改图片/背景策略：同步图片搜索工具、`visual_intent` / `image` 组件 contract、生成器图片落盘读取和前端工具预览。
 4. 改视觉质量 helper：重点验证所有受影响模板，避免只看单页。
 
 ## 7. 按变更类型选择活动范围
 
 | 变更类型 | 必看文件 | 典型验证 |
 | --- | --- | --- |
-| 新增/修改模板预设 | `skills/visual_designer/templates/full-decks/*.json`、对应 `.py`、`backend/pkg/templates/loader.go`、`frontend/src/pages/ComposePage.vue` | 模板 JSON 解析、前端模板加载 |
-| 新增原子布局 | `templates/single-page/*.json/.py`、`generators/*_generator.py`、`generators/__init__.py`、`references/generators.md`、`frontend/src/pages/ComposePage.vue` | `py_compile`、单页生成、前端 layout 列表 |
+| 新增/修改模板预设 | `skills/ppt-deck-planner/templates/component_contracts.json`、`backend/pkg/templates/loader.go`、`frontend/src/pages/ComposePage.vue` | 模板/契约解析、前端模板加载 |
+| 新增原子布局 | `templates/component_contracts.json`、`generators/*_generator.py`、`generators/__init__.py`、`references/generators.md`、`frontend/src/pages/ComposePage.vue` | `py_compile`、单页生成、前端 layout 列表 |
 | 改 PPT 视觉质量 | `SKILL.md`、`generators/base.py`、具体 generator、`layout_intelligence.py`、模板 contract | 相关模板 PPTX 生成、PDF/PNG 渲染检查 |
 | 改内容规划质量 | `pkg/web/handler.go` 的 outline 补齐、`pkg/prompts/planner/*.tmpl`、`pkg/agent/deck/manifest_tool.go`、模板 contract | 后端相关测试、手工 outline JSON 样例 |
 | 改规划审查/润色 | `pkg/agent/deck` 的规划流程、`pkg/prompts/planner` 新增 reviewer/refiner prompt、`tasks.json` schema、RuntimeMeta | DeckSpec fixture、无模型 schema 测试、低成本 1-2 页生成冒烟 |
-| 改组件级计划 | `pkg/agent/deck/types.go`、`manifest_tool.go`、`skills/visual_designer/templates/single-page/*.json`、相关 generator | schema 测试、组件容量测试、单页渲染样例 |
+| 改组件级计划 | `pkg/agent/deck/types.go`、`manifest_tool.go`、`skills/ppt-deck-planner/templates/component_contracts.json`、相关 generator | schema 测试、组件容量测试、单页渲染样例 |
 | 改任务状态/进度 | `pkg/task/manager.go`、`pkg/agent/deck/types.go`、`pkg/web/streamer.go`、`frontend/src/types.ts`、`DashboardPage.vue` | Go 单元测试、SSE 手工/最小任务 |
 | 改下载/缩略图 | `pkg/web/handler.go`、`thumbnail.go`、`tools/batch_convert.go`、`SlidePreviewCard.vue` | 单文件下载、缩略图 404/503/成功路径 |
 | 改继续对话/再生成 | `pkg/web/handler.go` 的 continue 分支、`pkg/task/manager.go`、`pkg/agent/deck/run.go`、`DashboardPage.vue` | 运行中排队、完成后继续、指定页再生成 |
@@ -359,7 +352,7 @@ SSE 消费重点：
 
 ### 8.3 规划质量门
 
-Planner 输出不得直接视为可渲染。目标主流程需要 Plan Reviewer / Refiner 形成渲染前质量门：
+Planner 输出不得直接视为可渲染。当前主流程由 TaskPlanReviewer 与 Go Validator 形成渲染前质量门：
 
 - `intent_mismatch`：与用户本次输入不匹配。
 - `profile_overfit`：套用了不同场景下的历史偏好。
@@ -370,19 +363,18 @@ Planner 输出不得直接视为可渲染。目标主流程需要 Plan Reviewer 
 - `missing_data_or_fact`：图表、KPI、案例页缺必要数据。
 - `layout_mismatch`：内容类型和 `content_type` / `layout_variant` 不匹配。
 
-Reviewer 只输出问题和建议，Refiner 才修改 DeckSpec。通过后应锁定 DeckSpec，避免渲染阶段再发生无约束改写。
+Go 先输出结构化问题，TaskPlanReviewer 只修正对应草稿；通过后由 Go 锁定并提交 DeckSpec，避免渲染阶段再发生无约束改写。
 
-### 8.4 背景与配色
+### 8.4 图片与配色
 
-`background` 是可选主题 id，不是图片路径。它跨越：
+`background` 是历史字段，新规划不再使用它承载背景策略。当前图片契约应写入：
 
-- 前端背景选择。
-- 后端背景 id 校验。
-- Prompt 背景推断。
-- 生成器 `background` 参数。
-- `background_manager.py` 中的 palette 映射。
+- `content_plan.visual_intent.asset_query`：规划阶段生成的图片搜索词。
+- `content_plan.visual_intent.local_path`：已下载到任务工作区的背景图路径。
+- `content_plan.components[].type = "image"` 的 `local_path`：页内实景图或证据图路径。
+- `source` / `attribution`：图片来源和授权说明。
 
-信息密集页默认保持干净背景；封面、章节、引用、总结等低密度页才优先使用背景。
+标题页、分割页和需要场景感的信息页优先做图文混排或图片背景；信息密集页必须保证文字可读性，图片由生成器加蒙版、裁剪、模糊和对比度处理。
 
 ### 8.5 工作目录产物
 
@@ -418,7 +410,7 @@ Reviewer 只输出问题和建议，Refiner 才修改 DeckSpec。通过后应锁
 | 后端公共工具/模型 | `go test ./pkg/agent/utils ./pkg/tools/...` 或更小包 |
 | 后端编译面 | `go build ./...` |
 | 前端 API/types/UI | `npm run build` |
-| Python 生成器语法 | `python -m py_compile skills/visual_designer/generators/*.py` |
+| Python 生成器语法 | `python -m py_compile skills/ppt-deck-planner/generators/*.py` |
 | 具体模板视觉 | 生成相关单页 PPTX，再用 LibreOffice/Poppler 渲染 PNG 检查 |
 | OpenSpec 变更 | `openspec validate <change> --strict` |
 
@@ -426,9 +418,9 @@ Reviewer 只输出问题和建议，Refiner 才修改 DeckSpec。通过后应锁
 
 ## 10. 后续演进建议
 
-1. 新增 Planner -> Reviewer -> Refiner 的渲染前质量门，规划未通过不进入 `DeckRenderWorkflow`。
+1. 为 PPTPlanner -> TaskPlanReviewer -> Go Commit 质量门增加更多 fixture 和低成本线上回归任务。
 2. 将 `content_plan` 升级为组件级 DeckSpec，首批覆盖 `content_slide`、`card_grid`、`two_column`、`kpi_dashboard`、`chart_slide`。
-3. 将 `templates/single-page/*.json` 的 `contract` 用于后端 outline 补齐、Planner 审查和布局选择，而不是只作为展示元数据。
+3. 将 `templates/component_contracts.json` 的 contract 用于后端 outline 补齐、Planner 审查和布局选择，而不是只作为展示元数据。
 4. 统一 `content_type -> generator -> component schema` 映射表，避免 prompt、文档、Go 校验和 Python 导出面分散维护。
 5. 为缩略图转换建立明确状态字段，让前端区分“PPTX 未生成”“缩略图转换中”“转换失败”“文件不存在”。
-6. 将生成器 smoke test 固化为脚本，覆盖所有 single-page 模板的 PPTX/PDF/PNG 视觉回归。
+6. 将生成器 smoke test 固化为脚本，覆盖所有组件化页面类型的 PPTX/PDF/PNG 视觉回归。

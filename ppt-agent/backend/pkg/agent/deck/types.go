@@ -56,7 +56,7 @@ type PPTTaskConfig struct {
 	// 设置后，主模型调用和压缩器调用（用于上下文压缩）都会被计入同一个 TokenTracker，提供准确的总数
 	CompressorTracker *agentutils.TokenTracker
 	RuntimeMeta       *agentutils.RuntimeMeta
-	Outline           *TaskOutline // 用户编排的大纲，有值时跳过 AI 规划阶段
+	Outline           *TaskOutline // 用户编排的大纲；作为 Planner 草稿约束，不跳过规划与审查
 	StyleContext      string       // 用户风格偏好上下文，用于注入到 prompt
 	EnableQA          bool         // 是否启用 QA 质检（由 ENABLE_QA 环境变量控制）
 
@@ -419,13 +419,13 @@ func ReadTasksManifest(workDir string) (*TasksManifest, error) {
 
 // TaskOutline 用户编排的大纲结构（用于模板编排模式）
 type TaskOutline struct {
-	Template              string         `json:"template"`
-	Theme                 string         `json:"theme"`
-	Title                 string         `json:"title"`
-	ContentMode           string         `json:"content_mode,omitempty"`
-	RecommendationReason  string         `json:"recommendation_reason,omitempty"`
-	SuggestedPageCount    int            `json:"suggested_page_count,omitempty"`
-	Slides                []SlideOutline `json:"slides"`
+	Template             string         `json:"template"`
+	Theme                string         `json:"theme"`
+	Title                string         `json:"title"`
+	ContentMode          string         `json:"content_mode,omitempty"`
+	RecommendationReason string         `json:"recommendation_reason,omitempty"`
+	SuggestedPageCount   int            `json:"suggested_page_count,omitempty"`
+	Slides               []SlideOutline `json:"slides"`
 }
 
 const (

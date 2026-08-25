@@ -1,7 +1,6 @@
 package deck
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,36 +10,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/cloudwego/eino/components/tool"
-	"github.com/cloudwego/eino/schema"
 )
 
 const planReviewFileName = "tasks.review.json"
-
-var planReviewToolInfo = &schema.ToolInfo{
-	Name: "review_tasks_manifest",
-	Desc: "读取当前 DeckSpec 草稿并执行确定性规划审核。审核覆盖结构合法性、内容密度、组件容量、背景图片规划和图片本地化。通过后会锁定每页 reviewer_status 并写入 review artifact；草稿变更后必须重新审核再 commit。",
-	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"round": {
-			Type: "integer",
-			Desc: "当前 Reflexion 审核轮次，首次审核为 1，修订后递增",
-		},
-		"focus": {
-			Type: "string",
-			Desc: "可选审核重点，例如 background、density、schema；留空则执行完整审核",
-		},
-	}),
-}
-
-type planReviewTool struct {
-	workDir string
-}
-
-type planReviewInput struct {
-	Round int    `json:"round,omitempty"`
-	Focus string `json:"focus,omitempty"`
-}
 
 type PlanReviewReport struct {
 	OK              bool              `json:"ok"`
@@ -55,32 +27,6 @@ type PlanReviewReport struct {
 	NextActions     []string          `json:"next_actions,omitempty"`
 	ReviewedAt      string            `json:"reviewed_at"`
 	BackgroundPages int               `json:"background_pages"`
-}
-
-func newPlanReviewTool(workDir string) tool.InvokableTool {
-	return &planReviewTool{workDir: workDir}
-}
-
-func (t *planReviewTool) Info(context.Context) (*schema.ToolInfo, error) {
-	return planReviewToolInfo, nil
-}
-
-func (t *planReviewTool) InvokableRun(_ context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
-	input := planReviewInput{}
-	if strings.TrimSpace(argumentsInJSON) != "" {
-		if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-			return "", fmt.Errorf("invalid plan review input: %w", err)
-		}
-	}
-	report, err := ReviewTasksDraftManifest(t.workDir, input.Round)
-	if err != nil {
-		return "", err
-	}
-	data, err := json.Marshal(report)
-	if err != nil {
-		return "", fmt.Errorf("marshal plan review report: %w", err)
-	}
-	return string(data), nil
 }
 
 func ReviewTasksDraftManifest(workDir string, round int) (*PlanReviewReport, error) {
@@ -190,7 +136,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 			Code:      "missing_background_image",
 			Severity:  "error",
 			PageIndex: page,
-			Message:   "页面缺少可执行图片计划：应在 visual_intent 或 image 组件中使用 asset_purpose=background，并写入已下载 local_path。",
+			Message:   "页面缺少可执行图片计划：应在 visual_intent 或 image 组件中使用 asset_purpose=background，并填写 asset_query 或已下载 local_path。",
 		})
 	} else {
 		report.BackgroundPages++
@@ -198,12 +144,18 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 	for i := range plan.Components {
 		component := &plan.Components[i]
 		if isExternalBackgroundComponent(component) && strings.TrimSpace(component.LocalPath) == "" {
+			severity := "error"
+			message := "背景图片组件缺少 local_path 和 asset_query，无法执行后续素材规划。"
+			if strings.TrimSpace(component.AssetQuery) != "" {
+				severity = "warning"
+				message = "背景图片已规划 asset_query，但当前尚未下载 local_path。"
+			}
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "missing_background_image",
-				Severity:    "error",
+				Severity:    severity,
 				PageIndex:   page,
 				ComponentID: component.ID,
-				Message:     "背景图片组件缺少 local_path；需要调用 search_images(download=true) 并写回下载路径。",
+				Message:     message,
 			})
 		}
 		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) < 220 {
@@ -223,7 +175,7 @@ func finalizePlanReviewReport(report *PlanReviewReport, manifest *TasksManifest)
 	report.Passed = !hasBlockingPlanReviewIssue(report.Issues)
 	if report.Passed {
 		report.Summary = fmt.Sprintf("规划审核通过：%d 页均满足结构、组件容量和背景图质量门。", report.TotalSlides)
-		report.NextActions = []string{"调用 update_tasks_manifest(mode=\"commit\") 发布正式 tasks.json"}
+		report.NextActions = []string{"由 Go workflow 原子提交正式 tasks.json"}
 	} else {
 		report.Summary = fmt.Sprintf("规划审核未通过：发现 %d 个问题，需要按页修订后重新 review。", report.IssueCount)
 		report.NextActions = summarizePlanReviewActions(report.Issues)
@@ -292,7 +244,7 @@ func summarizePlanReviewActions(issues []PlanReviewIssue) []string {
 		actions = append(actions, action)
 	}
 	if len(actions) == 0 {
-		actions = append(actions, "修订草稿后重新调用 review_tasks_manifest")
+		actions = append(actions, "修订草稿后由 Go workflow 重新校验")
 	}
 	return actions
 }
@@ -300,7 +252,7 @@ func summarizePlanReviewActions(issues []PlanReviewIssue) []string {
 func planReviewActionForCode(code string) string {
 	switch strings.TrimSpace(code) {
 	case "missing_background_image":
-		return "为缺失页面补充背景图：优先 search_images(download=true)，并把 local_path 写回 visual_intent 或 image 组件"
+		return "按 skill 为缺失页面补充背景图片计划；图片工具可用时下载 local_path，否则至少填写可执行 asset_query"
 	case "low_information_density":
 		return "补足页面事实、解释、案例和结论，避免只有泛化短句"
 	case "weak_narrative":
@@ -310,7 +262,7 @@ func planReviewActionForCode(code string) string {
 	case "layout_mismatch":
 		return "补齐 theme/template/layout_variant，并确保页面类型和组件匹配"
 	default:
-		return "修订草稿后重新调用 review_tasks_manifest"
+		return "修订草稿后由 Go workflow 重新校验"
 	}
 }
 
@@ -341,7 +293,7 @@ func RequirePassingPlanReview(workDir string, manifest *TasksManifest) error {
 	report, err := ReadPlanReviewReport(workDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("draft DeckSpec has not been reviewed; call review_tasks_manifest before commit")
+			return fmt.Errorf("draft DeckSpec has not been reviewed by the Go review workflow")
 		}
 		return fmt.Errorf("read plan review report: %w", err)
 	}
@@ -350,7 +302,7 @@ func RequirePassingPlanReview(workDir string, manifest *TasksManifest) error {
 	}
 	fingerprint := fingerprintTasksManifest(manifest)
 	if report.Fingerprint != fingerprint {
-		return fmt.Errorf("DeckSpec changed after latest review; call review_tasks_manifest again before commit")
+		return fmt.Errorf("DeckSpec changed after latest review; run the Go review workflow again before commit")
 	}
 	return nil
 }
@@ -409,12 +361,13 @@ func hasUsableBackgroundPlan(task *TaskItem) bool {
 		return false
 	}
 	if isExternalBackgroundIntent(task.ContentPlan.VisualIntent) {
-		return strings.TrimSpace(task.ContentPlan.VisualIntent.LocalPath) != ""
+		return strings.TrimSpace(task.ContentPlan.VisualIntent.LocalPath) != "" ||
+			strings.TrimSpace(task.ContentPlan.VisualIntent.AssetQuery) != ""
 	}
 	for i := range task.ContentPlan.Components {
 		component := &task.ContentPlan.Components[i]
 		if isExternalBackgroundComponent(component) {
-			return strings.TrimSpace(component.LocalPath) != ""
+			return strings.TrimSpace(component.LocalPath) != "" || strings.TrimSpace(component.AssetQuery) != ""
 		}
 	}
 	return false

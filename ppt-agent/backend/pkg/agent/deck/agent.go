@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 
@@ -37,8 +38,107 @@ import (
 )
 
 func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
+	chatModel, err := newPlanningChatModel(ctx, cfg, 32768)
+	if err != nil {
+		return nil, fmt.Errorf("创建主模型失败: %w", err)
+	}
+
+	readFileTool := tools.NewReadFileTool(cfg.Operator)
+	searchTool := tools.NewSearchTool()
+	var imageSearchClient *unsplash.Client
+	imageSearchAvailable := false
+	if client, err := unsplash.NewClientFromEnv(); err == nil {
+		imageSearchClient = client
+		imageSearchAvailable = true
+	}
+	manifestTool := newPlannerManifestTool(cfg.WorkDir, cfg.Outline, cfg.Query)
+	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	if imageSearchAvailable {
+		plannerTools = append(plannerTools, tools.NewImageSearchTool(imageSearchClient, cfg.WorkDir))
+	}
+
+	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "PPTPlanner",
+		Description: "PPT 规划代理，无论有无大纲都负责生成完整的 DeckSpec 规划草稿，不负责审查和渲染。",
+		Model:       chatModel,
+		Instruction: buildPlannerInstructionWithImageSearch(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision), imageSearchAvailable),
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: plannerTools},
+		},
+		MaxIterations: agentutils.EnvInt("PLANNER_MAX_ITERATIONS", 20),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("创建 Planner Agent 失败: %w", err)
+	}
+
+	return planner, nil
+}
+
+// NewTaskPlanReviewerAgent 创建独立的 DeckSpec 质量审查与修正 Agent。
+// 硬校验、轮次上限和最终提交由 Go workflow 负责。
+func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
+	chatModel, err := newPlanningChatModel(ctx, cfg, 32768)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Reviewer 模型失败: %w", err)
+	}
+
+	imageSearchAvailable := false
+	var reviewerTools []tool.BaseTool
+	reviewerTools = append(reviewerTools,
+		newDraftTasksPatchTool(cfg.WorkDir),
+		tools.NewReadFileTool(cfg.Operator),
+		tools.NewSearchTool(),
+	)
+	if client, imageErr := unsplash.NewClientFromEnv(); imageErr == nil {
+		imageSearchAvailable = true
+		reviewerTools = append(reviewerTools, tools.NewImageSearchTool(client, cfg.WorkDir))
+	}
+
+	reviewer, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "TaskPlanReviewer",
+		Description: "DeckSpec 质量审查代理，只根据审查报告修正 tasks.draft.json，不负责渲染或生成后的定点修复。",
+		Model:       chatModel,
+		Instruction: buildReviewerInstruction(cfg, imageSearchAvailable),
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: reviewerTools},
+		},
+		MaxIterations: agentutils.EnvInt("PLAN_REVIEWER_MAX_ITERATIONS", 12),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("创建 TaskPlanReviewer Agent 失败: %w", err)
+	}
+	return reviewer, nil
+}
+
+// NewPPTFixerAgent 创建生成后定点修复 Agent。allowedTaskIDs 是唯一允许修改的页面集合。
+func NewPPTFixerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedTaskIDs []string) (adk.Agent, error) {
+	chatModel, err := newPlanningChatModel(ctx, cfg, 16384)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Fixer 模型失败: %w", err)
+	}
+
+	fixer, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "PPTFixer",
+		Description: "PPT 生成后定点修复代理，只修改用户指定页面的 DeckSpec 语义计划。",
+		Model:       chatModel,
+		Instruction: buildFixerInstruction(cfg),
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{
+				newSelectedTasksPatchTool(cfg.WorkDir, allowedTaskIDs),
+				tools.NewReadFileTool(cfg.Operator),
+			}},
+		},
+		MaxIterations: agentutils.EnvInt("PPT_FIXER_MAX_ITERATIONS", 8),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("创建 PPTFixer Agent 失败: %w", err)
+	}
+	return fixer, nil
+}
+
+func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int) (model.ToolCallingChatModel, error) {
 	modelOpts := []agentutils.ChatModelOption{
-		agentutils.WithMaxTokens(32768),
+		agentutils.WithMaxTokens(maxTokens),
 		agentutils.WithTemperature(0),
 		agentutils.WithTopP(0),
 	}
@@ -54,12 +154,12 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 
 	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx, modelOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("创建主模型失败: %w", err)
+		return nil, err
 	}
 
 	compressor, err := agentutils.NewFallbackToolCallingChatModel(ctx, compressorOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("创建压缩器模型失败: %w", err)
+		return nil, err
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
 		agentutils.WithCompressThreshold(60),
@@ -77,39 +177,7 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 		}
 	}
 	chatModel = agentutils.NewRuntimeStatusChatModel(chatModel, cfg.RuntimeMeta)
-
-	readFileTool := tools.NewReadFileTool(cfg.Operator)
-	searchTool := tools.NewSearchTool()
-	var imageSearchClient *unsplash.Client
-	imageSearchAvailable := false
-	if client, err := unsplash.NewClientFromEnv(); err == nil {
-		imageSearchClient = client
-		imageSearchAvailable = true
-	}
-	manifestTool := newConfiguredManifestTool(cfg.WorkDir, cfg.SkillsDir, cfg.Outline, cfg.Query, imageSearchAvailable)
-	planReviewTool := newPlanReviewTool(cfg.WorkDir)
-	plannerTools := []tool.BaseTool{manifestTool, planReviewTool, readFileTool, searchTool}
-	if imageSearchAvailable {
-		plannerTools = append(plannerTools, tools.NewImageSearchTool(imageSearchClient, cfg.WorkDir))
-	}
-
-	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "PPTPlanner",
-		Description: "PPT 规划代理，负责在意图分类后生成可执行的 DeckSpec/tasks.json，不负责渲染页面。",
-		Model:       chatModel,
-		Instruction: buildPlannerInstructionWithImageSearch(cfg.WorkDir, cfg.SkillsDir, cfg.StyleContext, cfg.Outline, cfg.Query, false, getConcurrency(cfg.RoutingDecision), imageSearchAvailable),
-		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: plannerTools,
-			},
-		},
-		MaxIterations: agentutils.EnvInt("PLANNER_MAX_ITERATIONS", 40),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("创建 Planner Agent 失败: %w", err)
-	}
-
-	return planner, nil
+	return chatModel, nil
 }
 
 // getConcurrency 从路由决策获取并发数，默认 5
@@ -142,7 +210,7 @@ func buildPlannerInstruction(workDir string, skillsDir string, styleContext stri
 }
 
 func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, styleContext string, outline *TaskOutline, query string, enableQA bool, concurrency int, imageSearchAvailable bool) string {
-	tasksJSON := filepath.Join(workDir, "tasks.json")
+	tasksJSON := filepath.Join(workDir, tasksDraftFileName)
 
 	const templateCatalog = `| 模板文件 | 适用场景 | 页数 |
 |---------|---------|------|
@@ -204,6 +272,34 @@ func buildPlannerInstructionWithImageSearch(workDir string, skillsDir string, st
 	instruction, err := prompts.RenderPlanner("master_instruction", data)
 	if err != nil {
 		panic("failed to render planner instruction template: " + err.Error())
+	}
+	return instruction
+}
+
+func buildReviewerInstruction(cfg *PPTTaskConfig, imageSearchAvailable bool) string {
+	data := &prompts.TemplateData{
+		TasksJSON:            filepath.Join(cfg.WorkDir, tasksDraftFileName),
+		OutlineQuery:         cfg.Query,
+		SkillsDir:            cfg.SkillsDir,
+		StyleContext:         cfg.StyleContext,
+		ImageSearchAvailable: imageSearchAvailable,
+	}
+	instruction, err := prompts.RenderReviewer("master_instruction", data)
+	if err != nil {
+		panic("failed to render reviewer instruction template: " + err.Error())
+	}
+	return instruction
+}
+
+func buildFixerInstruction(cfg *PPTTaskConfig) string {
+	data := &prompts.TemplateData{
+		TasksJSON:    filepath.Join(cfg.WorkDir, "tasks.json"),
+		OutlineQuery: cfg.Query,
+		SkillsDir:    cfg.SkillsDir,
+	}
+	instruction, err := prompts.RenderFixer("master_instruction", data)
+	if err != nil {
+		panic("failed to render fixer instruction template: " + err.Error())
 	}
 	return instruction
 }

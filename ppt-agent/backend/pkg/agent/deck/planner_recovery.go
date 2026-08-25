@@ -84,7 +84,7 @@ func recoverMissingPlannerManifest(cfg *PPTTaskConfig, userQuery, plannerOutput 
 	if err := validateManifestForWrite(manifest); err != nil {
 		return nil, err
 	}
-	if err := WriteTasksManifest(cfg.WorkDir, manifest); err != nil {
+	if err := WriteTasksDraftManifest(cfg.WorkDir, manifest); err != nil {
 		return nil, err
 	}
 	return manifest, nil

@@ -9,7 +9,7 @@ description: 指导 PPT Agent 规划 DeckSpec/tasks.json、选择 content_type�
 
 ## 职责边界
 
-主 Agent 负责：
+Planner 负责：
 
 - 选择合法 `content_type`，只使用 `references/slide_types.md` 和 `templates/component_contracts.json` 中的英文 id。
 - 决定整套 `theme`、`template`、页数、页面顺序和每页标题。
@@ -18,12 +18,12 @@ description: 指导 PPT Agent 规划 DeckSpec/tasks.json、选择 content_type�
 - 为数据页、案例页、图表页补充真实来源。
 - 需要视觉素材时，把主题转换成可搜索的视觉主体，并把下载后的图片路径和署名写入 `image` 组件或 `visual_intent`。
 
-SlideExecutor 负责：
+渲染适配层负责：
 
 - 读取 `tasks.json`。
 - 只消费 `content_plan.components` 和 `visual_intent`；`description` 仅作为页面语义摘要，不承担组件渲染兜底。
 - 保持 `palette=manifest.theme`，逐字符使用 `task.output_file`。
-- 将 `layout_variant`、`source` 和图片字段传给 generator。
+- 通过 `generators/render_task.py` 按 `task_id` 构造参数，并将 `layout_variant`、`source` 和图片字段传给 generator。
 
 Python generators 负责：
 
@@ -156,7 +156,7 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 
 顶层 `task.background` 不属于当前契约。外部图片用途写在 `visual_intent.asset_purpose` 或 `image.asset_purpose` 中，已下载文件写入对应 `local_path`。
 
-标题页和 `section_divider` 的背景图片由生成器自动做轻度模糊和可读性遮罩，目的是降低复杂纹理、透视线条对标题可读性的干扰；Planner 不需要规划模糊参数。
+背景图片由生成器按幻灯片真实宽高比自动处理：默认使用 `cover` 等比铺满画布，允许边缘被适度裁剪，但图片对象不得超出幻灯片画布。所有带背景图的页面都会自动增加轻度模糊和可读性遮罩，标题页与 `section_divider` 使用更强一级的模糊，降低复杂纹理、透视线条对文字可读性的干扰；Planner 不需要规划适配、模糊或透明度参数，但仍应优先搜索 `wide landscape` 与 `clean negative space` 构图，避免关键主体落在易裁剪边缘。
 
 ## layout_variant
 
@@ -172,7 +172,9 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 
 ## 计划审查
 
-Planner 写入 DeckSpec 前必须调用 `review_tasks_manifest`。若未通过，按 critique 修订草稿并重新 review，最多 3 轮。
+Planner 无论是否有用户大纲，都一次性生成完整 DeckSpec 草稿。Planner 不承担自审，也不调用 commit。
+
+独立的 Task Reviewer 根据 Go workflow 生成的确定性审查报告修正草稿。Reviewer 每轮只批量 patch 有问题的页面；Go 负责重新校验、限制最多 3 轮，并在通过后原子提交正式 `tasks.json`。
 
 `reviewer_status.issues[].code` 使用固定枚举：
 
@@ -186,11 +188,11 @@ Planner 写入 DeckSpec 前必须调用 `review_tasks_manifest`。若未通过�
 - `layout_mismatch`
 - `missing_background_image`
 
-通过质量门后设置 `reviewer_status.locked=true`。质量门包括：用户意图匹配、用户画像没有跨场景过拟合、页数合理、`content_type` 合法、组件合法、组件数量不超过容量、信息密度不空不爆、图片规划与主题一致。
+通过质量门后由代码设置 `reviewer_status.locked=true`。质量门包括：用户意图匹配、用户画像没有跨场景过拟合、页数合理、`content_type` 合法、组件合法、组件数量不超过容量、信息密度不空不爆、图片规划与主题一致。
 
 ## 变更纪律
 
 - 常规页面生成必须复用 `skills/ppt-deck-planner/generators` 包。
-- 只调整 tasks.json 规划规则时，优先修改本文件和主 Agent prompt，不改 generator。
-- 修改 generator 函数签名时，同步 `references/generators.md`、SlideExecutor prompt 和相关测试。
+- 只调整 tasks.json 规划规则时，优先修改本文件和 Planner prompt，不改 generator。
+- 修改 generator 函数签名时，同步 `references/generators.md`、`generators/render_task.py`、后端调用契约和相关测试。
 - 视觉实现细节沉淀到 `generators/base.py`、具体 generator 或 `references/generators.md`，不要混入本文件。

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -158,7 +159,7 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		}
 	}
 
-	// 如果有 outline，先做服务端兜底校验/补齐，再写入 tasks.json。
+	// 如果有 outline，先做服务端兜底校验/补齐；TaskManager 只将其写入规划草稿。
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
 		outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
 		if err != nil {
@@ -1088,9 +1089,62 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			return
 		}
 		instruction := buildContinueInstruction(route, continueMessage)
+		allowedTaskIDs := make([]string, 0, len(pages))
 		for _, pageIdx := range pages {
 			if item := findManifestTaskByPage(manifest, pageIdx); item != nil {
-				markTaskForRerender(ts.Info.WorkDir, item, instruction, true)
+				allowedTaskIDs = append(allowedTaskIDs, item.TaskID)
+			}
+		}
+		fixerApplied := false
+		if len(allowedTaskIDs) > 0 {
+			beforeFix, _ := manifest.MustMarshalJSON()
+			fixerCfg := &deck.PPTTaskConfig{
+				WorkDir:     ts.Info.WorkDir,
+				TaskID:      taskID,
+				Query:       ts.Info.Query,
+				SkillsDir:   s.skillDir,
+				Operator:    s.operator,
+				UserID:      ts.Info.UserID,
+				ModelAPIKey: userModelAPIKey(ts.Info.UserID),
+			}
+			fixerCtx, cancelFixer := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancelFixer()
+			fixer, fixerErr := deck.NewPPTFixerAgent(fixerCtx, fixerCfg, allowedTaskIDs)
+			if fixerErr == nil {
+				fixerInput := fmt.Sprintf("用户要求：%s\n允许修改的页面：%v\n结构化修复提示：%s", continueMessage, pages, instruction)
+				fixerErr = deck.RunPPTFixerWithCallback(fixerCtx, fixer, fixerInput, func(event deck.AgentEvent) {
+					switch event.Type {
+					case deck.AgentEventAnswer:
+						ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
+					case deck.AgentEventProgress:
+						ch <- task.SSERichEvent{Type: "progress", Phase: "fixing", PhaseDetail: event.PhaseDetail}
+					}
+				})
+			}
+			if fixerErr == nil {
+				if updated, readErr := deck.ReadTasksManifest(ts.Info.WorkDir); readErr == nil && updated != nil {
+					afterFix, _ := updated.MustMarshalJSON()
+					if !bytes.Equal(beforeFix, afterFix) {
+						manifest = updated
+						fixerApplied = true
+					}
+				}
+			}
+			if !fixerApplied {
+				if fixerErr == nil {
+					fixerErr = fmt.Errorf("Fixer 未产生结构化页面修改")
+				}
+				logger.Warn("ppt_fixer_failed_using_code_fallback", "task_id", taskID, "error", fixerErr.Error())
+				ch <- task.SSERichEvent{Type: "answer", Content: "定点修复规划未完成，系统已保留用户要求并使用代码兜底进入重渲染。\n"}
+			}
+		}
+		for _, pageIdx := range pages {
+			if item := findManifestTaskByPage(manifest, pageIdx); item != nil {
+				if fixerApplied {
+					markTaskForFixRerender(ts.Info.WorkDir, item, instruction)
+				} else {
+					markTaskForRerender(ts.Info.WorkDir, item, instruction, true)
+				}
 				ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("第%d页 '%s' 已加入重渲染队列\n", pageIdx, item.Title)}
 			}
 		}
@@ -1187,6 +1241,18 @@ func markTaskForRerender(workDir string, item *deck.TaskItem, instruction string
 			item.FixAttempts++
 		}
 	}
+	item.Status = deck.StatusPending
+	if item.OutputFile != "" {
+		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
+	}
+}
+
+func markTaskForFixRerender(workDir string, item *deck.TaskItem, instruction string) {
+	if item == nil {
+		return
+	}
+	item.QAReport = instruction
+	item.FixAttempts++
 	item.Status = deck.StatusPending
 	if item.OutputFile != "" {
 		_ = os.Remove(filepath.Join(workDir, item.OutputFile))

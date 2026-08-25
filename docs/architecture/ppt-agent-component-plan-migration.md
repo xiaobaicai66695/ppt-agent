@@ -49,7 +49,7 @@
 }
 ```
 
-`render_task.py` 优先消费 `components`，旧 `elements/summary/description` 作为兼容兜底。后端 manifest 写入和渲染前都会做硬校验。
+`render_task.py` 消费 `components` 作为主数据源。旧 `elements/summary` 不再作为可维护契约；`description` 只保留页面意图摘要，不能替代组件计划。后端 manifest 写入和渲染前都会做硬校验。
 
 ## 后续阶段
 

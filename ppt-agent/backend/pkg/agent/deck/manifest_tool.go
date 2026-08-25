@@ -12,6 +12,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+const tasksDraftFileName = "tasks.draft.json"
+
 var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 	"task_id":        {Type: schema.String, Desc: "任务 ID；patch 模式必填"},
 	"page_index":     {Type: schema.Integer, Desc: "页码；initialize 模式必填"},
@@ -128,6 +130,23 @@ var manifestToolInfo = &schema.ToolInfo{
 	}),
 }
 
+var plannerManifestToolInfo = &schema.ToolInfo{
+	Name: "update_tasks_manifest",
+	Desc: "一次性初始化完整 DeckSpec 规划草稿。Planner 只能使用 initialize，审查、修订和提交由后续阶段负责。",
+	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+		"mode":     {Type: schema.String, Required: true, Desc: "固定填写 initialize"},
+		"title":    {Type: schema.String, Desc: "PPT 标题；缺省时系统会从任务上下文推断"},
+		"theme":    {Type: schema.String, Desc: "配色英文 ID"},
+		"template": {Type: schema.String, Desc: "整套模板英文 ID"},
+		"tasks": {
+			Type:     schema.Array,
+			Required: true,
+			Desc:     "完整页面数组",
+			ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: manifestTaskPatchSchema},
+		},
+	}),
+}
+
 type manifestTaskPatch struct {
 	TaskID        string       `json:"task_id"`
 	PageIndex     *int         `json:"page_index,omitempty"`
@@ -165,21 +184,49 @@ type manifestTool struct {
 	requireReview bool
 }
 
+type plannerManifestTool struct{ inner *manifestTool }
+
 func newManifestTool(workDir string) tool.InvokableTool {
 	return &manifestTool{workDir: workDir}
 }
 
-func newConfiguredManifestTool(workDir, _ string, outline *TaskOutline, query string, _ bool) tool.InvokableTool {
-	t := &manifestTool{
+func newPlannerManifestTool(workDir string, outline *TaskOutline, query string) tool.InvokableTool {
+	return &plannerManifestTool{inner: newDraftManifestTool(workDir, outline, query)}
+}
+
+func newDraftManifestTool(workDir string, outline *TaskOutline, query string) *manifestTool {
+	inner := &manifestTool{
 		workDir:       workDir,
 		fallbackTitle: compactManifestTitle(query),
 		draftFirst:    true,
 		requireReview: true,
 	}
 	if outline != nil && strings.TrimSpace(outline.Title) != "" {
-		t.fallbackTitle = compactManifestTitle(outline.Title)
+		inner.fallbackTitle = compactManifestTitle(outline.Title)
 	}
-	return t
+	return inner
+}
+
+func (t *plannerManifestTool) Info(context.Context) (*schema.ToolInfo, error) {
+	return plannerManifestToolInfo, nil
+}
+
+func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
+	input, err := parseManifestToolInput(argumentsInJSON)
+	if err != nil {
+		return manifestToolRecoverableError("initialize", "draft", err), nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(input.Mode), "initialize") {
+		payload, _ := json.Marshal(map[string]any{
+			"ok":          false,
+			"mode":        input.Mode,
+			"target":      "draft",
+			"error":       "PPTPlanner only supports initialize",
+			"next_action": "一次性提交完整页面数组并使用 mode=initialize",
+		})
+		return string(payload), nil
+	}
+	return t.inner.InvokableRun(ctx, argumentsInJSON, opts...)
 }
 
 func (t *manifestTool) Info(context.Context) (*schema.ToolInfo, error) {
@@ -422,9 +469,49 @@ func parseManifestTaskPatches(raw json.RawMessage) ([]manifestTaskPatch, error) 
 		return nil, fmt.Errorf("tasks JSON array string must not be empty")
 	}
 	if err := json.Unmarshal([]byte(encoded), &tasks); err != nil {
+		if recovered, ok := recoverManifestTasksFromKnownFieldSpill(encoded); ok {
+			return recovered, nil
+		}
+		if recovered, ok := recoverManifestTasksFromExtraContentPlanClose(encoded); ok {
+			return recovered, nil
+		}
 		return nil, fmt.Errorf("tasks JSON array string is invalid: %w", err)
 	}
 	return tasks, nil
+}
+
+func recoverManifestTasksFromExtraContentPlanClose(encoded string) ([]manifestTaskPatch, bool) {
+	repaired := encoded
+	for _, separator := range []string{`}}}, "page_index"`, `}}},"page_index"`, `}}}, "task_id"`, `}}},"task_id"`} {
+		repaired = strings.ReplaceAll(repaired, separator, strings.Replace(separator, `}}}`, `}}`, 1))
+	}
+	if repaired == encoded {
+		return nil, false
+	}
+	var tasks []manifestTaskPatch
+	if err := json.Unmarshal([]byte(repaired), &tasks); err != nil {
+		return nil, false
+	}
+	return tasks, true
+}
+
+func recoverManifestTasksFromKnownFieldSpill(encoded string) ([]manifestTaskPatch, bool) {
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	var tasks []manifestTaskPatch
+	if err := decoder.Decode(&tasks); err != nil {
+		return nil, false
+	}
+	tail := strings.TrimSpace(encoded[decoder.InputOffset():])
+	if !strings.HasPrefix(tail, ",") {
+		return nil, false
+	}
+	tail = strings.TrimSpace(strings.TrimPrefix(tail, ","))
+	for _, field := range []string{"title", "theme", "template"} {
+		if strings.HasPrefix(tail, `"`+field) {
+			return tasks, true
+		}
+	}
+	return nil, false
 }
 
 func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManifest, error) {
@@ -563,7 +650,7 @@ func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*Ta
 }
 
 func ReadTasksDraftManifest(workDir string) (*TasksManifest, error) {
-	data, err := os.ReadFile(filepath.Join(workDir, "tasks.draft.json"))
+	data, err := os.ReadFile(filepath.Join(workDir, tasksDraftFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -578,7 +665,7 @@ func WriteTasksDraftManifest(workDir string, manifest *TasksManifest) error {
 	tasksManifestMu.Lock()
 	defer tasksManifestMu.Unlock()
 
-	filePath := filepath.Join(workDir, "tasks.draft.json")
+	filePath := filepath.Join(workDir, tasksDraftFileName)
 	tmpPath := filePath + ".tmp"
 	content, err := manifest.MustMarshalJSON()
 	if err != nil {
@@ -611,7 +698,7 @@ func CommitTasksDraftManifestIfPresent(workDir string) (*TasksManifest, bool, er
 	if err := WriteTasksManifest(workDir, manifest); err != nil {
 		return nil, false, err
 	}
-	if err := os.Remove(filepath.Join(workDir, "tasks.draft.json")); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(filepath.Join(workDir, tasksDraftFileName)); err != nil && !os.IsNotExist(err) {
 		return nil, false, err
 	}
 	return manifest, true, nil
@@ -634,7 +721,7 @@ func CommitReviewedTasksDraftManifestIfPresent(workDir string) (*TasksManifest, 
 	if err := WriteTasksManifest(workDir, manifest); err != nil {
 		return nil, false, err
 	}
-	if err := os.Remove(filepath.Join(workDir, "tasks.draft.json")); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(filepath.Join(workDir, tasksDraftFileName)); err != nil && !os.IsNotExist(err) {
 		return nil, false, err
 	}
 	return manifest, true, nil

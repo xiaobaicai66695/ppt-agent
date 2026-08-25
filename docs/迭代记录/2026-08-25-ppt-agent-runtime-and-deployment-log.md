@@ -1,6 +1,55 @@
-# Done
+# 2026-08-25 PPT Agent 运行修复与上线记录
+
+> 从项目子目录旧 done 流水迁入。本文保留 2026-08-21 至 2026-08-25 期间的详细修复、验证和上线流水；长期重要事项索引统一维护在 `docs/issues/done.md`。
 
 ## 2026-08-25
+
+- ID: 20260825-planner-reviewer-fixer-workflow
+- Type: refactor/fix/deployment
+- Scope: DeckSpec planning agents, bounded review workflow, targeted PPT repair
+- Completed: 2026-08-25 14:22 Asia/Shanghai
+- Changes:
+  - Split the planning path into `PPTPlanner` and `TaskPlanReviewer`; kept `PPTFixer` exclusively for backend-authorized page fixes after generation.
+  - Made outline input seed `tasks.draft.json` instead of bypassing planning, then moved review rounds, recovery, fingerprint checks, atomic commit, retry bounds, and fallback into Go.
+  - Restricted Planner to initialize, Reviewer to draft patching, and Fixer to selected task IDs without runtime identity changes.
+  - Kept image/background planning in `ppt-deck-planner`; removed color-priority and failure-recovery responsibilities from prompts.
+  - Hardened manifest parsing for native task arrays, JSON-array strings, and two observed model serialization defects. Repairs are accepted only when the normalized value decodes as a complete task array; unknown trailing content remains invalid.
+- Verification:
+  - Local: `go test ./pkg/agent/deck ./pkg/task ./pkg/web` passed.
+  - Local: `go build ./...` passed.
+  - Local full test residual: `pkg/tools/qa` still depends on `pdftoppm` being available in `PATH`.
+  - Online outline smoke: Planner initialized one slide, Go review requested refinement, Reviewer passed the plan in round 3, the reviewed fingerprint was committed, and rendering completed `1/1`.
+  - Online artifact smoke: generated PPTX was 240036 bytes; thumbnail endpoint returned HTTP 200, `image/jpeg`, 125242 bytes; task log had zero manifest string parse errors.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`.
+  - Backend process: PID `3102015`, command `../ppt-agent-linux -mode web -addr :8080`, working directory `/ppt/ppt-agent/backend`.
+  - Binary SHA-256: `df84875640e059d94cb5c2badf00aad5349aea70d3d105f67dcef265cf19e915`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+- Cleanup:
+  - Deleted all online smoke tasks and their work directories.
+  - Removed temporary task IDs, staged binaries, and rollback files from `/tmp`.
+
+- ID: 20260825-background-cover-and-global-blur
+- Type: fix/deployment
+- Scope: PPT background image sizing, global background readability
+- Completed: 2026-08-25 11:15 Asia/Shanghai
+- Changes:
+  - Changed shared background preprocessing to use the presentation's actual aspect ratio instead of assuming a fixed canvas.
+  - Kept `cover` as the default so backgrounds fill the slide with permitted edge cropping; retained internal `contain` support for explicit full-image use cases.
+  - Added light blur to every image-background slide and stronger blur to title/section slides, while retaining the existing readability overlay.
+  - Replaced the duplicate native background plus native-size picture behavior with one canvas-sized bottom image anchor, preventing real shape overflow and viewer-dependent scaling.
+  - Updated `ppt-deck-planner` instructions and generator reference documentation with the new background contract.
+- Verification:
+  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed with 19 tests.
+  - Local: regenerated and rendered a 10-slide deck; structural inspection returned `out_of_bounds_shapes=[]`.
+  - Local: `quick_validate.py` could not run because its runtime lacks `PyYAML`; frontmatter and unfinished placeholders were checked manually.
+  - Online: one-slide 4:3 background smoke generated a 1920x1080 PPT background with `anchor_within_canvas=true`.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`.
+  - Backend process: restarted from PID `3043915` to PID `3056590`, command `../ppt-agent-linux -mode web -addr :8080`.
+  - Health: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
+- Cleanup:
+  - Removed local and remote smoke runner files, uploaded generator/docs staging files, health probe output, and `/tmp/ppt-bg-fit-smoke-20260825`.
 
 - ID: 20260825-conversation-cumulative-output-trim
 - Type: fix

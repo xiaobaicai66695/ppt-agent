@@ -58,7 +58,7 @@ func TestManifestToolPatchesMultipleTasksAtomically(t *testing.T) {
 
 func TestManifestToolAcceptsNarrativeAndListComponents(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "说明主流程优化", false)
+	tool := newDraftManifestTool(workDir, nil, "说明主流程优化")
 	args := `{
 		"mode":"initialize",
 		"theme":"ocean_soft",
@@ -194,9 +194,77 @@ func TestManifestToolAcceptsTasksJSONArrayString(t *testing.T) {
 	}
 }
 
+func TestManifestToolRecoversKnownManifestFieldSpillAfterTasksString(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"字段溢出恢复",
+		"theme":"ocean_soft",
+		"template":"generic",
+		"tasks":"[{\"task_id\":\"1\",\"page_index\":1,\"title\":\"封面\",\"content_type\":\"title_slide\",\"description\":\"封面描述\",\"output_file\":\"1_cover.pptx\",\"status\":\"pending\"}], \"template>"
+	}`
+	result, err := tool.InvokableRun(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("known field spill was not recovered: %s", result)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 1 || got.Tasks[0].Title != "封面" {
+		t.Fatalf("tasks field spill was not decoded: %#v", got.Tasks)
+	}
+}
+
+func TestManifestToolRejectsUnknownTrailingTasksStringContent(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	result, err := tool.InvokableRun(context.Background(), `{
+		"mode":"initialize",
+		"title":"非法尾部",
+		"tasks":"[{\"task_id\":\"1\",\"page_index\":1,\"title\":\"封面\",\"content_type\":\"title_slide\",\"description\":\"封面描述\",\"output_file\":\"1_cover.pptx\"}], unexpected"
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, `tasks JSON array string is invalid`) {
+		t.Fatalf("unknown trailing content should remain invalid: %s", result)
+	}
+}
+
+func TestManifestToolRecoversExtraContentPlanCloseBeforeTaskIdentity(t *testing.T) {
+	workDir := t.TempDir()
+	tool := newManifestTool(workDir)
+	args := `{
+		"mode":"initialize",
+		"title":"多余括号恢复",
+		"theme":"ocean_soft",
+		"template":"generic",
+		"tasks":"[{\"content_plan\":{\"summary\":\"封面摘要\",\"slide_intent\":\"建立主题\",\"visual_intent\":{\"asset_purpose\":\"background\",\"asset_query\":\"clean wide landscape background\"}}},\"page_index\":1,\"task_id\":\"1\",\"title\":\"封面\",\"content_type\":\"title_slide\",\"description\":\"封面描述\",\"output_file\":\"1_cover.pptx\",\"status\":\"pending\"}]"
+	}`
+	result, err := tool.InvokableRun(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("extra content_plan close was not recovered: %s", result)
+	}
+	got, err := ReadTasksManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 1 || got.Tasks[0].ContentPlan == nil || got.Tasks[0].ContentPlan.VisualIntent == nil {
+		t.Fatalf("recovered content plan is incomplete: %#v", got.Tasks)
+	}
+}
+
 func TestManifestToolInfersInitializeTitleFromQuery(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "介绍延安", false)
+	tool := newDraftManifestTool(workDir, nil, "介绍延安")
 	args := `{
 		"mode":"initialize",
 		"theme":"government_red",
@@ -513,7 +581,7 @@ func TestManifestToolAcceptsUnifiedComponentContractTypes(t *testing.T) {
 
 func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "中间草稿", false)
+	tool := newDraftManifestTool(workDir, nil, "中间草稿")
 	args := `{
 		"mode":"initialize",
 		"title":"中间草稿",
@@ -572,7 +640,7 @@ func TestConfiguredManifestToolDefersDraftValidationUntilCommit(t *testing.T) {
 
 func TestConfiguredManifestToolCommitsCanonicalSectionComponents(t *testing.T) {
 	workDir := t.TempDir()
-	tool := newConfiguredManifestTool(workDir, filepath.Join(t.TempDir(), "skills"), nil, "章节页", false)
+	tool := newDraftManifestTool(workDir, nil, "章节页")
 	args := `{
 		"mode":"initialize",
 		"title":"章节页",

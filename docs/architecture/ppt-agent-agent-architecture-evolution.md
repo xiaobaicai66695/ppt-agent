@@ -130,7 +130,7 @@ SlideExecutor 子 Agent 读取单页任务
   ↓
 Planner：生成 DeckSpec / tasks.json
   ↓
-Asset Planner：搜索事实、案例和背景图片候选（图片获取工具未就绪前只记录 asset_query）
+Asset Planner：转换搜索词，搜索事实、案例和背景/实景图片候选，并把可用图片下载到任务工作区
   ↓
 Validator：校验 schema、容量、背景、素材和页面一致性
   ↓
@@ -152,7 +152,7 @@ QA / Fixer：只处理失败页或高风险页
 - 每页 `content_type`、`layout_variant`、容量上限和必要字段。
 - 事实、数据、案例、来源和引用口径。
 - 背景图片搜索关键词、候选图片、本地缓存和授权/来源记录。
-- 整套 PPT 的统一背景主题、配色和视觉风格。
+- 整套 PPT 的统一图片策略、配色和视觉风格。
 
 渲染阶段则应尽量简单：
 
@@ -184,9 +184,9 @@ QA / Fixer：只处理失败页或高风险页
   ↓
 统一尺寸、色调和风格
   ↓
-写入 deck_assets.json / manifest
+写入任务工作区图片文件和可追溯素材记录
   ↓
-tasks.json 引用具体背景或主题目录
+tasks.json 通过 `visual_intent.local_path` 或 `image.local_path` 引用具体图片
 ```
 
 这样可以避免：
@@ -200,10 +200,10 @@ tasks.json 引用具体背景或主题目录
 
 ```text
 通用场景：
-  优先使用本地 10 类背景库
+  使用抽象背景、办公空间、城市纹理、行业意象等可转译搜索词
 
 具体行业、城市、产品、案例类场景：
-  在准备阶段启动专题背景搜索
+  在准备阶段启动专题图片搜索
   形成本次任务专属素材包
 ```
 
@@ -251,7 +251,7 @@ Refiner 也不是简单润色文案，而是结构化修订 DeckSpec。它应根
 
 ### 7.1 组件级 DeckSpec
 
-目标态中，`content_plan` 应从泛化 `summary + elements` 逐步升级为组件级计划：
+当前基线中，`content_plan` 应直接使用组件级计划，不再把泛化 `summary + elements` 作为可维护契约：
 
 ```json
 {
@@ -316,7 +316,7 @@ page_generator
 4. 并发调度由代码控制，不依赖 Agent 自我调度。
 5. 背景、图片、案例和事实来源在准备阶段统一规划。
 6. 渲染前 Plan Reviewer / Refiner 进入主链路，生成后 Visual QA 和 Fixer 只处理异常、高风险或显式启用场景。
-7. 所有跨层字段都必须有稳定语义，尤其是 `content_type`、`layout_variant`、`content_plan.components`、`background`、`theme`、`output_file`。
+7. 所有跨层字段都必须有稳定语义，尤其是 `content_type`、`layout_variant`、`content_plan.components`、`visual_intent`、`image.local_path`、`theme`、`output_file`；`background` 仅作为历史字段处理。
 8. 组件级计划只描述语义内容和优先级，不描述坐标、字号、颜色、边距等绘制参数。
 
 ## 9. 目标形态

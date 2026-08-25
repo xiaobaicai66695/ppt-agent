@@ -33,11 +33,11 @@ LLM 负责：
   ↓
 意图识别、模板/配色/背景推荐、用户画像门控
   ↓
-Planner 生成 DeckSpec 草稿
+PPTPlanner 生成 DeckSpec 草稿
   ↓
-Plan Reviewer 检查意图、叙事、容量、组件 schema、画像过拟合
+TaskPlanReviewer 根据 Go 审查报告检查并修正意图、叙事、容量、组件 schema 和画像过拟合
   ↓
-Plan Refiner 最多 3 轮修订 DeckSpec
+Go 最多执行 3 轮校验/修正循环
   ↓
 最终 commit 为 tasks.json
   ↓
@@ -57,11 +57,11 @@ DeckRenderWorkflow 按页并发渲染
 | Web/API | `ppt-agent/backend/pkg/web` | 任务创建、鉴权、SSE、下载、缩略图、conversation、runtime event 查询 |
 | 任务状态 | `ppt-agent/backend/pkg/task` | 任务生命周期、工作目录、DB 持久化、SSE 缓存、交付终态校验 |
 | 规划编排 | `ppt-agent/backend/pkg/agent/deck` | Planner、manifest 工具、草稿/提交、恢复、并发渲染 workflow |
-| Prompt | `ppt-agent/backend/pkg/prompts/planner` | DeckSpec 规划契约、ReAct 风格可见日志、组件级规划规范 |
+| Prompt | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立职责提示词 |
 | 用户画像 | `ppt-agent/backend/pkg/style`、`pkg/agent/learning` | 确定性用户事实直接注入，显式偏好只读参考，历史风格偏好按领域相似度门控 |
-| 模板加载 | `ppt-agent/backend/pkg/templates` | full-deck、single-page、theme、background 元数据 |
+| 模板加载 | `ppt-agent/backend/pkg/templates` | 组件化 preset、页面类型契约和 theme 元数据 |
 | 前端工作台 | `ppt-agent/frontend/src` | 生成入口、任务列表、预览下载、会话、执行观察和运行状态 |
-| 视觉生成器 | `ppt-agent/skills/visual_designer` | Skill 契约、组件 schema、Python generator、背景和本地素材 |
+| PPT Deck Planner 与生成器 | `ppt-agent/skills/ppt-deck-planner` | Skill 契约、组件 schema、Python generator、图片落盘和渲染测试 |
 
 ## 4. DeckSpec / tasks.json 契约
 
@@ -90,7 +90,6 @@ DeckRenderWorkflow 按页并发渲染
         "capacity_hint": {"estimated_density": "normal", "overflow_risk": "low"},
         "reviewer_status": {"locked": true, "issues": []}
       },
-      "background": "minimalist_blue/images/1.jpg",
       "output_file": "3_页面标题.pptx",
       "status": "pending"
     }
@@ -101,9 +100,9 @@ DeckRenderWorkflow 按页并发渲染
 约束：
 
 - `content_type` 必须是稳定英文 id，不允许中文显示名或未实现组件类型冒充页面类型。
-- `content_plan.components` 是生成器优先消费的数据源；旧 `summary/elements/description` 只作为兼容兜底。
+- `content_plan.components` 是生成器消费的主数据源；旧 `summary/elements` 不再作为可维护契约，`description` 只保留页面意图摘要。
 - 组件只表达语义内容、关系和优先级，不写坐标、字号、颜色、透明度、边距等视觉参数。
-- `background` 只能来自可用背景主题或具体主题图片引用。
+- 背景图和实景图通过 `visual_intent.local_path` 或 `image.local_path` 引用任务工作区文件；`background` 仅作为历史字段处理。
 - `output_file` 必须唯一、有序、可由后端安全拼接。
 
 ## 5. 组件优先生成器
@@ -152,8 +151,7 @@ base.py / python-pptx
 
 当前约定：
 
-- Planner prompt 可要求模型输出 ReAct 风格的 `Thought/Action/Observation` 文本。
-- 这类 `Thought` 是 assistant content 中的可见文本，不是模型原生隐藏思维链。
+- Planner、Reviewer 和 Fixer 的普通 assistant content 直接作为用户可见 Markdown 展示，不由系统重新总结或伪造隐藏思维链。
 - 工具调用参数、工具结果、token 细节保留在 runtime events / 执行观察中。
 - `/conversation` 只把 `assistant_output` 作为普通 AI 消息返回，前端用 Markdown 渲染。
 
@@ -161,7 +159,7 @@ base.py / python-pptx
 
 下一阶段建议围绕主流程继续推进：
 
-1. 将 Plan Reviewer / Refiner 从 prompt 规范进一步固化为代码级质量门和 fixture 测试。
+1. 为 PPTPlanner、TaskPlanReviewer、PPTFixer 的交接增加更多 fixture 与低成本线上回归样例。
 2. 把 `templates/component_contracts.json` 作为后端校验、Planner 审查和生成器能力暴露的单一契约入口。
 3. 继续扩展组件族：长论述、列表、表格、图表、流程、案例、架构图分别走独立渲染族，减少“一切变卡片”。
 4. 建立低成本线上 smoke fixture，覆盖 agenda、argument_block、comparison_table、kpi_dashboard 和缩略图交付。

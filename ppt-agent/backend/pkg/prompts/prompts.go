@@ -34,7 +34,7 @@ import (
 	"text/template"
 )
 
-//go:embed planner/*.tmpl style/*.tmpl log_analysis/*.tmpl
+//go:embed planner/*.tmpl reviewer/*.tmpl fixer/*.tmpl style/*.tmpl log_analysis/*.tmpl
 var FS embed.FS
 
 // templateFuncs 提供给所有模板的函数映射。
@@ -72,7 +72,7 @@ type TemplateData struct {
 	TotalCount             string           // 总幻灯片数量
 	RemainingPlan          string           // 剩余幻灯片计划
 	QASummary              string           // QA 结果摘要
-	HasOutline             bool             // 用户是否提供了结构化大纲（跳过规划）
+	HasOutline             bool             // 用户是否提供了结构化大纲（仍由 Planner 补全）
 	HasStyleRecommendation bool             // 智能推荐只提供视觉风格，由主 Agent 动态规划页面
 	OutlineQuery           string           // 用户原始主题查询（HasOutline=true 时用于内容生成）
 	OutlineTemplate        string           // 用户大纲中的模板名称（HasOutline=true 时使用）
@@ -141,6 +141,16 @@ func Render(name string, data *TemplateData) (string, error) {
 // RenderPlanner 渲染 PPT Planner 模板。
 func RenderPlanner(name string, data *TemplateData) (string, error) {
 	return Render("planner/"+name, data)
+}
+
+// RenderReviewer 渲染 DeckSpec Reviewer 模板。
+func RenderReviewer(name string, data *TemplateData) (string, error) {
+	return Render("reviewer/"+name, data)
+}
+
+// RenderFixer 渲染生成后定点修复模板。
+func RenderFixer(name string, data *TemplateData) (string, error) {
+	return Render("fixer/"+name, data)
 }
 
 // RenderLogAnalysis 渲染日志分析模板。

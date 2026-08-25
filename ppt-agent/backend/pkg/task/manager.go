@@ -592,13 +592,13 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	cfg.CompressorTracker = tokenTracker
 	cfg.RuntimeMeta = runtimeMeta
 
-	// 如果用户提供了 outline，先写入 tasks.json，跳过 AI 规划阶段
+	// outline 只作为 Planner 输入草稿。无论是否有大纲，都必须经过
+	// Planner 补全、Task Reviewer 审查和 Go commit 后才能发布 tasks.json。
 	if cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
 		manifest := outlineToManifest(cfg.Outline, workDir)
-		if err := deck.WriteTasksManifest(workDir, manifest); err != nil {
+		if err := deck.WriteTasksDraftManifest(workDir, manifest); err != nil {
 			return nil, fmt.Errorf("写入大纲失败: %w", err)
 		}
-		runtimeMeta.FreezePlan(runtimePlanSlides(manifest.Tasks))
 	}
 
 	agent, err := factory(ctx, cfg)
@@ -1018,7 +1018,10 @@ func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
 	switch {
 	case event.ToolName == "update_tasks_manifest":
 		phase = "planning"
-		phaseDetail = "正在写入 DeckSpec"
+		phaseDetail = "Planner 正在一次性写入 DeckSpec 草稿"
+	case event.ToolName == "patch_tasks_draft":
+		phase = "reviewing"
+		phaseDetail = "Task Reviewer 正在批量修正规划问题"
 	case event.ToolName == "search":
 		phase = "planning"
 		if query := extractToolStringArg(event.ToolArgs, "query"); query != "" {

@@ -51,8 +51,11 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	if manifest.Tasks[5].ContentPlan == nil || manifest.Tasks[5].ContentPlan.SectionNumber != "02" {
 		t.Fatalf("second section number = %#v", manifest.Tasks[5].ContentPlan)
 	}
-	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); err != nil {
-		t.Fatalf("tasks.json not written: %v", err)
+	if _, err := os.Stat(filepath.Join(workDir, tasksDraftFileName)); err != nil {
+		t.Fatalf("tasks.draft.json not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
+		t.Fatalf("recovery must not bypass review by publishing tasks.json: %v", err)
 	}
 }
 

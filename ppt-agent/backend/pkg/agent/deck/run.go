@@ -18,6 +18,7 @@ package deck
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -287,9 +288,6 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 		lastMsg = answerBuf.String()
 	}
 
-	// Delivery readiness is owned by TaskManager metadata. The runner only
-	// reports the manifest state and never performs a final filesystem scan.
-	manifest, manifestErr := ReadTasksManifest(cfg.WorkDir)
 	result = &PPTTaskResult{
 		Message:  lastMsg,
 		Duration: time.Since(start.StartTime),
@@ -298,44 +296,12 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	if plannerErr != nil {
 		return result, fmt.Errorf("Planner 执行失败: %w", plannerErr)
 	}
-	if committed, ok, commitErr := CommitReviewedTasksDraftManifestIfPresent(cfg.WorkDir); commitErr != nil {
-		return result, fmt.Errorf("提交 DeckSpec 草稿失败: %w", commitErr)
-	} else if ok {
-		manifest = committed
-		manifestErr = nil
-		onEvent(AgentEvent{
-			Type:    AgentEventAnswer,
-			Content: fmt.Sprintf("DeckSpec 规划草稿已通过硬校验并提交，共 %d 页，开始进入并发渲染。\n", len(manifest.Tasks)),
-		})
-		if cfg.RuntimeMeta != nil {
-			cfg.RuntimeMeta.RecordEvent("deck_spec_committed", "tasks.draft.json", "success", fmt.Sprintf("committed %d slides from draft", len(manifest.Tasks)), map[string]any{
-				"slide_count": len(manifest.Tasks),
-				"template":    manifest.Template,
-				"theme":       manifest.Theme,
-			})
-		}
+	if _, err := ensurePlannerDraft(cfg, userQuery, lastMsg, onEvent); err != nil {
+		return result, err
 	}
-	if manifestErr != nil {
-		if os.IsNotExist(manifestErr) {
-			recovered, recoverErr := recoverMissingPlannerManifest(cfg, userQuery, lastMsg)
-			if recoverErr != nil {
-				return result, fmt.Errorf("Planner 未生成 DeckSpec/tasks.json，恢复失败: %w", recoverErr)
-			}
-			manifest = recovered
-			onEvent(AgentEvent{
-				Type:    AgentEventAnswer,
-				Content: fmt.Sprintf("Planner 已完成结构判断但未写入 DeckSpec，系统已根据现有规划摘要恢复 %d 页页面计划，继续进入并发渲染。\n", len(manifest.Tasks)),
-			})
-			if cfg.RuntimeMeta != nil {
-				cfg.RuntimeMeta.RecordEvent("deck_spec_recovered", "tasks.json", "warning", fmt.Sprintf("recovered %d slides from planner output", len(manifest.Tasks)), map[string]any{
-					"slide_count": len(manifest.Tasks),
-					"template":    manifest.Template,
-					"theme":       manifest.Theme,
-				})
-			}
-		} else {
-			return result, fmt.Errorf("读取 Planner DeckSpec/tasks.json 失败: %w", manifestErr)
-		}
+	manifest, err := reviewAndCommitDeckSpec(ctx, cfg, onEvent)
+	if err != nil {
+		return result, err
 	}
 	if manifest == nil || len(manifest.Tasks) == 0 {
 		return result, fmt.Errorf("Planner 生成的 DeckSpec 为空，无法进入渲染")
@@ -349,6 +315,102 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	}
 
 	return result, nil
+}
+
+const maxPlanReviewRounds = 3
+
+func ensurePlannerDraft(cfg *PPTTaskConfig, userQuery, plannerOutput string, onEvent AgentEventCallback) (*TasksManifest, error) {
+	if draft, err := ReadTasksDraftManifest(cfg.WorkDir); err == nil && draft != nil && len(draft.Tasks) > 0 {
+		return draft, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("读取 Planner DeckSpec 草稿失败: %w", err)
+	}
+
+	// 兼容旧任务或提前写入的 outline：正式清单必须重新经过 Reviewer 质量门。
+	if existing, err := ReadTasksManifest(cfg.WorkDir); err == nil && existing != nil && len(existing.Tasks) > 0 {
+		if err := WriteTasksDraftManifest(cfg.WorkDir, existing); err != nil {
+			return nil, fmt.Errorf("迁移现有 DeckSpec 到审查草稿失败: %w", err)
+		}
+		return existing, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("读取现有 DeckSpec 失败: %w", err)
+	}
+
+	recovered, err := recoverMissingPlannerManifest(cfg, userQuery, plannerOutput)
+	if err != nil {
+		return nil, fmt.Errorf("Planner 未生成 DeckSpec 草稿，代码恢复失败: %w", err)
+	}
+	onEvent(AgentEvent{
+		Type:    AgentEventAnswer,
+		Content: fmt.Sprintf("Planner 未落下结构化草稿，系统已从现有规划输出恢复 %d 页，接下来仍会经过独立 Reviewer。\n", len(recovered.Tasks)),
+	})
+	if cfg.RuntimeMeta != nil {
+		cfg.RuntimeMeta.RecordEvent("deck_spec_recovered", tasksDraftFileName, "warning", fmt.Sprintf("recovered %d slides from planner output", len(recovered.Tasks)), map[string]any{
+			"slide_count": len(recovered.Tasks),
+			"template":    recovered.Template,
+			"theme":       recovered.Theme,
+		})
+	}
+	return recovered, nil
+}
+
+func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent AgentEventCallback) (*TasksManifest, error) {
+	var reviewer adk.Agent
+	var latest *PlanReviewReport
+	for round := 1; round <= maxPlanReviewRounds; round++ {
+		report, err := ReviewTasksDraftManifest(cfg.WorkDir, round)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 轮 DeckSpec 硬校验失败: %w", round, err)
+		}
+		latest = report
+		onEvent(AgentEvent{
+			Type:        AgentEventProgress,
+			Phase:       "reviewing",
+			PhaseDetail: fmt.Sprintf("Task Reviewer 第 %d/%d 轮：%s", round, maxPlanReviewRounds, report.Summary),
+		})
+		if cfg.RuntimeMeta != nil {
+			status := "needs_revision"
+			if report.Passed {
+				status = "passed"
+			}
+			cfg.RuntimeMeta.RecordEvent("deck_spec_review", "TaskPlanReviewer", status, report.Summary, map[string]any{
+				"round":       round,
+				"issue_count": report.IssueCount,
+			})
+		}
+		if report.Passed {
+			manifest, ok, commitErr := CommitReviewedTasksDraftManifestIfPresent(cfg.WorkDir)
+			if commitErr != nil {
+				return nil, fmt.Errorf("提交已审查 DeckSpec 失败: %w", commitErr)
+			}
+			if !ok || manifest == nil {
+				return nil, fmt.Errorf("DeckSpec 审查通过但没有可提交的规划草稿")
+			}
+			onEvent(AgentEvent{Type: AgentEventAnswer, Content: fmt.Sprintf("DeckSpec 已通过 Task Reviewer 并提交，共 %d 页，开始进入并发渲染。\n", len(manifest.Tasks))})
+			if cfg.RuntimeMeta != nil {
+				cfg.RuntimeMeta.RecordEvent("deck_spec_committed", tasksDraftFileName, "success", fmt.Sprintf("committed %d slides from reviewed draft", len(manifest.Tasks)), map[string]any{
+					"slide_count": len(manifest.Tasks), "template": manifest.Template, "theme": manifest.Theme,
+				})
+			}
+			return manifest, nil
+		}
+
+		if reviewer == nil {
+			reviewer, err = NewTaskPlanReviewerAgent(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+		}
+		reportJSON, _ := json.MarshalIndent(report, "", "  ")
+		input := fmt.Sprintf("这是第 %d 轮审查报告。请读取当前 tasks.draft.json，只修正报告指出的问题，并合并为一次 patch：\n%s", round, reportJSON)
+		if err := runAgentWithCallback(ctx, reviewer, input, onEvent); err != nil {
+			return nil, fmt.Errorf("Task Reviewer 第 %d 轮修正失败: %w", round, err)
+		}
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("Task Reviewer 未产生审查结果")
+	}
+	return nil, fmt.Errorf("DeckSpec 在 %d 轮审查后仍未通过：%s", maxPlanReviewRounds, latest.Summary)
 }
 
 func makePrintCallback() AgentEventCallback {
@@ -431,6 +493,11 @@ func runAgentWithCallback(ctx context.Context, agent adk.Agent, userInput string
 	err := streamAgentEvents(ctx, iter, onEvent)
 	logger.Info("agent_stream_completed", "duration", time.Since(startTime).String())
 	return err
+}
+
+// RunPPTFixerWithCallback 运行生成后定点修复 Agent。
+func RunPPTFixerWithCallback(ctx context.Context, agent adk.Agent, userInput string, onEvent AgentEventCallback) error {
+	return runAgentWithCallback(ctx, agent, userInput, onEvent)
 }
 
 // streamAgentEvents 消费所有代理事件并通过 onEvent 转发它们
