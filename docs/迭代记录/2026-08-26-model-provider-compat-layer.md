@@ -70,6 +70,25 @@ MODEL_TIMEOUT_SECONDS=600
   - `/api/ai/expand` 能触发模型链初始化，日志出现 `model_init_success model=ark/...`，说明兼容层按旧 Ark 配置成功创建 provider-aware fallback chain。
   - 上游模型调用返回 HTTP `402`，接口返回 500；该阻塞来自上游账户/计费侧，不记录凭据。完整 LLM 生成冒烟未通过，不能归档为完全 done。
 
+## 并发修正上线记录
+
+- 提交：`6974b8e feat: limit model concurrency by upstream resource`
+- 目标：`remote-dev:/ppt/ppt-agent`
+- 时间：2026-08-26 17:55 Asia/Shanghai
+- 新进程：PID `3506041`，命令 `../ppt-agent-linux -mode web -addr :8080`，cwd `/ppt/ppt-agent/backend`
+- 旧二进制备份：`/ppt/ppt-agent/ppt-agent-linux.bak.20260826175547`
+- 启动确认：
+  - `:8080` 正常监听
+  - `/api/health` 返回 `{"status":"ok"}`
+  - `/api/templates/layouts` 和 `/api/themes` 静态接口正常
+- 行为变化：
+  - 任务创建入口不再因为同一用户已有 running 任务而直接返回 409。
+  - 模型调用默认按 `provider:model:key-hash` 串行，避免同一上游 API 资源并发过高触发 429。
+  - 不同 provider、不同模型或不同 API key 的任务不再被全局任务闸门互相阻塞。
+- 模型链冒烟：
+  - `/api/ai/expand` 能触发模型链初始化，日志出现 `model_init_success model=ark/...`。
+  - 上游仍返回 HTTP `402`，完整 LLM 生成冒烟继续受账户/计费侧阻塞。
+
 ## 遗留
 
 - DeepSeek/Qwen 专用 Eino adapter 先保留扩展点，当前首轮不引入新依赖。
