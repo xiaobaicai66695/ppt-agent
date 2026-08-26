@@ -180,3 +180,25 @@ MODEL_TIMEOUT_SECONDS=600
     - 未登录访问 `/api/users/me/api-key` 返回 HTTP 401，鉴权保护正常
   - 清理：远端 `/tmp/ppt-agent-linux-modelctx`、`/tmp/ppt-agent-frontend-dist-modelctx.tar` 和冒烟临时响应文件已删除。
   - 说明：未主动发起完整 LLM 生成任务，避免继续消耗共享/平台 Key；后续用户使用自备 Key 跑任务时，若硅基流动仍在长读阶段断开，运行详情会显示具体 provider/model/timeout 和真实消息角色摘要。
+
+## 账户 API Key 保存 1292 修复
+
+- 问题：
+  - 用户在账户设置中保存 DeepSeek 等 provider Key 时，MySQL 返回 `Error 1292 (22007): Incorrect datetime value: '0000-00-00' for column 'created_at'`。
+  - 根因是 `UpsertUserAPIKey` 使用 `DB.Save` 保存主键结构体，但没有填 `CreatedAt`，在 MySQL 严格模式下会把 Go 零值时间写成非法日期。
+- 行为变化：
+  - `UpsertUserAPIKey` 改为 `ON CONFLICT/ON DUPLICATE KEY` 风格 upsert。
+  - 插入时显式写入 `created_at` 与 `updated_at`。
+  - 已存在记录更新时只更新 `provider`、`api_key`、`updated_at`，不覆盖 `created_at`。
+- 本地验证：
+  - `go test ./pkg/db ./pkg/web`
+  - `go build ./...`
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：2026-08-26 23:28 Asia/Shanghai
+  - 新进程：PID `3587786`，命令 `../ppt-agent-linux -mode web -addr :8080`，cwd `/ppt/ppt-agent/backend`
+  - 启动确认：`/api/health` 返回 HTTP 200。
+  - 线上接口复测：
+    - 使用临时 smoke token 调用 `PUT /api/users/me/api-key`，provider=`deepseek`，假 Key，返回 HTTP 200，`configured=true`，仅返回 masked key。
+    - 随后调用 `DELETE /api/users/me/api-key` 返回 HTTP 200，临时记录已清理。
+  - 清理：远端 `/tmp/ppt-agent-linux-apikeyfix` 和冒烟临时响应文件已删除。

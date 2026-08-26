@@ -48,3 +48,21 @@ func TestIsBusinessDatabaseRejectsSystemSchemas(t *testing.T) {
 		t.Fatal("isBusinessDatabase(myapp) = false")
 	}
 }
+
+func TestBuildUserAPIKeyUpsertSetsTimestampsWithoutOverwritingCreatedAt(t *testing.T) {
+	now := time.Date(2026, 8, 26, 21, 45, 0, 0, time.UTC)
+	record, updates := buildUserAPIKeyUpsert(7, " deepseek ", " key-value ", now)
+
+	if record.UserID != 7 || record.Provider != "deepseek" || record.APIKey != "key-value" {
+		t.Fatalf("record fields = %#v", record)
+	}
+	if record.CreatedAt.IsZero() || record.UpdatedAt.IsZero() {
+		t.Fatalf("timestamps should be non-zero: %#v", record)
+	}
+	if _, ok := updates["created_at"]; ok {
+		t.Fatalf("created_at should not be overwritten on conflict: %#v", updates)
+	}
+	if updates["provider"] != "deepseek" || updates["api_key"] != "key-value" || updates["updated_at"] != now {
+		t.Fatalf("updates = %#v", updates)
+	}
+}

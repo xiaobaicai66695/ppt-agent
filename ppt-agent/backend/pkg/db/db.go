@@ -9,6 +9,7 @@ import (
 	drivermysql "github.com/go-sql-driver/mysql"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 )
@@ -395,15 +396,32 @@ func UpsertUserAPIKey(userID uint, provider, apiKey string) error {
 	if DB == nil {
 		return fmt.Errorf("database unavailable")
 	}
+	record, updates := buildUserAPIKeyUpsert(userID, provider, apiKey, time.Now())
+	return DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.Assignments(updates),
+	}).Create(&record).Error
+}
+
+func buildUserAPIKeyUpsert(userID uint, provider, apiKey string, now time.Time) (UserAPIKey, map[string]any) {
 	provider = strings.TrimSpace(provider)
 	if provider == "" {
 		provider = "ark"
 	}
-	return DB.Save(&UserAPIKey{
-		UserID:   userID,
-		Provider: provider,
-		APIKey:   strings.TrimSpace(apiKey),
-	}).Error
+	apiKey = strings.TrimSpace(apiKey)
+	record := UserAPIKey{
+		UserID:    userID,
+		Provider:  provider,
+		APIKey:    apiKey,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	updates := map[string]any{
+		"provider":   provider,
+		"api_key":    apiKey,
+		"updated_at": now,
+	}
+	return record, updates
 }
 
 // GetUserAPIKey returns the configured key override, or nil if the account uses defaults.
