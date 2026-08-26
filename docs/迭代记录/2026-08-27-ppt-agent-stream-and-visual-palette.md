@@ -83,7 +83,7 @@
   - 12 页以上 DeckSpec 由单个 Planner 一次性填完整 `tasks.json`，后半段容易退化为抽象套话，且不利于后续单页/单节修复。
   - 上下文压缩阈值过高，实际规划调用接近窗口上限时不容易触发；触发后也缺少前端明确回显。
 - OpenSpec：
-  - `openspec/changes/chunked-deck-planning-and-context-compression/`
+  - `openspec/changes/archive/2026-08-26-chunked-deck-planning-and-context-compression/`
 - 行为变化：
   - 新增 chunked planning 路径：BlueprintPlanner 先锁定页码、章节、标题、页面类型和 `content_bank`，SectionPlanner 按小节补全 2-4 页内容，后端 Merger 确定性合并后仍只走一次 Task Reviewer。
   - `tasks.json` 页面增加可选 `section_id`、`section_title`、`page_intent`、`evidence_refs`，`content_plan` 增加可选 `evidence_refs`，为后续定点修复提供粒度。
