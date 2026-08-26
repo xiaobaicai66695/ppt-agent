@@ -65,9 +65,17 @@
   - `go build ./...`
 - 上线记录：
   - 目标：`remote-dev:/ppt/ppt-agent`
-  - 时间：待回填
-  - 新进程：待回填
-  - 冒烟：待回填
+  - 时间：2026-08-27 01:38 Asia/Shanghai
+  - 新进程：PID `3624298`，命令 `../ppt-agent-linux -mode web -addr :8080`
+  - 部署基线：代码提交 `3dbc750`，同批发布分片规划、上下文压缩可见性和背景关键词复用修正。
+  - 启动确认：
+    - `/api/health` 返回 HTTP 200，`{"status":"ok"}`
+    - `/` 返回 HTTP 200，709 bytes
+    - `/api/templates/layouts` 返回 HTTP 200，17522 bytes，包含 `image_bottom_band`
+    - `/api/themes` 返回 HTTP 200，2614 bytes
+    - `:8080` 正常监听，进程为 `3624298`
+    - `ppt-agent-linux` SHA256 为 `f00ee08e341c4c118548b7d77bc82c7281f4198c01c6f17129339885ba7d7d71`
+  - 说明：本次没有再次发起完整 LLM 生成任务，避免额外消耗上游 Key；通过接口 smoke、layout contract 标记和二进制探针确认运行包已包含新逻辑。
 
 ## 分片规划与上下文压缩可见性
 
@@ -90,6 +98,16 @@
   - `go test ./...` 已执行，但 `test/plan_benchmark` 的既有 gold DeckSpec 因背景关键词/旧金标组件容量规则失败，需单独更新 gold 或调整评测基线。
 - 上线记录：
   - 目标：`remote-dev:/ppt/ppt-agent`
-  - 状态：待部署；当前工作区存在其他未提交运行变更和未完成上线记录，直接发布会混入非本次变更。
-  - 新进程：待回填
-  - 冒烟：待回填
+  - 时间：2026-08-27 01:38 Asia/Shanghai
+  - 新进程：PID `3624298`，命令 `../ppt-agent-linux -mode web -addr :8080`
+  - 部署基线：代码提交 `3dbc750`
+  - 启动确认：
+    - `/api/health` 返回 HTTP 200，`{"status":"ok"}`
+    - `/` 返回 HTTP 200，709 bytes
+    - `/api/templates/layouts` 返回 HTTP 200，17522 bytes，包含 `image_bottom_band`
+    - `/api/themes` 返回 HTTP 200，2614 bytes
+    - `:8080` 正常监听，进程为 `3624298`
+    - `ppt-agent-linux` 二进制探针包含 `compressing_context`
+  - 清理：远端 `/tmp/ppt-home-smoke.html`、`/tmp/ppt-layouts-smoke.json`、`/tmp/ppt-themes-smoke.json`、`/tmp/ppt-agent-linux-deploy`、`/tmp/ppt-agent-frontend-dist-3dbc750.tar.gz`、`/tmp/ppt-agent-skill-3dbc750.tar.gz` 已删除。
+  - 备份：二进制备份为 `ppt-agent-linux.bak.20260827013702-chunked`；前端可回退备份沿用上一轮 `frontend/dist.bak.20260827004200-bgvisible`。
+  - 遗留：未发起完整 LLM 生成任务，避免额外消耗上游 Key；分片 Planner 的端到端模型质量仍建议后续用 1 个低页数任务或专门评测集补测。
