@@ -18,7 +18,9 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"strconv"
@@ -435,7 +437,55 @@ func (f *FallbackChatModel) Generate(ctx context.Context, messages []*schema.Mes
 
 // Stream 实现 model.ToolCallingChatModel 接口
 func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	for idx := 0; idx < len(f.models); idx++ {
+	if len(f.models) == 0 {
+		return nil, fmt.Errorf("所有模型均失败")
+	}
+	return f.streamWithFallback(ctx, messages, opts...), nil
+}
+
+func (f *FallbackChatModel) streamWithFallback(ctx context.Context, messages []*schema.Message, opts ...model.Option) *schema.StreamReader[*schema.Message] {
+	reader, writer := schema.Pipe[*schema.Message](8)
+	go func() {
+		defer writer.Close()
+
+		nextIdx := 0
+		for {
+			idx, stream, err := f.openStreamFrom(ctx, nextIdx, messages, opts...)
+			if err != nil {
+				writer.Send(nil, err)
+				return
+			}
+
+			emitted := false
+			for {
+				chunk, recvErr := stream.Recv()
+				if recvErr != nil {
+					stream.Close()
+					if recvErr == io.EOF {
+						return
+					}
+					if ctx.Err() != nil {
+						writer.Send(nil, recvErr)
+						return
+					}
+					if !emitted && idx+1 < len(f.models) {
+						logger.Warn("model_stream_read_failed_retrying", "model", f.modelDisplayName(idx), "error", recvErr.Error())
+						nextIdx = idx + 1
+						break
+					}
+					writer.Send(nil, recvErr)
+					return
+				}
+				emitted = true
+				writer.Send(chunk, nil)
+			}
+		}
+	}()
+	return reader
+}
+
+func (f *FallbackChatModel) openStreamFrom(ctx context.Context, startIdx int, messages []*schema.Message, opts ...model.Option) (int, *schema.StreamReader[*schema.Message], error) {
+	for idx := startIdx; idx < len(f.models); idx++ {
 		paused, pauseEnd := f.shouldPause(idx)
 		if paused {
 			hasAlternative := false
@@ -446,15 +496,15 @@ func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Messa
 				}
 			}
 			if hasAlternative {
-				logger.Debug("model_paused_skipping", "model", f.modelNames[idx])
+				logger.Debug("model_paused_skipping", "model", f.modelDisplayName(idx))
 				continue
 			}
 			remaining := time.Until(pauseEnd).Round(time.Second)
-			logger.Info("model_all_paused_waiting", "model", f.modelNames[idx], "remaining", remaining.String())
+			logger.Info("model_all_paused_waiting", "model", f.modelDisplayName(idx), "remaining", remaining.String())
 			select {
 			case <-time.After(time.Until(pauseEnd)):
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return idx, nil, ctx.Err()
 			}
 		}
 
@@ -466,12 +516,174 @@ func (f *FallbackChatModel) Stream(ctx context.Context, messages []*schema.Messa
 				f.markRateLimited(idx)
 				continue
 			}
-			return nil, err
+			return idx, nil, err
 		}
-		return stream, nil
+		return idx, sanitizeStreamingToolCallDeltas(stream), nil
 	}
 
-	return nil, fmt.Errorf("所有模型均失败")
+	return -1, nil, fmt.Errorf("所有模型均失败")
+}
+
+func (f *FallbackChatModel) modelDisplayName(idx int) string {
+	if idx >= 0 && idx < len(f.modelNames) {
+		return f.modelNames[idx]
+	}
+	if idx >= 0 && idx < len(f.rawNames) {
+		return f.rawNames[idx]
+	}
+	return fmt.Sprintf("model-%d", idx)
+}
+
+func sanitizeStreamingToolCallDeltas(stream *schema.StreamReader[*schema.Message]) *schema.StreamReader[*schema.Message] {
+	if stream == nil {
+		return nil
+	}
+
+	reader, writer := schema.Pipe[*schema.Message](8)
+	go func() {
+		defer writer.Close()
+		defer stream.Close()
+
+		toolCallChunks := map[string][]*schema.Message{}
+		var toolCallOrder []string
+		for {
+			chunk, err := stream.Recv()
+			if err != nil {
+				if err != io.EOF {
+					writer.Send(nil, err)
+				}
+				break
+			}
+			if chunk == nil {
+				continue
+			}
+
+			if len(chunk.ToolCalls) == 0 {
+				writer.Send(chunk, nil)
+				continue
+			}
+
+			for _, toolCall := range chunk.ToolCalls {
+				key := streamingToolCallKey(toolCall, len(toolCallOrder))
+				if _, ok := toolCallChunks[key]; !ok {
+					toolCallOrder = append(toolCallOrder, key)
+				}
+				toolCallChunks[key] = append(toolCallChunks[key], singleStreamingToolCallChunk(chunk, toolCall))
+			}
+			if chunk.Content != "" || chunk.ReasoningContent != "" {
+				visible := *chunk
+				visible.ToolCalls = nil
+				writer.Send(&visible, nil)
+			}
+			if err := flushCompletedStreamingToolCalls(writer, toolCallChunks, &toolCallOrder, false); err != nil {
+				writer.Send(nil, err)
+				return
+			}
+		}
+
+		if len(toolCallChunks) == 0 {
+			return
+		}
+		if err := flushCompletedStreamingToolCalls(writer, toolCallChunks, &toolCallOrder, true); err != nil {
+			writer.Send(nil, err)
+			return
+		}
+	}()
+	return reader
+}
+
+func streamingToolCallKey(toolCall schema.ToolCall, fallback int) string {
+	if toolCall.Index != nil {
+		return fmt.Sprintf("index:%d", *toolCall.Index)
+	}
+	if strings.TrimSpace(toolCall.ID) != "" {
+		return "id:" + strings.TrimSpace(toolCall.ID)
+	}
+	if strings.TrimSpace(toolCall.Function.Name) != "" {
+		return fmt.Sprintf("name:%s:%d", strings.TrimSpace(toolCall.Function.Name), fallback)
+	}
+	return fmt.Sprintf("fallback:%d", fallback)
+}
+
+func singleStreamingToolCallChunk(chunk *schema.Message, toolCall schema.ToolCall) *schema.Message {
+	msg := *chunk
+	msg.Content = ""
+	msg.ReasoningContent = ""
+	msg.MultiContent = nil
+	msg.AssistantGenMultiContent = nil
+	msg.ToolCalls = []schema.ToolCall{toolCall}
+	if msg.Role == "" {
+		msg.Role = schema.Assistant
+	}
+	return &msg
+}
+
+func flushCompletedStreamingToolCalls(
+	writer *schema.StreamWriter[*schema.Message],
+	toolCallChunks map[string][]*schema.Message,
+	toolCallOrder *[]string,
+	final bool,
+) error {
+	if len(toolCallChunks) == 0 || len(*toolCallOrder) == 0 {
+		return nil
+	}
+	var completed []*schema.Message
+	remainingOrder := (*toolCallOrder)[:0]
+	for _, key := range *toolCallOrder {
+		chunks := toolCallChunks[key]
+		merged, err := schema.ConcatMessages(chunks)
+		if err != nil {
+			return err
+		}
+		if len(merged.ToolCalls) == 0 {
+			delete(toolCallChunks, key)
+			continue
+		}
+		if !final && !streamingToolCallComplete(merged.ToolCalls[0]) {
+			remainingOrder = append(remainingOrder, key)
+			continue
+		}
+		merged.Content = ""
+		merged.ReasoningContent = ""
+		merged.MultiContent = nil
+		merged.AssistantGenMultiContent = nil
+		if merged.Role == "" {
+			merged.Role = schema.Assistant
+		}
+		completed = append(completed, merged)
+		delete(toolCallChunks, key)
+	}
+	*toolCallOrder = remainingOrder
+	if len(completed) == 0 {
+		return nil
+	}
+	merged, err := schema.ConcatMessages(completed)
+	if err != nil {
+		return err
+	}
+	if len(merged.ToolCalls) == 0 {
+		return nil
+	}
+	merged.Content = ""
+	merged.ReasoningContent = ""
+	merged.MultiContent = nil
+	merged.AssistantGenMultiContent = nil
+	if merged.Role == "" {
+		merged.Role = schema.Assistant
+	}
+	writer.Send(merged, nil)
+	return nil
+}
+
+func streamingToolCallComplete(toolCall schema.ToolCall) bool {
+	if strings.TrimSpace(toolCall.Function.Name) == "" {
+		return false
+	}
+	args := strings.TrimSpace(toolCall.Function.Arguments)
+	if args == "" {
+		return false
+	}
+	return json.Valid([]byte(args))
 }
 
 // WithTools 实现 model.ToolCallingChatModel 接口

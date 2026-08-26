@@ -36,7 +36,14 @@
       "flow_body_target_chars": [45, 85],
       "case_snapshot_min_chars": 100,
       "kpi_requirement": "Every kpi_metric should include value/label plus delta or baseline, and a short body explaining why the metric matters.",
-    "source_requirement": "When a page uses facts, data, quotes or charts, add a source_note or component source field whenever a concrete source is available."
+      "source_requirement": "When a page uses facts, data, quotes or charts, add a source_note or component source field whenever a concrete source is available."
+    },
+    "first_draft_quality_gate": {
+      "default_background_required": true,
+      "background_exception": "Only omit an external background when the user explicitly requests a text-only or no-image deck; set visual_intent.role=clean_text_only so the policy is explicit.",
+      "narrative_anchor_types": ["headline", "deck_title", "argument_block", "insight", "recommendation", "key_point", "quote_block"],
+      "section_marker_required_field": "text",
+      "planner_retry_rule": "If initialize returns quality_gate_passed=false, fix the complete page array and initialize again before ending the Planner turn."
     },
     "layout_variant_rule": "Only use layout_variant values listed in this file. An empty variants array means the generator uses adaptive component layout and Planner should leave layout_variant empty."
   },
@@ -82,7 +89,7 @@
     "architecture_box": "架构模块框，表示系统、服务、数据层、Agent、工具或外部依赖；配合 arrow 表达关系。",
     "quote_block": "引用或金句。",
     "callout": "强调提示，可用于结论、提醒或承上启下。",
-    "section_marker": "章节序号，必须是大章节序号。",
+    "section_marker": "章节序号，必须在组件 text 字段中填写大章节序号（例如 01），不能只依赖 content_plan.section_number。",
     "source_note": "来源说明，适合事实、图表和引用页。"
   },
   "render_families": {
@@ -99,9 +106,11 @@
   },
   "asset_planning": {
     "purpose_values": ["background", "scene", "evidence", "decorative"],
-    "background_query_rule": "Use a visual proxy, environment, light, wide landscape and clean negative space; avoid literal slide titles and layout words.",
+    "background_query_rule": "Use exactly two deck-level background queries whenever a deck needs visual backgrounds. Both should use a visual proxy, environment, light/bright/airy mood, wide landscape and clean negative space; avoid literal slide titles and layout words.",
+    "background_rotation_rule": "Reuse those two background queries across all slides in page order. Do not create page-specific background queries; additional page imagery belongs in image components with asset_purpose scene or evidence.",
     "scene_query_rule": "Use a concrete visible subject, action and environment; use real-world imagery for examples and keep facts in source/search fields.",
-    "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints."
+    "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints.",
+    "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed to two light deck-level assets and rotated; scene/evidence image components keep their page-specific queries."
   },
   "content_types": {
     "title_slide": {
@@ -112,8 +121,8 @@
     },
     "agenda": {
       "best_for": ["目录", "章节预告", "汇报路线"],
-      "recommended_components": ["toc_item", "feature_card", "key_point"],
-      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 8},
+      "recommended_components": ["insight", "key_point", "toc_item"],
+      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 6},
       "variants": []
     },
     "section_divider": {
@@ -133,7 +142,7 @@
       "best_for": ["图文叙事", "城市/产品/场景介绍", "案例背景"],
       "recommended_components": ["image", "argument_block", "paragraph", "list", "key_point", "callout", "source_note"],
       "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
-      "variants": []
+      "variants": ["image_left", "image_right", "image_top_band"]
     },
     "card_grid": {
       "best_for": ["能力矩阵", "景点矩阵", "功能列表", "多要点并列"],
@@ -173,7 +182,7 @@
     },
     "stat_slide": {
       "best_for": ["关键数字", "成果概览", "规模说明"],
-      "recommended_components": ["stat", "number_callout", "source_note"],
+      "recommended_components": ["stat", "number_callout", "insight", "source_note"],
       "capacity": {"target_components_min": 2, "target_components_max": 4, "max_components": 4},
       "variants": []
     },

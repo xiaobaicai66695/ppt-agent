@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -104,8 +105,11 @@ var imageSearchToolInfo = &schema.ToolInfo{
 }
 
 type imageSearchTool struct {
-	client  *unsplash.Client
-	workDir string
+	client        *unsplash.Client
+	workDir       string
+	mu            sync.Mutex
+	searchCache   map[string]*unsplash.SearchResponse
+	downloadCache map[string]*unsplash.DownloadedAsset
 }
 
 type imageSearchInput struct {
@@ -153,7 +157,12 @@ type imageSearchResult struct {
 
 // NewImageSearchTool creates the Planner-facing Unsplash image search tool.
 func NewImageSearchTool(client *unsplash.Client, workDir string) tool.InvokableTool {
-	return &imageSearchTool{client: client, workDir: strings.TrimSpace(workDir)}
+	return &imageSearchTool{
+		client:        client,
+		workDir:       strings.TrimSpace(workDir),
+		searchCache:   map[string]*unsplash.SearchResponse{},
+		downloadCache: map[string]*unsplash.DownloadedAsset{},
+	}
 }
 
 func (t *imageSearchTool) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -200,7 +209,7 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		logger.Info("image_search_request", "query", input.Query, "asset_purpose", purpose, "asset_subject", input.AssetSubject, "reason", "unspecified")
 	}
 
-	result, err := t.client.Search(ctx, unsplash.SearchOptions{
+	options := unsplash.SearchOptions{
 		Query:         input.Query,
 		Orientation:   input.Orientation,
 		ContentFilter: input.ContentFilter,
@@ -208,7 +217,8 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		OrderBy:       input.OrderBy,
 		Page:          input.Page,
 		PerPage:       input.PerPage,
-	})
+	}
+	result, err := t.search(ctx, options)
 	if err != nil {
 		return marshalImageSearchError(publicImageSearchError(err))
 	}
@@ -247,7 +257,7 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 			Attribution:     attributionFor(photo),
 		}
 		if input.Download {
-			asset, downloadErr := t.client.Download(ctx, photo, downloadDir)
+			asset, downloadErr := t.download(ctx, photo, downloadDir)
 			if downloadErr != nil {
 				item.DownloadError = publicImageSearchError(downloadErr)
 			} else {
@@ -262,6 +272,80 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		return "", fmt.Errorf("图片搜索结果序列化失败: %w", err)
 	}
 	return string(data), nil
+}
+
+func (t *imageSearchTool) search(ctx context.Context, options unsplash.SearchOptions) (*unsplash.SearchResponse, error) {
+	key := imageSearchCacheKey(options)
+	t.mu.Lock()
+	if cached := cloneSearchResponse(t.searchCache[key]); cached != nil {
+		t.mu.Unlock()
+		logger.Info("image_search_cache_hit", "query", options.Query)
+		return cached, nil
+	}
+	t.mu.Unlock()
+
+	result, err := t.client.Search(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	t.searchCache[key] = cloneSearchResponse(result)
+	t.mu.Unlock()
+	return cloneSearchResponse(result), nil
+}
+
+func (t *imageSearchTool) download(ctx context.Context, photo unsplash.Photo, dir string) (*unsplash.DownloadedAsset, error) {
+	key := filepath.Clean(dir) + "\x00" + firstNonEmpty(photo.ID, photo.URLs.Regular, photo.URLs.Full, photo.URLs.Small)
+	t.mu.Lock()
+	if cached := cloneDownloadedAsset(t.downloadCache[key]); cached != nil && strings.TrimSpace(cached.LocalPath) != "" {
+		if info, err := os.Stat(cached.LocalPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			t.mu.Unlock()
+			logger.Info("image_download_cache_hit", "photo_id", photo.ID)
+			return cached, nil
+		}
+	}
+	t.mu.Unlock()
+
+	asset, err := t.client.Download(ctx, photo, dir)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	t.downloadCache[key] = cloneDownloadedAsset(asset)
+	t.mu.Unlock()
+	return cloneDownloadedAsset(asset), nil
+}
+
+func imageSearchCacheKey(options unsplash.SearchOptions) string {
+	parts := []string{
+		strings.ToLower(strings.Join(strings.Fields(options.Query), " ")),
+		strings.ToLower(strings.TrimSpace(options.Orientation)),
+		strings.ToLower(strings.TrimSpace(options.ContentFilter)),
+		strings.ToLower(strings.TrimSpace(options.Color)),
+		strings.ToLower(strings.TrimSpace(options.OrderBy)),
+		fmt.Sprintf("page:%d", options.Page),
+		fmt.Sprintf("per:%d", options.PerPage),
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func cloneSearchResponse(response *unsplash.SearchResponse) *unsplash.SearchResponse {
+	if response == nil {
+		return nil
+	}
+	clone := *response
+	if response.Results != nil {
+		clone.Results = append([]unsplash.Photo(nil), response.Results...)
+	}
+	return &clone
+}
+
+func cloneDownloadedAsset(asset *unsplash.DownloadedAsset) *unsplash.DownloadedAsset {
+	if asset == nil {
+		return nil
+	}
+	clone := *asset
+	return &clone
 }
 
 func (t *imageSearchTool) resolveDownloadDir(ctx context.Context, requested string) (string, error) {

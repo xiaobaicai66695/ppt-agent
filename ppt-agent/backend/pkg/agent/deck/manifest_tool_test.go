@@ -26,7 +26,12 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 		"theme":"charcoal_light",
 		"tasks":[{
 			"task_id":"1","page_index":1,"title":"架构演进","content_type":"title_slide",
-			"description":"说明系统架构演进的核心判断","output_file":"1_architecture.pptx","status":"pending"
+			"description":"说明系统架构演进的核心判断","output_file":"1_architecture.pptx","status":"pending",
+			"content_plan":{
+				"slide_intent":"用核心判断建立整套演示的架构演进主线。",
+				"visual_intent":{"asset_purpose":"background","asset_subject":"software architecture blueprint","asset_query":"software architecture blueprint wide landscape clean negative space","composition":"wide landscape, clean negative space on left"},
+				"components":[{"id":"point-1","type":"key_point","body":"架构演进的核心不是堆叠更多模块，而是持续收敛职责边界和交付路径。"}]
+			}
 		}]
 	}`)
 	if err != nil {
@@ -83,6 +88,57 @@ func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 	}
 }
 
+func TestDraftPatchPreservesDownloadedVisualMetadata(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &TasksManifest{
+		Title: "初稿", Theme: "ocean_soft",
+		Tasks: []*TaskItem{{
+			TaskID: "1", PageIndex: 1, Title: "封面", ContentType: "title_slide",
+			Description: "旧内容", OutputFile: "1_title.pptx", Status: "pending",
+			ContentPlan: &ContentPlan{
+				SlideIntent: "建立主题",
+				VisualIntent: &VisualIntent{
+					AssetPurpose: "background",
+					AssetQuery:   "old query",
+					LocalPath:    "assets/images/cover.jpg",
+					SourceURL:    "https://unsplash.com/photos/cover",
+					Attribution:  "Photo by Tester on Unsplash",
+				},
+				Components: []PlanComponent{{ID: "old", Type: "key_point", Body: "旧观点"}},
+			},
+		}},
+	}
+	if err := WriteTasksDraftManifest(workDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	patcher := newDraftTasksPatchTool(workDir)
+	result, err := patcher.InvokableRun(context.Background(), `{
+		"tasks":[{"task_id":"1","content_plan":{
+			"slide_intent":"强化主题判断",
+			"visual_intent":{"asset_query":"new query","composition":"wide landscape"},
+			"components":[{"id":"new","type":"insight","body":"新观点"}]
+		}}]
+	}`)
+	if err != nil || !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("unexpected patch result: %s err=%v", result, err)
+	}
+	updated, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visual := updated.Tasks[0].ContentPlan.VisualIntent
+	if visual.AssetQuery != "new query" || visual.Composition != "wide landscape" {
+		t.Fatalf("reviewer visual patch was not applied: %#v", visual)
+	}
+	if visual.LocalPath != "assets/images/cover.jpg" || visual.SourceURL == "" || visual.Attribution == "" {
+		t.Fatalf("downloaded visual metadata was lost: %#v", visual)
+	}
+	if components := updated.Tasks[0].ContentPlan.Components; len(components) != 1 || components[0].ID != "new" {
+		t.Fatalf("component replacement was not applied: %#v", components)
+	}
+}
+
 func TestPlannerManifestToolRecoversTasksArrayFromStringSpill(t *testing.T) {
 	workDir := t.TempDir()
 	planner := newPlannerManifestTool(workDir, nil, "架构清理验证")
@@ -91,7 +147,7 @@ func TestPlannerManifestToolRecoversTasksArrayFromStringSpill(t *testing.T) {
 		"mode":"initialize",
 		"title":"架构清理验证",
 		"theme":"simple_gray",
-		"tasks":"model draft: [{\"task_id\":\"1\",\"page_index\":1,\"title\":\"架构清理验证\",\"content_type\":\"content_slide\",\"description\":\"说明固定模板和旧自由工具已清理，当前链路以动态 DeckSpec 和确定性渲染为核心。\",\"output_file\":\"1_architecture_cleanup.pptx\",\"status\":\"pending\",\"content_plan\":{\"slide_intent\":\"确认架构清理范围和验证结果。\",\"components\":[{\"id\":\"p1\",\"type\":\"key_point\",\"body\":\"Planner 生成组件级计划，Go 质量门负责提交，Python generator 负责确定性渲染。\"}]}}], \"template\":\"legacy\""
+		"tasks":"model draft: [{\"task_id\":\"1\",\"page_index\":1,\"title\":\"架构清理验证\",\"content_type\":\"content_slide\",\"description\":\"说明固定模板和旧自由工具已清理，当前链路以动态 DeckSpec 和确定性渲染为核心。\",\"output_file\":\"1_architecture_cleanup.pptx\",\"status\":\"pending\",\"content_plan\":{\"slide_intent\":\"确认架构清理范围和验证结果。\",\"visual_intent\":{\"asset_purpose\":\"background\",\"asset_query\":\"clean software architecture blueprint wide landscape\",\"asset_subject\":\"software architecture blueprint\",\"composition\":\"wide landscape clean negative space\"},\"components\":[{\"id\":\"p1\",\"type\":\"key_point\",\"body\":\"Planner 生成组件级计划，Go 质量门负责提交，Python generator 负责确定性渲染。\"}]}}], \"template\":\"legacy\""
 	}`)
 	if err != nil {
 		t.Fatal(err)
@@ -105,5 +161,176 @@ func TestPlannerManifestToolRecoversTasksArrayFromStringSpill(t *testing.T) {
 	}
 	if len(manifest.Tasks) != 1 || manifest.Tasks[0].Title != "架构清理验证" {
 		t.Fatalf("embedded tasks array was not recovered: %#v", manifest)
+	}
+}
+
+func TestPlannerManifestToolDefaultsMissingHeaderBeforePreflight(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "AI 产业趋势")
+
+	result, err := planner.InvokableRun(context.Background(), `{
+		"mode":"initialize",
+		"tasks":[{
+			"task_id":"1","page_index":1,"title":"AI 产业趋势","content_type":"title_slide",
+			"description":"建立整套演示的核心判断和视觉方向。","output_file":"1_title.pptx","status":"pending",
+			"content_plan":{
+				"slide_intent":"用封面建立 AI 产业趋势分析的主线。",
+				"visual_intent":{"asset_purpose":"background","asset_query":"light AI data center wide landscape clean negative space","asset_subject":"AI data center","composition":"wide landscape clean negative space"},
+				"components":[{"id":"point-1","type":"key_point","body":"AI 产业趋势分析需要同时覆盖技术成熟度、商业化路径和组织采纳条件。"}]
+			}
+		}]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("missing header should use defaults before preflight, got: %s", result)
+	}
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Theme != defaultManifestTheme || manifest.Template != defaultManifestTemplate {
+		t.Fatalf("unexpected defaults: theme=%q template=%q", manifest.Theme, manifest.Template)
+	}
+}
+
+func TestPlannerManifestToolNormalizesAgendaBeforePreflight(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
+
+	result, err := planner.InvokableRun(context.Background(), `{
+		"mode":"initialize","title":"国际局势分析","theme":"government_red","template":"generic","tasks":[{
+			"task_id":"task_002","page_index":2,"title":"目录","content_type":"agenda",
+			"description":"用清晰目录建立国际局势分析的阅读路径。","output_file":"2_agenda.pptx","status":"pending",
+			"content_plan":{
+				"summary":"围绕冲突、安全、经济和治理四条主线组织内容。",
+				"slide_intent":"帮助观众先理解整套报告的章节顺序和判断框架。",
+				"visual_intent":{"asset_purpose":"background","asset_query":"light global diplomacy meeting wide landscape clean negative space","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
+				"capacity_hint":{"estimated_density":"dense","overflow_risk":"medium","component_count":9},
+				"components":[
+					{"id":"toc_1","type":"toc_item","title":"冲突热点"},
+					{"id":"toc_2","type":"toc_item","title":"大国关系"},
+					{"id":"toc_3","type":"toc_item","title":"区域安全"},
+					{"id":"toc_4","type":"toc_item","title":"能源粮食"},
+					{"id":"toc_5","type":"toc_item","title":"全球治理"},
+					{"id":"toc_6","type":"toc_item","title":"产业链重组"},
+					{"id":"toc_7","type":"toc_item","title":"技术竞争"},
+					{"id":"toc_8","type":"toc_item","title":"风险展望"},
+					{"id":"toc_9","type":"toc_item","title":"行动建议"}
+				]
+			}
+		}]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("agenda should be normalized before preflight, got: %s", result)
+	}
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := manifest.Tasks[0].ContentPlan.Components
+	if len(components) > maxComponentsForContentType("agenda") {
+		t.Fatalf("agenda components were not compacted: %d", len(components))
+	}
+	if components[0].Type != "insight" {
+		t.Fatalf("agenda should keep/add a narrative anchor first, got %#v", components[0])
+	}
+	if manifest.Tasks[0].ContentPlan.CapacityHint.ComponentCount != len(components) {
+		t.Fatalf("capacity hint not synced: %#v", manifest.Tasks[0].ContentPlan.CapacityHint)
+	}
+}
+
+func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
+
+	result, err := planner.InvokableRun(context.Background(), `{
+		"mode":"initialize","title":"国际局势分析","theme":"government_red","template":"generic","tasks":[{
+			"task_id":"task_004","page_index":4,"title":"冲突数量上升","content_type":"stat_slide",
+			"description":"用关键数字说明地区冲突和安全风险仍处高位。","output_file":"4_stat.pptx","status":"pending",
+			"content_plan":{
+				"summary":"关键数字说明安全风险没有随外交斡旋自然降温。",
+				"slide_intent":"用指标建立后续冲突分析的事实基线。",
+				"visual_intent":{"asset_purpose":"background","asset_query":"light global diplomacy meeting wide landscape clean negative space","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":2},
+				"components":[
+					{"id":"stat_1","type":"stat","title":"冲突热点","body":"多地延续"},
+					{"id":"stat_2","type":"stat","title":"安全风险","body":"保持高位"}
+				]
+			}
+		}]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("stat slide should receive an insight before preflight, got: %s", result)
+	}
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasNarrativeAnchor(manifest.Tasks[0].ContentPlan.Components) {
+		t.Fatalf("stat slide still lacks narrative anchor: %#v", manifest.Tasks[0].ContentPlan.Components)
+	}
+}
+
+func TestPlannerManifestToolNormalizesShortArgumentBlockWhenLongArgumentIsNotRequired(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
+
+	result, err := planner.InvokableRun(context.Background(), `{
+		"mode":"initialize","title":"国际局势分析","theme":"government_red","template":"generic","tasks":[{
+			"task_id":"task_005","page_index":5,"title":"风险判断","content_type":"content_slide",
+			"description":"用简短观点说明国际局势的主要风险判断。","output_file":"5_content.pptx","status":"pending",
+			"content_plan":{
+				"summary":"风险不是单点爆发，而是多条压力线同时抬升。",
+				"slide_intent":"形成一页可带走的核心判断。",
+				"visual_intent":{"asset_purpose":"background","asset_query":"light global diplomacy meeting wide landscape clean negative space","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
+				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":1},
+				"components":[{"id":"arg_1","type":"argument_block","body":"多条压力线同时抬升，局势判断需要同时看冲突、能源、供应链和治理机制。"}]
+			}
+		}]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("short argument should be normalized for content_slide, got: %s", result)
+	}
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.Tasks[0].ContentPlan.Components[0].Type; got != "insight" {
+		t.Fatalf("short argument_block type = %q, want insight", got)
+	}
+}
+
+func TestPlannerManifestToolRejectsPreventableQualityIssuesBeforeWritingDraft(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "AI 产业趋势")
+
+	result, err := planner.InvokableRun(context.Background(), `{
+		"mode":"initialize","title":"AI 产业趋势","theme":"simple_gray","tasks":[{
+			"task_id":"section-1","page_index":1,"title":"产业阶段","content_type":"section_divider",
+			"description":"进入产业阶段分析。","output_file":"1_section.pptx","status":"pending",
+			"content_plan":{"slide_intent":"切换到产业阶段章节。","components":[{"id":"marker-1","type":"section_marker"}]}
+		}]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"quality_gate_passed":false`) ||
+		!strings.Contains(result, `"invalid_component_schema"`) ||
+		!strings.Contains(result, `"missing_background_image"`) {
+		t.Fatalf("unexpected preflight result: %s", result)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, tasksDraftFileName)); !os.IsNotExist(err) {
+		t.Fatalf("failed planner preflight must not write a draft: %v", err)
 	}
 }

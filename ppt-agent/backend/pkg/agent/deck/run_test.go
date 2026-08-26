@@ -35,6 +35,24 @@ func TestVisibleMessageContentKeepsRawPlannerOutput(t *testing.T) {
 	}
 }
 
+func TestVisibleMessageContentHidesCompressionSummaryJSON(t *testing.T) {
+	raw := `{
+  "user_intent_summary": "制作一份关于2025年国际局势纷争不断的PPT，共5325页",
+  "progress_summary": "已生成部分 DeckSpec",
+  "conversation_summary": "内部压缩摘要"
+}`
+	if got := visibleMessageContent(raw); got != "" {
+		t.Fatalf("visibleMessageContent() = %q, want hidden compression summary", got)
+	}
+}
+
+func TestVisibleMessageContentHidesFencedCompressionSummaryJSON(t *testing.T) {
+	raw := "```json\n{\"user_intent_summary\":\"x\",\"progress_summary\":\"y\"}\n```"
+	if got := visibleMessageContent(raw); got != "" {
+		t.Fatalf("visibleMessageContent() = %q, want hidden compression summary", got)
+	}
+}
+
 func TestStreamTimeoutDefaultsToFifteenMinutes(t *testing.T) {
 	t.Setenv("STREAM_TIMEOUT", "")
 
@@ -71,24 +89,28 @@ func TestStreamTimeoutCanBeDisabled(t *testing.T) {
 	}
 }
 
-func TestADKStreamingEnabledDefaultsOff(t *testing.T) {
+func TestADKStreamingEnabledDefaultsOn(t *testing.T) {
 	t.Setenv("ADK_ENABLE_STREAMING", "")
 
-	if adkStreamingEnabled() {
-		t.Fatal("expected ADK streaming to be disabled by default")
-	}
-}
-
-func TestADKStreamingEnabledOptIn(t *testing.T) {
-	t.Setenv("ADK_ENABLE_STREAMING", "true")
-
 	if !adkStreamingEnabled() {
-		t.Fatal("expected ADK streaming to be enabled when ADK_ENABLE_STREAMING=true")
+		t.Fatal("expected ADK streaming to be enabled by default")
 	}
 }
 
-func TestADKStreamingEnabledIgnoresOtherValues(t *testing.T) {
-	for _, value := range []string{"false", "1", "yes"} {
+func TestADKStreamingEnabledAcceptsTruthyValues(t *testing.T) {
+	for _, value := range []string{"true", "1", "yes", "on"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("ADK_ENABLE_STREAMING", value)
+
+			if !adkStreamingEnabled() {
+				t.Fatalf("expected ADK streaming to be enabled for %q", value)
+			}
+		})
+	}
+}
+
+func TestADKStreamingEnabledCanBeDisabled(t *testing.T) {
+	for _, value := range []string{"false", "0", "no", "off", "disabled"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("ADK_ENABLE_STREAMING", value)
 

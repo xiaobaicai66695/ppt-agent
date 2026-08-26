@@ -55,11 +55,16 @@ func streamTimeout() time.Duration {
 	return d
 }
 
-// adkStreamingEnabled controls ADK runner streaming.
-// It is disabled by default because streaming tool-call arguments can be
-// delivered in partial chunks and trigger intermittent JSON parse failures in ToolNode.
+// adkStreamingEnabled controls ADK runner streaming. Streaming is enabled by
+// default; set ADK_ENABLE_STREAMING=false/0/no/off to fall back to blocking
+// model calls during provider incidents.
 func adkStreamingEnabled() bool {
-	return strings.EqualFold(os.Getenv("ADK_ENABLE_STREAMING"), "true")
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ADK_ENABLE_STREAMING"))) {
+	case "", "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // nextWithTimeout 调用 iter.Next() 但如果在配置的timeout时间内没有事件到达则放弃底层流
@@ -248,10 +253,12 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 				lastMessageStream = nil
 				if lastMessage != nil && isChunkEmittable(lastMessage) && lastMessage.Content != "" {
 					content := visibleMessageContent(lastMessage.Content)
-					onEvent(AgentEvent{
-						Type:    AgentEventAnswer,
-						Content: content,
-					})
+					if content != "" {
+						onEvent(AgentEvent{
+							Type:    AgentEventAnswer,
+							Content: content,
+						})
+					}
 				}
 			}
 
@@ -444,16 +451,78 @@ func isChunkEmittable(chunk *schema.Message) bool {
 }
 
 func visibleMessageContent(content string) string {
+	if isInternalCompressionSummaryContent(content) {
+		return ""
+	}
 	return content
+}
+
+func isInternalCompressionSummaryContent(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	content = strings.TrimSpace(strings.TrimPrefix(content, "\ufeff"))
+	if strings.HasPrefix(content, "```") {
+		lines := strings.Split(content, "\n")
+		if len(lines) >= 2 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+			content = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+		}
+	}
+	if !strings.HasPrefix(content, "{") {
+		return false
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &payload); err != nil {
+		return false
+	}
+	if _, ok := payload["user_intent_summary"]; !ok {
+		return false
+	}
+	if _, ok := payload["progress_summary"]; ok {
+		return true
+	}
+	if _, ok := payload["conversation_summary"]; ok {
+		return true
+	}
+	return false
+}
+
+func shouldBufferForInternalSummaryProbe(buffer string) bool {
+	trimmed := strings.TrimSpace(buffer)
+	if trimmed == "" {
+		return true
+	}
+	trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "\ufeff"))
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "```")
+}
+
+func emitVisibleAnswer(content string, onEvent AgentEventCallback, buf *strings.Builder) {
+	content = visibleMessageContent(content)
+	if content == "" {
+		return
+	}
+	if buf != nil {
+		buf.WriteString(content)
+	}
+	onEvent(AgentEvent{
+		Type:    AgentEventAnswer,
+		Content: content,
+	})
 }
 
 func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent AgentEventCallback, buf *strings.Builder) {
 	if stream == nil {
 		return
 	}
+	var probe strings.Builder
+	probing := true
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
+			if probe.Len() > 0 {
+				emitVisibleAnswer(probe.String(), onEvent, buf)
+			}
 			if err != io.EOF {
 				onEvent(AgentEvent{Type: AgentEventError, Error: err.Error()})
 			}
@@ -466,12 +535,17 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 		if chunk.Content == "" {
 			continue
 		}
-		content := visibleMessageContent(chunk.Content)
-		buf.WriteString(content)
-		onEvent(AgentEvent{
-			Type:    AgentEventAnswer,
-			Content: content,
-		})
+		if probing {
+			probe.WriteString(chunk.Content)
+			if shouldBufferForInternalSummaryProbe(probe.String()) {
+				continue
+			}
+			probing = false
+			emitVisibleAnswer(probe.String(), onEvent, buf)
+			probe.Reset()
+			continue
+		}
+		emitVisibleAnswer(chunk.Content, onEvent, buf)
 	}
 }
 
@@ -534,7 +608,9 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 			} else {
 				if msg := event.Output.MessageOutput.Message; msg != nil {
 					if isChunkEmittable(msg) && msg.Content != "" {
-						onEvent(AgentEvent{Type: AgentEventAnswer, Content: visibleMessageContent(msg.Content)})
+						if content := visibleMessageContent(msg.Content); content != "" {
+							onEvent(AgentEvent{Type: AgentEventAnswer, Content: content})
+						}
 					}
 					for _, tc := range msg.ToolCalls {
 						onEvent(AgentEvent{

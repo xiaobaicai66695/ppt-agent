@@ -4,6 +4,111 @@
 
 ## 2026-08-25
 
+- ID: 20260825-background-plan-materialization-and-preview-relations
+- Type: fix/deployment
+- Scope: background asset materialization, Reviewer patch merge, standalone PPTX package relations, batch thumbnail conversion
+- Completed: 2026-08-25 21:55 Asia/Shanghai
+- Root Cause:
+  - Reviewer could repair `visual_intent.asset_query`, but the render workflow had no deterministic node that converted a query-only background plan into a downloaded task-local file. The reported 13-page task therefore had 13 queries and zero `local_path` values.
+  - Reviewer manifest patches replaced the whole `content_plan`, so an already downloaded `local_path` and its source metadata could be discarded when the Reviewer changed another field.
+  - The standalone slide saver reused image parts from the source package without a normalization pass; LibreOffice could open the package yet omit its bottom image during conversion.
+  - Batch thumbnail generation copied only shape XML into a merged PPTX and did not copy image relationships, so the Dashboard preview retained the first slide's background but dropped backgrounds from later slides.
+- Changes:
+  - Added `materialize_background_assets` between DeckSpec validation and worker rendering. It groups identical queries, searches/downloads with bounded concurrency, writes attribution/source metadata, mutates the manifest only after all downloads succeed, and persists `tasks.json` atomically.
+  - Added `hydrate-deck-assets` for safe backfill of completed query-only tasks; missing Unsplash configuration remains a non-fatal query plan, while configured provider failures stop rendering instead of silently producing incomplete backgrounds.
+  - Changed Reviewer content-plan application to merge fields and preserve downloaded visual metadata when a patch omits it.
+  - Baked readability lightening into the raster with adaptive luminance, appended a near-transparent LibreOffice compositor trigger after page content, and normalized standalone packages once after relationship cloning.
+  - Replaced shape-only PPTX merging in the QA converter with a single multi-input LibreOffice conversion followed by PDF merge, preserving every source PPTX's image/chart relationships without N cold starts.
+- Verification:
+  - Local Go: `go test ./pkg/agent/deck ./pkg/prompts ./pkg/task ./pkg/web ./cmd/hydrate-deck-assets` and `go build ./...` passed.
+  - Local Python: generator compile checks passed; `test_render_task_components.py` passed with 20 tests.
+  - Existing online task: `4abffe33-be96-4165-b8b1-f54a4549b951` changed from `local_path=0/13` to `13/13`; every referenced asset exists, every PPTX contains media, and batch conversion produced 13 thumbnails with no errors. Full contact-sheet inspection confirmed visible backgrounds on title, agenda, section, KPI, card, image-text, case, deep-dive, summary and end layouts.
+  - Online no-model smoke: one query-only title page materialized one background, rendered one PPTX with one media part, and generated one JPG with zero conversion errors.
+  - Runtime: `/api/health` returned `{"status":"ok"}`; PID `3226031` listens on `:8080`; startup log confirmed skill readiness and MySQL connection.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`.
+  - Backend binary SHA-256: `58b03eecafec1e3365e0a9622063ab15983542f8b07a9b4cf667b421fed6ca96`; hydrator SHA-256: `b79b237e517c68c0af21a20e2218d7fc3eae8362d9179fbf8e69a021b69dd633`.
+  - Backend restarted from PID `3202867` to PID `3226031`, working directory `/ppt/ppt-agent/backend`.
+  - Rollback copy retained at `/ppt/ppt-agent/deploy-backup-202608252122-bg-assets`, including the prior runtime, skill/generator/QA files and the original task directory.
+- Cleanup:
+  - Removed the online smoke directory, staged deployment directory, diagnostic images/PPTX files and conversion outputs under explicit `/tmp` paths.
+  - Removed the local smoke manifest; no model task or user-visible task record was created for this smoke.
+
+- ID: 20260825-source-footer-safe-area
+- Type: fix/deployment
+- Scope: component layout, source footer, deep-dive rendering
+- Completed: 2026-08-25 21:04 Asia/Shanghai
+- Root Cause:
+  - The shared workbench content band always ended at `6.97` inches, while the source divider started at `6.85` inches. Large image/placeholder and narrative panels therefore crossed the footer boundary by `0.12` inches, with rounded-panel shadow making the overlap more visible.
+- Changes:
+  - Centralized source-divider, source-text and source-safe-content geometry in `generators/base.py`.
+  - Made sourced workbench slides end their content band at `6.62` inches, preserving `0.23` inches above the source divider; unsourced slides retain the existing content height.
+  - Applied the rule through the shared component engine so images, cards, charts and narrative panels all receive the same footer reservation.
+  - Added a structural regression test for the reported `deep_dive` shape and documented the source-footer safe-area rule.
+- Verification:
+  - Local: Python compile checks passed; `test_render_task_components.py` passed with 20 tests.
+  - Local reproduction: the original `task_10_deep_dive` rendered both large panels with bottom `6.62`; LibreOffice/Poppler visual rendering confirmed a clear gap above the source divider and no long-text overflow.
+  - Online: `/api/health` returned `{"status":"ok"}`; deployed `render_task.py` reproduced the same page with panel bottoms `[6.62, 6.62]`.
+  - Existing delivery: regenerated task `4abffe33-be96-4165-b8b1-f54a4549b951` page 10 and its QA thumbnail in place; conversion completed without errors and the structural check again returned `[6.62, 6.62]`.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`.
+  - Deployed runtime generator modules and generator reference; no Linux binary rebuild was required for the Python-only implementation change.
+  - Backend process restarted from PID `3182890` to PID `3202867`, working directory `/ppt/ppt-agent/backend`, listening on `:8080`; startup log confirmed skill readiness and MySQL connection.
+  - Rollback copy retained at `/ppt/ppt-agent/deploy-backup-20260825205848`.
+  - The replaced page-10 PPTX and thumbnail are retained under the same rollback directory in `task-4abffe33-page10/`.
+- Cleanup:
+  - Removed the remote `/tmp/ppt-layout-smoke-202608252105` tasks manifest and generated PPTX after structural verification.
+
+- ID: 20260825-planner-first-draft-quality-gate
+- Type: fix/deployment
+- Scope: Planner first draft, deterministic plan review, Reviewer visible output
+- Completed: 2026-08-25 19:42 Asia/Shanghai
+- Root Cause:
+  - Planner skill mentioned background and density targets, but its prompt said it did not self-check; meanwhile the independent Reviewer treated the same fields as quality issues. A 13-page task therefore entered review with 22 preventable issues.
+  - `argument_block` used 440-840 characters in the skill contract but only 220 in Go review, and background `asset_query` without a downloaded `local_path` produced a redundant warning.
+- Changes:
+  - Added an explicit Planner first-draft gate for external background plans, narrative anchors, component IDs/content, `section_marker.text`, capacity hints, and 440-840-character `argument_block` usage.
+  - Made `update_tasks_manifest(initialize)` run the same deterministic checks before writing `tasks.draft.json`; failed preflight returns per-page issues and requires the Planner to resubmit the complete array in the same turn.
+  - Added explicit `visual_intent.role=clean_text_only` for user-requested no-image decks.
+  - Reused Reviewer checks as the preflight source, accepted executable `asset_query` without duplicating a missing-`local_path` warning, and aligned the argument minimum to 440 characters.
+  - Instructed TaskPlanReviewer to avoid pre-tool read narration and per-issue reasoning dumps, then give only a short post-tool summary.
+- Verification:
+  - Local: `go test ./pkg/agent/deck ./pkg/prompts ./pkg/task ./pkg/web` passed.
+  - Local: `go build ./...` passed; component contract JSON parsed successfully.
+  - Online: one-page AI governance cover included a downloaded background and `insight/deck_title/subheadline` anchors; Reviewer passed round 1 with zero issues; task completed 1/1.
+  - Online health returned 200 and deployed binary SHA-256 was `0061784ed3fd16ecbd7092813707b4a4e36ebb65aa0c657a4a16c838ba26efb4`.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent`.
+  - Backend process restarted from PID `3151968` to PID `3182890`, working directory `/ppt/ppt-agent/backend`, listening on `:8080`.
+  - Deployed the backend binary plus runtime `ppt-deck-planner/SKILL.md` and `component_contracts.json`; rollback copy retained at `/ppt/ppt-agent/deploy-backup-20260825193807`.
+- Cleanup:
+  - Deleted the online smoke task and verified its work directory was removed.
+  - Removed local Linux build output and this deployment's remote `/tmp` binaries, skill files, contract file, auth material, and probe outputs.
+
+- ID: 20260825-short-prefix-cumulative-output-dedup
+- Type: fix/deployment
+- Scope: frontend assistant message merge, cumulative SSE/runtime output
+- Completed: 2026-08-25 18:45 Asia/Shanghai
+- Root Cause:
+  - Runtime `assistant_output` can be a complete cumulative snapshot. The existing containment check required an earlier message to occupy at least 18% of the final text, so a short opening message in a long planning answer was treated as unrelated and the cumulative snapshot appeared again at the bottom.
+  - Raw prefix slicing also required identical whitespace, while model snapshots can insert spaces or line breaks between otherwise identical text.
+- Changes:
+  - Treat normalized assistant text of at least 20 characters as cumulative when it is an exact prefix, regardless of its length ratio to the final snapshot.
+  - Slice cumulative suffixes with whitespace-insensitive prefix matching so earlier assistant turns remain in their original timeline positions and only new content is appended after tool groups.
+  - Added a regression fixture matching the reported short opening + tool rounds + long final 10-page outline shape.
+- Verification:
+  - Local: `npm test` passed with 28 tests.
+  - Local: `npm run build` passed; Vite transformed 1792 modules.
+  - Online: `/`, `/dashboard`, and `/api/health` returned HTTP 200; health body was `{"status":"ok"}`.
+  - Online: deployed `DashboardPage-Cdpfbfil.js` SHA-256 `142f96a94673e279a811792476c5bd49eb5ea7271a0ba95fc718ed2e949f41d0`, identical to the tested local build.
+- Deployment:
+  - Target: `remote-dev:/ppt/ppt-agent/frontend/dist`.
+  - Static assets were switched atomically; rollback copy retained at `/ppt/ppt-agent/frontend/dist.bak.20260825184536`.
+  - Backend restart was not required for this frontend-only change; existing PID `3151968` remained alive and listening on `:8080`.
+- Cleanup:
+  - Removed the local deployment archive and remote `/tmp` archive/probe outputs.
+  - No online task or model request was created for this frontend-only smoke, so there was no task data to remove.
+
 - ID: 20260825-planner-reviewer-fixer-workflow
 - Type: refactor/fix/deployment
 - Scope: DeckSpec planning agents, bounded review workflow, targeted PPT repair

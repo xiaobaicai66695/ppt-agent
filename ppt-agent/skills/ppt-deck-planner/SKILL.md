@@ -21,6 +21,7 @@ Planner 负责：
 渲染适配层负责：
 
 - 读取 `tasks.json`。
+- 在并发渲染前把仍只有 `asset_query` 的图片计划确定性搜索、下载并原子写回 `local_path`；背景先收敛为 2 张浅色主题图并按页轮换，页内 `scene/evidence` 图片按各自查询下载。
 - 只消费 `content_plan.components` 和 `visual_intent`；`description` 仅作为页面语义摘要，不承担组件渲染兜底。
 - 保持 `palette=manifest.theme`，逐字符使用 `task.output_file`。
 - 通过 `generators/render_task.py` 按 `task_id` 构造参数，并将 `layout_variant`、`source` 和图片字段传给 generator。
@@ -79,7 +80,8 @@ Python generators 负责：
 - 每个章节先用 1 页 `section_divider` 明确阶段主题；章节少于 2 个时可以省略分割页。
 - 内容页先确定本页主观点，再选择 2-4 个论据组件支撑；论据可以是事实、数据、图片、案例、引用或表格。
 - 除纯数据、流程、对比表和总结页外，默认优先使用“观点 + 论据”的图文混排：一侧承载判断与解释，另一侧用真实场景图、案例图、数据或证据承载论据，避免连续多页纯卡片或纯列表。
-- 标题页和章节分割页可以使用背景图，但生成器会自动做轻度模糊与可读性遮罩；规划只描述图片主体和构图，不填写 blur、透明度、透视或字号参数。
+- 默认每页都提供外部背景图片计划；整套 PPT 只选择 2 张相关主题的浅色背景图，所有页面在这 2 个 `visual_intent.asset_query` 之间按页轮换，避免每页随机换图造成风格跳变。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊与位图级可读性柔化；规划只描述图片主体和构图，不填写 blur、透明度、透视或字号参数。
+- 需要更多图片时，不要继续增加背景查询；改用 `image` 组件，设置 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，把图片作为图文混排、案例、证据或细节说明的一部分。
 - 深度说明页优先使用 `argument_block` 承载完整论述，再配列表、证据、KPI、图片或架构组件。
 - 对比、选型、方案评估优先用 `comparison_table` 或 `two_column`，并用 `recommendation` 给出结论。
 - 每 3-5 页安排一次节奏变化：章节页、图文页、数据页、案例页或总结页。
@@ -96,12 +98,18 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | `two_column` | 左右各 3-5 条，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
 | `image_text` | 300-450 字自然段，配 1 张真实图片 | 过长拆为两页图文叙事 |
 | `argument_block` | 440-840 字完整论述 | 超过容量时拆成多页 |
+| `agenda` | 1 个阅读路径观点 + 3-5 个目录项，总组件 ≤6 | 合并相邻章节，不逐页列出 |
+| `stat_slide` | 2-3 个关键数字 + 1 个 insight/source_note，总组件 ≤4 | 多指标拆成 KPI 或 chart 页 |
 | `kpi_dashboard` | 3-4 个 KPI | 多指标拆页或改 `chart_slide` |
 | `chart_slide` | 1 个主图表，1-3 个 dataset | 多图表拆页 |
 | `timeline` / `process_flow` | 4-6 个节点 | 超过 6 个拆页或按阶段聚合 |
 | `summary_slide` | 3-5 条总结 | 合并相似结论或拆出行动页 |
 
-`image_text`、`case_study`、`example_detail` 是默认的图文混排候选；当页面同时存在明确观点和可视化论据时，优先选择它们，而不是把全部信息拆成同质卡片。
+`image_text`、`case_study`、`example_detail` 是默认的图文混排候选；当页面同时存在明确观点和可视化论据时，优先选择它们，而不是把全部信息拆成同质卡片。连续出现多个图文页时，`image_text` 在 `image_left`、`image_right`、`image_top_band` 之间轮换，让真实图片承担不同的视觉位置。
+
+`agenda` 不逐页罗列整套 PPT，只展示章节级路径；章节超过 5 个时合并相邻主题。`stat_slide` 必须用 `insight` 或 `key_point` 解释数字背后的判断，不能只有 `stat`/`number_callout`。
+
+`argument_block` 不是通用占位组件。KPI、目录、封面、章节页、数据页和卡片矩阵需要观点锚点时使用 `insight`、`key_point` 或简洁 `paragraph`；只有确实需要完整论证的页面才使用 440-840 字的 `argument_block`，提交前必须粗略估算正文长度。
 
 ## description 与 components
 
@@ -154,9 +162,11 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 
 调用 `search_images(download=true)` 后，必须把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写回对应 `image` 组件或 `visual_intent`。图片保存路径应在当前 PPT 任务工作目录内。
 
+若 Reviewer 只补充了图片 `asset_query`，或 Planner 的下载结果未能写回草稿，Go 渲染工作流会在 `validate_deck_spec` 之后、worker pool 之前执行 `materialize_background_assets`，并把下载结果原子写回正式 `tasks.json`。背景会先收敛到 2 张浅色主题图后轮换；非背景 `image` 组件按页面查询下载为图文素材。这是一道交付兜底，不替代 Planner 主动下载和记录来源。
+
 顶层 `task.background` 不属于当前契约。外部图片用途写在 `visual_intent.asset_purpose` 或 `image.asset_purpose` 中，已下载文件写入对应 `local_path`。
 
-背景图片由生成器按幻灯片真实宽高比自动处理：默认使用 `cover` 等比铺满画布，允许边缘被适度裁剪，但图片对象不得超出幻灯片画布。所有带背景图的页面都会自动增加轻度模糊和可读性遮罩，标题页与 `section_divider` 使用更强一级的模糊，降低复杂纹理、透视线条对文字可读性的干扰；Planner 不需要规划适配、模糊或透明度参数，但仍应优先搜索 `wide landscape` 与 `clean negative space` 构图，避免关键主体落在易裁剪边缘。
+背景图片由生成器按幻灯片真实宽高比自动处理：默认使用 `cover` 等比铺满画布，允许边缘被适度裁剪，但图片对象不得超出幻灯片画布。所有带背景图的页面都会自动增加轻度模糊，并把可读性柔化直接烘焙进背景位图，避免不同 PowerPoint/LibreOffice 预览器对全页透明遮罩解释不一致；标题页与 `section_divider` 使用更强一级的模糊，降低复杂纹理、透视线条对文字可读性的干扰。Planner 不需要规划适配、模糊或透明度参数，但仍应优先搜索 `wide landscape` 与 `clean negative space` 构图，避免关键主体落在易裁剪边缘。
 
 ## layout_variant
 
@@ -167,12 +177,13 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | content_type | layout_variant |
 |--------------|----------------|
 | `section_divider` | `number_sidebar` |
+| `image_text` | `image_left` / `image_right` / `image_top_band` |
 
 `section_number` 和 `agenda` 目录编号都表示章节出现顺序（01、02、03），不能直接复制章节分割页的 `page_index`。目录展示章节索引，不展示绝对幻灯片页码。
 
 ## 计划审查
 
-Planner 无论是否有用户大纲，都一次性生成完整 DeckSpec 草稿。Planner 不承担自审，也不调用 commit。
+Planner 无论是否有用户大纲，都一次性生成完整 DeckSpec 草稿。Planner 不调用 Reviewer 或 commit，但必须在 initialize 前按本 Skill 的背景、观点锚点、组件字段和容量规则检查自己的结构化参数。`update_tasks_manifest` 会运行同源确定性预检；预检失败时 Planner 在当前轮修正完整页面数组并重新 initialize，未通过的草稿不会进入 Reviewer。
 
 独立的 Task Reviewer 根据 Go workflow 生成的确定性审查报告修正草稿。Reviewer 每轮只批量 patch 有问题的页面；Go 负责重新校验、限制最多 3 轮，并在通过后原子提交正式 `tasks.json`。
 

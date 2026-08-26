@@ -191,6 +191,49 @@ describe('workbench utilities', () => {
     expect(items[2].type === 'message' ? items[2].message.content : '').not.toContain(prefix);
   });
 
+  it('removes short earlier turns from a much longer final cumulative snapshot', () => {
+    const first = '我将完成这个PPT的规划工作。首先读取必要的参考文件。';
+    const second = '好的，我已完整读取所有参考文件。现在我来规划“新时代：AI+赋能”这个主题。';
+    const final = [
+      '我将完成这个 PPT 的规划工作。 首先读取必要的参考文件。',
+      '好的，我已完整读取所有参考文件。现在我来规划“新时代：AI+赋能”这个主题。',
+      '现在我已收集了足够的数据和图片素材，开始制定完整的10页PPT规划。',
+      '纲要结构设计：',
+      ...Array.from({ length: 10 }, (_, index) => `${index + 1}. 第${index + 1}页内容与关键数据说明`),
+    ].join('\n\n');
+    const events: RuntimeEvent[] = [
+      {
+        id: 1, task_id: 'task-1', timestamp: '2026-08-25T00:00:01Z', elapsed_ms: 1000,
+        kind: 'llm_end', name: 'planner', status: 'ok', metadata: { assistant_output: first },
+      },
+      {
+        id: 2, task_id: 'task-1', timestamp: '2026-08-25T00:00:02Z', elapsed_ms: 2000,
+        kind: 'tool_end', name: 'read_file', status: 'ok',
+      },
+      {
+        id: 3, task_id: 'task-1', timestamp: '2026-08-25T00:00:03Z', elapsed_ms: 3000,
+        kind: 'llm_end', name: 'planner', status: 'ok', metadata: { assistant_output: `${first}\n\n${second}` },
+      },
+      {
+        id: 4, task_id: 'task-1', timestamp: '2026-08-25T00:00:04Z', elapsed_ms: 4000,
+        kind: 'tool_end', name: 'search', status: 'ok',
+      },
+      {
+        id: 5, task_id: 'task-1', timestamp: '2026-08-25T00:00:05Z', elapsed_ms: 5000,
+        kind: 'llm_end', name: 'planner', status: 'ok', metadata: { assistant_output: final },
+      },
+    ];
+
+    const messages = runtimeAssistantOutputMessages(events);
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toBe(first);
+    expect(messages[1].content).toBe(second);
+    expect(messages[2].content).toContain('现在我已收集了足够的数据和图片素材');
+    expect(messages[2].content).not.toContain('我将完成这个 PPT 的规划工作');
+    expect(messages.map(message => message.content).join('\n')).toContain('10. 第10页内容与关键数据说明');
+  });
+
   it('keeps the fuller assistant output when runtime events are cumulative', () => {
     const events: RuntimeEvent[] = [
       {
@@ -249,7 +292,51 @@ describe('workbench utilities', () => {
       role: 'assistant',
       content: '# 规划\n\n- 正在拆分章节',
       timestamp: '2026-08-05T00:00:02Z',
+      runtime_event_id: 2,
     }]);
+  });
+
+  it('orders runtime assistant text and tools by event id when timestamps drift', () => {
+    const first = '先读取组件契约和页面类型说明，确认当前生成器支持哪些稳定布局。';
+    const second = '已读取组件契约，继续搜索资料。';
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:04Z',
+        elapsed_ms: 1000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: first },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'tool_end',
+        name: 'read_file',
+        status: 'ok',
+        metadata: { file_path: 'component_contracts.json' },
+      },
+      {
+        id: 3,
+        task_id: 'task-1',
+        timestamp: '2026-08-05T00:00:05Z',
+        elapsed_ms: 3000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: `${first}\n\n${second}` },
+      },
+    ];
+
+    const items = deriveInlineConversationItems(runtimeAssistantOutputMessages(events), events);
+
+    expect(items.map(item => item.type)).toEqual(['message', 'tool_group', 'message']);
+    expect(items[0].type === 'message' ? items[0].message.content : '').toBe(first);
+    expect(items[2].type === 'message' ? items[2].message.content : '').toBe(second);
   });
 
   it('does not expose tool output previews as assistant chat content', () => {
@@ -300,6 +387,7 @@ describe('workbench utilities', () => {
       role: 'assistant',
       content: '## 可见规划\n\n继续执行。',
       timestamp: '2026-08-05T00:00:03Z',
+      runtime_event_id: 3,
     }]);
   });
 
@@ -347,6 +435,102 @@ describe('workbench utilities', () => {
     expect(tools[0].args_preview).toContain('aerial city skyline');
     expect(tools[0].source_urls).toEqual(['https://unsplash.com/photos/abc']);
     expect(tools[0].image_results[0].local_path).toBe('assets/images/abc.jpg');
+  });
+
+  it('pairs concurrent tool start/end events by query before falling back to tool name', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'tool_start',
+        name: 'search_images',
+        status: 'running',
+        metadata: { image_query: 'world map globe soft light' },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'tool_start',
+        name: 'search_images',
+        status: 'running',
+        metadata: { image_query: 'international flags government building' },
+      },
+      {
+        id: 3,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:03Z',
+        elapsed_ms: 3000,
+        kind: 'tool_end',
+        name: 'search_images',
+        status: 'ok',
+        metadata: { image_query: 'international flags government building', image_results: [{ id: 'flags', preview_url: 'https://images.example/flags.jpg' }] },
+      },
+      {
+        id: 4,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:04Z',
+        elapsed_ms: 4000,
+        kind: 'tool_end',
+        name: 'search_images',
+        status: 'ok',
+        metadata: { image_query: 'world map globe soft light', image_results: [{ id: 'map', preview_url: 'https://images.example/map.jpg' }] },
+      },
+    ];
+
+    const tools = deriveInlineToolPreviews(events);
+
+    expect(tools).toHaveLength(2);
+    expect(tools[0].start_event_id).toBe(1);
+    expect(tools[0].end_event_id).toBe(4);
+    expect(tools[0].image_results[0].id).toBe('map');
+    expect(tools[1].start_event_id).toBe(2);
+    expect(tools[1].end_event_id).toBe(3);
+    expect(tools[1].image_results[0].id).toBe('flags');
+  });
+
+  it('deduplicates repeated completed image-search previews with the same query', () => {
+    const duplicate = (id: number): RuntimeEvent => ({
+      id,
+      task_id: 'task-1',
+      timestamp: `2026-08-26T00:00:0${id}Z`,
+      elapsed_ms: id * 1000,
+      kind: 'tool_end',
+      name: 'search_images',
+      status: 'ok',
+      metadata: {
+        image_query: 'world map globe soft light wide landscape clean negative space',
+        image_results: [{ id: 'map', preview_url: 'https://images.example/map.jpg' }],
+      },
+    });
+
+    const tools = deriveInlineToolPreviews([duplicate(1), duplicate(2)]);
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0].end_event_id).toBe(2);
+  });
+
+  it('shows image search purpose in preview detail and args fields', () => {
+    const [tool] = deriveInlineToolPreviews([{
+      id: 1,
+      task_id: 'task-1',
+      timestamp: '2026-08-26T00:00:01Z',
+      elapsed_ms: 1000,
+      kind: 'tool_end',
+      name: 'search_images',
+      status: 'ok',
+      metadata: {
+        image_query: 'diplomatic negotiation table',
+        search_reason: '用于外交协商页面的图文混排示例',
+        image_results: [{ id: 'diplomacy', preview_url: 'https://images.example/diplomacy.jpg' }],
+      },
+    }]);
+
+    expect(tool.detail).toContain('目的：用于外交协商页面');
+    expect(formatToolPreviewFields(tool, 'args')).toContainEqual({ label: '搜索原因', value: '用于外交协商页面的图文混排示例' });
   });
 
   it('interleaves conversation messages and tool previews by timestamp', () => {

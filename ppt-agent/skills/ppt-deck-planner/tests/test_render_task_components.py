@@ -7,6 +7,8 @@ import zipfile
 from unittest.mock import patch
 
 from PIL import Image
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.util import Inches
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT))
@@ -23,6 +25,7 @@ from generators.component_layout import (
     component_body,
     component_items,
     component_label,
+    image_text_regions,
     render_component_slide,
 )
 
@@ -187,6 +190,17 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("Photo by Demo on Unsplash", slide_xml)
 
+    def test_image_text_layout_variants_change_regions(self):
+        left_image, left_text, _ = image_text_regions("image_left", 0.65, 1.72, 11.95, 5.0)
+        right_image, right_text, _ = image_text_regions("image_right", 0.65, 1.72, 11.95, 5.0)
+        top_image, top_text, _ = image_text_regions("image_top_band", 0.65, 1.72, 11.95, 5.0)
+
+        self.assertLess(left_image[0], left_text[0])
+        self.assertGreater(right_image[0], right_text[0])
+        self.assertEqual(top_image[0], 0.65)
+        self.assertGreater(top_text[1], top_image[1] + top_image[3])
+        self.assertLessEqual(top_text[1] + top_text[3], 1.72 + 5.0)
+
     def test_build_params_resolves_relative_image_path_to_work_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             work_dir = Path(tmp)
@@ -236,6 +250,12 @@ class RenderTaskComponentsTest(unittest.TestCase):
                 background=render_task.background_from_task(task, work_dir),
                 components=params["components"],
             )
+            alpha_values = [
+                node.get("val")
+                for node in prs.slides[0].shapes[-1].element.iter()
+                if node.tag.endswith("alpha")
+            ]
+            self.assertEqual(alpha_values, ["392"])
             output = work_dir / "background-slide.pptx"
             save_slide(prs.slides[0], str(output))
             with zipfile.ZipFile(output) as package:
@@ -263,6 +283,7 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
             anchors = [shape for shape in slide.shapes if shape.name == "Background image anchor"]
             self.assertEqual(len(anchors), 1)
+            self.assertEqual(len(slide.shapes), 1)
             self.assertEqual(anchors[0].left, 0)
             self.assertEqual(anchors[0].top, 0)
             self.assertEqual(anchors[0].width, prs.slide_width)
@@ -416,6 +437,45 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertLessEqual(len(compact), 60)
         self.assertIn("含2个链接", compact)
         self.assertNotIn("https://", compact)
+
+    def test_sourced_deep_dive_panels_stay_above_footer(self):
+        prs = render_component_slide(
+            palette="ocean_soft",
+            title="AI落地的三大挑战与应对",
+            subtitle="深入分析信任成本、系统交付和人才能力",
+            source="来源: Gartner 2026 AI Survey、毕马威AI投资回报报告",
+            content_type="deep_dive",
+            components=[
+                {
+                    "type": "argument_block",
+                    "body": "AI落地正面临高热度与窄落地的结构性反差。" * 28,
+                },
+                {"type": "risk_item", "body": "工业场景的信任成本高。"},
+                {"type": "risk_item", "body": "系统交付能力仍然不足。"},
+                {"type": "opportunity_item", "body": "协议标准化正在改善工具协作。"},
+                {"type": "recommendation", "body": "通过分层培训补齐复合型人才能力。"},
+            ],
+        )
+
+        slide = prs.slides[0]
+        footer_divider = next(
+            shape
+            for shape in slide.shapes
+            if shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+            and abs(shape.top - Inches(6.85)) <= 1
+            and abs(shape.height - Inches(0.01)) <= 1
+        )
+        content_panels = [
+            shape
+            for shape in slide.shapes
+            if shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+            and abs(shape.top - Inches(1.72)) <= 1
+            and shape.height > Inches(4.0)
+        ]
+
+        self.assertEqual(len(content_panels), 2)
+        for panel in content_panels:
+            self.assertLessEqual(panel.top + panel.height, footer_divider.top - Inches(0.2))
 
     def test_atomic_components_render_without_coordinates(self):
         prs = render_component_slide(

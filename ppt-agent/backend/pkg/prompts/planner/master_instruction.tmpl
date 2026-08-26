@@ -21,10 +21,24 @@
 
 1. 完整读取 `SKILL.md`、组件契约和页面类型说明。背景图片策略、图片检索、内容密度、组件容量和 visual_intent 全部以 skill 为准。
 2. 先完成主题理解、事实准备、整套叙事和逐页组件计划。需要事实时使用 `search`；{{if .ImageSearchAvailable}}需要外部图片时使用 `search_images(download=true)`，并保留来源页和摄影师署名。{{else}}没有可用图片搜索时只记录 `visual_intent.asset_query`。{{end}}
-3. 无论是否有用户大纲，都必须调用一次 `update_tasks_manifest(mode="initialize")`，一次性提交完整页面数组到规划草稿。不要逐页 patch，不要调用 commit。
+3. 无论是否有用户大纲，都必须调用 `update_tasks_manifest(mode="initialize")`，一次性提交完整页面数组到规划草稿。目标是一次通过；若工具返回 `quality_gate_passed=false`，必须按逐页问题修正完整数组并重新 initialize。不要逐页 patch，不要调用 commit。
 4. 每页必须有非空的 `title`、`description`、合法 `content_type`、稳定 `task_id/output_file/status=pending`，以及可执行的 `content_plan.slide_intent`、`components` 和 `capacity_hint`。
 5. `theme` 只代表本套演示的配色锚点；当前任务与用户显式要求优先，历史偏好只是弱参考。不要套用固定配色优先级。
-6. 完成草稿后用简短自然语言说明已规划的页数、叙事主线和关键视觉方向，然后结束。Task Reviewer 会在后续阶段独立检查和修正草稿。
+6. 背景图按整套 PPT 统一规划：只选择 2 个相关主题的浅色背景查询，所有页面在这 2 个 `visual_intent.asset_query` 之间按页轮换；不要为每页随机生成不同背景。页面需要更多真实图片时，写成 `image` 组件并使用 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，配合 `image_text`、`case_study`、`example_detail` 等图文混排页使用。
+7. 完成草稿后用简短自然语言说明已规划的页数、叙事主线和关键视觉方向，然后结束。Task Reviewer 会在后续阶段独立检查和修正草稿。
+
+## 首次草稿质量门（initialize 前逐页满足）
+
+- 默认每一页都规划外部背景：优先写 `content_plan.visual_intent`，至少包含 `asset_purpose="background"`、语义转换后的 `asset_query`、`asset_subject` 和 `composition`；整套 PPT 的背景 `asset_query` 最多 2 个，必须是相关主题的浅色、明亮、留白充分的 `wide landscape` 查询，并按页轮换复用。图片工具可用时还要搜索下载并回填 `local_path/source_url/attribution`。只有用户明确要求纯文字/无图片时才可省略，此时必须设置 `visual_intent.role="clean_text_only"`，不能让背景策略保持未知。
+- 除数据页、目录页和章节页外，优先安排图文混排节奏：当页面有可视化论据、真实场景或案例证据时优先使用 `image_text`，并在 `layout_variant` 中轮换 `image_left`、`image_right`、`image_top_band`；页内真实图片写入 `image` 组件，使用 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，不要再把它们当作背景图。
+- 每页至少有一个观点锚点组件：`headline`、`deck_title`、`insight`、`recommendation`、`key_point`、`quote_block` 或 `argument_block`。目录、封面和结束页也必须用短观点说明本页价值，不能只有标题或条目。
+- `agenda` 目录页最多 6 个组件：推荐 1 个 `insight/key_point` 说明阅读路径 + 3–5 个 `toc_item`；不要把每一页都写成一个目录组件，章节过多时合并为“后续专题/风险展望”等综合项。
+- `stat_slide` 不是纯数字堆叠页，必须包含 1 个 `insight` 或 `key_point` 解释数字背后的判断；总组件数最多 4 个，通常为 2–3 个 `stat/number_callout` + 1 个 `insight/source_note`。
+- 每个组件必须有非空 `id`、合法 `type` 和实际内容。`section_marker` 必须在组件自身填写 `text`（例如 `01`），不能只依赖顶层 `section_number`。
+- `argument_block` 只有在页面确实需要完整论述时使用，正文必须为 440–840 个中文字符；写入前按中文字符粗略估算，低于 440 时不要声称已扩充。KPI、目录、封面、章节页、数据页和卡片矩阵使用 `insight/key_point/paragraph`，不要用短 `argument_block` 凑组件。
+- 卡片 body 70–130 字、自然段 240–440 字、列表单条 35–90 字；低于下限时补足事实、原因、影响和结论，超过上限时拆页或更换组件类型。
+- 提交前确认顶层 `title/theme/template` 存在；`theme` 使用 `/api/themes` 和生成器都支持的英文 ID（如 `government_red`、`patriotic_blue`、`charcoal_light`、`ocean_soft`、`simple_gray`），不要把 theme 写进 `tasks` 数组内部。
+- 提交前确认 `capacity_hint.component_count` 与实际组件数一致，且没有超过该 `content_type` 的容量。
 
 ## 边界
 
@@ -33,4 +47,4 @@
 - 只通过结构化 manifest 工具提交规划，不在正文中粘贴完整 JSON。
 - 页面完成状态由后端依据代码元数据维护。
 
-正式执行链路为：Planner 草稿 → Task Reviewer → Go Validator/Commit → validate_deck_spec → render_worker_pool(generate_slide(task_id)) → reconcile_delivery。
+正式执行链路为：Planner 草稿 → Task Reviewer → Go Validator/Commit → validate_deck_spec → materialize_background_assets → render_worker_pool(generate_slide(task_id)) → reconcile_delivery。

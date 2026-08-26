@@ -3,6 +3,7 @@ package image
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -149,5 +150,66 @@ func TestImageSearchToolUsesTwoCandidatesAndCapsLargeRequests(t *testing.T) {
 	}
 	if len(requested) != 2 || requested[0] != "2" || requested[1] != "3" {
 		t.Fatalf("per_page requests = %#v, want [2 3]", requested)
+	}
+}
+
+func TestImageSearchToolReusesSearchResultsWhenRepeatedQueryDownloadsLater(t *testing.T) {
+	searchCalls := 0
+	imageCalls := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search/photos":
+			searchCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{
+				"total": 1,
+				"total_pages": 1,
+				"results": [{
+					"id": "photo-cache",
+					"width": 1600,
+					"height": 900,
+					"urls": {
+						"regular": "%s/image/photo-cache",
+						"small": "%s/image/photo-cache-small"
+					},
+					"links": {
+						"html": "https://unsplash.com/photos/photo-cache"
+					},
+					"user": {"name": "Photographer"}
+				}]
+			}`, server.URL, server.URL)))
+		case "/image/photo-cache":
+			imageCalls++
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write([]byte("fake image"))
+		default:
+			t.Fatalf("unexpected path = %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := unsplash.NewClient("test-key", unsplash.WithBaseURL(server.URL), unsplash.WithAllowedDownloadHosts(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := NewImageSearchTool(client, t.TempDir())
+	query := "world map globe soft light"
+
+	if _, err := tool.InvokableRun(context.Background(), fmt.Sprintf(`{"query":%q,"per_page":2}`, query)); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := tool.InvokableRun(context.Background(), fmt.Sprintf(`{"query":%q,"per_page":2,"download":true}`, query))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if searchCalls != 1 {
+		t.Fatalf("searchCalls = %d, want cached single search", searchCalls)
+	}
+	if imageCalls != 1 {
+		t.Fatalf("imageCalls = %d, want one download", imageCalls)
+	}
+	if !strings.Contains(raw, `"local_path"`) {
+		t.Fatalf("downloaded response missing local_path: %s", raw)
 	}
 }

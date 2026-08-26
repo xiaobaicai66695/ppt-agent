@@ -15,6 +15,7 @@ from pptx import Presentation
 
 from .base import (
     PALETTES,
+    SOURCE_CONTENT_BOTTOM,
     add_glass_panel,
     add_arrow,
     add_ellipse,
@@ -151,7 +152,7 @@ def setup_slide(
     else:
         set_slide_background(slide, palette)
         colors = PALETTES.get(palette, PALETTES["ocean_soft"])
-    return prs, slide, colors
+    return prs, slide, colors, bool(bg_path)
 
 
 def render_component_slide(
@@ -167,19 +168,45 @@ def render_component_slide(
     background: str | None = None,
 ) -> Presentation:
     background_blur = 8 if content_type in {"title_slide", "section_divider"} else 4
-    prs, slide, colors = setup_slide(prs, palette, background, blur_radius=background_blur)
+    prs, slide, colors, has_background = setup_slide(prs, palette, background, blur_radius=background_blur)
     components = normalize_components(components or [], title=title, subtitle=subtitle, content_type=content_type)
 
     if content_type == "title_slide":
-        _render_title(slide, colors, palette, title, subtitle, kicker, components, bool(background))
+        _render_title(slide, colors, palette, title, subtitle, kicker, components, has_background)
     elif content_type == "section_divider":
         _render_section(slide, colors, palette, title, subtitle, kicker, components)
     elif content_type == "quote_slide":
         _render_quote(slide, colors, palette, title, subtitle, components)
     else:
-        _render_workbench(slide, colors, palette, title, subtitle, kicker, components, content_type, layout_variant)
+        _render_workbench(
+            slide,
+            colors,
+            palette,
+            title,
+            subtitle,
+            kicker,
+            components,
+            content_type,
+            layout_variant,
+            has_source=bool(clean(source)),
+        )
 
     add_source_line(slide, source, palette)
+    if has_background:
+        # LibreOffice may omit a bottom-most full-slide picture when exporting a
+        # standalone slide unless a full-canvas alpha shape participates in the
+        # final composition. At 1/255 opacity this top-most trigger is invisible
+        # to viewers but keeps the background in PDF/JPG previews.
+        add_rect(
+            slide,
+            0,
+            0,
+            SLIDE_W,
+            SLIDE_H,
+            (255, 255, 255, 1),
+            palette=palette,
+            line_color=None,
+        )
     return prs
 
 
@@ -278,6 +305,7 @@ def _render_workbench(
     components: list[dict[str, Any]],
     content_type: str,
     layout_variant: str,
+    has_source: bool = False,
 ):
     if kicker:
         add_text(slide, kicker, 0.55, 0.18, 11.8, 0.28, 12, color="secondary", palette=palette, colors=colors)
@@ -300,7 +328,9 @@ def _render_workbench(
     lists = [c for c in body_components if c.get("type") in LIST_TYPES or c.get("items")]
 
     top = 1.72
-    height = 5.25
+    default_bottom = 6.97
+    content_bottom = SOURCE_CONTENT_BOTTOM if has_source else default_bottom
+    height = content_bottom - top
     if primitive_helpers:
         _render_primitive_strip(slide, colors, palette, primitive_helpers, 8.05, 0.26, 4.45)
     if content_type in {"chart_slide"} and charts:
@@ -344,20 +374,24 @@ def _render_workbench(
             photo = resolve_photo(image_path=image_path, text=component_text(image_component))
         else:
             photo = None
-        if photo and add_cropped_photo(slide, photo, 0.65, top, 4.0, height):
+        image_box, text_box, caption_box = image_text_regions(layout_variant, 0.65, top, 11.95, height)
+        image_left, image_top, image_w, image_h = image_box
+        text_left, text_top, text_w, text_h = text_box
+        caption_left, caption_top, caption_w, caption_h = caption_box
+        if photo and add_cropped_photo(slide, photo, image_left, image_top, image_w, image_h):
             caption = clean(image_component.get("caption") or image_component.get("attribution") or component_text(image_component))
             if caption:
-                add_glass_panel(slide, 0.88, top + height - 0.82, 3.54, 0.52, palette=palette, fill_color="background", alpha=224)
-                add_text(slide, clamp_text(caption, text_limit(3.25, 0.26, 9.0, 0.95)), 1.02, top + height - 0.68, 3.25, 0.24, 9.0, color="secondary", palette=palette, colors=colors, min_font_size=7, max_font_size=False)
+                add_glass_panel(slide, caption_left, caption_top, caption_w, caption_h, palette=palette, fill_color="background", alpha=224)
+                add_text(slide, clamp_text(caption, text_limit(caption_w - 0.28, caption_h - 0.25, 9.0, 0.95)), caption_left + 0.14, caption_top + 0.14, caption_w - 0.28, caption_h - 0.25, 9.0, color="secondary", palette=palette, colors=colors, min_font_size=7, max_font_size=False)
         else:
-            add_glass_panel(slide, 0.65, top, 4.0, height, palette=palette, fill_color="light_bg", alpha=210)
+            add_glass_panel(slide, image_left, image_top, image_w, image_h, palette=palette, fill_color="light_bg", alpha=210)
             image_text = component_text(image_component) or "主题视觉"
-            add_text(slide, image_text, 0.95, top + 1.9, 3.4, 0.8, 22, True, "primary", "center", palette=palette, colors=colors)
+            add_text(slide, image_text, image_left + 0.3, image_top + max(0.2, image_h / 2 - 0.4), image_w - 0.6, 0.8, 22, True, "primary", "center", palette=palette, colors=colors)
         text_side = [c for c in body_components if c.get("type") not in MEDIA_TYPES]
         if has_narrative_components(text_side):
-            _render_narrative_panel(slide, colors, palette, text_side, 5.0, top, 7.6, height)
+            _render_narrative_panel(slide, colors, palette, text_side, text_left, text_top, text_w, text_h)
         else:
-            _render_cards(slide, colors, palette, text_side, 5.0, top, 7.6, height, compact=True, align_y="middle")
+            _render_cards(slide, colors, palette, text_side, text_left, text_top, text_w, text_h, compact=True, align_y="middle")
     elif content_type in {"content_slide", "summary_slide"} and has_narrative_components(body_components):
         _render_narrative_panel(slide, colors, palette, body_components, 0.65, top, 11.95, height)
     else:
@@ -379,6 +413,36 @@ def is_background_media(item: dict[str, Any]) -> bool:
     return item.get("type") in MEDIA_TYPES and (
         purpose == "background" or position == "background" or role in {"background", "hero_photo"}
     )
+
+
+def image_text_regions(layout_variant: str, left: float, top: float, width: float, height: float):
+    variant = clean(layout_variant).replace("-", "_").lower()
+    gap = 0.35
+    if variant in {"image_right", "right_image", "right"}:
+        image_w = min(4.05, width * 0.36)
+        text_w = width - image_w - gap
+        image_box = (left + text_w + gap, top, image_w, height)
+        text_box = (left, top, text_w, height)
+    elif variant in {"image_top_band", "top_band", "image_top", "top"}:
+        image_h = min(2.15, height * 0.42)
+        image_box = (left, top, width, image_h)
+        text_box = (left, top + image_h + gap, width, height - image_h - gap)
+    else:
+        image_w = min(4.05, width * 0.36)
+        text_w = width - image_w - gap
+        image_box = (left, top, image_w, height)
+        text_box = (left + image_w + gap, top, text_w, height)
+
+    image_left, image_top, image_w, image_h = image_box
+    caption_w = max(1.2, image_w - 0.46)
+    caption_h = 0.52
+    caption_box = (
+        image_left + 0.23,
+        image_top + max(0, image_h - caption_h - 0.28),
+        caption_w,
+        caption_h,
+    )
+    return image_box, text_box, caption_box
 
 
 def _render_cards(

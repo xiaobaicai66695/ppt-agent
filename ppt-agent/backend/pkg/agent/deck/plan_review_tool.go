@@ -14,6 +14,9 @@ import (
 
 const planReviewFileName = "tasks.review.json"
 
+const argumentBlockTargetMinChars = 440
+const minVisualMixedSlidesForDeck = 2
+
 type PlanReviewReport struct {
 	OK              bool              `json:"ok"`
 	Passed          bool              `json:"passed"`
@@ -92,6 +95,8 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 	for _, task := range manifest.Tasks {
 		reviewTaskPlan(task, report)
 	}
+	reviewDeckBackgroundVariety(manifest, report)
+	reviewDeckVisualMix(manifest, report)
 	return finalizePlanReviewReport(report, manifest)
 }
 
@@ -143,31 +148,53 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 	}
 	for i := range plan.Components {
 		component := &plan.Components[i]
-		if isExternalBackgroundComponent(component) && strings.TrimSpace(component.LocalPath) == "" {
-			severity := "error"
-			message := "背景图片组件缺少 local_path 和 asset_query，无法执行后续素材规划。"
-			if strings.TrimSpace(component.AssetQuery) != "" {
-				severity = "warning"
-				message = "背景图片已规划 asset_query，但当前尚未下载 local_path。"
-			}
+		if isExternalBackgroundComponent(component) && strings.TrimSpace(component.LocalPath) == "" && strings.TrimSpace(component.AssetQuery) == "" {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "missing_background_image",
-				Severity:    severity,
+				Severity:    "error",
 				PageIndex:   page,
 				ComponentID: component.ID,
-				Message:     message,
+				Message:     "背景图片组件缺少 local_path 和 asset_query，无法执行后续素材规划。",
 			})
 		}
-		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) < 220 {
+		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) < argumentBlockTargetMinChars {
+			currentChars := runeLen(firstNonEmptyString(component.Body, component.Text, component.Description))
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "low_information_density",
 				Severity:    "warning",
 				PageIndex:   page,
 				ComponentID: component.ID,
-				Message:     "argument_block 字数偏少，无法承担大段论述页的深度表达。",
+				Message:     fmt.Sprintf("argument_block 当前约 %d 字，少于 %d 字；需要完整论述时补足背景、证据、推理和结论，否则改用 paragraph、insight 或 key_point。", currentChars, argumentBlockTargetMinChars),
 			})
 		}
 	}
+	if task.ContentType == "image_text" && !hasForegroundImageComponent(plan.Components) {
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:      "layout_mismatch",
+			Severity:  "warning",
+			PageIndex: page,
+			Message:   "image_text 页面缺少 scene/evidence 图片组件；背景图只承担浅色氛围，页内示例图片应作为 image 组件参与图文混排。",
+		})
+	}
+}
+
+// plannerPreflightIssues returns quality problems that the Planner can and
+// should prevent before a draft reaches the independent Reviewer. Keeping this
+// based on ReviewTasksManifest avoids a second set of thresholds drifting from
+// the review gate.
+func plannerPreflightIssues(manifest *TasksManifest) []PlanReviewIssue {
+	report := ReviewTasksManifest(manifest, "planner_initialize", 0)
+	if report == nil || len(report.Issues) == 0 {
+		return nil
+	}
+	issues := make([]PlanReviewIssue, 0, len(report.Issues))
+	for _, issue := range report.Issues {
+		switch strings.TrimSpace(issue.Code) {
+		case "invalid_component_schema", "missing_background_image", "weak_narrative", "low_information_density", "overload_capacity", "layout_mismatch":
+			issues = append(issues, issue)
+		}
+	}
+	return issues
 }
 
 func finalizePlanReviewReport(report *PlanReviewReport, manifest *TasksManifest) *PlanReviewReport {
@@ -266,6 +293,104 @@ func planReviewActionForCode(code string) string {
 	}
 }
 
+func reviewDeckBackgroundVariety(manifest *TasksManifest, report *PlanReviewReport) {
+	if manifest == nil || report == nil {
+		return
+	}
+	seen := map[string]bool{}
+	var queries []string
+	for _, task := range manifest.Tasks {
+		if task == nil || task.ContentPlan == nil {
+			continue
+		}
+		addQuery := func(query string) {
+			query = strings.ToLower(strings.TrimSpace(query))
+			if query == "" || seen[query] {
+				return
+			}
+			seen[query] = true
+			queries = append(queries, query)
+		}
+		if visual := task.ContentPlan.VisualIntent; visual != nil && isExternalBackgroundIntent(visual) {
+			addQuery(visual.AssetQuery)
+		}
+		for i := range task.ContentPlan.Components {
+			component := &task.ContentPlan.Components[i]
+			if isExternalBackgroundComponent(component) {
+				addQuery(component.AssetQuery)
+			}
+		}
+	}
+	if len(queries) <= deckBackgroundSlots {
+		return
+	}
+	report.Issues = append(report.Issues, PlanReviewIssue{
+		Code:     "layout_mismatch",
+		Severity: "warning",
+		Message:  fmt.Sprintf("整套 PPT 背景查询超过 %d 个，容易造成视觉随机跳变；应收敛为两张浅色主题背景并按页轮换，其余图片作为 scene/evidence 图文素材。", deckBackgroundSlots),
+	})
+}
+
+func reviewDeckVisualMix(manifest *TasksManifest, report *PlanReviewReport) {
+	if manifest == nil || report == nil {
+		return
+	}
+	contentSlides := 0
+	visualMixedSlides := 0
+	imageTextSlides := 0
+	imageTextVariants := map[string]bool{}
+	for _, task := range manifest.Tasks {
+		if task == nil {
+			continue
+		}
+		contentType := strings.TrimSpace(task.ContentType)
+		if isNarrativeContentSlide(contentType) {
+			contentSlides++
+		}
+		if isVisualMixedContentType(contentType) {
+			visualMixedSlides++
+			if contentType == "image_text" {
+				imageTextSlides++
+				if variant := strings.TrimSpace(task.LayoutVariant); variant != "" {
+					imageTextVariants[variant] = true
+				}
+			}
+		}
+	}
+	if contentSlides >= 4 && visualMixedSlides < minVisualMixedSlidesForDeck {
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:     "layout_mismatch",
+			Severity: "warning",
+			Message:  fmt.Sprintf("整套 PPT 图文混排不足：%d 个叙事内容页中仅 %d 页使用 image_text/case_study/example_detail；应多用 scene/evidence 图片组件承载示例素材。", contentSlides, visualMixedSlides),
+		})
+	}
+	if imageTextSlides >= 3 && len(imageTextVariants) == 1 {
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:     "layout_mismatch",
+			Severity: "warning",
+			Message:  "连续图文混排页的 layout_variant 过于单一；image_text 应在 image_left、image_right、image_top_band 之间轮换。",
+		})
+	}
+}
+
+func isNarrativeContentSlide(contentType string) bool {
+	switch strings.TrimSpace(contentType) {
+	case "content_slide", "card_grid", "three_column", "two_column", "image_text", "case_study", "example_detail", "deep_dive", "summary_slide", "icon_grid", "region_map", "brand_focus":
+		return true
+	default:
+		return false
+	}
+}
+
+func isVisualMixedContentType(contentType string) bool {
+	switch strings.TrimSpace(contentType) {
+	case "image_text", "case_study", "example_detail":
+		return true
+	default:
+		return false
+	}
+}
+
 func WritePlanReviewReport(workDir string, report *PlanReviewReport) error {
 	if report == nil {
 		return nil
@@ -353,6 +478,23 @@ func hasNarrativeAnchor(components []PlanComponent) bool {
 	return false
 }
 
+func hasForegroundImageComponent(components []PlanComponent) bool {
+	for i := range components {
+		component := &components[i]
+		if strings.TrimSpace(component.Type) != "image" || isExternalBackgroundComponent(component) {
+			continue
+		}
+		purpose := strings.TrimSpace(component.AssetPurpose)
+		if purpose != "" && !strings.EqualFold(purpose, "scene") && !strings.EqualFold(purpose, "evidence") && !strings.EqualFold(purpose, "decorative") {
+			continue
+		}
+		if strings.TrimSpace(component.LocalPath) != "" || strings.TrimSpace(component.AssetQuery) != "" || strings.TrimSpace(component.AssetID) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func hasPlanNarrativeSummary(task *TaskItem, plan *ContentPlan) bool {
 	if plan == nil {
 		return false
@@ -379,6 +521,9 @@ func hasUsableBackgroundPlan(task *TaskItem) bool {
 	}
 	if task.ContentPlan == nil {
 		return false
+	}
+	if task.ContentPlan.VisualIntent != nil && strings.EqualFold(strings.TrimSpace(task.ContentPlan.VisualIntent.Role), "clean_text_only") {
+		return true
 	}
 	if isExternalBackgroundIntent(task.ContentPlan.VisualIntent) {
 		return strings.TrimSpace(task.ContentPlan.VisualIntent.LocalPath) != "" ||

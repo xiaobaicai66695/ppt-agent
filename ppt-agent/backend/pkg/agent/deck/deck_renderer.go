@@ -3,6 +3,7 @@ package deck
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
@@ -47,9 +49,11 @@ type deckRenderContext struct {
 func RenderDeckByTaskIDWorkflow(ctx context.Context, cfg *PPTTaskConfig, onEvent DeckRenderEventCallback) (*PPTTaskResult, error) {
 	graph := compose.NewGraph[*deckRenderInput, *PPTTaskResult]()
 	_ = graph.AddLambdaNode("validate_deck_spec", compose.InvokableLambda(validateDeckRenderInput))
+	_ = graph.AddLambdaNode("materialize_background_assets", compose.InvokableLambda(materializeDeckBackgroundAssets))
 	_ = graph.AddLambdaNode("render_worker_pool", compose.InvokableLambda(renderValidatedDeck))
 	_ = graph.AddEdge(compose.START, "validate_deck_spec")
-	_ = graph.AddEdge("validate_deck_spec", "render_worker_pool")
+	_ = graph.AddEdge("validate_deck_spec", "materialize_background_assets")
+	_ = graph.AddEdge("materialize_background_assets", "render_worker_pool")
 	_ = graph.AddEdge("render_worker_pool", compose.END)
 
 	runner, err := graph.Compile(ctx, compose.WithGraphName("PPTDeckRenderWorkflow"))
@@ -61,6 +65,38 @@ func RenderDeckByTaskIDWorkflow(ctx context.Context, cfg *PPTTaskConfig, onEvent
 		Callback: onEvent,
 		Started:  time.Now(),
 	})
+}
+
+func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContext) (*deckRenderContext, error) {
+	if deck == nil || deck.Config == nil || deck.Manifest == nil || len(deck.Tasks) == 0 {
+		return deck, nil
+	}
+	// Only hydrate pages selected for this render pass. The task pointers are shared
+	// with deck.Manifest, so successful metadata is still persisted to tasks.json.
+	pendingManifest := &TasksManifest{Tasks: deck.Tasks}
+	counts, err := MaterializePlannedDeckAssets(ctx, deck.Config.WorkDir, pendingManifest)
+	if errors.Is(err, unsplash.ErrMissingAccessKey) {
+		if deck.Config.RuntimeMeta != nil {
+			deck.Config.RuntimeMeta.RecordPhase("compiling", "图片搜索未配置，保留可执行图片查询词并继续渲染")
+		}
+		return deck, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("materialize planned deck assets: %w", err)
+	}
+	if counts.Backgrounds == 0 && counts.Images == 0 {
+		return deck, nil
+	}
+	if err := WriteTasksManifest(deck.Config.WorkDir, deck.Manifest); err != nil {
+		return nil, fmt.Errorf("persist materialized deck assets: %w", err)
+	}
+	if deck.Config.RuntimeMeta != nil {
+		deck.Config.RuntimeMeta.RecordPhase(
+			"compiling",
+			fmt.Sprintf("已写回 %d 个轮换背景引用和 %d 个图文素材，开始按页渲染", counts.Backgrounds, counts.Images),
+		)
+	}
+	return deck, nil
 }
 
 func validateDeckRenderInput(ctx context.Context, input *deckRenderInput) (*deckRenderContext, error) {

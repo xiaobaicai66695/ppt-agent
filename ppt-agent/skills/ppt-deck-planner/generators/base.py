@@ -6,7 +6,7 @@ import re
 from copy import deepcopy
 from typing import Literal
 
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageStat
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR_TYPE
@@ -14,6 +14,13 @@ from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
 from pptx.oxml.ns import qn
 from lxml import etree
+
+
+# Footer geometry is shared with the component layout engine so sourced slides
+# reserve a real safe area above the divider instead of letting cards overlap it.
+SOURCE_DIVIDER_TOP = 6.85
+SOURCE_TEXT_TOP = 6.90
+SOURCE_CONTENT_BOTTOM = 6.62
 
 # ---------------------------------------------------------------------------
 # Palette definitions (浅色基调，饱和度 5%-45%，亮度 80%-95%)
@@ -272,6 +279,19 @@ def set_image_background(
     if blur_radius > 0:
         img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
+    # Bake the readability veil into the raster instead of relying on a
+    # slide-sized semi-transparent shape. LibreOffice and some browser preview
+    # converters render DrawingML alpha inconsistently, which can turn that
+    # overlay nearly opaque and make a valid background appear missing.
+    preview = img.resize((64, 64), Image.Resampling.BILINEAR)
+    mean_r, mean_g, mean_b = ImageStat.Stat(preview).mean[:3]
+    mean_luma = 0.2126 * mean_r + 0.7152 * mean_g + 0.0722 * mean_b
+    target_luma = 200.0
+    veil_strength = (target_luma - mean_luma) / max(1.0, 255.0 - mean_luma)
+    veil_strength = min(0.70, max(0.30, veil_strength))
+    veil = Image.new("RGB", img.size, (255, 255, 255))
+    img = Image.blend(img, veil, veil_strength)
+
     # 临时保存处理后的图片
     import tempfile
     with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
@@ -296,9 +316,9 @@ def set_image_background(
 
     os.remove(temp_path)
 
-    # 自动添加磨砂玻璃叠加层，提升内容可读性
-    # add_frosted_glass_overlay 返回适合玻璃背景的颜色映射
-    return add_frosted_glass_overlay(slide, palette)
+    # The veil is already part of the bitmap. The component renderer appends its
+    # LibreOffice compositor trigger after all page content has been created.
+    return add_frosted_glass_overlay(slide, palette, overlay_alpha=0)
 
 
 def _fit_background_image(
@@ -341,7 +361,11 @@ def _fit_background_image(
     return backdrop
 
 
-def add_frosted_glass_overlay(slide, palette: str = "ocean_soft"):
+def add_frosted_glass_overlay(
+    slide,
+    palette: str = "ocean_soft",
+    overlay_alpha: int = 96,
+):
     """
     在幻灯片上添加磨砂玻璃叠加层并返回适合的颜色映射。
 
@@ -353,12 +377,13 @@ def add_frosted_glass_overlay(slide, palette: str = "ocean_soft"):
         dict: 颜色映射，key 为 palette 颜色名，value 为适合玻璃背景的新颜色。
               例如 {"primary": "FFFFFF", "divider": "D0D0D0", "accent": "FFFFFF"}
     """
-    add_rect(
-        slide,
-        left=0.0, top=0.0, width=13.333, height=7.5,
-        fill_color=(255, 255, 255, 96),
-        line_color=None,
-    )
+    if overlay_alpha > 0:
+        add_rect(
+            slide,
+            left=0.0, top=0.0, width=13.333, height=7.5,
+            fill_color=(255, 255, 255, min(255, overlay_alpha)),
+            line_color=None,
+        )
     # 玻璃模式下，文字和色块用深色系（在白色磨砂底上可读），
     # 填充色用深蓝色系（保持海洋配色风格，在磨砂玻璃上有足够对比度）
     glass_palette = PALETTES.get(palette, PALETTES["ocean_soft"]).copy()
@@ -604,6 +629,12 @@ def save_slide(slide, output_path: str):
         dest_spTree.append(el)
 
     save_presentation(new_prs, output_path)
+    # Relationships copied from the source presentation are valid enough for
+    # PowerPoint to open, but LibreOffice can skip their bottom-most image on the
+    # first package serialization. Reopening and saving once makes python-pptx
+    # rebuild the standalone package relationship graph consistently.
+    normalized = Presentation(output_path)
+    normalized.save(output_path)
 
 
 def compact_source_text(source: str, max_chars: int = 96) -> str:
@@ -643,7 +674,7 @@ def add_source_line(
     # 底部淡灰色分割线
     add_rect(
         slide,
-        left=0.5, top=6.85, width=12.0, height=0.01,
+        left=0.5, top=SOURCE_DIVIDER_TOP, width=12.0, height=0.01,
         fill_color="text_muted", palette=palette,
     )
 
@@ -651,7 +682,7 @@ def add_source_line(
     add_text(
         slide,
         text=source,
-        left=0.5, top=6.9, width=12.0, height=0.35,
+        left=0.5, top=SOURCE_TEXT_TOP, width=12.0, height=0.35,
         font_size=9, bold=False,
         color="text_muted", alignment="left",
         palette=palette,

@@ -190,6 +190,7 @@ export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): Conversa
       role: 'assistant',
       content,
       timestamp: event.timestamp || new Date(0).toISOString(),
+      runtime_event_id: event.id > 0 ? event.id : undefined,
     }, { splitCumulativePrefix: toolEventSinceAssistant });
     toolEventSinceAssistant = false;
   }
@@ -240,7 +241,14 @@ function duplicateContentRelation(
   if (existing === incoming) return 'same';
   const minLength = Math.min(existing.length, incoming.length);
   const maxLength = Math.max(existing.length, incoming.length);
-  if (minLength < 20 || minLength / maxLength < 0.18) return 'none';
+  if (minLength < 20) return 'none';
+  // LLM/SSE events may publish the full answer accumulated so far. Earlier
+  // turns can be a small fraction of the final snapshot, but an exact prefix
+  // is still strong evidence that this is cumulative output rather than a new
+  // assistant message.
+  if (incoming.startsWith(existing)) return 'incoming_contains_existing';
+  if (existing.startsWith(incoming)) return 'existing_contains_incoming';
+  if (minLength / maxLength < 0.18) return 'none';
   if (existing.includes(incoming)) return 'existing_contains_incoming';
   if (incoming.includes(existing)) return 'incoming_contains_existing';
   return 'none';
@@ -250,8 +258,21 @@ function cumulativeConversationSuffix(existing: string, incoming: string): strin
   const existingTrimmed = existing.trim();
   const incomingTrimmed = incoming.trim();
   if (!existingTrimmed || !incomingTrimmed) return null;
-  if (!incomingTrimmed.startsWith(existingTrimmed)) return null;
-  return incomingTrimmed.slice(existingTrimmed.length).replace(/^\s+/, '').trim();
+  const existingNormalized = normalizeConversationContent(existingTrimmed);
+  const incomingNormalized = normalizeConversationContent(incomingTrimmed);
+  if (!incomingNormalized.startsWith(existingNormalized)) return null;
+
+  let matched = 0;
+  let suffixStart = 0;
+  for (let index = 0; index < incomingTrimmed.length && matched < existingNormalized.length; index += 1) {
+    const char = incomingTrimmed[index];
+    if (/\s/.test(char)) continue;
+    if (char.toLowerCase() !== existingNormalized[matched]) return null;
+    matched += 1;
+    suffixStart = index + 1;
+  }
+  if (matched !== existingNormalized.length) return null;
+  return incomingTrimmed.slice(suffixStart).replace(/^\s+/, '').trim();
 }
 
 export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {
@@ -335,6 +356,19 @@ export type InlineConversationItem =
   | { type: 'message'; key: string; timestamp: string; message: ConversationMessage }
   | { type: 'tool_group'; key: string; timestamp: string; group: InlineToolGroupPreview };
 
+function inlineItemOrder(item: InlineConversationItem): number {
+  if (item.type === 'message' && item.message.runtime_event_id && item.message.runtime_event_id > 0) {
+    return item.message.runtime_event_id;
+  }
+  if (item.type === 'tool_group') {
+    const eventIds = item.group.tools
+      .flatMap(tool => [tool.start_event_id, tool.end_event_id])
+      .filter((id): id is number => Boolean(id && id > 0));
+    if (eventIds.length > 0) return Math.min(...eventIds);
+  }
+  return Number.NaN;
+}
+
 export function deriveInlineConversationItems(
   messages: ConversationMessage[] = [],
   events: RuntimeEvent[] = [],
@@ -370,6 +404,9 @@ export function deriveInlineConversationItems(
     });
   });
   const sorted = items.sort((a, b) => {
+    const aOrder = inlineItemOrder(a);
+    const bOrder = inlineItemOrder(b);
+    if (!Number.isNaN(aOrder) && !Number.isNaN(bOrder) && aOrder !== bOrder) return aOrder - bOrder;
     const timeDelta = Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
     if (timeDelta !== 0) return timeDelta;
     if (a.type !== b.type) return a.type === 'tool_group' ? -1 : 1;
@@ -386,21 +423,40 @@ export function deriveInlineToolPreviews(events: RuntimeEvent[] = []): InlineToo
   const previews: InlineToolPreview[] = [];
   const running = new Map<string, InlineToolPreview[]>();
 
+  const enqueueRunning = (event: RuntimeEvent, preview: InlineToolPreview) => {
+    for (const key of toolRunningKeys(event)) {
+      running.set(key, [...(running.get(key) || []), preview]);
+    }
+  };
+  const dequeueRunning = (event: RuntimeEvent): InlineToolPreview | undefined => {
+    for (const key of toolRunningKeys(event)) {
+      const queue = running.get(key) || [];
+      const existing = queue.shift();
+      if (queue.length) running.set(key, queue);
+      else running.delete(key);
+      if (existing) {
+        for (const [otherKey, otherQueue] of running.entries()) {
+          const nextQueue = otherQueue.filter(item => item !== existing);
+          if (nextQueue.length) running.set(otherKey, nextQueue);
+          else running.delete(otherKey);
+        }
+        return existing;
+      }
+    }
+    return undefined;
+  };
+
   for (const event of sorted) {
     if (!isToolLikeRuntimeEvent(event)) continue;
     const kind = (event.kind || '').toLowerCase();
-    const name = event.name || event.phase || 'tool';
     if (kind.endsWith('_start')) {
       const preview = toolPreviewFromEvent(event, 'running');
       previews.push(preview);
-      running.set(name, [...(running.get(name) || []), preview]);
+      enqueueRunning(event, preview);
       continue;
     }
     if (kind.endsWith('_end') || kind.endsWith('_error')) {
-      const queue = running.get(name) || [];
-      const existing = queue.shift();
-      if (queue.length) running.set(name, queue);
-      else running.delete(name);
+      const existing = dequeueRunning(event);
       const status = kind.endsWith('_error') || event.status === 'error' || event.status === 'failed' ? 'error' : 'ok';
       if (existing) {
         mergeToolPreview(existing, event, status);
@@ -411,7 +467,18 @@ export function deriveInlineToolPreviews(events: RuntimeEvent[] = []): InlineToo
     }
     previews.push(toolPreviewFromEvent(event, event.status || 'ok'));
   }
-  return previews;
+  return dedupeInlineToolPreviews(previews);
+}
+
+function toolRunningKeys(event: RuntimeEvent): string[] {
+  const name = event.name || event.phase || 'tool';
+  const metadata = event.metadata || {};
+  const query = firstMetadataString(metadata, 'image_query', 'search_query', 'asset_query', 'file_path', 'task_id');
+  const args = firstMetadataString(metadata, 'args', 'arguments', 'args_preview', 'arguments_preview');
+  const keys = [`name:${name}`];
+  if (query) keys.unshift(`signature:${name}:${normalizeConversationContent(query)}`);
+  if (args) keys.unshift(`args:${name}:${normalizeConversationContent(args)}`);
+  return keys;
 }
 
 function isToolLikeRuntimeEvent(event: RuntimeEvent): boolean {
@@ -467,6 +534,71 @@ function mergeToolPreview(preview: InlineToolPreview, event: RuntimeEvent, statu
   if (images.length > 0) preview.image_results = images;
   if (searchResults.length > 0) preview.search_results = searchResults;
   preview.metadata_loaded = event.metadata_loaded ?? preview.metadata_loaded;
+}
+
+function dedupeInlineToolPreviews(previews: InlineToolPreview[]): InlineToolPreview[] {
+  const out: InlineToolPreview[] = [];
+  const seen = new Map<string, InlineToolPreview>();
+  for (const preview of previews) {
+    const signature = inlineToolPreviewSignature(preview);
+    const existing = seen.get(signature);
+    if (
+      existing
+      && preview.status !== 'running'
+      && existing.status !== 'running'
+    ) {
+      mergeDuplicateToolPreview(existing, preview);
+      continue;
+    }
+    out.push(preview);
+    if (signature) seen.set(signature, preview);
+  }
+  return out;
+}
+
+function inlineToolPreviewSignature(preview: InlineToolPreview): string {
+  const query = firstParsedPreviewString(preview.args_preview || '', 'query', 'file', 'task_id')
+    || firstParsedPreviewString(preview.result_preview || '', 'query', 'file', 'task_id')
+    || preview.source_urls.join('|')
+    || preview.image_results.map(image => image.id || image.source_url || image.local_path).join('|')
+    || preview.search_results.map(result => result.url || result.title).join('|');
+  return `${preview.name}:${normalizeConversationContent(query || preview.detail || preview.result_preview || preview.args_preview || '')}`;
+}
+
+function firstParsedPreviewString(raw: string, ...keys: string[]): string {
+  const parsed = parsePreviewPayload(raw);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
+  const record = parsed as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function mergeDuplicateToolPreview(existing: InlineToolPreview, incoming: InlineToolPreview) {
+  existing.status = incoming.status === 'error' || existing.status === 'error' ? 'error' : incoming.status || existing.status;
+  existing.end_event_id = incoming.end_event_id || existing.end_event_id;
+  existing.elapsed_ms = Math.max(existing.elapsed_ms || 0, incoming.elapsed_ms || 0);
+  existing.result_preview = incoming.result_preview || existing.result_preview;
+  existing.source_urls = uniqueStrings([...existing.source_urls, ...incoming.source_urls]);
+  if (incoming.search_results.length > existing.search_results.length) existing.search_results = incoming.search_results;
+  if (incoming.image_results.length > existing.image_results.length) existing.image_results = incoming.image_results;
+  existing.metadata_loaded = incoming.metadata_loaded ?? existing.metadata_loaded;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
 }
 
 function preferredToolResultPreview(
@@ -535,11 +667,13 @@ function synthesizeToolArgsPreview(event: RuntimeEvent): string {
   const data: Record<string, unknown> = {};
   if (name === 'search') {
     data.query = metadata.search_query;
+    data.reason = metadata.search_reason;
   } else if (name === 'search_images') {
     data.query = metadata.image_query;
     data.asset_purpose = metadata.asset_purpose;
     data.asset_subject = metadata.asset_subject;
     data.composition = metadata.composition;
+    data.reason = metadata.search_reason;
   } else if (name === 'read_file') {
     data.file = metadata.file_path;
   } else if (name === 'update_tasks_manifest') {
@@ -653,6 +787,7 @@ function summarizePreviewValue(value: unknown): string {
 function previewFieldLabel(key: string): string {
   const labels: Record<string, string> = {
     query: '检索词',
+    reason: '搜索原因',
     search_query: '检索词',
     image_query: '图片检索词',
     asset_purpose: '图片用途',
@@ -917,17 +1052,19 @@ export function runtimeEventDetailLabel(event: RuntimeEvent): string {
   if (event.name === 'search') {
     const metadata = event.metadata || {};
     const query = String(metadata.search_query || '').trim();
+    const reason = truncatePreviewText(String(metadata.search_reason || '').trim(), 72);
     const urls = metadataArray(metadata.source_urls);
     if (query && event.kind === 'tool_start') return `搜索关键词：${query}`;
-    if (query && urls.length > 0) return `搜索完成：${query}，${urls.length} 个来源`;
+    if (query && urls.length > 0) return `搜索完成：${query}，${urls.length} 个来源${reason ? `；目的：${reason}` : ''}`;
     if (query) return `搜索关键词：${query}`;
   }
   if (event.name === 'search_images') {
     const metadata = event.metadata || {};
     const query = String(metadata.image_query || '').trim();
+    const reason = truncatePreviewText(String(metadata.search_reason || '').trim(), 72);
     const images = Array.isArray(metadata.image_results) ? metadata.image_results.length : 0;
-    if (query && event.kind === 'tool_start') return `图片关键词：${query}`;
-    if (query && images > 0) return `图片搜索完成：${query}，${images} 张候选`;
+    if (query && event.kind === 'tool_start') return `图片关键词：${query}${reason ? `；目的：${reason}` : ''}`;
+    if (query && images > 0) return `图片搜索完成：${query}，${images} 张候选${reason ? `；目的：${reason}` : ''}`;
     if (query) return `图片关键词：${query}`;
   }
   if (event.name === 'update_tasks_manifest') {

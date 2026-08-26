@@ -335,7 +335,7 @@ def _pdf_to_jpgs_by_stem(pdf_path: str, output_dir: str, stems: List[str], dpi: 
 
 
 def _convert_pptxs_to_jpgs(output_dir: str, pptx_files: List[str], dpi: int) -> Dict:
-    """Merge PPTXs, convert to PDF, split into JPGs named by original stems."""
+    """Batch-convert PPTXs, merge PDFs, then split JPGs by original stems."""
     soffice = find_soffice()
     pdftoppm = find_pdftoppm()
 
@@ -351,59 +351,37 @@ def _convert_pptxs_to_jpgs(output_dir: str, pptx_files: List[str], dpi: int) -> 
     stems = [Path(f).stem for f in pptx_files]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        # Step 1: Merge PPTXs via python-pptx
-        try:
-            from pptx import Presentation
-            from copy import deepcopy
-
-            base_prs = Presentation(pptx_files[0])
-            for pptx_file in pptx_files[1:]:
-                src_prs = Presentation(pptx_file)
-                blank_layout = base_prs.slide_layouts[6]
-                for slide in src_prs.slides:
-                    new_slide = base_prs.slides.add_slide(blank_layout)
-                    for shape in list(new_slide.shapes):
-                        sp = shape.element
-                        sp.getparent().remove(sp)
-                    for shape in slide.shapes:
-                        el = shape.element
-                        new_slide.shapes._spTree.insert_element_before(
-                            deepcopy(el), 'p:extLst'
-                        )
-
-            merged_pptx = os.path.join(tmp_dir, "merged.pptx")
-            base_prs.save(merged_pptx)
-        except Exception as e:
-            return {"error": f"PPTX 合并失败: {e}", "slide_images": [], "text_content": ""}
-
-        # Step 2: Convert merged PPTX to PDF
-        merged_pdf = os.path.join(tmp_dir, "merged.pdf")
+        # Step 1: Convert every standalone PPTX in one LibreOffice startup.
+        # Copying shape XML into a merged PPTX drops image/chart relationships,
+        # causing every slide except the first to lose its background. Batched
+        # multi-input conversion keeps each source package intact without paying
+        # the cost of one LibreOffice startup per file.
+        pdf_paths = [os.path.join(tmp_dir, f"{stem}.pdf") for stem in stems]
         max_retries = 2
         last_err = None
         for _ in range(max_retries + 1):
             result = subprocess.run(
                 [soffice, "--headless", "--convert-to", "pdf",
-                 "--outdir", tmp_dir, merged_pptx],
+                 "--outdir", tmp_dir, *pptx_files],
                 capture_output=True, timeout=300
             )
-            if result.returncode == 0:
+            if result.returncode == 0 and all(os.path.exists(path) for path in pdf_paths):
                 break
             last_err = result.stderr.decode('utf-8', errors='replace')
         else:
-            return {"error": f"LibreOffice 转换失败: {last_err}",
-                    "slide_images": [], "text_content": ""}
+            missing = [Path(path).name for path in pdf_paths if not os.path.exists(path)]
+            return {
+                "error": f"LibreOffice 批量转换失败: {last_err or '缺少输出文件'}; missing={missing}",
+                "slide_images": [],
+                "text_content": "",
+            }
 
-        if not os.path.exists(merged_pdf):
-            # LibreOffice may generate PDF with a different stem in tmp_dir
-            found = False
-            for name in os.listdir(tmp_dir):
-                if name.startswith("merged") and name.endswith(".pdf"):
-                    shutil.move(os.path.join(tmp_dir, name), merged_pdf)
-                    found = True
-                    break
-            if not found:
-                return {"error": "LibreOffice 未生成 PDF",
-                        "slide_images": [], "text_content": ""}
+        # Step 2: Merge PDFs, preserving every source slide's relationships.
+        merged_pdf = os.path.join(tmp_dir, "merged.pdf")
+        if len(pdf_paths) == 1:
+            shutil.copy2(pdf_paths[0], merged_pdf)
+        elif not _merge_pdfs(pdf_paths, merged_pdf):
+            return {"error": "PDF 合并失败", "slide_images": [], "text_content": ""}
 
         # Step 3: Split PDF to JPGs, name by original stems
         slide_images, errors = _pdf_to_jpgs_by_stem(
@@ -467,8 +445,8 @@ def pptx_to_images(pptx_dir: str, output_dir: str, dpi: int = 150,
             return {"error": f"在 {pptx_dir} 中未找到 PPTX 文件",
                     "slide_images": [], "text_content": ""}
 
-        # ── Always merge first, then convert once (single LibreOffice startup) ──
-        # This eliminates the N-file → N-LibreOffice problem from _convert_specific_files.
+        # ── Convert all inputs in one LibreOffice startup, then merge PDFs ──
+        # This preserves package relationships and avoids N cold starts.
         return _convert_pptxs_to_jpgs(output_dir, pptx_files, dpi)
 
     finally:

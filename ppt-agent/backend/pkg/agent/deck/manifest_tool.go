@@ -14,6 +14,9 @@ import (
 
 const tasksDraftFileName = "tasks.draft.json"
 
+const defaultManifestTheme = "ocean_soft"
+const defaultManifestTemplate = "generic"
+
 var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 	"task_id":        {Type: schema.String, Desc: "任务 ID；patch 模式必填"},
 	"page_index":     {Type: schema.Integer, Desc: "页码；initialize 模式必填"},
@@ -64,7 +67,7 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 				Type: schema.Object,
 				Desc: "页面视觉意图，用于规划图片、图表、地图、卡片等视觉角色",
 				SubParams: map[string]*schema.ParameterInfo{
-					"role":              {Type: schema.String, Desc: "hero_photo、supporting_photo、map、chart、icon、cards 等"},
+					"role":              {Type: schema.String, Desc: "hero_photo、supporting_photo、map、chart、icon、cards；用户明确要求无图时使用 clean_text_only"},
 					"asset_purpose":     {Type: schema.String, Desc: "图片用途：background（整页氛围）/scene（真实场景）/evidence（事实或案例证据）/decorative（装饰）"},
 					"asset_subject":     {Type: schema.String, Desc: "经过语义转换后的视觉主体或代理意象，不直接复制用户标题"},
 					"asset_query":       {Type: schema.String, Desc: "经过视觉转换、可直接提交给图片 provider 的最终检索词"},
@@ -205,7 +208,31 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 		})
 		return string(payload), nil
 	}
-	return t.inner.InvokableRun(ctx, argumentsInJSON, opts...)
+	manifest, err := t.inner.initializeManifest(input)
+	if err != nil {
+		return manifestToolRecoverableError(input.Mode, "draft", err), nil
+	}
+	normalizeManifestLayoutVariants(manifest)
+	normalizePlannerInitialManifest(manifest)
+	if issues := plannerPreflightIssues(manifest); len(issues) > 0 {
+		payload, _ := json.Marshal(map[string]any{
+			"ok":                  false,
+			"mode":                "initialize",
+			"target":              "draft",
+			"quality_gate_passed": false,
+			"issue_count":         len(issues),
+			"issues":              issues,
+			"next_action":         "按 issues 修正完整页面数组后重新调用 initialize；未通过质量门的草稿不会写入 tasks.draft.json。",
+		})
+		return string(payload), nil
+	}
+	if err := t.inner.writeManifest(manifest); err != nil {
+		return "", err
+	}
+	result, _ := json.Marshal(map[string]any{
+		"ok": true, "mode": "initialize", "target": "draft", "updated": len(manifest.Tasks), "total": len(manifest.Tasks),
+	})
+	return string(result), nil
 }
 
 func (t *manifestTool) Info(context.Context) (*schema.ToolInfo, error) {
@@ -324,6 +351,141 @@ func normalizeManifestLayoutVariants(manifest *TasksManifest) {
 	}
 }
 
+func normalizePlannerInitialManifest(manifest *TasksManifest) {
+	if manifest == nil {
+		return
+	}
+	if strings.TrimSpace(manifest.Theme) == "" {
+		manifest.Theme = defaultManifestTheme
+	}
+	if strings.TrimSpace(manifest.Template) == "" {
+		manifest.Template = defaultManifestTemplate
+	}
+	for _, item := range manifest.Tasks {
+		normalizePlannerInitialTask(item)
+	}
+}
+
+func normalizePlannerInitialTask(item *TaskItem) {
+	if item == nil || item.ContentPlan == nil {
+		return
+	}
+	plan := item.ContentPlan
+	limit := maxComponentsForContentType(item.ContentType)
+	if strings.TrimSpace(item.ContentType) == "agenda" {
+		plan.Components = compactAgendaComponents(item, plan.Components, limit)
+	}
+	if strings.TrimSpace(item.ContentType) == "stat_slide" && len(plan.Components) > 0 && !hasNarrativeAnchor(plan.Components) {
+		plan.Components = appendInsightWithinLimit(plan.Components, limit, "insight_auto", "关键判断", summaryForAutoInsight(item))
+	}
+	for i := range plan.Components {
+		component := &plan.Components[i]
+		if strings.TrimSpace(component.Type) == "argument_block" &&
+			runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) < argumentBlockTargetMinChars &&
+			!contentTypeRequiresLongArgument(item.ContentType) {
+			component.Type = "insight"
+		}
+	}
+	if plan.CapacityHint != nil {
+		plan.CapacityHint.ComponentCount = len(plan.Components)
+	}
+}
+
+func compactAgendaComponents(item *TaskItem, components []PlanComponent, limit int) []PlanComponent {
+	if limit <= 0 || len(components) <= limit {
+		return components
+	}
+	anchor := firstNarrativeAnchorComponent(components)
+	if strings.TrimSpace(anchor.ID) == "" {
+		anchor = PlanComponent{
+			ID:    "agenda_insight",
+			Type:  "insight",
+			Title: "阅读路径",
+			Body:  summaryForAutoInsight(item),
+		}
+	}
+	result := []PlanComponent{anchor}
+	var overflow []string
+	for _, component := range components {
+		if sameComponentIdentity(component, anchor) {
+			continue
+		}
+		if len(result) < limit {
+			result = append(result, component)
+			continue
+		}
+		label := firstNonEmptyString(component.Title, component.Text, component.Body)
+		if strings.TrimSpace(label) != "" {
+			overflow = append(overflow, compactManifestTitle(label))
+		}
+	}
+	if len(overflow) > 0 && len(result) > 0 {
+		last := &result[len(result)-1]
+		last.Title = firstNonEmptyString(last.Title, "后续专题")
+		last.Body = strings.TrimSpace(firstNonEmptyString(last.Body, last.Text) + "；" + strings.Join(overflow, "；"))
+	}
+	return result
+}
+
+func firstNarrativeAnchorComponent(components []PlanComponent) PlanComponent {
+	for _, component := range components {
+		switch strings.TrimSpace(component.Type) {
+		case "headline", "deck_title", "argument_block", "insight", "recommendation", "key_point", "quote_block":
+			return component
+		}
+	}
+	return PlanComponent{}
+}
+
+func appendInsightWithinLimit(components []PlanComponent, limit int, id, title, body string) []PlanComponent {
+	insight := PlanComponent{ID: id, Type: "insight", Title: title, Body: body}
+	if limit <= 0 || len(components) < limit {
+		return append(components, insight)
+	}
+	if len(components) == 0 {
+		return []PlanComponent{insight}
+	}
+	components[len(components)-1] = insight
+	return components
+}
+
+func sameComponentIdentity(a, b PlanComponent) bool {
+	if strings.TrimSpace(a.ID) != "" && strings.TrimSpace(a.ID) == strings.TrimSpace(b.ID) {
+		return true
+	}
+	return strings.TrimSpace(a.Type) == strings.TrimSpace(b.Type) &&
+		strings.TrimSpace(a.Title) == strings.TrimSpace(b.Title) &&
+		strings.TrimSpace(a.Body) == strings.TrimSpace(b.Body) &&
+		strings.TrimSpace(a.Text) == strings.TrimSpace(b.Text)
+}
+
+func summaryForAutoInsight(item *TaskItem) string {
+	if item == nil {
+		return "本页用于建立阅读顺序和核心判断，帮助观众理解后续内容之间的关系。"
+	}
+	if item.ContentPlan != nil {
+		if text := strings.TrimSpace(item.ContentPlan.Summary); text != "" {
+			return text
+		}
+		if text := strings.TrimSpace(item.ContentPlan.SlideIntent); text != "" {
+			return text
+		}
+	}
+	if text := strings.TrimSpace(item.Description); text != "" {
+		return text
+	}
+	return "本页用于建立阅读顺序和核心判断，帮助观众理解后续内容之间的关系。"
+}
+
+func contentTypeRequiresLongArgument(contentType string) bool {
+	switch strings.TrimSpace(contentType) {
+	case "deep_dive", "case_study", "example_detail":
+		return true
+	default:
+		return false
+	}
+}
+
 func preferredSectionDividerVariant(manifest *TasksManifest) string {
 	variants := supportedLayoutVariants("section_divider")
 	if len(variants) == 0 {
@@ -355,6 +517,8 @@ func supportedLayoutVariants(contentType string) []string {
 	switch strings.TrimSpace(contentType) {
 	case "section_divider":
 		return []string{"number_sidebar"}
+	case "image_text":
+		return []string{"image_left", "image_right", "image_top_band"}
 	default:
 		return nil
 	}
@@ -530,7 +694,15 @@ func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManife
 	if title == "" {
 		return nil, fmt.Errorf("title is required in initialize mode and could not be inferred from query or tasks")
 	}
-	manifest := &TasksManifest{Title: title, Theme: input.Theme, Template: input.Template}
+	theme := strings.TrimSpace(input.Theme)
+	if theme == "" {
+		theme = defaultManifestTheme
+	}
+	template := strings.TrimSpace(input.Template)
+	if template == "" {
+		template = defaultManifestTemplate
+	}
+	manifest := &TasksManifest{Title: title, Theme: theme, Template: template}
 	seen := make(map[string]bool, len(input.Tasks))
 	for _, patch := range input.Tasks {
 		if patch.PageIndex == nil || patch.Title == nil || patch.ContentType == nil || patch.Description == nil || patch.OutputFile == nil {
@@ -744,8 +916,68 @@ func applyManifestPatch(item *TaskItem, patch manifestTaskPatch) {
 		item.FixAttempts = *patch.FixAttempts
 	}
 	if patch.ContentPlan != nil {
-		item.ContentPlan = patch.ContentPlan
+		item.ContentPlan = mergeContentPlanPatch(item.ContentPlan, patch.ContentPlan)
 	}
+}
+
+func mergeContentPlanPatch(current, patch *ContentPlan) *ContentPlan {
+	if current == nil {
+		return patch
+	}
+	if patch == nil {
+		return current
+	}
+	if strings.TrimSpace(patch.Summary) != "" {
+		current.Summary = patch.Summary
+	}
+	if strings.TrimSpace(patch.SlideIntent) != "" {
+		current.SlideIntent = patch.SlideIntent
+	}
+	if strings.TrimSpace(patch.SectionNumber) != "" {
+		current.SectionNumber = patch.SectionNumber
+	}
+	if patch.VisualIntent != nil {
+		current.VisualIntent = mergeVisualIntentPatch(current.VisualIntent, patch.VisualIntent)
+	}
+	if len(patch.Components) > 0 {
+		current.Components = patch.Components
+	}
+	if patch.CapacityHint != nil {
+		current.CapacityHint = patch.CapacityHint
+	}
+	if patch.ReviewerStatus != nil {
+		current.ReviewerStatus = patch.ReviewerStatus
+	}
+	return current
+}
+
+func mergeVisualIntentPatch(current, patch *VisualIntent) *VisualIntent {
+	if current == nil {
+		return patch
+	}
+	if patch == nil {
+		return current
+	}
+	mergeString := func(target *string, value string) {
+		if strings.TrimSpace(value) != "" {
+			*target = value
+		}
+	}
+	mergeString(&current.Role, patch.Role)
+	mergeString(&current.AssetPurpose, patch.AssetPurpose)
+	mergeString(&current.AssetSubject, patch.AssetSubject)
+	mergeString(&current.AssetQuery, patch.AssetQuery)
+	mergeString(&current.Composition, patch.Composition)
+	mergeString(&current.PreferredVariant, patch.PreferredVariant)
+	mergeString(&current.ImagePosition, patch.ImagePosition)
+	mergeString(&current.Caption, patch.Caption)
+	mergeString(&current.AssetID, patch.AssetID)
+	mergeString(&current.LocalPath, patch.LocalPath)
+	mergeString(&current.ImageURL, patch.ImageURL)
+	mergeString(&current.PreviewURL, patch.PreviewURL)
+	mergeString(&current.SourceURL, patch.SourceURL)
+	mergeString(&current.Attribution, patch.Attribution)
+	return current
 }
 
 func validateManifestForWrite(manifest *TasksManifest) error {
@@ -797,6 +1029,12 @@ func validateContentPlanContract(item *TaskItem) error {
 		}
 		if strings.TrimSpace(component.Type) == "" {
 			return fmt.Errorf("component %q missing type", component.ID)
+		}
+		if strings.TrimSpace(component.ID) == "" {
+			return fmt.Errorf("component at index %d requires a non-empty id", i)
+		}
+		if component.Type == "section_marker" && strings.TrimSpace(component.Text) == "" {
+			return fmt.Errorf("component %q of type section_marker requires text such as 01", component.ID)
 		}
 		if strings.TrimSpace(component.Title) == "" && strings.TrimSpace(component.Text) == "" &&
 			strings.TrimSpace(component.Body) == "" && len(component.Items) == 0 && len(component.Data) == 0 &&
@@ -850,7 +1088,7 @@ func validPlanComponentType(componentType string) bool {
 
 func maxComponentsForContentType(contentType string) int {
 	switch strings.TrimSpace(contentType) {
-	case "title_slide", "section_divider", "quote_slide":
+	case "title_slide", "section_divider", "quote_slide", "stat_slide":
 		return 4
 	case "agenda", "summary_slide", "kpi_dashboard":
 		return 6

@@ -26,6 +26,7 @@ export interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  runtime_event_id?: number;
 }
 
 export interface ConversationSession {

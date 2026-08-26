@@ -68,7 +68,7 @@ from generators import (
 | `variants` | object[] | 已有 generator 明确支持的 `layout_variant`。空数组表示 Planner 保持 `layout_variant` 为空，由组件布局引擎自适应。 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `content_plan.components` 是生成器优先消费的数据源；components 非空时，旧参数只作为兼容输入保留。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `number_sidebar`，其他内容页按组件密度自适配。
+> 当前阶段 `content_plan.components` 是生成器优先消费的数据源；components 非空时，旧参数只作为兼容输入保留。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `number_sidebar`，`image_text` 支持 `image_left`、`image_right`、`image_top_band`，其他内容页按组件密度自适配。
 
 ## 组件规划入口
 
@@ -90,6 +90,7 @@ from generators import (
 
 - 新规划通过 `image` 组件或 `visual_intent` 传入图片语义；真正进入 PPT 的图片必须带 `local_path`。
 - `local_path` 应位于当前任务工作目录内，通常来自 `search_images(download=true)` 的下载结果。
+- Reviewer 或 Planner 只留下图片 `asset_query` 时，Go workflow 会在 render worker pool 前执行 `materialize_background_assets`，并发下载、去重并原子写回 `local_path`；背景查询会先收敛为 2 张浅色主题图并按页轮换，非背景 `image` 组件会作为 `scene/evidence` 图文素材下载。生成器本身仍只消费本地文件，不直接访问图片 provider。
 - 没有真实图片输入时，图文页渲染语义摘要面板，不暴露 `[图片占位]` 一类占位文案。
 - 生成器可以使用文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素；不再依赖离线素材 manifest。
 - 图片署名写入 `caption`、`attribution` 或 `source`，保留 `source_url` 便于追溯。
@@ -109,8 +110,9 @@ from generators import (
 
 - 标题/章节/引用等低密度页应按标题组实际高度居中，避免固定 y 坐标造成偏上或偏下。
 - 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
+- 页面存在 `source` 时，工作台内容区必须在底部来源分隔线上方保留安全间距；图片、卡片、图表和正文面板都不得侵入来源栏。
 - 背景图片默认使用 `cover` 适配：按当前幻灯片真实宽高比等比铺满，允许边缘被适度裁剪，但底层图片锚点必须严格限制在幻灯片画布内。内部 helper 保留 `contain`，供明确要求完整显示原图时使用同图模糊扩展层补边；Planner 不控制该参数。
-- 所有带背景图的页面都会在完成尺寸适配后自动做轻度模糊并叠加可读性遮罩；标题页和章节分割页使用更强一级的模糊。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径或透明度。
+- 所有带背景图的页面都会在完成尺寸适配后自动做轻度模糊，并把可读性柔化烘焙进背景位图；不再依赖跨查看器表现不一致的全页透明遮罩。标题页和章节分割页使用更强一级的模糊。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径或透明度。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
@@ -148,6 +150,8 @@ from generators import (
 
 目录项前缀表示章节出现顺序，不是章节分割页的绝对 `page_index`。即使章节位于第 5、8、12 页，目录仍显示 `01`、`02`、`03`。
 
+组件计划中 `agenda` 最多 6 个组件，推荐 1 个 `insight/key_point` 说明阅读路径 + 3-5 个 `toc_item`。不要把每一页都列为独立目录项，章节过多时合并相邻主题。
+
 #### generate_summary_slide — 总结页
 | 参数 | 类型 | 示例 |
 |------|------|------|
@@ -184,7 +188,7 @@ from generators import (
 |------|------|------|
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
-| layout_variant | str | 当前保持为空；由组件和图片语义自适应 |
+| layout_variant | str | `"image_left"` / `"image_right"` / `"image_top_band"`；为空时后端按同类页面轮换 |
 | image_path | str | `"asset:photo_technology_device"`、注册 photo id 或本地文件路径；为空时自动选择语义默认图 |
 | header | str | `"核心技术突破"` |
 | paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
@@ -195,6 +199,7 @@ from generators import (
 | background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
 > **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。`image_path` 缺失或无效时，生成器会从 `photo` 素材中选择可替换的真实图片；禁止自行绘制图片占位符或传入虚构路径。
+> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文。三者都保留来源栏安全区和图片 caption 面板。
 
 ### 对比与并列类
 
@@ -269,6 +274,8 @@ from generators import (
 | kicker | str | `"年度成果"` (可选，标题上方小标签) |
 | subtitle | str | `"2025财年关键数据一览"` (可选，标题下方副标题) |
 | background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
+
+组件计划中 `stat_slide` 总组件最多 4 个，必须包含 1 个 `insight/key_point` 解释数字背后的判断；不要只堆叠 `stat` 或 `number_callout`。
 
 #### generate_kpi_dashboard — 指标看板（固定 2x2 布局，最多 4 个 KPI）
 | 参数 | 类型 | 示例 |

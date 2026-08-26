@@ -415,6 +415,7 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 }
 
 func mysqlSafeText(value string) string {
+	value = strings.ToValidUTF8(value, "")
 	return strings.Map(func(r rune) rune {
 		// Some existing deployments still use MySQL utf8/utf8mb3 columns.
 		// Keep ordinary BMP text, including Chinese, and drop emoji/symbol
@@ -1186,9 +1187,10 @@ func (tm *TaskManager) cleanupTask(ts *TaskState) {
 
 	// Flush conversation content to DB (once, on task end — not mid-stream)
 	if db.DB != nil && ts.Info.ConversationContent != "" {
+		conversationContent := mysqlSafeText(ts.Info.ConversationContent)
 		go func() {
 			if err := db.UpdateTaskRecord(ts.Info.ID, map[string]any{
-				"conversation_content": ts.Info.ConversationContent,
+				"conversation_content": conversationContent,
 			}); err != nil {
 				logger.Error("persist_conversation_content_failed", "task_id", ts.Info.ID, "error", err.Error())
 			}
