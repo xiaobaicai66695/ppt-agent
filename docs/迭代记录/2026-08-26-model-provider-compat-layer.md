@@ -116,7 +116,22 @@ MODEL_TIMEOUT_SECONDS=600
   - `npm run build`
   - `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task ./pkg/web`
   - `go build ./...`
-- 上线记录：待部署后回填。
+- 上线记录：
+  - 提交：`2c4944e feat: add provider key UI and ordered runtime trace`
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：2026-08-26 19:31 Asia/Shanghai
+  - 新进程：PID `3529816`，命令 `../ppt-agent-linux -mode web -addr :8080`，cwd `/ppt/ppt-agent/backend`
+  - 旧二进制备份：`/ppt/ppt-agent/ppt-agent-linux.bak.20260826193106`
+  - 前端备份：`/ppt/ppt-agent/frontend/dist.bak.20260826193106`
+  - 启动确认：
+    - `:8080` 正常监听
+    - `/api/health` 返回 `{"status":"ok"}`
+    - `/` 返回 HTTP 200，709 bytes
+    - `/api/templates/layouts` 返回 HTTP 200，17469 bytes
+    - `/api/themes` 返回 HTTP 200，2614 bytes
+    - 未登录访问 `/api/users/me/api-key` 返回 HTTP 401，鉴权保护正常
+  - 清理：远端 `/tmp/ppt-agent-linux-2c4944e`、`/tmp/ppt-agent-frontend-dist-2c4944e.tar` 和冒烟临时响应文件已删除。
+  - 遗留：完整 LLM 生成冒烟仍受上游 HTTP `402`/计费侧阻塞，未执行高成本生成任务。
 
 ## 遗留
 
