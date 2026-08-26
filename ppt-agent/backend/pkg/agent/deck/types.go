@@ -72,19 +72,25 @@ type CompressorConfig = agentutils.CompressorConfig
 
 // TasksManifest PPT 任务清单
 type TasksManifest struct {
-	Title    string      `json:"title"`
-	Theme    string      `json:"theme"`
-	Template string      `json:"template,omitempty"`
-	Tasks    []*TaskItem `json:"tasks"`
+	Title       string         `json:"title"`
+	Theme       string         `json:"theme"`
+	Template    string         `json:"template,omitempty"`
+	ContentBank map[string]any `json:"content_bank,omitempty"`
+	Sections    []DeckSection  `json:"sections,omitempty"`
+	Tasks       []*TaskItem    `json:"tasks"`
 }
 
 type TaskItem struct {
 	TaskID        string       `json:"task_id"`
 	PageIndex     int          `json:"page_index"`
+	SectionID     string       `json:"section_id,omitempty"`
+	SectionTitle  string       `json:"section_title,omitempty"`
 	Title         string       `json:"title"`
 	ContentType   string       `json:"content_type"`
 	LayoutVariant string       `json:"layout_variant,omitempty"`
 	Description   string       `json:"description"`
+	PageIntent    string       `json:"page_intent,omitempty"`
+	EvidenceRefs  []string     `json:"evidence_refs,omitempty"`
 	OutputFile    string       `json:"output_file"`
 	Status        string       `json:"status"`
 	QAReport      string       `json:"qa_report,omitempty"`
@@ -424,6 +430,16 @@ type TaskOutline struct {
 	Slides               []SlideOutline `json:"slides"`
 }
 
+type DeckSection struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Summary     string `json:"summary,omitempty"`
+	StartPage   int    `json:"start_page"`
+	EndPage     int    `json:"end_page"`
+	PageCount   int    `json:"page_count,omitempty"`
+	NeighborKey string `json:"neighbor_key,omitempty"`
+}
+
 const (
 	OutlineContentModeUserOutline = "user_outline"
 )
@@ -584,6 +600,7 @@ type ContentPlan struct {
 	Summary        string              `json:"summary,omitempty"`         // one-sentence core summary
 	SlideIntent    string              `json:"slide_intent,omitempty"`    // semantic goal of this page in the deck
 	SectionNumber  string              `json:"section_number,omitempty"`  // section_divider chapter number, not page index
+	EvidenceRefs   []string            `json:"evidence_refs,omitempty"`   // refs into deck-level content_bank for granular repair
 	VisualIntent   *VisualIntent       `json:"visual_intent,omitempty"`   // visual role and asset intent for this slide
 	Components     []PlanComponent     `json:"components,omitempty"`      // executable semantic component plan
 	CapacityHint   *CapacityHint       `json:"capacity_hint,omitempty"`   // planner-estimated density and overflow risk

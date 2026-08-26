@@ -46,6 +46,17 @@ type CompressorConfig struct {
 // CompressorOption 压缩器配置选项
 type CompressorOption func(*CompressorConfig)
 
+type CompressionEvent struct {
+	Stage          string
+	BeforeMessages int
+	AfterMessages  int
+	BeforeTokens   int
+	AfterTokens    int
+	Error          string
+}
+
+type CompressionEventCallback func(CompressionEvent)
+
 // WithCompressThreshold 设置触发压缩的消息数量阈值（默认 12）
 func WithCompressThreshold(n int) CompressorOption {
 	return func(c *CompressorConfig) {
@@ -212,15 +223,60 @@ func isRuntimeControlMessage(content string) bool {
 		strings.HasPrefix(content, "【上下文压缩交接")
 }
 
+func latestRealUserRequest(messages []*schema.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg == nil || msg.Role != schema.User {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" || isRuntimeControlMessage(content) {
+			continue
+		}
+		return truncateString(content, 1200)
+	}
+	return ""
+}
+
+func previousCompressionHandoffs(messages []*schema.Message) []string {
+	var handoffs []string
+	for _, msg := range messages {
+		if msg == nil || msg.Role != schema.User {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if strings.HasPrefix(content, "【上下文压缩交接") || strings.HasPrefix(content, "【对话压缩摘要") {
+			handoffs = append(handoffs, truncateString(content, 1200))
+		}
+	}
+	return handoffs
+}
+
+func firstNonEmptyCompressionString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 // conversationToSummary 调用 LLM 将中间对话压缩为自由摘要
 func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChatModel,
-	base *CompressionSummary, conversationText string) (*CompressionSummary, string, error) {
+	base *CompressionSummary, conversationText string, previousHandoffs []string, latestUserRequest string) (*CompressionSummary, string, error) {
 
 	baseJSON, _ := json.Marshal(base)
+	previousText := strings.Join(boundedStrings(previousHandoffs, 3, 1200), "\n\n")
 
 	summaryPrompt := fmt.Sprintf(`你是 PPT Planner 的上下文压缩助手。请以用户原始目标和后续明确要求为最高优先级，将早期规划上下文压缩为结构化交接。
 
 【用户目标、明确要求与代码提取的关键决策】：
+%s
+
+【上次压缩交接，如有】：
+%s
+
+【当前用户最新问题，最高优先级】：
 %s
 
 【待压缩的早期规划上下文】：
@@ -232,7 +288,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 	"preserved_requirements": ["仍然生效的用户要求，保持原意和优先级"],
   "progress_summary": "简要描述 DeckSpec 已确定内容和待补字段（50字以内）",
   "conversation_summary": "用50字以内概括中间轮次的交互过程"
-}`, baseJSON, conversationText)
+}`, baseJSON, firstNonEmptyCompressionString(previousText, "无"), firstNonEmptyCompressionString(strings.TrimSpace(latestUserRequest), "无"), conversationText)
 
 	sumCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -280,6 +336,7 @@ type ChatModelCompressor struct {
 	cfg        *CompressorConfig
 	tracker    *TokenTracker // optional; if set, summarizer calls are tracked
 	runtime    *RuntimeMeta
+	onEvent    CompressionEventCallback
 }
 
 // NewChatModelCompressor 创建上下文压缩包装器
@@ -322,6 +379,10 @@ func (c *ChatModelCompressor) SetRuntimeMeta(meta *RuntimeMeta) {
 	c.runtime = meta
 }
 
+func (c *ChatModelCompressor) SetCompressionEventCallback(callback CompressionEventCallback) {
+	c.onEvent = callback
+}
+
 // Generate 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	estimatedTokens := totalTokenEstimate(messages)
@@ -331,9 +392,11 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
+	c.emitCompressionStart(len(messages), estimatedTokens)
 	compressed, handoff, err := c.compress(ctx, messages)
 	if err != nil {
 		logger.Warn("compress_failed_fallback", "error", err.Error())
+		c.emitCompressionFallback(len(messages), estimatedTokens, err)
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
@@ -351,6 +414,7 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		c.runtime.RecordCompressionDetails(len(messages), len(compressed), beforeLen, afterLen,
 			handoff.UserIntentSummary, handoff.PreservedRequirements)
 	}
+	c.emitCompressionSuccess(len(messages), len(compressed), beforeLen, afterLen)
 
 	return c.inner.Generate(ctx, compressed, opts...)
 }
@@ -364,9 +428,11 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
+	c.emitCompressionStart(len(messages), estimatedTokens)
 	compressed, handoff, err := c.compress(ctx, messages)
 	if err != nil {
 		logger.Warn("compress_failed_fallback", "error", err.Error())
+		c.emitCompressionFallback(len(messages), estimatedTokens, err)
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
@@ -384,6 +450,7 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		c.runtime.RecordCompressionDetails(len(messages), len(compressed), beforeLen, afterLen,
 			handoff.UserIntentSummary, handoff.PreservedRequirements)
 	}
+	c.emitCompressionSuccess(len(messages), len(compressed), beforeLen, afterLen)
 
 	return c.inner.Stream(ctx, compressed, opts...)
 }
@@ -407,7 +474,42 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 		cfg:        c.cfg,
 		tracker:    c.tracker,
 		runtime:    c.runtime,
+		onEvent:    c.onEvent,
 	}, nil
+}
+
+func (c *ChatModelCompressor) emitCompressionStart(beforeMessages, beforeTokens int) {
+	detail := "正在压缩较早对话，保留你的最新要求"
+	if c.runtime != nil {
+		c.runtime.RecordPhase("compressing_context", detail)
+		c.runtime.RecordEvent("planner_context_compressing", "context_compressor", "running", detail, map[string]any{
+			"before_messages": beforeMessages,
+			"before_tokens":   beforeTokens,
+		})
+	}
+	if c.onEvent != nil {
+		c.onEvent(CompressionEvent{Stage: "start", BeforeMessages: beforeMessages, BeforeTokens: beforeTokens})
+	}
+}
+
+func (c *ChatModelCompressor) emitCompressionSuccess(beforeMessages, afterMessages, beforeTokens, afterTokens int) {
+	if c.onEvent != nil {
+		c.onEvent(CompressionEvent{Stage: "success", BeforeMessages: beforeMessages, AfterMessages: afterMessages, BeforeTokens: beforeTokens, AfterTokens: afterTokens})
+	}
+}
+
+func (c *ChatModelCompressor) emitCompressionFallback(beforeMessages, beforeTokens int, err error) {
+	detail := "上下文压缩失败，已使用安全兜底继续任务"
+	if c.runtime != nil {
+		c.runtime.RecordEvent("planner_context_compression_fallback", "context_compressor", "warning", detail, map[string]any{
+			"before_messages": beforeMessages,
+			"before_tokens":   beforeTokens,
+			"error":           err.Error(),
+		})
+	}
+	if c.onEvent != nil {
+		c.onEvent(CompressionEvent{Stage: "fallback", BeforeMessages: beforeMessages, BeforeTokens: beforeTokens, Error: err.Error()})
+	}
 }
 
 // compress 执行实际的压缩逻辑
@@ -479,6 +581,8 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 
 	// 第一步：从全部消息中结构化提取关键决策（不过滤中间段）
 	keyDecisions := ExtractKeyDecisions(messages)
+	previousHandoffs := previousCompressionHandoffs(messages)
+	latestUser := latestRealUserRequest(messages)
 
 	// 第二步：只把 headPairs 转为文本，送给 LLM 生成自由摘要
 	var convText strings.Builder
@@ -502,7 +606,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 	}
 
 	// 调用 summarizer 生成自由摘要
-	handoff, summaryPrompt, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String())
+	handoff, summaryPrompt, err := conversationToSummary(ctx, c.summarizer, keyDecisions, convText.String(), previousHandoffs, latestUser)
 	completionText := ""
 	if handoff != nil {
 		completionBytes, _ := json.Marshal(handoff)

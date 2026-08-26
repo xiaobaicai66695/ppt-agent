@@ -73,6 +73,7 @@ const phaseLabel = computed(() => {
   if (!props.isRunning && props.totalCount > 0 && props.doneCount >= props.totalCount) return '全部完成';
   const labels: Record<string, string> = {
     preparing: '准备资源',
+    compressing_context: '压缩上下文',
     planning: '规划内容',
     generating: '生成页面',
     qa: '整理输出',

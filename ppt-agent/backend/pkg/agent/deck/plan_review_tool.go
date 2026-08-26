@@ -309,38 +309,71 @@ func reviewDeckBackgroundVariety(manifest *TasksManifest, report *PlanReviewRepo
 	if manifest == nil || report == nil {
 		return
 	}
-	seen := map[string]bool{}
-	var queries []string
+	queriesByType := map[string]map[string]bool{}
+	verbosePages := map[int]bool{}
 	for _, task := range manifest.Tasks {
 		if task == nil || task.ContentPlan == nil {
 			continue
 		}
-		addQuery := func(query string) {
-			query = strings.ToLower(strings.TrimSpace(query))
-			if query == "" || seen[query] {
+		typeKey := backgroundContentTypeKey(task.ContentType)
+		addQuery := func(subject, query string) {
+			sourceQuery := strings.TrimSpace(query)
+			query = firstNonEmptyString(subject, query)
+			query = strings.TrimSpace(query)
+			if query == "" {
 				return
 			}
-			seen[query] = true
-			queries = append(queries, query)
+			compact := normalizeAssetQuery(query, true)
+			if compact == "" {
+				return
+			}
+			if queriesByType[typeKey] == nil {
+				queriesByType[typeKey] = map[string]bool{}
+			}
+			queriesByType[typeKey][compact] = true
+			if isVerboseBackgroundQuery(sourceQuery, compact) {
+				verbosePages[task.PageIndex] = true
+			}
 		}
 		if visual := task.ContentPlan.VisualIntent; visual != nil && isExternalBackgroundIntent(visual) {
-			addQuery(visual.AssetQuery)
+			addQuery(visual.AssetSubject, visual.AssetQuery)
 		}
 		for i := range task.ContentPlan.Components {
 			component := &task.ContentPlan.Components[i]
 			if isExternalBackgroundComponent(component) {
-				addQuery(component.AssetQuery)
+				addQuery(component.AssetSubject, component.AssetQuery)
 			}
 		}
 	}
-	if len(queries) <= deckBackgroundSlots {
-		return
+	for contentType, queries := range queriesByType {
+		if len(queries) <= 1 {
+			continue
+		}
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:     "layout_mismatch",
+			Severity: "warning",
+			Message:  fmt.Sprintf("同一页面类型 %s 存在多个背景关键词，容易造成同类幻灯片视觉跳变；同一 content_type 应复用同一个背景关键词。", contentType),
+		})
 	}
-	report.Issues = append(report.Issues, PlanReviewIssue{
-		Code:     "layout_mismatch",
-		Severity: "warning",
-		Message:  fmt.Sprintf("整套 PPT 背景查询超过 %d 个，容易造成视觉随机跳变；应收敛为两张浅色主题背景并按页轮换，其余图片作为 scene/evidence 图文素材。", deckBackgroundSlots),
-	})
+	for page := range verbosePages {
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:      "layout_mismatch",
+			Severity:  "warning",
+			PageIndex: page,
+			Message:   "背景 asset_query 过长；背景搜索应尽量只写一个英文关键词，构图、明暗和留白交给生成器处理，避免长搜索词搜到不相关图片。",
+		})
+	}
+}
+
+func isVerboseBackgroundQuery(query, compact string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	compact = strings.ToLower(strings.TrimSpace(compact))
+	if query == "" || compact == "" || query == compact {
+		return false
+	}
+	return len(strings.Fields(query)) > 2 ||
+		strings.Contains(query, "wide landscape") ||
+		strings.Contains(query, "clean negative space")
 }
 
 func reviewDeckVisualMix(manifest *TasksManifest, report *PlanReviewReport) {

@@ -977,6 +977,7 @@ export function deriveLiveActivity(input: LiveActivityInput): LiveActivity {
   };
   const phaseLabels: Record<string, string> = {
     preparing: '正在准备任务',
+    compressing_context: '正在压缩较早对话',
     planning: '正在规划演示内容',
     generating: '正在生成幻灯片',
     qa: '正在检查演示质量',
@@ -1270,7 +1271,7 @@ function tableCells(line: string): string[] {
 }
 
 export function renderSafeMarkdown(markdown: string): string {
-  const lines = (markdown || '').replace(/\r/g, '').split('\n');
+  const lines = normalizeDisplayMarkdown(markdown || '').replace(/\r/g, '').split('\n');
   const output: string[] = [];
   let index = 0;
 
@@ -1349,4 +1350,22 @@ export function renderSafeMarkdown(markdown: string): string {
   }
 
   return output.join('');
+}
+
+function normalizeDisplayMarkdown(markdown: string): string {
+  const parts = markdown.replace(/\r/g, '').split(/(```[\s\S]*?```)/g);
+  return parts.map(part => part.startsWith('```') ? part : normalizeMarkdownTextSegment(part)).join('');
+}
+
+function normalizeMarkdownTextSegment(segment: string): string {
+  let text = segment;
+  text = text.replace(/(^|\n)(#{1,6})(?=\S)/g, '$1$2 ');
+  text = text.replace(/([^\n])\s+(#{1,6})\s*/g, '$1\n\n$2 ');
+  text = text.replace(/([：:])\s*(\d{1,2})[.、]\s*/g, '$1\n$2. ');
+  text = text.replace(/([。！？；;])\s*(\d{1,2})[.、]\s*/g, '$1\n$2. ');
+  text = text.replace(/([）)])\s*(\d{1,2})[.、]\s*/g, '$1\n$2. ');
+  text = text.replace(/(^|\n)(\d{1,2})[.、]\s*/g, '$1$2. ');
+  text = text.replace(/([^\n])(页面结构[：:])/g, '$1\n\n$2');
+  text = text.replace(/(页面结构[：:])\s*/g, '$1\n');
+  return text;
 }

@@ -29,7 +29,7 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 			"description":"说明系统架构演进的核心判断","output_file":"1_architecture.pptx","status":"pending",
 			"content_plan":{
 				"slide_intent":"用核心判断建立整套演示的架构演进主线。",
-				"visual_intent":{"asset_purpose":"background","asset_subject":"software architecture blueprint","asset_query":"software architecture blueprint wide landscape clean negative space","composition":"wide landscape, clean negative space on left"},
+				"visual_intent":{"asset_purpose":"background","asset_subject":"software architecture blueprint","asset_query":"architecture","composition":"wide landscape, clean negative space on left"},
 				"components":[{"id":"point-1","type":"key_point","body":"架构演进的核心不是堆叠更多模块，而是持续收敛职责边界和交付路径。"}]
 			}
 		}]
@@ -147,7 +147,7 @@ func TestPlannerManifestToolRecoversTasksArrayFromStringSpill(t *testing.T) {
 		"mode":"initialize",
 		"title":"架构清理验证",
 		"theme":"simple_gray",
-		"tasks":"model draft: [{\"task_id\":\"1\",\"page_index\":1,\"title\":\"架构清理验证\",\"content_type\":\"content_slide\",\"description\":\"说明固定模板和旧自由工具已清理，当前链路以动态 DeckSpec 和确定性渲染为核心。\",\"output_file\":\"1_architecture_cleanup.pptx\",\"status\":\"pending\",\"content_plan\":{\"slide_intent\":\"确认架构清理范围和验证结果。\",\"visual_intent\":{\"asset_purpose\":\"background\",\"asset_query\":\"clean software architecture blueprint wide landscape\",\"asset_subject\":\"software architecture blueprint\",\"composition\":\"wide landscape clean negative space\"},\"components\":[{\"id\":\"p1\",\"type\":\"key_point\",\"body\":\"Planner 生成组件级计划，Go 质量门负责提交，Python generator 负责确定性渲染。\"}]}}], \"template\":\"legacy\""
+		"tasks":"model draft: [{\"task_id\":\"1\",\"page_index\":1,\"title\":\"架构清理验证\",\"content_type\":\"content_slide\",\"description\":\"说明固定模板和旧自由工具已清理，当前链路以动态 DeckSpec 和确定性渲染为核心。\",\"output_file\":\"1_architecture_cleanup.pptx\",\"status\":\"pending\",\"content_plan\":{\"slide_intent\":\"确认架构清理范围和验证结果。\",\"visual_intent\":{\"asset_purpose\":\"background\",\"asset_query\":\"architecture\",\"asset_subject\":\"software architecture blueprint\",\"composition\":\"wide landscape clean negative space\"},\"components\":[{\"id\":\"p1\",\"type\":\"key_point\",\"body\":\"Planner 生成组件级计划，Go 质量门负责提交，Python generator 负责确定性渲染。\"}]}}], \"template\":\"legacy\""
 	}`)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestPlannerManifestToolDefaultsMissingHeaderBeforePreflight(t *testing.T) {
 			"description":"建立整套演示的核心判断和视觉方向。","output_file":"1_title.pptx","status":"pending",
 			"content_plan":{
 				"slide_intent":"用封面建立 AI 产业趋势分析的主线。",
-				"visual_intent":{"asset_purpose":"background","asset_query":"light AI data center wide landscape clean negative space","asset_subject":"AI data center","composition":"wide landscape clean negative space"},
+				"visual_intent":{"asset_purpose":"background","asset_query":"technology","asset_subject":"AI data center","composition":"wide landscape clean negative space"},
 				"components":[{"id":"point-1","type":"key_point","body":"AI 产业趋势分析需要同时覆盖技术成熟度、商业化路径和组织采纳条件。"}]
 			}
 		}]
@@ -206,7 +206,7 @@ func TestPlannerManifestToolNormalizesAgendaBeforePreflight(t *testing.T) {
 			"content_plan":{
 				"summary":"围绕冲突、安全、经济和治理四条主线组织内容。",
 				"slide_intent":"帮助观众先理解整套报告的章节顺序和判断框架。",
-				"visual_intent":{"asset_purpose":"background","asset_query":"light global diplomacy meeting wide landscape clean negative space","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
+				"visual_intent":{"asset_purpose":"background","asset_query":"diplomacy","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
 				"capacity_hint":{"estimated_density":"dense","overflow_risk":"medium","component_count":9},
 				"components":[
 					{"id":"toc_1","type":"toc_item","title":"冲突热点"},
@@ -255,7 +255,7 @@ func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.
 			"content_plan":{
 				"summary":"关键数字说明安全风险没有随外交斡旋自然降温。",
 				"slide_intent":"用指标建立后续冲突分析的事实基线。",
-				"visual_intent":{"asset_purpose":"background","asset_query":"light global diplomacy meeting wide landscape clean negative space","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
+				"visual_intent":{"asset_purpose":"background","asset_query":"diplomacy","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
 				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":2},
 				"components":[
 					{"id":"stat_1","type":"stat","title":"冲突热点","body":"多地延续"},
@@ -290,7 +290,7 @@ func TestPlannerManifestToolNormalizesShortArgumentBlockWhenLongArgumentIsNotReq
 			"content_plan":{
 				"summary":"风险不是单点爆发，而是多条压力线同时抬升。",
 				"slide_intent":"形成一页可带走的核心判断。",
-				"visual_intent":{"asset_purpose":"background","asset_query":"light global diplomacy meeting wide landscape clean negative space","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
+				"visual_intent":{"asset_purpose":"background","asset_query":"diplomacy","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
 				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":1},
 				"components":[{"id":"arg_1","type":"argument_block","body":"多条压力线同时抬升，局势判断需要同时看冲突、能源、供应链和治理机制。"}]
 			}

@@ -110,24 +110,42 @@ func TestPlanReviewAcceptsExplicitCleanTextOnlyPolicy(t *testing.T) {
 	}
 }
 
-func TestPlannerPreflightFlagsTooManyDeckBackgroundQueries(t *testing.T) {
+func TestPlannerPreflightFlagsMultipleBackgroundKeywordsForSameContentType(t *testing.T) {
 	manifest := &TasksManifest{
 		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
 		Tasks: []*TaskItem{
-			backgroundQueryTask(1, "light AI office collaboration wide landscape clean negative space"),
-			backgroundQueryTask(2, "light AI data center wide landscape clean negative space"),
-			backgroundQueryTask(3, "light robot factory floor wide landscape clean negative space"),
+			backgroundQueryTask(1, "diplomacy"),
+			backgroundQueryTask(2, "energy"),
 		},
 	}
 	issues := plannerPreflightIssues(manifest)
 	found := false
 	for _, issue := range issues {
-		if issue.Code == "layout_mismatch" && strings.Contains(issue.Message, "背景查询超过 2 个") {
+		if issue.Code == "layout_mismatch" && strings.Contains(issue.Message, "同一页面类型") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected deck-level background variety warning, got %#v", issues)
+		t.Fatalf("expected same content_type background warning, got %#v", issues)
+	}
+}
+
+func TestPlannerPreflightFlagsVerboseBackgroundQuery(t *testing.T) {
+	manifest := &TasksManifest{
+		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Tasks: []*TaskItem{
+			backgroundQueryTask(1, "light global diplomacy meeting wide landscape clean negative space"),
+		},
+	}
+	issues := plannerPreflightIssues(manifest)
+	found := false
+	for _, issue := range issues {
+		if issue.Code == "layout_mismatch" && strings.Contains(issue.Message, "asset_query 过长") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected verbose background query warning, got %#v", issues)
 	}
 }
 

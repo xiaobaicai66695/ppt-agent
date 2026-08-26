@@ -99,7 +99,6 @@
 - 前端传入 outline 时，后端应在创建任务前保证：
   - 所有页面 `content_type` 合法。
   - 空 `description` 已补齐或明确交给后续阶段补齐。
-  - `content_plan` 不为空时结构可被 SlideExecutor 稳定消费。
   - `background` 是历史字段，新规划应保持为空；图片路径写入 `visual_intent.local_path` 或 `image.local_path`。
 - Prompt 示例中的 JSON 字段值应使用真实合法 id，避免写“布局名”这类占位值。
 - 内容质量要求要和具体布局容量一致：
@@ -162,6 +161,8 @@ python skills/ppt-deck-planner/generators/generator.py
 - 上线结果必须回填到迭代记录、OpenSpec tasks 或 `done.md`：至少包含部署目标、时间、新进程标识、关键接口状态、代表性任务结果和遗留风险；不得记录凭据、Cookie、完整 DSN 或 API key。
 - 冒烟失败时先保留诊断证据并修复、重新部署和复测；仍未通过则状态只能是“实现完成但上线阻塞”，不得归档为 `done`，也不得将涉及运行行为的 OpenSpec change 标记完成或 archive。
 - 纯文档、仅测试、不会进入运行环境的改动可以免部署，但最终说明和归档记录必须明确写出免部署原因；没有服务器权限或被外部依赖阻塞时，也必须如实记录，不能声称已经线上闭环。
+- 如果是重构操作，无需兼容，重构后将不用的代码删除，并且主动检查修改提示词做适配
+- 如果修改skill中的生成脚本，需要本地跑一边，生成验收后再上线
 
 ## 人机协作工作流
 

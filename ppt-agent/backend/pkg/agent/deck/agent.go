@@ -155,8 +155,8 @@ func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int
 		return nil, err
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
-		agentutils.WithCompressThreshold(60),
-		agentutils.WithTokenThreshold(200000),
+		agentutils.WithCompressThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", 40)),
+		agentutils.WithTokenThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", 24000)),
 		agentutils.WithPreserveCount(8),
 	)
 	if cfg.CompressorTracker != nil {

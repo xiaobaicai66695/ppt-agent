@@ -347,8 +347,8 @@ class RenderTaskComponentsTest(unittest.TestCase):
                     components=[{"type": "section_marker", "text": "01"}],
                 )
 
-            self.assertEqual(background_mock.call_args_list[0].kwargs["blur_radius"], 4)
-            self.assertEqual(background_mock.call_args_list[1].kwargs["blur_radius"], 8)
+            self.assertEqual(background_mock.call_args_list[0].kwargs["blur_radius"], 2)
+            self.assertEqual(background_mock.call_args_list[1].kwargs["blur_radius"], 4)
 
     def test_agenda_uses_manifest_titles_not_summary_blob(self):
         manifest = {

@@ -106,11 +106,11 @@
   },
   "asset_planning": {
     "purpose_values": ["background", "scene", "evidence", "decorative"],
-    "background_query_rule": "Use exactly two deck-level background queries whenever a deck needs visual backgrounds. Both should use a visual proxy, environment, light/bright/airy mood, wide landscape and clean negative space; avoid literal slide titles and layout words.",
-    "background_rotation_rule": "Reuse those two background queries across all slides in page order. Do not create page-specific background queries; additional page imagery belongs in image components with asset_purpose scene or evidence.",
+    "background_query_rule": "Use one short English keyword for each background asset_query, such as diplomacy, energy, city or technology. Do not include long phrases, slide titles, wide landscape, clean negative space, light/bright/airy, or layout words.",
+    "background_rotation_rule": "Reuse the same background keyword for every slide with the same content_type. Different content_types may use different background keywords. Additional page imagery belongs in image components with asset_purpose scene or evidence.",
     "scene_query_rule": "Use a concrete visible subject, action and environment; use real-world imagery for examples and keep facts in source/search fields.",
     "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints.",
-      "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed to two light deck-level assets and rotated; scene/evidence image components keep their page-specific queries.",
+      "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed by content_type so same-type slides share one asset; scene/evidence image components keep their page-specific queries.",
       "background_color_rule": "The renderer extracts a muted palette from downloaded background images and uses those tokens for panels, accents and text. Do not recommend a fixed scene theme color unless the user explicitly asks for one."
   },
   "content_types": {

@@ -708,6 +708,20 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
 		persistRuntimeEvent(event)
 		go func() {
+			if event.Kind == "phase_changed" && event.Phase != "" {
+				ts.Broadcast(SSERichEvent{
+					Type:        "progress",
+					Phase:       event.Phase,
+					PhaseDetail: event.Detail,
+				})
+			}
+			if event.Kind == "planner_context_compressing" {
+				ts.Broadcast(SSERichEvent{
+					Type:        "progress",
+					Phase:       "compressing_context",
+					PhaseDetail: firstRuntimeDetail(event.Detail, "正在压缩较早对话，保留你的最新要求"),
+				})
+			}
 			snap := runtimeMeta.Snapshot()
 			ts.Broadcast(SSERichEvent{
 				Type:        "runtime_meta",
@@ -738,6 +752,15 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	go tm.runAgent(agentCtx, ts, agent, cfg, query)
 
 	return &ts.Info, nil
+}
+
+func firstRuntimeDetail(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,

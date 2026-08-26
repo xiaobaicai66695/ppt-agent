@@ -16,7 +16,6 @@ import (
 
 const (
 	maxBackgroundAssetWorkers = 3
-	deckBackgroundSlots       = 2
 )
 
 type backgroundAssetClient interface {
@@ -25,11 +24,13 @@ type backgroundAssetClient interface {
 }
 
 type plannedBackgroundTarget struct {
-	query      string
-	slot       int
-	searchPage int
-	visual     *VisualIntent
-	component  *PlanComponent
+	query       string
+	subject     string
+	contentType string
+	slot        int
+	searchPage  int
+	visual      *VisualIntent
+	component   *PlanComponent
 }
 
 type resolvedBackgroundAsset struct {
@@ -48,9 +49,9 @@ type MaterializedDeckAssetCounts struct {
 }
 
 // MaterializePlannedDeckAssets resolves all query-only external image plans
-// into downloaded task-local files. Backgrounds are intentionally collapsed to
-// two light, deck-level slots and then alternated across slides; foreground
-// image components keep their page-specific queries.
+// into downloaded task-local files. Backgrounds are intentionally collapsed by
+// slide content_type so pages of the same type share one visual rhythm;
+// foreground image components keep their page-specific queries.
 func MaterializePlannedDeckAssets(ctx context.Context, workDir string, manifest *TasksManifest) (MaterializedDeckAssetCounts, error) {
 	backgroundTargets, err := collectDeckBackgroundTargets(workDir, manifest)
 	if err != nil {
@@ -91,7 +92,7 @@ func needsAssetClient(workDir string, backgroundTargets []plannedBackgroundTarge
 		return true
 	}
 	assigned := assignDeckBackgroundRotation(append([]plannedBackgroundTarget(nil), backgroundTargets...))
-	slots := make(map[int]bool, deckBackgroundSlots)
+	slots := make(map[int]bool)
 	for _, target := range assigned {
 		if _, ok := slots[target.slot]; ok {
 			continue
@@ -144,9 +145,11 @@ func collectPendingBackgroundTargets(workDir string, manifest *TasksManifest) ([
 		if visual := task.ContentPlan.VisualIntent; visual != nil && isBackgroundPlan(visual.AssetPurpose, visual.ImagePosition, visual.Role) {
 			if !taskLocalAssetExists(absWorkDir, visual.LocalPath) && strings.TrimSpace(visual.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
-					query:      strings.TrimSpace(visual.AssetQuery),
-					searchPage: 1,
-					visual:     visual,
+					query:       strings.TrimSpace(visual.AssetQuery),
+					subject:     strings.TrimSpace(visual.AssetSubject),
+					contentType: strings.TrimSpace(task.ContentType),
+					searchPage:  1,
+					visual:      visual,
 				})
 			}
 		}
@@ -157,9 +160,11 @@ func collectPendingBackgroundTargets(workDir string, manifest *TasksManifest) ([
 			}
 			if !taskLocalAssetExists(absWorkDir, component.LocalPath) && strings.TrimSpace(component.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
-					query:      strings.TrimSpace(component.AssetQuery),
-					searchPage: 1,
-					component:  component,
+					query:       strings.TrimSpace(component.AssetQuery),
+					subject:     strings.TrimSpace(component.AssetSubject),
+					contentType: strings.TrimSpace(task.ContentType),
+					searchPage:  1,
+					component:   component,
 				})
 			}
 		}
@@ -187,9 +192,11 @@ func collectDeckBackgroundTargets(workDir string, manifest *TasksManifest) ([]pl
 		if visual := task.ContentPlan.VisualIntent; visual != nil && isBackgroundPlan(visual.AssetPurpose, visual.ImagePosition, visual.Role) {
 			if taskLocalAssetExists(absWorkDir, visual.LocalPath) || strings.TrimSpace(visual.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
-					query:      strings.TrimSpace(visual.AssetQuery),
-					searchPage: 1,
-					visual:     visual,
+					query:       strings.TrimSpace(visual.AssetQuery),
+					subject:     strings.TrimSpace(visual.AssetSubject),
+					contentType: strings.TrimSpace(task.ContentType),
+					searchPage:  1,
+					visual:      visual,
 				})
 			}
 		}
@@ -200,9 +207,11 @@ func collectDeckBackgroundTargets(workDir string, manifest *TasksManifest) ([]pl
 			}
 			if taskLocalAssetExists(absWorkDir, component.LocalPath) || strings.TrimSpace(component.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
-					query:      strings.TrimSpace(component.AssetQuery),
-					searchPage: 1,
-					component:  component,
+					query:       strings.TrimSpace(component.AssetQuery),
+					subject:     strings.TrimSpace(component.AssetSubject),
+					contentType: strings.TrimSpace(task.ContentType),
+					searchPage:  1,
+					component:   component,
 				})
 			}
 		}
@@ -221,7 +230,7 @@ func materializePlannedBackgroundsWithClient(ctx context.Context, workDir string
 	downloadDir := filepath.Join(absWorkDir, "assets", "images")
 	targets = assignDeckBackgroundRotation(targets)
 
-	slotAssets := make(map[int]resolvedBackgroundAsset, deckBackgroundSlots)
+	slotAssets := make(map[int]resolvedBackgroundAsset)
 	for _, target := range targets {
 		if _, ok := slotAssets[target.slot]; ok {
 			continue
@@ -505,36 +514,34 @@ func assignDeckBackgroundRotation(targets []plannedBackgroundTarget) []plannedBa
 	if len(targets) == 0 {
 		return targets
 	}
-	var queries []string
-	seen := make(map[string]bool)
+	typeSlots := map[string]int{}
+	typeQueries := map[string]string{}
 	for _, target := range targets {
-		query := normalizeAssetQuery(target.query, true)
-		key := strings.ToLower(query)
-		if key == "" || seen[key] {
-			continue
+		typeKey := backgroundContentTypeKey(target.contentType)
+		if _, ok := typeSlots[typeKey]; !ok {
+			typeSlots[typeKey] = len(typeSlots)
 		}
-		seen[key] = true
-		queries = append(queries, query)
-		if len(queries) == deckBackgroundSlots {
-			break
+		if typeQueries[typeKey] == "" {
+			typeQueries[typeKey] = normalizeAssetQuery(firstNonBlank(target.subject, target.query), true)
 		}
-	}
-	if len(queries) == 0 {
-		return targets
-	}
-	if len(queries) == 1 && len(targets) > 1 {
-		queries = append(queries, queries[0])
 	}
 	for index := range targets {
-		slot := index % len(queries)
+		typeKey := backgroundContentTypeKey(targets[index].contentType)
+		slot := typeSlots[typeKey]
 		targets[index].slot = slot
-		targets[index].query = queries[slot]
-		targets[index].searchPage = 1
-		if slot > 0 && strings.EqualFold(queries[slot], queries[0]) {
-			targets[index].searchPage = slot + 1
+		if query := typeQueries[typeKey]; query != "" {
+			targets[index].query = query
 		}
+		targets[index].searchPage = 1
 	}
 	return targets
+}
+
+func backgroundContentTypeKey(contentType string) string {
+	if key := strings.ToLower(strings.TrimSpace(contentType)); key != "" {
+		return key
+	}
+	return "default"
 }
 
 func backgroundTargetKey(target plannedBackgroundTarget) string {
@@ -550,13 +557,49 @@ func normalizeAssetQuery(query string, background bool) string {
 	if query == "" || !background {
 		return query
 	}
-	lower := strings.ToLower(query)
-	for _, token := range []string{"light", "bright", "pale", "white", "airy"} {
-		if strings.Contains(lower, token) {
-			return query
+	return compactBackgroundSearchKeyword(query)
+}
+
+func compactBackgroundSearchKeyword(query string) string {
+	query = strings.TrimSpace(strings.ToLower(query))
+	query = strings.NewReplacer(
+		",", " ", ".", " ", ";", " ", ":", " ", "/", " ", "\\", " ", "|", " ",
+		"-", " ", "_", " ", "(", " ", ")", " ", "[", " ", "]", " ",
+	).Replace(query)
+	words := strings.Fields(query)
+	if len(words) == 0 {
+		return ""
+	}
+	stop := map[string]bool{
+		"a": true, "an": true, "the": true, "and": true, "or": true, "of": true, "for": true, "with": true,
+		"light": true, "bright": true, "pale": true, "white": true, "airy": true, "clean": true,
+		"wide": true, "landscape": true, "background": true, "negative": true, "space": true,
+		"photo": true, "image": true, "abstract": true, "global": true, "modern": true, "theme": true,
+		"slide": true, "deck": true, "presentation": true,
+	}
+	for _, word := range words {
+		word = strings.Trim(word, "'\"")
+		if word == "" || stop[word] {
+			continue
+		}
+		if containsDigitOnly(word) {
+			continue
+		}
+		return word
+	}
+	return words[0]
+}
+
+func containsDigitOnly(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
 		}
 	}
-	return query + " light bright airy background"
+	return true
 }
 
 func applyResolvedBackground(target plannedBackgroundTarget, resolved resolvedBackgroundAsset) {

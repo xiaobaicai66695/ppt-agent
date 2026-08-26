@@ -20,10 +20,14 @@ const defaultManifestTemplate = "generic"
 var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 	"task_id":        {Type: schema.String, Desc: "任务 ID；patch 模式必填"},
 	"page_index":     {Type: schema.Integer, Desc: "页码；initialize 模式必填"},
+	"section_id":     {Type: schema.String, Desc: "页面所属章节 ID，用于后续定点或整节修复"},
+	"section_title":  {Type: schema.String, Desc: "页面所属章节标题"},
 	"title":          {Type: schema.String, Desc: "页面标题"},
 	"content_type":   {Type: schema.String, Desc: "合法的单页模板英文 ID"},
 	"layout_variant": {Type: schema.String, Desc: "同一 content_type 下的版式变体 ID，可为空"},
 	"description":    {Type: schema.String, Desc: "页面内容描述"},
+	"page_intent":    {Type: schema.String, Desc: "该页在章节中的具体叙事任务"},
+	"evidence_refs":  {Type: schema.Array, Desc: "引用顶层 content_bank 的事实/主题/实体 ID", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
 	"output_file":    {Type: schema.String, Desc: "输出 PPTX 文件名"},
 	"status":         {Type: schema.String, Desc: "pending、generating、done、qa_done、fixed 或 failed"},
 	"qa_report":      {Type: schema.String, Desc: "可选的 QA 报告"},
@@ -35,6 +39,7 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 			"summary":        {Type: schema.String, Desc: "页面核心摘要"},
 			"slide_intent":   {Type: schema.String, Desc: "本页在整套 PPT 中承担的语义目标"},
 			"section_number": {Type: schema.String, Desc: "章节分隔页的大章节编号，如 01/02；仅 section_divider 使用，不得写页码"},
+			"evidence_refs":  {Type: schema.Array, Desc: "引用顶层 content_bank 的事实/主题/实体 ID", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
 			"capacity_hint": {
 				Type: schema.Object,
 				Desc: "内容容量预估，只能表达密度和溢出风险，不得包含字号坐标",
@@ -138,10 +143,14 @@ var plannerManifestToolInfo = &schema.ToolInfo{
 type manifestTaskPatch struct {
 	TaskID        string       `json:"task_id"`
 	PageIndex     *int         `json:"page_index,omitempty"`
+	SectionID     *string      `json:"section_id,omitempty"`
+	SectionTitle  *string      `json:"section_title,omitempty"`
 	Title         *string      `json:"title,omitempty"`
 	ContentType   *string      `json:"content_type,omitempty"`
 	LayoutVariant *string      `json:"layout_variant,omitempty"`
 	Description   *string      `json:"description,omitempty"`
+	PageIntent    *string      `json:"page_intent,omitempty"`
+	EvidenceRefs  []string     `json:"evidence_refs,omitempty"`
 	OutputFile    *string      `json:"output_file,omitempty"`
 	Status        *string      `json:"status,omitempty"`
 	QAReport      *string      `json:"qa_report,omitempty"`
@@ -150,19 +159,23 @@ type manifestTaskPatch struct {
 }
 
 type manifestToolInput struct {
-	Mode     string              `json:"mode"`
-	Title    string              `json:"title,omitempty"`
-	Theme    string              `json:"theme,omitempty"`
-	Template string              `json:"template,omitempty"`
-	Tasks    []manifestTaskPatch `json:"tasks"`
+	Mode        string              `json:"mode"`
+	Title       string              `json:"title,omitempty"`
+	Theme       string              `json:"theme,omitempty"`
+	Template    string              `json:"template,omitempty"`
+	ContentBank map[string]any      `json:"content_bank,omitempty"`
+	Sections    []DeckSection       `json:"sections,omitempty"`
+	Tasks       []manifestTaskPatch `json:"tasks"`
 }
 
 type manifestToolRawInput struct {
-	Mode     string          `json:"mode"`
-	Title    string          `json:"title,omitempty"`
-	Theme    string          `json:"theme,omitempty"`
-	Template string          `json:"template,omitempty"`
-	Tasks    json.RawMessage `json:"tasks"`
+	Mode        string          `json:"mode"`
+	Title       string          `json:"title,omitempty"`
+	Theme       string          `json:"theme,omitempty"`
+	Template    string          `json:"template,omitempty"`
+	ContentBank map[string]any  `json:"content_bank,omitempty"`
+	Sections    []DeckSection   `json:"sections,omitempty"`
+	Tasks       json.RawMessage `json:"tasks"`
 }
 
 type manifestTool struct {
@@ -565,7 +578,8 @@ func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {
 		return manifestToolInput{}, err
 	}
 	input := manifestToolInput{
-		Mode: raw.Mode, Title: raw.Title, Theme: raw.Theme, Template: raw.Template, Tasks: tasks,
+		Mode: raw.Mode, Title: raw.Title, Theme: raw.Theme, Template: raw.Template,
+		ContentBank: raw.ContentBank, Sections: raw.Sections, Tasks: tasks,
 	}
 	return input, nil
 }
@@ -702,7 +716,7 @@ func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManife
 	if template == "" {
 		template = defaultManifestTemplate
 	}
-	manifest := &TasksManifest{Title: title, Theme: theme, Template: template}
+	manifest := &TasksManifest{Title: title, Theme: theme, Template: template, ContentBank: input.ContentBank, Sections: input.Sections}
 	seen := make(map[string]bool, len(input.Tasks))
 	for _, patch := range input.Tasks {
 		if patch.PageIndex == nil || patch.Title == nil || patch.ContentType == nil || patch.Description == nil || patch.OutputFile == nil {
@@ -725,6 +739,18 @@ func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManife
 			ContentType: *patch.ContentType, Description: *patch.Description,
 			OutputFile: *patch.OutputFile, Status: status,
 			ContentPlan: patch.ContentPlan,
+		}
+		if patch.SectionID != nil {
+			item.SectionID = *patch.SectionID
+		}
+		if patch.SectionTitle != nil {
+			item.SectionTitle = *patch.SectionTitle
+		}
+		if patch.PageIntent != nil {
+			item.PageIntent = *patch.PageIntent
+		}
+		if len(patch.EvidenceRefs) > 0 {
+			item.EvidenceRefs = append([]string(nil), patch.EvidenceRefs...)
 		}
 		if patch.LayoutVariant != nil {
 			item.LayoutVariant = *patch.LayoutVariant
@@ -804,6 +830,12 @@ func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*Ta
 	}
 	if input.Template != "" {
 		manifest.Template = input.Template
+	}
+	if input.ContentBank != nil {
+		manifest.ContentBank = input.ContentBank
+	}
+	if input.Sections != nil {
+		manifest.Sections = input.Sections
 	}
 	for i, patch := range input.Tasks {
 		item := manifest.GetTask(strings.TrimSpace(patch.TaskID))
@@ -894,6 +926,12 @@ func applyManifestPatch(item *TaskItem, patch manifestTaskPatch) {
 	if patch.Title != nil {
 		item.Title = *patch.Title
 	}
+	if patch.SectionID != nil {
+		item.SectionID = *patch.SectionID
+	}
+	if patch.SectionTitle != nil {
+		item.SectionTitle = *patch.SectionTitle
+	}
 	if patch.ContentType != nil {
 		item.ContentType = *patch.ContentType
 	}
@@ -902,6 +940,12 @@ func applyManifestPatch(item *TaskItem, patch manifestTaskPatch) {
 	}
 	if patch.Description != nil {
 		item.Description = *patch.Description
+	}
+	if patch.PageIntent != nil {
+		item.PageIntent = *patch.PageIntent
+	}
+	if len(patch.EvidenceRefs) > 0 {
+		item.EvidenceRefs = append([]string(nil), patch.EvidenceRefs...)
 	}
 	if patch.OutputFile != nil {
 		item.OutputFile = *patch.OutputFile
@@ -935,6 +979,9 @@ func mergeContentPlanPatch(current, patch *ContentPlan) *ContentPlan {
 	}
 	if strings.TrimSpace(patch.SectionNumber) != "" {
 		current.SectionNumber = patch.SectionNumber
+	}
+	if len(patch.EvidenceRefs) > 0 {
+		current.EvidenceRefs = append([]string(nil), patch.EvidenceRefs...)
 	}
 	if patch.VisualIntent != nil {
 		current.VisualIntent = mergeVisualIntentPatch(current.VisualIntent, patch.VisualIntent)

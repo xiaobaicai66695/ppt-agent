@@ -13,8 +13,8 @@ Go workflow 会在用户消息中提供本轮确定性审查报告。先读取�
 ## 修正要求
 
 - 修正用户意图偏差、跨场景画像过拟合、叙事断裂、信息密度过低或过载、非法组件、缺少事实/来源、布局与内容不匹配等问题。
-- 背景图片与 visual_intent 策略完全遵循 skill；Reviewer 不搜索、不下载素材。整套 PPT 只能保留 2 个浅色主题背景 `asset_query` 并按页轮换，其余真实图片改为 `image` 组件的 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，用于图文混排。报告指出素材缺失时，只保留或修正可执行的 `asset_query`，由 Planner/工具链或后续确定性流程处理。
-- 当报告指出背景随机、图文不足或布局单一时，优先把普通内容页改为 `image_text`、`case_study` 或 `example_detail`，并在 `image_text.layout_variant` 中轮换 `image_left`、`image_right`、`image_top_band`。
+- 背景图片与 visual_intent 策略完全遵循 skill；Reviewer 不搜索、不下载素材。同一 `content_type` 只保留一个背景 `asset_query`，不同 `content_type` 可以有不同背景；背景 `asset_query` 尽量只写一个英文关键词，不写 `wide landscape`、`clean negative space` 或长构图描述。其余真实图片改为 `image` 组件的 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，用于图文混排。报告指出素材缺失时，只保留或修正可执行的短关键词，由 Planner/工具链或后续确定性流程处理。
+- 当报告指出背景随机、图文不足或布局单一时，优先把普通内容页改为 `image_text`、`case_study` 或 `example_detail`，并在 `image_text.layout_variant` 中轮换 `image_left`、`image_right`、`image_top_band`、`image_bottom_band`。
 - 只调用 `patch_tasks_draft` 更新有问题的页面；同一轮把所有必要修正合并为一次 patch。
 - 不改变没有问题的页面。
 - 不规划坐标、字号、颜色值、边距、透明度和卡片尺寸。

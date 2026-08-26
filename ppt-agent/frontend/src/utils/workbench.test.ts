@@ -747,6 +747,7 @@ describe('workbench utilities', () => {
     expect(deriveLiveActivity({ status: 'running', lastTool: 'search', done: 3, total: 12 })).toEqual({
       label: '正在检索并核实资料', detail: '已完成 3/12 页', state: 'running',
     });
+    expect(deriveLiveActivity({ status: 'running', phase: 'compressing_context' }).label).toBe('正在压缩较早对话');
     expect(deriveLiveActivity({ status: 'running', connectionInterrupted: true }).label).toBe('正在恢复实时连接');
   });
 
@@ -825,5 +826,15 @@ describe('workbench utilities', () => {
     expect(html).toContain('<ul>');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>');
+  });
+
+  it('normalizes compact assistant markdown into readable sections', () => {
+    const html = renderSafeMarkdown('规划完成说明页数：12页叙事主线：观点。 ##规划完成说明页面结构：1.封面（title_slide）2.目录（agenda）3.章节一（section_divider）');
+    expect(html).toContain('<h2>规划完成说明</h2>');
+    expect(html).toContain('<p>页面结构：</p>');
+    expect(html).toContain('<ol>');
+    expect(html).toContain('<li>封面（title_slide）</li>');
+    expect(html).toContain('<li>目录（agenda）</li>');
+    expect(html).not.toContain('section_div ider');
   });
 });

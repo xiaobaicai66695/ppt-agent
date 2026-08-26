@@ -90,7 +90,7 @@ from generators import (
 
 - 新规划通过 `image` 组件或 `visual_intent` 传入图片语义；真正进入 PPT 的图片必须带 `local_path`。
 - `local_path` 应位于当前任务工作目录内，通常来自 `search_images(download=true)` 的下载结果。
-- Reviewer 或 Planner 只留下图片 `asset_query` 时，Go workflow 会在 render worker pool 前执行 `materialize_background_assets`，并发下载、去重并原子写回 `local_path`；背景查询会先收敛为 2 张浅色主题图并按页轮换，非背景 `image` 组件会作为 `scene/evidence` 图文素材下载。生成器本身仍只消费本地文件，不直接访问图片 provider。
+- Reviewer 或 Planner 只留下图片 `asset_query` 时，Go workflow 会在 render worker pool 前执行 `materialize_background_assets`，并发下载、去重并原子写回 `local_path`；背景查询会按 `content_type` 收敛为同类页面复用同一张背景图，且长背景 query 会被压缩为单个搜索关键词，非背景 `image` 组件会作为 `scene/evidence` 图文素材下载。生成器本身仍只消费本地文件，不直接访问图片 provider。
 - 没有真实图片输入时，图文页渲染语义摘要面板，不暴露 `[图片占位]` 一类占位文案。
 - 生成器可以使用文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素；不再依赖离线素材 manifest。
 - 图片署名写入 `caption`、`attribution` 或 `source`，保留 `source_url` 便于追溯。

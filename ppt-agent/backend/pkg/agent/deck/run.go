@@ -193,6 +193,33 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 		}
 	}()
 
+	if shouldUseChunkedPlanning(cfg) {
+		chunkStart := time.Now()
+		manifest, chunkErr := runChunkedDeckPlanning(ctx, cfg, userQuery, onEvent)
+		if chunkErr == nil && manifest != nil && len(manifest.Tasks) > 0 {
+			committed, reviewErr := reviewAndCommitDeckSpec(ctx, cfg, onEvent)
+			result = &PPTTaskResult{Message: "chunked planning completed", Duration: time.Since(chunkStart)}
+			if reviewErr != nil {
+				return result, reviewErr
+			}
+			if committed == nil || len(committed.Tasks) == 0 {
+				return result, fmt.Errorf("Planner 生成的 DeckSpec 为空，无法进入渲染")
+			}
+			result.TotalSlides = len(committed.Tasks)
+			result.DoneSlides = committed.CompletedCount()
+			for _, t := range committed.Tasks {
+				if t.Status == StatusDone || t.Status == StatusQADone || t.Status == StatusFixed {
+					result.Files = append(result.Files, filepath.Join(cfg.WorkDir, t.OutputFile))
+				}
+			}
+			return result, nil
+		}
+		if cfg.RuntimeMeta != nil {
+			cfg.RuntimeMeta.RecordEvent("deck_spec_chunked_fallback", "chunked_planner", "warning", fmt.Sprintf("fallback to monolithic planner: %v", chunkErr), nil)
+		}
+		onEvent(AgentEvent{Type: AgentEventProgress, Phase: "planning", PhaseDetail: "分片规划暂不可用，回退到完整 Planner"})
+	}
+
 	start, err := StartPPTPlanner(ctx, agent, cfg, userQuery)
 	if err != nil {
 		return nil, err

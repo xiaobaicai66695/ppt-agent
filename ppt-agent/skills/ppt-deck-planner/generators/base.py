@@ -278,10 +278,10 @@ def set_image_background(
 
     img = _fit_background_image(img, (target_w, target_h), fit_mode)
     background_palette = background_image_palette(img, palette)
-    # 背景图只负责情境和色系，不直接抢占主题色。先把图像本身降饱和、
-    # 降对比，再把提取到的色系以浅色 token 返回给组件层。
-    img = ImageEnhance.Color(img).enhance(0.38)
-    img = ImageEnhance.Contrast(img).enhance(0.72)
+    # 背景图只负责情境和色系，不直接抢占主题色。保留足够的图像存在感，
+    # 再把提取到的色系以浅色 token 返回给组件层。
+    img = ImageEnhance.Color(img).enhance(0.62)
+    img = ImageEnhance.Contrast(img).enhance(0.84)
     if blur_radius > 0:
         img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
@@ -292,9 +292,9 @@ def set_image_background(
     preview = img.resize((64, 64), Image.Resampling.BILINEAR)
     mean_r, mean_g, mean_b = ImageStat.Stat(preview).mean[:3]
     mean_luma = 0.2126 * mean_r + 0.7152 * mean_g + 0.0722 * mean_b
-    target_luma = 218.0
+    target_luma = 202.0
     veil_strength = (target_luma - mean_luma) / max(1.0, 255.0 - mean_luma)
-    veil_strength = min(0.78, max(0.42, veil_strength))
+    veil_strength = min(0.58, max(0.20, veil_strength))
     veil = Image.new("RGB", img.size, (255, 255, 255))
     img = Image.blend(img, veil, veil_strength)
 

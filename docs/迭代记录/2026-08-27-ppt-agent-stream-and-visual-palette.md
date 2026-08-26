@@ -47,3 +47,49 @@
 
 - 本次没有发起完整 LLM 生成任务，避免额外消耗用户或系统上游 Key；已通过确定性渲染 smoke 覆盖生成器链路。
 - 若后续仍出现背景局部复杂导致文字难读，可继续增加“文字安全区亮度/复杂度”检测，而不是依赖 Planner 视觉描述。
+
+## 背景搜索关键词与同类型复用修正
+
+- 问题：
+  - 背景图原策略把整套 PPT 收敛为两张浅色背景并按页轮换，容易让同一页面类型出现不同背景节奏。
+  - Planner 仍倾向生成 `wide landscape clean negative space` 一类长搜索词，Unsplash 可能被长尾描述带偏，搜到和主题不相关的图。
+- 行为变化：
+  - 背景物化从“两张全局背景槽”改为“按 `content_type` 分组”：同一页面类型复用同一张背景图，不同页面类型可以使用不同背景。
+  - 背景搜索词优先使用 `asset_subject`，否则从 `asset_query` 中提取第一个有效关键词；去掉 `wide landscape`、`clean negative space`、`light/bright/airy` 等构图和明暗词。
+  - Reviewer 增加两类 warning：同一 `content_type` 出现多个背景关键词、背景 `asset_query` 过长。
+  - Planner / Reviewer prompt、Skill 和组件契约同步改为“背景 `asset_query` 尽量只写一个英文关键词”。
+- 本地验证：
+  - `python -m json.tool templates\component_contracts.json`
+  - `go test ./pkg/agent/deck ./pkg/prompts`
+  - `go test ./pkg/web ./pkg/task ./pkg/agent/deck ./pkg/prompts`
+  - `go build ./...`
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：待回填
+  - 新进程：待回填
+  - 冒烟：待回填
+
+## 分片规划与上下文压缩可见性
+
+- 问题：
+  - 12 页以上 DeckSpec 由单个 Planner 一次性填完整 `tasks.json`，后半段容易退化为抽象套话，且不利于后续单页/单节修复。
+  - 上下文压缩阈值过高，实际规划调用接近窗口上限时不容易触发；触发后也缺少前端明确回显。
+- OpenSpec：
+  - `openspec/changes/chunked-deck-planning-and-context-compression/`
+- 行为变化：
+  - 新增 chunked planning 路径：BlueprintPlanner 先锁定页码、章节、标题、页面类型和 `content_bank`，SectionPlanner 按小节补全 2-4 页内容，后端 Merger 确定性合并后仍只走一次 Task Reviewer。
+  - `tasks.json` 页面增加可选 `section_id`、`section_title`、`page_intent`、`evidence_refs`，`content_plan` 增加可选 `evidence_refs`，为后续定点修复提供粒度。
+  - Merger 负责填充 `task_id`、`output_file`、`status`、`created_at`、`capacity_hint.component_count`，并按 `content_type` 收敛背景关键词，减少 LLM 填工程字段的负担。
+  - 上下文压缩 prompt 显式包含历史消息、上次压缩交接和当前用户最新问题；压缩开始时记录 `compressing_context` 阶段并通过 SSE progress/runtime_meta 回显。
+  - 默认规划压缩阈值从 200000 估算 token 调整为 24000，可通过 `PLANNER_COMPRESSOR_TOKEN_THRESHOLD` 覆盖。
+- 本地验证：
+  - `go test ./pkg/agent/deck ./pkg/agent/utils ./pkg/task`
+  - `go build ./...`
+  - `npm test -- --run src/utils/workbench.test.ts`
+  - `npm run build`
+  - `go test ./...` 已执行，但 `test/plan_benchmark` 的既有 gold DeckSpec 因背景关键词/旧金标组件容量规则失败，需单独更新 gold 或调整评测基线。
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 状态：待部署；当前工作区存在其他未提交运行变更和未完成上线记录，直接发布会混入非本次变更。
+  - 新进程：待回填
+  - 冒烟：待回填

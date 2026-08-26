@@ -21,7 +21,7 @@ Planner 负责：
 渲染适配层负责：
 
 - 读取 `tasks.json`。
-- 在并发渲染前把仍只有 `asset_query` 的图片计划确定性搜索、下载并原子写回 `local_path`；背景先收敛为 2 张浅色主题图并按页轮换，页内 `scene/evidence` 图片按各自查询下载。
+- 在并发渲染前把仍只有 `asset_query` 的图片计划确定性搜索、下载并原子写回 `local_path`；背景按 `content_type` 收敛，同一页面类型复用同一张背景图，页内 `scene/evidence` 图片按各自查询下载。
 - 只消费 `content_plan.components` 和 `visual_intent`；`description` 仅作为页面语义摘要，不承担组件渲染兜底。
 - 保持 `palette=manifest.theme`，逐字符使用 `task.output_file`。
 - 通过 `generators/render_task.py` 按 `task_id` 构造参数，并将 `layout_variant`、`source` 和图片字段传给 generator。
@@ -80,7 +80,7 @@ Python generators 负责：
 - 每个章节先用 1 页 `section_divider` 明确阶段主题；章节少于 2 个时可以省略分割页。
 - 内容页先确定本页主观点，再选择 2-4 个论据组件支撑；论据可以是事实、数据、图片、案例、引用或表格。
 - 除纯数据、流程、对比表和总结页外，默认优先使用“观点 + 论据”的图文混排：一侧承载判断与解释，另一侧用真实场景图、案例图、数据或证据承载论据，避免连续多页纯卡片或纯列表。
-- 默认每页都提供外部背景图片计划；整套 PPT 只选择 2 张相关主题的浅色背景图，所有页面在这 2 个 `visual_intent.asset_query` 之间按页轮换，避免每页随机换图造成风格跳变。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊、降饱和、降对比和位图级可读性柔化，并从背景图提取弱化后的色系 token 供文字、面板和强调色使用；规划只描述图片主体和构图，不填写 blur、透明度、透视、字号或固定主题色参数。
+- 默认每页都提供外部背景图片计划；同一 `content_type` 复用同一个背景关键词和同一张背景图，不同 `content_type` 可以使用不同背景，避免视觉过于单调。背景 `asset_query` 尽量只写一个英文关键词，例如 `diplomacy`、`energy`、`city`、`technology`，不要写长句、页面标题、`wide landscape`、`clean negative space` 或明暗构图词。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊、降饱和、降对比和位图级可读性柔化，并从背景图提取弱化后的色系 token 供文字、面板和强调色使用；规划只描述图片主体，不填写 blur、透明度、透视、字号或固定主题色参数。
 - 需要更多图片时，不要继续增加背景查询；改用 `image` 组件，设置 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，把图片作为图文混排、案例、证据或细节说明的一部分。
 - 深度说明页优先使用 `argument_block` 承载完整论述，再配列表、证据、KPI、图片或架构组件。
 - 对比、选型、方案评估优先用 `comparison_table` 或 `two_column`，并用 `recommendation` 给出结论。
@@ -153,20 +153,20 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 
 | `asset_purpose` | 适用内容 | 查询写法 |
 |-----------------|----------|----------|
-| `background` | 整页氛围和文字承载 | 视觉代理 + 环境/光线 + `wide landscape` + `clean negative space` |
+| `background` | 整页氛围和文字承载 | 一个英文关键词；同一 `content_type` 保持一致 |
 | `scene` | PPT 中插入的真实实例 | 具体对象 + 动作 + 环境/地点 |
 | `evidence` | 案例或事实的实景证据 | 行业/对象 + 可见设施或动作；事实来源仍写入 `source` |
 | `decorative` | 辅助装饰 | 主题实体 + 简洁构图 |
 
-例如“低空经济”不直接作为背景查询词：背景可转换为 `aerial city skyline at blue hour, wide landscape, clean negative space`，实景可转换为 `delivery drone flying above urban neighborhood`。
+例如“低空经济”背景可转换为 `city` 或 `aviation`；实景图才使用更具体的 `delivery drone flying above urban neighborhood`。
 
 调用 `search_images(download=true)` 后，必须把选中图片的 `local_path`、`image_url`、`preview_url`、`source_url` 和 `attribution` 写回对应 `image` 组件或 `visual_intent`。图片保存路径应在当前 PPT 任务工作目录内。
 
-若 Reviewer 只补充了图片 `asset_query`，或 Planner 的下载结果未能写回草稿，Go 渲染工作流会在 `validate_deck_spec` 之后、worker pool 之前执行 `materialize_background_assets`，并把下载结果原子写回正式 `tasks.json`。背景会先收敛到 2 张浅色主题图后轮换；非背景 `image` 组件按页面查询下载为图文素材。这是一道交付兜底，不替代 Planner 主动下载和记录来源。
+若 Reviewer 只补充了图片 `asset_query`，或 Planner 的下载结果未能写回草稿，Go 渲染工作流会在 `validate_deck_spec` 之后、worker pool 之前执行 `materialize_background_assets`，并把下载结果原子写回正式 `tasks.json`。背景会按 `content_type` 收敛为同类型复用同一张图；非背景 `image` 组件按页面查询下载为图文素材。这是一道交付兜底，不替代 Planner 主动下载和记录来源。
 
 顶层 `task.background` 不属于当前契约。外部图片用途写在 `visual_intent.asset_purpose` 或 `image.asset_purpose` 中，已下载文件写入对应 `local_path`。
 
-背景图片由生成器按幻灯片真实宽高比自动处理：默认使用 `cover` 等比铺满画布，允许边缘被适度裁剪，但图片对象不得超出幻灯片画布。所有带背景图的页面都会自动增加轻度模糊，并把可读性柔化直接烘焙进背景位图，避免不同 PowerPoint/LibreOffice 预览器对全页透明遮罩解释不一致；标题页与 `section_divider` 使用更强一级的模糊，降低复杂纹理、透视线条对文字可读性的干扰。Planner 不需要规划适配、模糊或透明度参数，但仍应优先搜索 `wide landscape` 与 `clean negative space` 构图，避免关键主体落在易裁剪边缘。
+背景图片由生成器按幻灯片真实宽高比自动处理：默认使用 `cover` 等比铺满画布，允许边缘被适度裁剪，但图片对象不得超出幻灯片画布。所有带背景图的页面都会自动增加轻度模糊，并把可读性柔化直接烘焙进背景位图，避免不同 PowerPoint/LibreOffice 预览器对全页透明遮罩解释不一致；标题页与 `section_divider` 使用更强一级的模糊，降低复杂纹理、透视线条对文字可读性的干扰。Planner 不需要规划适配、模糊、透明度、明暗或留白参数。
 
 ## layout_variant
 

@@ -59,26 +59,28 @@ func (f *fakeBackgroundAssetClient) Download(_ context.Context, photo unsplash.P
 	}, nil
 }
 
-func TestMaterializePlannedBackgroundsUsesTwoLightDeckSlots(t *testing.T) {
+func TestMaterializePlannedBackgroundsReusesOneBackgroundPerContentType(t *testing.T) {
 	workDir := t.TempDir()
-	query := "abstract AI network wide landscape clean negative space"
 	manifest := &TasksManifest{Tasks: []*TaskItem{
 		{
-			TaskID: "page-1",
+			TaskID:      "page-1",
+			ContentType: "content_slide",
 			ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{
-				AssetPurpose: "background", AssetQuery: query, Role: "hero_photo",
+				AssetPurpose: "background", AssetSubject: "diplomacy", AssetQuery: "light global diplomacy meeting wide landscape clean negative space", Role: "hero_photo",
 			}},
 		},
 		{
-			TaskID: "page-2",
+			TaskID:      "page-2",
+			ContentType: "content_slide",
 			ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{
-				AssetPurpose: "background", AssetQuery: query, ImagePosition: "background",
+				AssetPurpose: "background", AssetQuery: "enterprise automation dashboard wide landscape clean negative space", ImagePosition: "background",
 			}},
 		},
 		{
-			TaskID: "page-3",
+			TaskID:      "page-3",
+			ContentType: "image_text",
 			ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{
-				AssetPurpose: "background", AssetQuery: "enterprise automation dashboard wide landscape clean negative space",
+				AssetPurpose: "background", AssetQuery: "light energy infrastructure wide landscape clean negative space",
 			}},
 		},
 	}}
@@ -100,22 +102,24 @@ func TestMaterializePlannedBackgroundsUsesTwoLightDeckSlots(t *testing.T) {
 	if first.LocalPath == "" || second.LocalPath == "" || third.LocalPath == "" {
 		t.Fatalf("expected downloaded paths, got %q %q %q", first.LocalPath, second.LocalPath, third.LocalPath)
 	}
-	if first.LocalPath == second.LocalPath {
-		t.Fatalf("expected two alternating background slots, got first=%q second=%q", first.LocalPath, second.LocalPath)
+	if first.LocalPath != second.LocalPath {
+		t.Fatalf("expected same content_type to reuse one background, got first=%q second=%q", first.LocalPath, second.LocalPath)
 	}
-	if first.LocalPath != third.LocalPath {
-		t.Fatalf("expected third slide to reuse the first background slot, got %q and %q", first.LocalPath, third.LocalPath)
+	if first.LocalPath == third.LocalPath {
+		t.Fatalf("expected different content_type to allow another background, got %q and %q", first.LocalPath, third.LocalPath)
 	}
+	gotQueries := map[string]bool{}
 	for _, search := range client.searches {
 		if search.Orientation != "landscape" || search.PerPage != 1 {
 			t.Fatalf("unexpected search options: %#v", search)
 		}
 		if search.Page != 1 {
-			t.Fatalf("distinct deck background queries should start from page 1, got %#v", search)
+			t.Fatalf("content-type background queries should start from page 1, got %#v", search)
 		}
-		if search.Query == query {
-			t.Fatalf("expected light background terms to be appended to %q", search.Query)
-		}
+		gotQueries[search.Query] = true
+	}
+	if !gotQueries["diplomacy"] || !gotQueries["energy"] {
+		t.Fatalf("expected compact single-keyword searches, got %#v", client.searches)
 	}
 	if first.PreviewURL == "" || first.SourceURL == "" || first.Attribution == "" {
 		t.Fatalf("expected traceable image metadata: %#v", first)
@@ -125,12 +129,12 @@ func TestMaterializePlannedBackgroundsUsesTwoLightDeckSlots(t *testing.T) {
 	}
 }
 
-func TestMaterializePlannedBackgroundsUsesTwoPagesWhenOnlyOneQueryExists(t *testing.T) {
+func TestMaterializePlannedBackgroundsUsesOneAssetForRepeatedContentType(t *testing.T) {
 	workDir := t.TempDir()
 	query := "light AI cloud architecture wide landscape clean negative space"
 	manifest := &TasksManifest{Tasks: []*TaskItem{
-		{TaskID: "page-1", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
-		{TaskID: "page-2", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
+		{TaskID: "page-1", ContentType: "stat_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
+		{TaskID: "page-2", ContentType: "stat_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
 	}}
 	targets, err := collectPendingBackgroundTargets(workDir, manifest)
 	if err != nil {
@@ -141,20 +145,16 @@ func TestMaterializePlannedBackgroundsUsesTwoPagesWhenOnlyOneQueryExists(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 || len(client.searches) != 2 || client.downloads != 2 {
+	if count != 2 || len(client.searches) != 1 || client.downloads != 1 {
 		t.Fatalf("unexpected materialization count=%d searches=%d downloads=%d", count, len(client.searches), client.downloads)
 	}
-	pages := map[int]bool{}
-	for _, search := range client.searches {
-		pages[search.Page] = true
-	}
-	if !pages[1] || !pages[2] {
-		t.Fatalf("expected same query to use page 1 and page 2 results, got %#v", client.searches)
+	if client.searches[0].Query != "ai" {
+		t.Fatalf("expected compact single-keyword background query, got %#v", client.searches[0])
 	}
 	first := manifest.Tasks[0].ContentPlan.VisualIntent.LocalPath
 	second := manifest.Tasks[1].ContentPlan.VisualIntent.LocalPath
-	if first == "" || second == "" || first == second {
-		t.Fatalf("expected two different background images, got %q and %q", first, second)
+	if first == "" || second == "" || first != second {
+		t.Fatalf("expected one shared background image, got %q and %q", first, second)
 	}
 }
 
@@ -206,9 +206,9 @@ func TestMaterializePlannedDeckAssetsCollapsesExistingBackgroundsWithoutClient(t
 	secondPath := writeFakeAsset(t, workDir, "second.jpg")
 	thirdPath := writeFakeAsset(t, workDir, "third.jpg")
 	manifest := &TasksManifest{Tasks: []*TaskItem{
-		{TaskID: "page-1", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI office wide landscape", LocalPath: firstPath}}},
-		{TaskID: "page-2", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI city wide landscape", LocalPath: secondPath}}},
-		{TaskID: "page-3", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light robot factory wide landscape", LocalPath: thirdPath}}},
+		{TaskID: "page-1", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI office wide landscape", LocalPath: firstPath}}},
+		{TaskID: "page-2", ContentType: "image_text", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI city wide landscape", LocalPath: secondPath}}},
+		{TaskID: "page-3", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light robot factory wide landscape", LocalPath: thirdPath}}},
 	}}
 	counts, err := MaterializePlannedDeckAssets(context.Background(), workDir, manifest)
 	if err != nil {
@@ -218,7 +218,7 @@ func TestMaterializePlannedDeckAssetsCollapsesExistingBackgroundsWithoutClient(t
 		t.Fatalf("unexpected counts: %#v", counts)
 	}
 	if manifest.Tasks[2].ContentPlan.VisualIntent.LocalPath != firstPath {
-		t.Fatalf("third slide should reuse first background, got %q", manifest.Tasks[2].ContentPlan.VisualIntent.LocalPath)
+		t.Fatalf("same content_type should reuse first background, got %q", manifest.Tasks[2].ContentPlan.VisualIntent.LocalPath)
 	}
 }
 
@@ -227,15 +227,15 @@ func TestMaterializePlannedBackgroundsSkipsRecoverableSearchFailures(t *testing.
 	missingQuery := "missing conference hall light bright airy background"
 	okQuery := "global diplomacy table light bright airy background"
 	manifest := &TasksManifest{Tasks: []*TaskItem{
-		{TaskID: "page-1", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: missingQuery}}},
-		{TaskID: "page-2", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: okQuery}}},
+		{TaskID: "page-1", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: missingQuery}}},
+		{TaskID: "page-2", ContentType: "image_text", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: okQuery}}},
 	}}
 	targets, err := collectPendingBackgroundTargets(workDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	client := &fakeBackgroundAssetClient{searchErr: map[string]error{
-		missingQuery: fmt.Errorf("unsplash API HTTP 410: Content removed"),
+		"missing": fmt.Errorf("unsplash API HTTP 410: Content removed"),
 	}}
 	count, err := materializePlannedBackgroundsWithClient(context.Background(), workDir, targets, client)
 	if err != nil {

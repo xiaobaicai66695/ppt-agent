@@ -356,7 +356,7 @@ function handleToolToggle(
 .message { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 8px; }
 .message-role { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 5px; color: var(--text-secondary); background: var(--surface-pressed); font-size: 10px; font-weight: 800; }
 .message.user .message-role { color: #fff; background: var(--action-ink); }
-.markdown-body { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.markdown-body { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font-size: 13px; line-height: 1.65; overflow-wrap: break-word; word-break: normal; }
 .message.user .markdown-body { border-color: #bdd7d3; background: var(--action-soft); }
 .message.streaming .markdown-body { border-left: 3px solid var(--info); }
 .tool-message .message-role { color: var(--info); background: var(--info-soft); }
