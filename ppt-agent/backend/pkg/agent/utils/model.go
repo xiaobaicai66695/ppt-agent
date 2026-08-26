@@ -197,6 +197,49 @@ var globalTracker = &globalRateLimitTracker{
 	pauseEndTimes: make(map[string]time.Time),
 }
 
+type modelCallLimiter struct {
+	mu    sync.Mutex
+	slots map[string]chan struct{}
+}
+
+var globalModelCallLimiter = &modelCallLimiter{
+	slots: make(map[string]chan struct{}),
+}
+
+func acquireModelCallSlot(ctx context.Context, resourceKey string) (func(), error) {
+	if strings.TrimSpace(resourceKey) == "" {
+		return func() {}, nil
+	}
+	return globalModelCallLimiter.acquire(ctx, resourceKey, modelAPIConcurrency())
+}
+
+func modelAPIConcurrency() int {
+	if v := EnvInt("MODEL_API_CONCURRENCY", 0); v > 0 {
+		return v
+	}
+	return EnvInt("MODEL_RESOURCE_CONCURRENCY", 1)
+}
+
+func (l *modelCallLimiter) acquire(ctx context.Context, key string, limit int) (func(), error) {
+	if limit <= 0 {
+		return func() {}, nil
+	}
+	l.mu.Lock()
+	slot := l.slots[key]
+	if slot == nil {
+		slot = make(chan struct{}, limit)
+		l.slots[key] = slot
+	}
+	l.mu.Unlock()
+
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // checkPause 检查指定模型是否在全局暂停中。返回 (是否暂停, 暂停结束时间)。
 func (g *globalRateLimitTracker) checkPause(modelName string) (bool, time.Time) {
 	g.mu.Lock()
@@ -229,6 +272,7 @@ type FallbackChatModel struct {
 	modelNames    []string // 日志显示名（含 backup 后缀）
 	rawNames      []string // 原始 modelName，用于全局追踪
 	trackerNames  []string // provider:model，用于跨供应商限流隔离
+	resourceKeys  []string // provider:model:key-hash，用于跨供应商/API key 并发隔离
 	mu            sync.Mutex
 	pauseDuration time.Duration
 	// compressorCfg 在 FallbackChatModel 被 ChatModelCompressor 包装时存储。
@@ -256,6 +300,7 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 	var validNames []string
 	var rawNames []string
 	var trackerNames []string
+	var resourceKeys []string
 
 	for i, spec := range modelSpecs {
 		if strings.TrimSpace(spec.Model) == "" {
@@ -271,6 +316,7 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		validNames = append(validNames, displayName)
 		rawNames = append(rawNames, spec.Model)
 		trackerNames = append(trackerNames, modelcompat.TrackerKey(spec))
+		resourceKeys = append(resourceKeys, modelcompat.ConcurrencyKey(spec))
 		logger.Info("model_init_success", "model", displayName, "backup", i)
 	}
 
@@ -283,6 +329,7 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		modelNames:    validNames,
 		rawNames:      rawNames,
 		trackerNames:  trackerNames,
+		resourceKeys:  resourceKeys,
 		pauseDuration: fallbackPauseDuration,
 	}, nil
 }
@@ -627,6 +674,11 @@ func (f *FallbackChatModel) PrimaryModelName() string {
 // Generate 实现 model.ToolCallingChatModel 接口
 func (f *FallbackChatModel) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	return f.callWithFallback(ctx, func(idx int) (*schema.Message, error) {
+		release, err := acquireModelCallSlot(ctx, f.modelResourceKey(idx))
+		if err != nil {
+			return nil, err
+		}
+		defer release()
 		msgs := make([]*schema.Message, len(messages))
 		copy(msgs, messages)
 		return f.models[idx].Generate(ctx, msgs, opts...)
@@ -708,18 +760,30 @@ func (f *FallbackChatModel) openStreamFrom(ctx context.Context, startIdx int, me
 
 		msgs := make([]*schema.Message, len(messages))
 		copy(msgs, messages)
+		release, err := acquireModelCallSlot(ctx, f.modelResourceKey(idx))
+		if err != nil {
+			return idx, nil, err
+		}
 		stream, err := f.models[idx].Stream(ctx, msgs, opts...)
 		if err != nil {
+			release()
 			if IsRateLimitError(err) {
 				f.markRateLimited(idx)
 				continue
 			}
 			return idx, nil, err
 		}
-		return idx, sanitizeStreamingToolCallDeltas(stream), nil
+		return idx, releaseOnStreamDone(sanitizeStreamingToolCallDeltas(stream), release), nil
 	}
 
 	return -1, nil, fmt.Errorf("所有模型均失败")
+}
+
+func (f *FallbackChatModel) modelResourceKey(idx int) string {
+	if idx >= 0 && idx < len(f.resourceKeys) {
+		return f.resourceKeys[idx]
+	}
+	return f.globalTrackerKey(idx)
 }
 
 func (f *FallbackChatModel) modelDisplayName(idx int) string {
@@ -730,6 +794,30 @@ func (f *FallbackChatModel) modelDisplayName(idx int) string {
 		return f.rawNames[idx]
 	}
 	return fmt.Sprintf("model-%d", idx)
+}
+
+func releaseOnStreamDone(stream *schema.StreamReader[*schema.Message], release func()) *schema.StreamReader[*schema.Message] {
+	if stream == nil {
+		release()
+		return nil
+	}
+	reader, writer := schema.Pipe[*schema.Message](8)
+	go func() {
+		defer writer.Close()
+		defer release()
+		defer stream.Close()
+		for {
+			chunk, err := stream.Recv()
+			if err != nil {
+				if err != io.EOF {
+					writer.Send(nil, err)
+				}
+				return
+			}
+			writer.Send(chunk, nil)
+		}
+	}()
+	return reader
 }
 
 func sanitizeStreamingToolCallDeltas(stream *schema.StreamReader[*schema.Message]) *schema.StreamReader[*schema.Message] {
@@ -907,6 +995,7 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 		modelNames:    f.modelNames,
 		rawNames:      f.rawNames,
 		trackerNames:  f.trackerNames,
+		resourceKeys:  f.resourceKeys,
 		pauseDuration: f.pauseDuration,
 	}
 

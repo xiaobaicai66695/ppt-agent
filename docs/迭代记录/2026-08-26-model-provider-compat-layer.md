@@ -19,6 +19,11 @@
   - `WithTextModel` 支持 `MODEL_TEXT_*`，QA 支持 `MODEL_QA_*`。
   - fallback 全局限流 key 改为优先使用 `provider:model`，避免跨平台同名模型互相暂停。
   - 保留 stream read fallback、tool-call delta sanitize、压缩器和 RuntimeStatus wrapper。
+- 调整任务并发限制：
+  - 移除 `TaskManager.CreateTask` 中“同一用户已有 running 任务就拒绝创建”的全局任务闸门。
+  - 在 `FallbackChatModel.Generate` 和 `Stream` 内按 `provider:model:key-hash` 获取模型调用 slot。
+  - 默认同一上游 API 资源一次只跑 1 个模型调用；不同 provider/model/API key 不互相阻塞。
+  - 可通过 `MODEL_API_CONCURRENCY` 调整每个上游 API 资源的并发度；兼容 `MODEL_RESOURCE_CONCURRENCY`。
 
 ## 新配置示例
 
@@ -44,7 +49,9 @@ MODEL_TIMEOUT_SECONDS=600
 ## 本地验证
 
 - `go test ./pkg/agent/modelcompat ./pkg/agent/utils`
+- `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task`
 - `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/agent/deck`
+- `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task ./pkg/agent/deck ./pkg/web`
 - `go build ./...`
 
 ## 上线记录

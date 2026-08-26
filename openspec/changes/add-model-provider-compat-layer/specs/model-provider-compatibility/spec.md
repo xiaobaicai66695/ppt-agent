@@ -44,3 +44,16 @@ The system SHALL identify fallback pause and logging targets with provider and m
 - **WHEN** two fallback entries share the same model name but use different providers
 - **THEN** rate-limit pause tracking treats them as distinct targets
 - **AND** logs include enough provider information to identify the active upstream
+
+### Requirement: Provider-aware model call concurrency
+The system SHALL limit concurrent model calls by provider/model/API-key resource rather than rejecting all concurrent tasks globally.
+
+#### Scenario: Tasks use different upstream resources
+- **WHEN** multiple PPT tasks are created for different provider/model/API-key resources
+- **THEN** the system allows those tasks to run concurrently
+- **AND** each model call is constrained only by its own upstream resource slot
+
+#### Scenario: Tasks share the same upstream resource
+- **WHEN** multiple PPT tasks call the same provider/model/API-key resource
+- **THEN** model calls for that resource are serialized by default
+- **AND** unrelated upstream resources are not blocked by that serialization

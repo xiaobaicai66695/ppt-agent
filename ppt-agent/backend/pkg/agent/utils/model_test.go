@@ -14,10 +14,14 @@ import (
 )
 
 type fakeToolCallingChatModel struct {
-	stream func(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error)
+	generate func(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error)
+	stream   func(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error)
 }
 
-func (f fakeToolCallingChatModel) Generate(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
+func (f fakeToolCallingChatModel) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	if f.generate != nil {
+		return f.generate(ctx, messages, opts...)
+	}
 	return nil, errors.New("Generate not implemented")
 }
 
@@ -170,6 +174,56 @@ func TestFallbackGlobalTrackerKeyUsesProviderIdentity(t *testing.T) {
 	if got := fallback.globalTrackerKey(0); got != "siliconflow:same-model" {
 		t.Fatalf("globalTrackerKey() = %q", got)
 	}
+}
+
+func TestModelCallLimiterSerializesSameResource(t *testing.T) {
+	limiter := &modelCallLimiter{slots: make(map[string]chan struct{})}
+	ctx := context.Background()
+	releaseFirst, err := limiter.acquire(ctx, "ark:model:key:one", 1)
+	if err != nil {
+		t.Fatalf("first acquire error = %v", err)
+	}
+
+	acquiredSecond := make(chan func(), 1)
+	go func() {
+		release, err := limiter.acquire(ctx, "ark:model:key:one", 1)
+		if err != nil {
+			t.Errorf("second acquire error = %v", err)
+			return
+		}
+		acquiredSecond <- release
+	}()
+
+	select {
+	case release := <-acquiredSecond:
+		release()
+		t.Fatal("second acquire should block while first slot is held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	releaseFirst()
+	select {
+	case release := <-acquiredSecond:
+		release()
+	case <-time.After(time.Second):
+		t.Fatal("second acquire did not proceed after release")
+	}
+}
+
+func TestModelCallLimiterSeparatesResources(t *testing.T) {
+	limiter := &modelCallLimiter{slots: make(map[string]chan struct{})}
+	ctx := context.Background()
+	releaseFirst, err := limiter.acquire(ctx, "ark:model:key:one", 1)
+	if err != nil {
+		t.Fatalf("first acquire error = %v", err)
+	}
+	defer releaseFirst()
+
+	releaseSecond, err := limiter.acquire(ctx, "siliconflow:model:key:two", 1)
+	if err != nil {
+		t.Fatalf("different resource acquire error = %v", err)
+	}
+	releaseSecond()
 }
 
 func clearModelEnv(t *testing.T) {

@@ -1,6 +1,7 @@
 package modelcompat
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,6 +39,17 @@ func TestDisplayNameAndTrackerKeyIncludeProvider(t *testing.T) {
 	}
 	if got := TrackerKey(spec); got != "siliconflow:same-model" {
 		t.Fatalf("TrackerKey() = %q", got)
+	}
+}
+
+func TestConcurrencyKeySeparatesAPIKeysWithoutExposingThem(t *testing.T) {
+	first := ConcurrencyKey(ModelSpec{Provider: ProviderArk, Model: "m", APIKey: "secret-one"})
+	second := ConcurrencyKey(ModelSpec{Provider: ProviderArk, Model: "m", APIKey: "secret-two"})
+	if first == second {
+		t.Fatalf("ConcurrencyKey should differ for different API keys: %q", first)
+	}
+	if strings.Contains(first, "secret-one") || strings.Contains(second, "secret-two") {
+		t.Fatalf("ConcurrencyKey exposed raw API key: %q / %q", first, second)
 	}
 }
 

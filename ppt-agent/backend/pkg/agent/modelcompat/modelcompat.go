@@ -2,6 +2,8 @@ package modelcompat
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -122,6 +124,20 @@ func TrackerKey(spec ModelSpec) string {
 		return string(spec.Provider)
 	}
 	return fmt.Sprintf("%s:%s", spec.Provider, spec.Model)
+}
+
+func ConcurrencyKey(spec ModelSpec) string {
+	spec = NormalizeSpec(spec)
+	modelName := spec.Model
+	if modelName == "" {
+		modelName = "unknown"
+	}
+	keyHash := "default"
+	if spec.APIKey != "" {
+		sum := sha256.Sum256([]byte(spec.APIKey))
+		keyHash = hex.EncodeToString(sum[:])[:12]
+	}
+	return fmt.Sprintf("%s:%s:key:%s", spec.Provider, modelName, keyHash)
 }
 
 func BuildArkConfig(spec ModelSpec) *arkext.ChatModelConfig {

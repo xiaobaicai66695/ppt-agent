@@ -15,3 +15,11 @@
 - [x] 3.1 Extend existing model utility tests for legacy Ark fallback and provider-aware chain parsing.
 - [x] 3.2 Run focused backend tests for `pkg/agent/modelcompat`, `pkg/agent/utils`, and impacted deck model construction paths.
 - [x] 3.3 Update implementation notes or iteration archive with provider compatibility behavior and remaining DeepSeek/Qwen follow-up.
+
+## 4. Provider-aware Runtime Concurrency
+
+- [x] 4.1 Remove the task-level single-running-task rejection from `TaskManager.CreateTask`.
+- [x] 4.2 Add provider/model/API-key resource identities for model-call concurrency control without exposing raw keys.
+- [x] 4.3 Gate `FallbackChatModel.Generate` and `Stream` by resource-local concurrency slots while preserving fallback behavior.
+- [x] 4.4 Add focused tests for resource key isolation and per-resource serialization.
+- [x] 4.5 Re-run backend validation and update deployment notes.

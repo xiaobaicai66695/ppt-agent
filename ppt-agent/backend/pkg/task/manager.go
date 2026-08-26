@@ -492,7 +492,8 @@ func (ts *TaskState) persist() {
 // AgentFactory 为特定任务配置创建 agent。
 type AgentFactory func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error)
 
-// ErrTaskAlreadyRunning 当尝试创建任务时如果另一个任务正在运行，则返回此错误。
+// ErrTaskAlreadyRunning is retained for API compatibility with older handlers.
+// New tasks are no longer rejected globally; model calls are limited per upstream resource.
 var ErrTaskAlreadyRunning = fmt.Errorf("已有任务正在执行，请等待当前任务完成后再创建新任务")
 
 // HasRunningTask 如果给定用户已有运行中的任务则返回 true。
@@ -523,10 +524,6 @@ func (tm *TaskManager) HasRunningTasks() bool {
 // 并返回任务信息。
 func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	factory AgentFactory, cfg *deck.PPTTaskConfig) (*TaskInfo, error) {
-
-	if tm.HasRunningTask(userID) {
-		return nil, ErrTaskAlreadyRunning
-	}
 
 	// ── 意图识别与路由 ──
 	// 如果配置中没有意图结果，进行意图识别
