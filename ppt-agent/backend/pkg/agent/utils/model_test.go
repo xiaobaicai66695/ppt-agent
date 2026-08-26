@@ -168,6 +168,43 @@ func TestAccountAPIKeyOnlyAppliesToMatchingProvider(t *testing.T) {
 	}
 }
 
+func TestDeepSeekAccountKeyPrependsProviderSpecForLegacyArkConfig(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("ARK_MODEL", "ark-model")
+	t.Setenv("ARK_API_KEY", "ark-env-key")
+
+	cfg := &ChatModelConfig{}
+	WithAPIKeyForProvider("deepseek", " account-ds-key ")(cfg)
+	specs, err := resolveFallbackModelSpecs(cfg)
+	if err != nil {
+		t.Fatalf("resolveFallbackModelSpecs() error = %v", err)
+	}
+	if len(specs) != 2 {
+		t.Fatalf("len(specs) = %d, want 2", len(specs))
+	}
+	if specs[0].Provider != modelcompat.ProviderDeepSeek {
+		t.Fatalf("primary provider = %q, want deepseek", specs[0].Provider)
+	}
+	if specs[0].Model != "deepseek-chat" || specs[0].APIKey != "account-ds-key" || specs[0].BaseURL != modelcompat.DeepSeekBaseURL {
+		t.Fatalf("deepseek account spec = %#v", specs[0])
+	}
+	if specs[1].Provider != modelcompat.ProviderArk || specs[1].Model != "ark-model" || specs[1].APIKey != "ark-env-key" {
+		t.Fatalf("legacy ark fallback should keep env key, got %#v", specs[1])
+	}
+}
+
+func TestLegacyArkSpecRejectsNonArkAccountKey(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("ARK_API_KEY", "ark-env-key")
+
+	cfg := &ChatModelConfig{}
+	WithAPIKeyForProvider("deepseek", " account-ds-key ")(cfg)
+	spec := legacyArkSpec("ark-model", cfg)
+	if spec.APIKey != "ark-env-key" {
+		t.Fatalf("legacy ark spec API key = %q, want ark-env-key", spec.APIKey)
+	}
+}
+
 func TestResolveFallbackModelSpecsWithTextModelUsesProviderAwareText(t *testing.T) {
 	clearModelEnv(t)
 	t.Setenv("MODEL_TEXT_PROVIDER", "siliconflow")
@@ -317,6 +354,17 @@ func clearModelEnv(t *testing.T) {
 		"MODEL_CHAIN",
 		"MODEL_PROVIDER",
 		"MODEL_TIMEOUT_SECONDS",
+		"MODEL_DEEPSEEK_NAME",
+		"MODEL_DEEPSEEK_MODEL",
+		"MODEL_DEEPSEEK_TIMEOUT_SECONDS",
+		"MODEL_OPENAI_NAME",
+		"MODEL_OPENAI_MODEL",
+		"MODEL_OPENAI_TIMEOUT_SECONDS",
+		"MODEL_QWEN_NAME",
+		"MODEL_QWEN_MODEL",
+		"MODEL_QWEN_TIMEOUT_SECONDS",
+		"MODEL_SILICONFLOW_NAME",
+		"MODEL_SILICONFLOW_MODEL",
 		"MODEL_SILICONFLOW_TIMEOUT_SECONDS",
 		"MODEL_PRIMARY_PROVIDER",
 		"MODEL_PRIMARY_NAME",
@@ -354,8 +402,18 @@ func clearModelEnv(t *testing.T) {
 		"ARK_REGION",
 		"OPENAI_API_KEY",
 		"OPENAI_BASE_URL",
+		"OPENAI_MODEL",
+		"DEEPSEEK_API_KEY",
+		"DEEPSEEK_BASE_URL",
+		"DEEPSEEK_MODEL",
+		"DASHSCOPE_API_KEY",
+		"DASHSCOPE_BASE_URL",
+		"DASHSCOPE_MODEL",
+		"QWEN_BASE_URL",
+		"QWEN_MODEL",
 		"SILICONFLOW_API_KEY",
 		"SILICONFLOW_BASE_URL",
+		"SILICONFLOW_MODEL",
 		"BACKUP_KEY",
 	}
 	for _, key := range keys {

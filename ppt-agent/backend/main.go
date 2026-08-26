@@ -24,6 +24,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
@@ -119,7 +120,9 @@ func runWebMode(pwd, skillsDir, addr string) {
 	// Agent factory: creates a fresh agent per task with the right WorkDir/TaskID.
 	agentFactory := func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error) {
 		if cfg.ModelAPIKey == "" && cfg.UserID > 0 {
-			cfg.ModelAPIKey = resolveUserModelAPIKey(uint(cfg.UserID))
+			credential := resolveUserModelCredential(uint(cfg.UserID))
+			cfg.ModelAPIKey = credential.APIKey
+			cfg.ModelProvider = credential.Provider
 		}
 		cfg.Concurrency = concurrency
 		cfg.Operator = operator
@@ -156,8 +159,8 @@ func runWebMode(pwd, skillsDir, addr string) {
 				agentutils.WithMaxTokens(4096),
 				agentutils.WithTemperature(0),
 			}
-			if key := resolveUserModelAPIKeyFromContext(ctx); key != "" {
-				opts = append(opts, agentutils.WithAPIKey(key))
+			if credential := resolveUserModelCredentialFromContext(ctx); credential.APIKey != "" {
+				opts = append(opts, agentutils.WithAPIKeyForProvider(credential.Provider, credential.APIKey))
 			}
 			m, err := agentutils.NewFallbackToolCallingChatModel(ctx, opts...)
 			if err != nil {
@@ -173,14 +176,17 @@ func runWebMode(pwd, skillsDir, addr string) {
 			if routingModel == "" {
 				routingModel = strings.TrimSpace(os.Getenv("ARK_MODEL"))
 			}
+			credential := resolveUserModelCredentialFromContext(ctx)
 			opts := []agentutils.ChatModelOption{
-				agentutils.WithModel(routingModel),
 				agentutils.WithMaxTokens(1024),
 				agentutils.WithTemperature(0),
 				agentutils.WithDisableThinking(true),
 			}
-			if key := resolveUserModelAPIKeyFromContext(ctx); key != "" {
-				opts = append(opts, agentutils.WithAPIKey(key))
+			if credential.Provider == "" || modelcompat.NormalizeProvider(credential.Provider) == modelcompat.ProviderArk {
+				opts = append([]agentutils.ChatModelOption{agentutils.WithModel(routingModel)}, opts...)
+			}
+			if credential.APIKey != "" {
+				opts = append(opts, agentutils.WithAPIKeyForProvider(credential.Provider, credential.APIKey))
 			}
 			m, err := agentutils.NewFallbackToolCallingChatModel(ctx, opts...)
 			if err != nil {
@@ -382,26 +388,36 @@ func parseDurationEnv(key string, defaultVal time.Duration) time.Duration {
 	return d
 }
 
-func resolveUserModelAPIKeyFromContext(ctx context.Context) string {
+type userModelCredential struct {
+	Provider string
+	APIKey   string
+}
+
+func resolveUserModelCredentialFromContext(ctx context.Context) userModelCredential {
 	if ctx == nil {
-		return ""
+		return userModelCredential{}
 	}
 	userID, ok := auth.UserIDFromContext(ctx)
 	if !ok || userID <= 0 {
-		return ""
+		return userModelCredential{}
 	}
-	return resolveUserModelAPIKey(uint(userID))
+	return resolveUserModelCredential(uint(userID))
 }
 
-func resolveUserModelAPIKey(userID uint) string {
+func resolveUserModelCredential(userID uint) userModelCredential {
+	provider := modelcompat.ProviderArk
 	accountKey := ""
 	if userID > 0 && db.DB != nil {
 		record, err := db.GetUserAPIKey(userID)
 		if err != nil {
 			logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
 		} else if record != nil {
+			provider = modelcompat.NormalizeProvider(record.Provider)
 			accountKey = record.APIKey
 		}
 	}
-	return agentutils.ResolveModelAPIKey(accountKey, os.Getenv("ARK_API_KEY"))
+	return userModelCredential{
+		Provider: string(provider),
+		APIKey:   modelcompat.ResolveProviderAPIKey(provider, accountKey),
+	}
 }

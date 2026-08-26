@@ -371,7 +371,11 @@ func resolveFallbackModelSpecs(cfg *ChatModelConfig) ([]modelcompat.ModelSpec, e
 	if cfg == nil {
 		cfg = &ChatModelConfig{}
 	}
+	accountSpec, hasAccountSpec := accountProviderModelSpec(cfg, "")
 	if cfg.ModelRole == modelRoleText {
+		if hasAccountSpec {
+			return []modelcompat.ModelSpec{accountSpec}, nil
+		}
 		spec, err := resolveSingleRoleModelSpec(modelRoleText, cfg)
 		if err != nil {
 			return nil, err
@@ -379,6 +383,9 @@ func resolveFallbackModelSpecs(cfg *ChatModelConfig) ([]modelcompat.ModelSpec, e
 		return []modelcompat.ModelSpec{spec}, nil
 	}
 	if cfg.Model != nil && strings.TrimSpace(*cfg.Model) != "" {
+		if spec, ok := accountProviderModelSpec(cfg, strings.TrimSpace(*cfg.Model)); ok {
+			return []modelcompat.ModelSpec{spec}, nil
+		}
 		spec := modelSpecFromEntry("primary", cfg)
 		spec.Model = strings.TrimSpace(*cfg.Model)
 		return []modelcompat.ModelSpec{spec}, nil
@@ -393,13 +400,30 @@ func resolveFallbackModelSpecs(cfg *ChatModelConfig) ([]modelcompat.ModelSpec, e
 				specs = append(specs, spec)
 			}
 		}
+		if hasAccountSpec && !modelSpecsContainProvider(specs, accountSpec.Provider) {
+			specs = append([]modelcompat.ModelSpec{accountSpec}, specs...)
+		}
 		if len(specs) == 0 {
 			return nil, fmt.Errorf("MODEL_CHAIN 已配置但没有任何有效 MODEL_<ENTRY>_NAME")
 		}
 		return specs, nil
 	}
 
-	return legacyArkFallbackSpecs(cfg), nil
+	specs := legacyArkFallbackSpecs(cfg)
+	if hasAccountSpec && !modelSpecsContainProvider(specs, accountSpec.Provider) {
+		specs = append([]modelcompat.ModelSpec{accountSpec}, specs...)
+	}
+	return specs, nil
+}
+
+func modelSpecsContainProvider(specs []modelcompat.ModelSpec, provider modelcompat.Provider) bool {
+	provider = modelcompat.NormalizeProvider(string(provider))
+	for _, spec := range specs {
+		if modelcompat.NormalizeProvider(string(spec.Provider)) == provider {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveSingleRoleModelSpec(role string, cfg *ChatModelConfig) (modelcompat.ModelSpec, error) {
@@ -514,6 +538,64 @@ func legacyArkSpec(modelName string, cfg *ChatModelConfig) modelcompat.ModelSpec
 	return modelcompat.NormalizeSpec(spec)
 }
 
+func accountProviderModelSpec(cfg *ChatModelConfig, modelOverride string) (modelcompat.ModelSpec, bool) {
+	if cfg == nil || cfg.APIKey == nil || strings.TrimSpace(*cfg.APIKey) == "" || cfg.APIKeyProvider == nil {
+		return modelcompat.ModelSpec{}, false
+	}
+	provider := modelcompat.NormalizeProvider(string(*cfg.APIKeyProvider))
+	if provider == modelcompat.ProviderArk {
+		return modelcompat.ModelSpec{}, false
+	}
+	modelName := strings.TrimSpace(modelOverride)
+	if modelName == "" {
+		modelName = accountProviderModelName(provider)
+	}
+	if modelName == "" {
+		return modelcompat.ModelSpec{}, false
+	}
+	entryKey := modelEntryKey(string(provider))
+	spec := modelcompat.ModelSpec{
+		Provider:            provider,
+		Model:               modelName,
+		APIKey:              strings.TrimSpace(*cfg.APIKey),
+		BaseURL:             modelBaseURLForProvider(provider, entryKey),
+		Region:              modelRegionForProvider(provider, entryKey),
+		Timeout:             modelTimeoutForProviderEntry(provider, entryKey),
+		MaxTokens:           cfg.MaxTokens,
+		MaxCompletionTokens: cfg.MaxCompletionTokens,
+		Temperature:         cfg.Temperature,
+		TopP:                cfg.TopP,
+		DisableThinking:     cfg.DisableThinking,
+		JSONSchema:          cfg.JsonSchema,
+	}
+	return modelcompat.NormalizeSpec(spec), true
+}
+
+func accountProviderModelName(provider modelcompat.Provider) string {
+	provider = modelcompat.NormalizeProvider(string(provider))
+	providerKey := modelEntryKey(string(provider))
+	if providerKey != "" {
+		if modelName := strings.TrimSpace(firstNonEmpty(
+			os.Getenv("MODEL_"+providerKey+"_NAME"),
+			os.Getenv("MODEL_"+providerKey+"_MODEL"),
+		)); modelName != "" {
+			return modelName
+		}
+	}
+	switch provider {
+	case modelcompat.ProviderDeepSeek:
+		return strings.TrimSpace(firstNonEmpty(os.Getenv("DEEPSEEK_MODEL"), "deepseek-chat"))
+	case modelcompat.ProviderQwen:
+		return strings.TrimSpace(firstNonEmpty(os.Getenv("DASHSCOPE_MODEL"), os.Getenv("QWEN_MODEL"), "qwen-plus"))
+	case modelcompat.ProviderOpenAI:
+		return strings.TrimSpace(firstNonEmpty(os.Getenv("OPENAI_MODEL"), "gpt-4o-mini"))
+	case modelcompat.ProviderSiliconFlow:
+		return strings.TrimSpace(firstNonEmpty(os.Getenv("SILICONFLOW_MODEL"), os.Getenv("ARK_MODEL"), "deepseek-ai/DeepSeek-V3"))
+	default:
+		return strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+	}
+}
+
 func applyConfigToModelSpec(spec modelcompat.ModelSpec, cfg *ChatModelConfig) modelcompat.ModelSpec {
 	spec.MaxTokens = cfg.MaxTokens
 	spec.MaxCompletionTokens = cfg.MaxCompletionTokens
@@ -616,7 +698,9 @@ func firstNonEmpty(values ...string) string {
 func modelAPIKeyFromConfig(cfg *ChatModelConfig) string {
 	accountKey := ""
 	if cfg != nil && cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
-		accountKey = *cfg.APIKey
+		if cfg.APIKeyProvider == nil || modelcompat.NormalizeProvider(string(*cfg.APIKeyProvider)) == modelcompat.ProviderArk {
+			accountKey = *cfg.APIKey
+		}
 	}
 	return ResolveModelAPIKey(accountKey, os.Getenv("ARK_API_KEY"))
 }

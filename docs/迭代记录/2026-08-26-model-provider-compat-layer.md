@@ -202,3 +202,29 @@ MODEL_TIMEOUT_SECONDS=600
     - 使用临时 smoke token 调用 `PUT /api/users/me/api-key`，provider=`deepseek`，假 Key，返回 HTTP 200，`configured=true`，仅返回 masked key。
     - 随后调用 `DELETE /api/users/me/api-key` 返回 HTTP 200，临时记录已清理。
   - 清理：远端 `/tmp/ppt-agent-linux-apikeyfix` 和冒烟临时响应文件已删除。
+
+## DeepSeek 账号 Key provider 路由 401 修复
+
+- 问题：
+  - 用户保存的账号 Key 已标记为 `provider=deepseek`，但 Web 入口的部分模型工厂仍只传递裸 API Key。
+  - 线上 legacy `ARK_MODEL` 配置仍存在时，裸 Key 会进入 Ark adapter，导致 DeepSeek Key 被误发给 Ark 上游并返回 HTTP `401`。
+- 行为变化：
+  - Web 入口统一解析账号凭据为 `provider + api_key`，`AgentFactory`、`AIModelFactory`、`TextModelFactory` 都使用 `WithAPIKeyForProvider`。
+  - 非 Ark 账号 Key 在未配置 `MODEL_CHAIN` 的 legacy Ark 环境下，会自动插入对应 provider 的首选 `ModelSpec`；DeepSeek 默认模型为 `deepseek-chat`。
+  - legacy Ark fallback 不再消费非 Ark 账号 Key，只使用 Ark 环境 Key。
+- 本地验证：
+  - `go test ./pkg/agent/utils ./pkg/agent/modelcompat ./pkg/db ./pkg/web`
+  - `go test ./pkg/agent/deck`
+  - `go build ./...`
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：2026-08-26 23:44 Asia/Shanghai
+  - 新进程：PID `3591788`，命令 `../ppt-agent-linux -mode web -addr :8080`，cwd `/ppt/ppt-agent/backend`
+  - 启动确认：`/api/health` 返回 HTTP 200，`{"status":"ok"}`。
+  - 线上账号状态：user_id=1 的账号 Key 返回 `configured=true`、`provider=deepseek`，仅检查脱敏状态。
+  - 线上 DeepSeek 冒烟：
+    - 创建 1 页临时任务 `4a3b7101-7eab-4912-a14a-56084aab83f6`。
+    - 日志显示模型初始化为 `deepseek/deepseek-chat(backup-0)`，不再是 `ark/deepseek-ai/...`。
+    - 任务终态 `completed`，交付 `1/1`。
+    - 通过 `DELETE /api/tasks/{id}` 清理临时任务，返回 HTTP 200。
+  - 清理：远端 `/tmp/ppt-agent-linux-providerkey` 已不再作为运行文件使用；本地 Linux 构建产物仅用于传输，不纳入提交。
