@@ -41,14 +41,30 @@ MODEL_TIMEOUT_SECONDS=600
 
 如果不配置 `MODEL_CHAIN` 或 `MODEL_PRIMARY_NAME`，运行行为回落到旧 Ark 配置。
 
-## 验证
+## 本地验证
 
 - `go test ./pkg/agent/modelcompat ./pkg/agent/utils`
 - `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/agent/deck`
 - `go build ./...`
 
+## 上线记录
+
+- 提交：`07668d0 feat: add model provider compat layer`
+- 目标：`remote-dev:/ppt/ppt-agent`
+- 时间：2026-08-26 17:41 Asia/Shanghai
+- 新进程：PID `3502269`，命令 `../ppt-agent-linux -mode web -addr :8080`，cwd `/ppt/ppt-agent/backend`
+- 旧二进制备份：`/ppt/ppt-agent/ppt-agent-linux.bak.20260826174103`
+- 启动确认：
+  - `:8080` 正常监听
+  - `/api/health` 返回 `{"status":"ok"}`
+  - `/api/templates/layouts` 返回 17469 bytes
+  - `/api/themes` 返回 2614 bytes
+- 模型链冒烟：
+  - `/api/ai/expand` 能触发模型链初始化，日志出现 `model_init_success model=ark/...`，说明兼容层按旧 Ark 配置成功创建 provider-aware fallback chain。
+  - 上游模型调用返回 HTTP `402`，接口返回 500；该阻塞来自上游账户/计费侧，不记录凭据。完整 LLM 生成冒烟未通过，不能归档为完全 done。
+
 ## 遗留
 
 - DeepSeek/Qwen 专用 Eino adapter 先保留扩展点，当前首轮不引入新依赖。
 - 账号级多 provider key 的前端/数据库模型暂未扩展；短期仍由任务选中的 provider 消费当前 `ModelAPIKey`。
-- 本地实现完成后仍需按运行变更闭环部署并执行线上冒烟。
+- 线上完整 LLM 冒烟需在上游 HTTP `402` 解决后复测。
