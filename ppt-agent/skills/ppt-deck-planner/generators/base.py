@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import colorsys
 from copy import deepcopy
 from typing import Literal
 
@@ -276,6 +277,11 @@ def set_image_background(
         target_w = max(1, round(target_h * slide_w / slide_h))
 
     img = _fit_background_image(img, (target_w, target_h), fit_mode)
+    background_palette = background_image_palette(img, palette)
+    # 背景图只负责情境和色系，不直接抢占主题色。先把图像本身降饱和、
+    # 降对比，再把提取到的色系以浅色 token 返回给组件层。
+    img = ImageEnhance.Color(img).enhance(0.38)
+    img = ImageEnhance.Contrast(img).enhance(0.72)
     if blur_radius > 0:
         img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
@@ -286,9 +292,9 @@ def set_image_background(
     preview = img.resize((64, 64), Image.Resampling.BILINEAR)
     mean_r, mean_g, mean_b = ImageStat.Stat(preview).mean[:3]
     mean_luma = 0.2126 * mean_r + 0.7152 * mean_g + 0.0722 * mean_b
-    target_luma = 200.0
+    target_luma = 218.0
     veil_strength = (target_luma - mean_luma) / max(1.0, 255.0 - mean_luma)
-    veil_strength = min(0.70, max(0.30, veil_strength))
+    veil_strength = min(0.78, max(0.42, veil_strength))
     veil = Image.new("RGB", img.size, (255, 255, 255))
     img = Image.blend(img, veil, veil_strength)
 
@@ -318,7 +324,8 @@ def set_image_background(
 
     # The veil is already part of the bitmap. The component renderer appends its
     # LibreOffice compositor trigger after all page content has been created.
-    return add_frosted_glass_overlay(slide, palette, overlay_alpha=0)
+    add_frosted_glass_overlay(slide, palette, overlay_alpha=0)
+    return background_palette
 
 
 def _fit_background_image(
@@ -359,6 +366,65 @@ def _fit_background_image(
     top = (target_size[1] - foreground.height) // 2
     backdrop.paste(foreground, (left, top))
     return backdrop
+
+
+def background_image_palette(image: Image.Image, palette: str = "ocean_soft") -> dict[str, str]:
+    """Extract a muted, readable color token set from a background bitmap."""
+    colors = PALETTES.get(palette, PALETTES["ocean_soft"]).copy()
+    sample = image.resize((96, 96), Image.Resampling.BILINEAR)
+    quantized = sample.quantize(colors=5, method=Image.Quantize.MEDIANCUT).convert("RGB")
+    counts = quantized.getcolors(96 * 96) or []
+    ranked = sorted(counts, key=lambda item: item[0], reverse=True)
+    dominant = ranked[0][1] if ranked else (90, 100, 110)
+    secondary = ranked[1][1] if len(ranked) > 1 else dominant
+    mean_r, mean_g, mean_b = ImageStat.Stat(sample).mean[:3]
+    average = (int(mean_r), int(mean_g), int(mean_b))
+
+    primary = _muted_token(dominant, light_mix=0.38, saturation=0.42, min_luma=74, max_luma=132)
+    secondary_token = _muted_token(secondary, light_mix=0.52, saturation=0.32, min_luma=98, max_luma=158)
+    accent = _accent_from_color(dominant)
+    surface = _muted_token(average, light_mix=0.86, saturation=0.16, min_luma=226, max_luma=246)
+    divider = _muted_token(average, light_mix=0.72, saturation=0.20, min_luma=176, max_luma=212)
+
+    colors.update({
+        "primary": _hex(primary),
+        "secondary": _hex(secondary_token),
+        "accent": _hex(accent),
+        "text": "17202A",
+        "text_muted": "62717D",
+        "light_bg": _hex(surface),
+        "background": _hex(_mix(average, (255, 255, 255), 0.90)),
+        "divider": _hex(divider),
+        "primary_fill": _hex(_muted_token(dominant, light_mix=0.48, saturation=0.36, min_luma=92, max_luma=150)),
+        "secondary_fill": _hex(_muted_token(secondary, light_mix=0.58, saturation=0.28, min_luma=116, max_luma=170)),
+        "accent_fill": _hex(_mix(accent, (255, 255, 255), 0.22)),
+    })
+    return colors
+
+
+def _muted_token(color: tuple[int, int, int], light_mix: float, saturation: float, min_luma: float, max_luma: float) -> tuple[int, int, int]:
+    mixed = _mix(color, (255, 255, 255), light_mix)
+    r, g, b = [channel / 255.0 for channel in mixed]
+    h, _l, _s = colorsys.rgb_to_hls(r, g, b)
+    target_luma = min(max(_l, min_luma / 255.0), max_luma / 255.0)
+    rr, gg, bb = colorsys.hls_to_rgb(h, target_luma, saturation)
+    return (round(rr * 255), round(gg * 255), round(bb * 255))
+
+
+def _accent_from_color(color: tuple[int, int, int]) -> tuple[int, int, int]:
+    r, g, b = [channel / 255.0 for channel in color]
+    h, _l, _s = colorsys.rgb_to_hls(r, g, b)
+    rr, gg, bb = colorsys.hls_to_rgb((h + 0.08) % 1.0, 0.50, 0.48)
+    return (round(rr * 255), round(gg * 255), round(bb * 255))
+
+
+def _mix(color: tuple[int, int, int], target: tuple[int, int, int], amount: float) -> tuple[int, int, int]:
+    amount = max(0.0, min(1.0, amount))
+    return tuple(round(color[i] * (1.0 - amount) + target[i] * amount) for i in range(3))
+
+
+def _hex(color: tuple[int, int, int]) -> str:
+    return "".join(f"{max(0, min(255, int(channel))):02X}" for channel in color)
 
 
 def add_frosted_glass_overlay(

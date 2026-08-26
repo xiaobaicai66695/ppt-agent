@@ -148,6 +148,49 @@ func TestTaskStateNormalizesCumulativeAnswerChunks(t *testing.T) {
 	}
 }
 
+func TestTaskStatePreservesEnglishWordBoundariesInAnswerChunks(t *testing.T) {
+	var turns []string
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-english-delta", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+		assistantTurnFn: func(_, _ string, content string) {
+			turns = append(turns, content)
+		},
+	}
+
+	for _, chunk := range []string{"I'll", "start", "by", "reading", "the", "required", "skill", "files"} {
+		ts.Broadcast(SSERichEvent{Type: "answer", Content: chunk})
+	}
+	ts.Broadcast(SSERichEvent{Type: "answer_end"})
+
+	want := "I'll start by reading the required skill files"
+	if got := ts.FullAnswer(); got != want {
+		t.Fatalf("full answer = %q, want %q", got, want)
+	}
+	if len(turns) != 1 || turns[0] != want {
+		t.Fatalf("turns = %#v, want %q", turns, want)
+	}
+}
+
+func TestTaskStateRestoresEnglishWordBoundaryForCumulativeSnapshots(t *testing.T) {
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-english-cumulative", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+	}
+
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "I'll"})
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "I'llstart"})
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "I'llstartby"})
+
+	want := "I'll start by"
+	if got := ts.FullAnswer(); got != want {
+		t.Fatalf("full answer = %q, want %q", got, want)
+	}
+	if ts.Events[1].Content != " start" || ts.Events[2].Content != " by" {
+		t.Fatalf("events = %#v, want restored suffix spaces", ts.Events)
+	}
+}
+
 func TestTaskStateTelemetryDoesNotEnterAssistantTurn(t *testing.T) {
 	var turns []string
 	ts := &TaskState{

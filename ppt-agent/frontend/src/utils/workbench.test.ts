@@ -147,6 +147,22 @@ describe('workbench utilities', () => {
     expect(streamed).toBe(second);
   });
 
+  it('restores readable English word boundaries in live assistant deltas', () => {
+    const streamed = ['I\'ll', 'start', 'by', 'reading', 'the', 'required', 'skill', 'files']
+      .reduce((content, chunk) => appendAssistantStreamContent(content, chunk), '');
+
+    expect(streamed).toBe('I\'ll start by reading the required skill files');
+  });
+
+  it('restores readable English word boundaries in cumulative assistant snapshots', () => {
+    const streamed = appendAssistantStreamContent(
+      appendAssistantStreamContent('', 'I\'ll'),
+      'I\'llstartbyreading',
+    );
+
+    expect(streamed).toBe('I\'ll startbyreading');
+  });
+
   it('keeps only the new assistant suffix when a cumulative output follows tools', () => {
     const prefix = '我将为您创建一个关于微服务项目治理的20页PPT。首先，让我读取组件契约文件以了解可用的组件类型和版式。';
     const suffix = '我已了解组件契约。现在让我规划20页的微服务项目治理PPT。';

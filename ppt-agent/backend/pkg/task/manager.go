@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/cloudwego/eino/adk"
 
@@ -269,22 +270,105 @@ func normalizeAnswerChunk(currentTurn, chunk string) string {
 	if current == "" {
 		return chunk
 	}
-	if incoming == current {
+	if chunk == currentTurn || incoming == current {
 		return ""
 	}
-	if strings.HasPrefix(incoming, current) {
-		suffix := strings.TrimPrefix(incoming, current)
+	if strings.HasPrefix(chunk, currentTurn) {
+		suffix := strings.TrimPrefix(chunk, currentTurn)
 		if strings.TrimSpace(suffix) == "" {
 			return ""
 		}
-		return suffix
+		return preserveAnswerChunkBoundary(currentTurn, suffix)
 	}
-	currentNormalized := strings.ToLower(strings.Join(strings.Fields(current), ""))
-	incomingNormalized := strings.ToLower(strings.Join(strings.Fields(incoming), ""))
+	if suffix, ok := cumulativeAnswerSuffix(currentTurn, chunk); ok {
+		if strings.TrimSpace(suffix) == "" {
+			return ""
+		}
+		return preserveAnswerChunkBoundary(currentTurn, suffix)
+	}
+	currentNormalized := normalizeAnswerForCompare(current)
+	incomingNormalized := normalizeAnswerForCompare(incoming)
 	if len(incomingNormalized) >= 20 && strings.Contains(currentNormalized, incomingNormalized) {
 		return ""
 	}
+	return preserveAnswerChunkBoundary(currentTurn, chunk)
+}
+
+func normalizeAnswerForCompare(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), ""))
+}
+
+func cumulativeAnswerSuffix(existing, incoming string) (string, bool) {
+	existingNormalized := []rune(normalizeAnswerForCompare(existing))
+	incomingNormalized := []rune(normalizeAnswerForCompare(incoming))
+	if len(existingNormalized) == 0 || len(incomingNormalized) < len(existingNormalized) {
+		return "", false
+	}
+	for index, char := range existingNormalized {
+		if incomingNormalized[index] != char {
+			return "", false
+		}
+	}
+
+	matched := 0
+	suffixStart := 0
+	for index, char := range incoming {
+		if unicode.IsSpace(char) {
+			continue
+		}
+		if matched >= len(existingNormalized) {
+			break
+		}
+		if unicode.ToLower(char) != existingNormalized[matched] {
+			return "", false
+		}
+		matched++
+		suffixStart = index + len(string(char))
+	}
+	if matched != len(existingNormalized) {
+		return "", false
+	}
+	return incoming[suffixStart:], true
+}
+
+func preserveAnswerChunkBoundary(currentTurn, chunk string) string {
+	if shouldInsertASCIIWordSpace(currentTurn, chunk) {
+		return " " + chunk
+	}
 	return chunk
+}
+
+func shouldInsertASCIIWordSpace(left, right string) bool {
+	first, ok := firstRune(right)
+	if !ok || unicode.IsSpace(first) || !isASCIIWordRune(first) {
+		return false
+	}
+	last, ok := lastRune(left)
+	if !ok || !isASCIIWordRune(last) {
+		return false
+	}
+	return true
+}
+
+func firstRune(value string) (rune, bool) {
+	for _, char := range value {
+		return char, true
+	}
+	return 0, false
+}
+
+func lastRune(value string) (rune, bool) {
+	var last rune
+	ok := false
+	for _, char := range value {
+		last = char
+		ok = true
+	}
+	return last, ok
+}
+
+func isASCIIWordRune(char rune) bool {
+	return (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')
 }
 
 // SubscribeFrom atomically snapshots buffered events newer than afterEventID

@@ -80,7 +80,7 @@ Python generators 负责：
 - 每个章节先用 1 页 `section_divider` 明确阶段主题；章节少于 2 个时可以省略分割页。
 - 内容页先确定本页主观点，再选择 2-4 个论据组件支撑；论据可以是事实、数据、图片、案例、引用或表格。
 - 除纯数据、流程、对比表和总结页外，默认优先使用“观点 + 论据”的图文混排：一侧承载判断与解释，另一侧用真实场景图、案例图、数据或证据承载论据，避免连续多页纯卡片或纯列表。
-- 默认每页都提供外部背景图片计划；整套 PPT 只选择 2 张相关主题的浅色背景图，所有页面在这 2 个 `visual_intent.asset_query` 之间按页轮换，避免每页随机换图造成风格跳变。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊与位图级可读性柔化；规划只描述图片主体和构图，不填写 blur、透明度、透视或字号参数。
+- 默认每页都提供外部背景图片计划；整套 PPT 只选择 2 张相关主题的浅色背景图，所有页面在这 2 个 `visual_intent.asset_query` 之间按页轮换，避免每页随机换图造成风格跳变。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊、降饱和、降对比和位图级可读性柔化，并从背景图提取弱化后的色系 token 供文字、面板和强调色使用；规划只描述图片主体和构图，不填写 blur、透明度、透视、字号或固定主题色参数。
 - 需要更多图片时，不要继续增加背景查询；改用 `image` 组件，设置 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，把图片作为图文混排、案例、证据或细节说明的一部分。
 - 深度说明页优先使用 `argument_block` 承载完整论述，再配列表、证据、KPI、图片或架构组件。
 - 对比、选型、方案评估优先用 `comparison_table` 或 `two_column`，并用 `recommendation` 给出结论。
@@ -96,7 +96,7 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | `content_slide` | 4-6 条 bullet，每条 45-85 字 | 拆成概述页 + 详解页，或改用 `deep_dive` |
 | `card_grid` | 4-6 张卡片，body 80-140 字 | 拆成两页卡片，或提炼为 4 张重点卡 |
 | `two_column` | 左右各 3-5 条，或 2-3 个结构化区块 | 改用 `comparison_table` 或拆页 |
-| `image_text` | 300-450 字自然段，配 1 张真实图片 | 过长拆为两页图文叙事 |
+| `image_text` | 240-450 字自然段，配 1 张真实图片 | 过短补足场景、事实、影响和结论；过长拆为两页图文叙事 |
 | `argument_block` | 440-840 字完整论述 | 超过容量时拆成多页 |
 | `agenda` | 1 个阅读路径观点 + 3-5 个目录项，总组件 ≤6 | 合并相邻章节，不逐页列出 |
 | `stat_slide` | 2-3 个关键数字 + 1 个 insight/source_note，总组件 ≤4 | 多指标拆成 KPI 或 chart 页 |
@@ -105,7 +105,7 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | `timeline` / `process_flow` | 4-6 个节点 | 超过 6 个拆页或按阶段聚合 |
 | `summary_slide` | 3-5 条总结 | 合并相似结论或拆出行动页 |
 
-`image_text`、`case_study`、`example_detail` 是默认的图文混排候选；当页面同时存在明确观点和可视化论据时，优先选择它们，而不是把全部信息拆成同质卡片。连续出现多个图文页时，`image_text` 在 `image_left`、`image_right`、`image_top_band` 之间轮换，让真实图片承担不同的视觉位置。
+`image_text`、`case_study`、`example_detail` 是默认的图文混排候选；当页面同时存在明确观点和可视化论据时，优先选择它们，而不是把全部信息拆成同质卡片。连续出现多个图文页时，`image_text` 在 `image_left`、`image_right`、`image_top_band`、`image_bottom_band` 之间轮换，让真实图片承担不同的视觉位置。图文页正文少于 240 字时不要用一个巨大文本框硬撑版面，应补充事实和推论，或改成卡片/指标/对比页。
 
 `agenda` 不逐页罗列整套 PPT，只展示章节级路径；章节超过 5 个时合并相邻主题。`stat_slide` 必须用 `insight` 或 `key_point` 解释数字背后的判断，不能只有 `stat`/`number_callout`。
 
@@ -177,7 +177,7 @@ Agent 只控制内容容量和拆页，具体排版适配由 generator 负责。
 | content_type | layout_variant |
 |--------------|----------------|
 | `section_divider` | `number_sidebar` |
-| `image_text` | `image_left` / `image_right` / `image_top_band` |
+| `image_text` | `image_left` / `image_right` / `image_top_band` / `image_bottom_band` |
 
 `section_number` 和 `agenda` 目录编号都表示章节出现顺序（01、02、03），不能直接复制章节分割页的 `page_index`。目录展示章节索引，不展示绝对幻灯片页码。
 

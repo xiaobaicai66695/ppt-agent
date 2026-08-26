@@ -194,12 +194,23 @@ class RenderTaskComponentsTest(unittest.TestCase):
         left_image, left_text, _ = image_text_regions("image_left", 0.65, 1.72, 11.95, 5.0)
         right_image, right_text, _ = image_text_regions("image_right", 0.65, 1.72, 11.95, 5.0)
         top_image, top_text, _ = image_text_regions("image_top_band", 0.65, 1.72, 11.95, 5.0)
+        bottom_image, bottom_text, _ = image_text_regions("image_bottom_band", 0.65, 1.72, 11.95, 5.0)
 
         self.assertLess(left_image[0], left_text[0])
         self.assertGreater(right_image[0], right_text[0])
         self.assertEqual(top_image[0], 0.65)
         self.assertGreater(top_text[1], top_image[1] + top_image[3])
         self.assertLessEqual(top_text[1] + top_text[3], 1.72 + 5.0)
+        self.assertGreater(bottom_image[1], bottom_text[1])
+        self.assertLessEqual(bottom_image[1] + bottom_image[3], 1.72 + 5.0)
+
+    def test_image_text_empty_variant_rotates_by_page_index(self):
+        variants = [
+            render_task.build_params("image_text", {"page_index": page, "title": f"图文页{page}", "content_plan": {"components": []}}, {"tasks": []})["layout_variant"]
+            for page in [1, 2, 3, 4, 5]
+        ]
+
+        self.assertEqual(variants, ["image_left", "image_right", "image_top_band", "image_bottom_band", "image_left"])
 
     def test_build_params_resolves_relative_image_path_to_work_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -299,6 +310,20 @@ class RenderTaskComponentsTest(unittest.TestCase):
             bottom_center = rendered_background.getpixel((960, 1071))
             self.assertGreater(top_center[0], 180, top_center)
             self.assertGreater(bottom_center[2], 180, bottom_center)
+
+    def test_background_image_palette_overrides_fixed_theme_colors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "background.jpg"
+            Image.new("RGB", (960, 540), color=(70, 125, 150)).save(image_path)
+
+            prs = new_presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            colors = set_image_background(slide, str(image_path), palette="government_red")
+
+        self.assertIsInstance(colors, dict)
+        self.assertNotEqual(colors["primary"], PALETTES["government_red"]["primary"])
+        self.assertNotEqual(colors["accent"], PALETTES["government_red"]["accent"])
+        self.assertTrue(colors["light_bg"].startswith(("E", "F")), colors["light_bg"])
 
     def test_all_background_slides_receive_blur(self):
         with tempfile.TemporaryDirectory() as tmp:

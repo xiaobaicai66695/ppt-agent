@@ -15,6 +15,7 @@ import (
 const planReviewFileName = "tasks.review.json"
 
 const argumentBlockTargetMinChars = 440
+const imageTextNarrativeMinChars = 240
 const minVisualMixedSlidesForDeck = 2
 
 type PlanReviewReport struct {
@@ -175,6 +176,17 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 			PageIndex: page,
 			Message:   "image_text 页面缺少 scene/evidence 图片组件；背景图只承担浅色氛围，页内示例图片应作为 image 组件参与图文混排。",
 		})
+	}
+	if task.ContentType == "image_text" {
+		narrativeChars := imageTextNarrativeChars(plan.Components)
+		if narrativeChars > 0 && narrativeChars < imageTextNarrativeMinChars {
+			report.Issues = append(report.Issues, PlanReviewIssue{
+				Code:      "low_information_density",
+				Severity:  "warning",
+				PageIndex: page,
+				Message:   fmt.Sprintf("image_text 正文当前约 %d 字，少于 %d 字；图文页需要完整解释场景、事实、影响和结论，避免大面积文字面板空洞。", narrativeChars, imageTextNarrativeMinChars),
+			})
+		}
 	}
 }
 
@@ -368,7 +380,7 @@ func reviewDeckVisualMix(manifest *TasksManifest, report *PlanReviewReport) {
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:     "layout_mismatch",
 			Severity: "warning",
-			Message:  "连续图文混排页的 layout_variant 过于单一；image_text 应在 image_left、image_right、image_top_band 之间轮换。",
+			Message:  "连续图文混排页的 layout_variant 过于单一；image_text 应在 image_left、image_right、image_top_band、image_bottom_band 之间轮换。未显式填写时渲染器会按页序自动轮换。",
 		})
 	}
 }
@@ -493,6 +505,19 @@ func hasForegroundImageComponent(components []PlanComponent) bool {
 		}
 	}
 	return false
+}
+
+func imageTextNarrativeChars(components []PlanComponent) int {
+	maxChars := 0
+	for _, component := range components {
+		switch strings.TrimSpace(component.Type) {
+		case "argument_block", "paragraph", "text_block":
+			maxChars = max(maxChars, runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)))
+		case "list", "numbered_list", "bullet_list", "evidence_list":
+			maxChars = max(maxChars, runeLen(strings.Join(component.Items, "")))
+		}
+	}
+	return maxChars
 }
 
 func hasPlanNarrativeSummary(task *TaskItem, plan *ContentPlan) bool {

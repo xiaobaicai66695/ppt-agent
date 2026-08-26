@@ -45,7 +45,7 @@
       "section_marker_required_field": "text",
       "planner_retry_rule": "If initialize returns quality_gate_passed=false, fix the complete page array and initialize again before ending the Planner turn."
     },
-    "layout_variant_rule": "Only use layout_variant values listed in this file. An empty variants array means the generator uses adaptive component layout and Planner should leave layout_variant empty."
+    "layout_variant_rule": "Only use layout_variant values listed in this file. An empty variants array means the generator uses adaptive component layout and Planner should leave layout_variant empty. image_text may omit layout_variant only when accepting the renderer's page-order rotation."
   },
   "component_types": {
     "headline": "页面主论点或主标题，通常由 title 字段自动形成。",
@@ -110,7 +110,8 @@
     "background_rotation_rule": "Reuse those two background queries across all slides in page order. Do not create page-specific background queries; additional page imagery belongs in image components with asset_purpose scene or evidence.",
     "scene_query_rule": "Use a concrete visible subject, action and environment; use real-world imagery for examples and keep facts in source/search fields.",
     "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints.",
-    "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed to two light deck-level assets and rotated; scene/evidence image components keep their page-specific queries."
+      "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed to two light deck-level assets and rotated; scene/evidence image components keep their page-specific queries.",
+      "background_color_rule": "The renderer extracts a muted palette from downloaded background images and uses those tokens for panels, accents and text. Do not recommend a fixed scene theme color unless the user explicitly asks for one."
   },
   "content_types": {
     "title_slide": {
@@ -141,8 +142,8 @@
     "image_text": {
       "best_for": ["图文叙事", "城市/产品/场景介绍", "案例背景"],
       "recommended_components": ["image", "argument_block", "paragraph", "list", "key_point", "callout", "source_note"],
-      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
-      "variants": ["image_left", "image_right", "image_top_band"]
+      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6, "paragraph_target_chars": [240, 450]},
+      "variants": ["image_left", "image_right", "image_top_band", "image_bottom_band"]
     },
     "card_grid": {
       "best_for": ["能力矩阵", "景点矩阵", "功能列表", "多要点并列"],

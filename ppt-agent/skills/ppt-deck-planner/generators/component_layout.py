@@ -389,7 +389,7 @@ def _render_workbench(
             add_text(slide, image_text, image_left + 0.3, image_top + max(0.2, image_h / 2 - 0.4), image_w - 0.6, 0.8, 22, True, "primary", "center", palette=palette, colors=colors)
         text_side = [c for c in body_components if c.get("type") not in MEDIA_TYPES]
         if has_narrative_components(text_side):
-            _render_narrative_panel(slide, colors, palette, text_side, text_left, text_top, text_w, text_h)
+            _render_narrative_panel(slide, colors, palette, text_side, text_left, text_top, text_w, text_h, compact_short=content_type == "image_text")
         else:
             _render_cards(slide, colors, palette, text_side, text_left, text_top, text_w, text_h, compact=True, align_y="middle")
     elif content_type in {"content_slide", "summary_slide"} and has_narrative_components(body_components):
@@ -427,6 +427,10 @@ def image_text_regions(layout_variant: str, left: float, top: float, width: floa
         image_h = min(2.15, height * 0.42)
         image_box = (left, top, width, image_h)
         text_box = (left, top + image_h + gap, width, height - image_h - gap)
+    elif variant in {"image_bottom_band", "bottom_band", "image_bottom", "bottom"}:
+        image_h = min(1.75, height * 0.34)
+        text_box = (left, top, width, height - image_h - gap)
+        image_box = (left, top + text_box[3] + gap, width, image_h)
     else:
         image_w = min(4.05, width * 0.36)
         text_w = width - image_w - gap
@@ -554,11 +558,21 @@ def _render_narrative_panel(
     top: float,
     width: float,
     height: float,
+    compact_short: bool = False,
 ):
     narrative = first_component(components, "argument_block") or first_component(components, "paragraph") or first_component(components, "text_block")
     lists = [c for c in components if c.get("type") in {"list", "numbered_list", "bullet_list", "evidence_list"} or c.get("items")]
     list_ids = {id(c) for c in lists}
     supporting = [c for c in components if c is not narrative and id(c) not in list_ids and c.get("type") not in {"divider", "shape", "arrow"}]
+    narrative_text = ""
+    if narrative:
+        narrative_text = clean(narrative.get("body") or narrative.get("text") or narrative.get("description")) or component_body(narrative)
+    compact_panel = compact_short and narrative and not lists and not supporting and len(narrative_text) < 180
+
+    if compact_panel:
+        panel_h = min(height, max(1.55, min(2.7, 1.15 + len(narrative_text) / 130)))
+        top = top + max(0.0, (height - panel_h) / 2)
+        height = panel_h
 
     if supporting and width >= 9.0:
         main_w = width * 0.66
@@ -583,11 +597,12 @@ def _render_narrative_panel(
         list_count = min(2, len(lists))
         reserved_for_lists = min(2.05, max(1.12, list_count * 0.92)) if list_count else 0
         body_h = max(1.4, bottom - y - reserved_for_lists - (0.24 if list_count else 0))
-        body = clean(narrative.get("body") or narrative.get("text") or narrative.get("description")) or component_body(narrative)
+        body = narrative_text
         is_argument = narrative.get("type") == "argument_block"
-        body_font = 12.2 if is_argument else 12.8
-        body_ratio = 2.05 if is_argument else 1.72
-        add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=9.5, max_font_size=False, vertical_alignment="top", line_spacing=0.98)
+        body_font = 14.4 if compact_panel else (12.2 if is_argument else 12.8)
+        body_ratio = 1.54 if compact_panel else (2.05 if is_argument else 1.72)
+        body_anchor = "middle" if compact_panel else "top"
+        add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=0.98)
         y += body_h + 0.24
 
     for item in lists[:3]:

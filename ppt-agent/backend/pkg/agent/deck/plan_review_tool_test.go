@@ -213,7 +213,7 @@ func TestNormalizeManifestLayoutVariantsRotatesImageTextVariants(t *testing.T) {
 		manifest.Tasks[2].LayoutVariant,
 		manifest.Tasks[3].LayoutVariant,
 	}
-	want := []string{"image_left", "image_right", "image_top_band", "image_left"}
+	want := []string{"image_left", "image_right", "image_top_band", "image_bottom_band"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("variant[%d]=%q, want %q; all=%#v", i, got[i], want[i], got)

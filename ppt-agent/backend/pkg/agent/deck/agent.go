@@ -292,14 +292,11 @@ func ProcessUserIntent(ctx context.Context, query string, userID int) (*PPTTaskC
 		// LearningEngine 通过全局单例 GetLearningEngine() 获取
 	}
 
-	// 如果有推荐的模板/主题，设置到 StyleContext
+	// 只把内容意图和规模建议传给 Planner。配色不再由意图/画像推荐；
+	// 带背景图的页面由生成器从图片本身提取弱化色系，避免主题色和背景打架。
 	if result.Intent != nil {
 		var sb strings.Builder
 		sb.WriteString(result.Intent.IntentReasoning)
-		if result.Intent.SuggestedTheme != "" {
-			sb.WriteString("\n推荐配色: ")
-			sb.WriteString(result.Intent.SuggestedTheme)
-		}
 		if result.Intent.SuggestedPageCount > 0 {
 			sb.WriteString(fmt.Sprintf("\n推荐页数: %d", result.Intent.SuggestedPageCount))
 		}
@@ -356,12 +353,6 @@ func enhanceStyleContextWithProfile(baseContext string, profile *style.EnhancedP
 	// 高敏偏好：只有同领域历史才注入，避免跨场景迁移。
 	if hasExactDomainHistory(profile, domain) {
 		sb.WriteString("- 同领域历史可参考项:\n")
-		if theme := profile.GetPreferredThemeForDomain(domain); theme != "" {
-			sb.WriteString(fmt.Sprintf("  - 历史常用配色主题: %s\n", theme))
-		}
-		if len(profile.PreferredColors) > 0 {
-			sb.WriteString(fmt.Sprintf("  - 历史配色参考: %s\n", profile.PreferredColors[0]))
-		}
 		if len(profile.LayoutPreferences) > 0 {
 			sb.WriteString(fmt.Sprintf("  - 历史布局参考: %s\n", profile.LayoutPreferences[0]))
 		}

@@ -518,7 +518,7 @@ func supportedLayoutVariants(contentType string) []string {
 	case "section_divider":
 		return []string{"number_sidebar"}
 	case "image_text":
-		return []string{"image_left", "image_right", "image_top_band"}
+		return []string{"image_left", "image_right", "image_top_band", "image_bottom_band"}
 	default:
 		return nil
 	}

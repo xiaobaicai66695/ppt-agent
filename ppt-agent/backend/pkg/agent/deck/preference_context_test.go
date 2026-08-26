@@ -66,10 +66,11 @@ func TestEnhanceStyleContextIncludesSameDomainPreferences(t *testing.T) {
 	ctx := enhanceStyleContextWithProfile("", profile, "business")
 
 	mustContain(t, ctx, "同领域历史可参考项")
-	mustContain(t, ctx, "#111111")
 	mustContain(t, ctx, "two-column")
 	mustContain(t, ctx, "用户偏好深色背景")
 	mustContain(t, ctx, "同领域历史成功经验")
+	mustNotContain(t, ctx, "#111111")
+	mustNotContain(t, ctx, "charcoal_light")
 	mustNotContain(t, ctx, "pitch-deck")
 }
 

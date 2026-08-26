@@ -112,7 +112,7 @@ from generators import (
 - 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
 - 页面存在 `source` 时，工作台内容区必须在底部来源分隔线上方保留安全间距；图片、卡片、图表和正文面板都不得侵入来源栏。
 - 背景图片默认使用 `cover` 适配：按当前幻灯片真实宽高比等比铺满，允许边缘被适度裁剪，但底层图片锚点必须严格限制在幻灯片画布内。内部 helper 保留 `contain`，供明确要求完整显示原图时使用同图模糊扩展层补边；Planner 不控制该参数。
-- 所有带背景图的页面都会在完成尺寸适配后自动做轻度模糊，并把可读性柔化烘焙进背景位图；不再依赖跨查看器表现不一致的全页透明遮罩。标题页和章节分割页使用更强一级的模糊。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径或透明度。
+- 所有带背景图的页面都会在完成尺寸适配后自动做轻度模糊、降饱和、降对比，并把可读性柔化烘焙进背景位图；生成器还会从背景图提取弱化色系，替代固定主题色 token 用于标题、强调、面板和分隔线，避免背景图与场景主题色冲突。不再依赖跨查看器表现不一致的全页透明遮罩。标题页和章节分割页使用更强一级的模糊。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径、透明度或固定色值。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
@@ -188,7 +188,7 @@ from generators import (
 |------|------|------|
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
-| layout_variant | str | `"image_left"` / `"image_right"` / `"image_top_band"`；为空时后端按同类页面轮换 |
+| layout_variant | str | `"image_left"` / `"image_right"` / `"image_top_band"` / `"image_bottom_band"`；为空时后端按页序轮换 |
 | image_path | str | `"asset:photo_technology_device"`、注册 photo id 或本地文件路径；为空时自动选择语义默认图 |
 | header | str | `"核心技术突破"` |
 | paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
@@ -198,8 +198,8 @@ from generators import (
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
 | background | str | 渲染器内部参数；由 `visual_intent.local_path` 或 `image.local_path` 注入，Planner 不填写顶层 `task.background` |
 
-> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是300-450字的完整自然语言段落，禁止罗列要点。`image_path` 缺失或无效时，生成器会从 `photo` 素材中选择可替换的真实图片；禁止自行绘制图片占位符或传入虚构路径。
-> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文。三者都保留来源栏安全区和图片 caption 面板。
+> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。`image_path` 缺失或无效时，生成器会从 `photo` 素材中选择可替换的真实图片；禁止自行绘制图片占位符或传入虚构路径。
+> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；正文过短时生成器会压缩文本面板高度并垂直居中，避免空白大框。
 
 ### 对比与并列类
 

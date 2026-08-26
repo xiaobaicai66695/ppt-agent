@@ -129,6 +129,12 @@ def normalize_content_type(content_type: str) -> str:
     return (content_type or "").strip() or "content_slide"
 
 
+def auto_image_text_variant(task: dict[str, Any]) -> str:
+    variants = ["image_left", "image_right", "image_top_band", "image_bottom_band"]
+    page_index = safe_int(task.get("page_index"), 1)
+    return variants[(max(1, page_index) - 1) % len(variants)]
+
+
 def accepted_params(func: Callable[..., Any], params: dict[str, Any]) -> dict[str, Any]:
     sig = inspect.signature(func)
     if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values()):
@@ -145,6 +151,8 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
     cards = extract_cards(plan, items)
     components = semantic_components(plan, work_dir=work_dir)
     layout_variant = task.get("layout_variant") or nested_get(plan, "visual_intent", "preferred_variant") or ""
+    if content_type == "image_text" and not layout_variant:
+        layout_variant = auto_image_text_variant(task)
 
     if content_type == "title_slide":
         return {

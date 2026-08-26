@@ -156,15 +156,20 @@ export function appendAssistantStreamContent(current: string, chunk: string): st
   if (!existingTrimmed) return incoming;
   if (!incomingTrimmed) return existing;
   if (existingTrimmed === incomingTrimmed) return existing;
+  if (incoming.startsWith(existing)) {
+    const suffix = incoming.slice(existing.length);
+    return suffix.trim() ? appendWithReadableBoundary(existing, suffix) : existing;
+  }
   if (incomingTrimmed.startsWith(existingTrimmed)) {
-    return incomingTrimmed;
+    const suffix = cumulativeConversationSuffix(existingTrimmed, incomingTrimmed);
+    return suffix !== null && suffix.trim() ? appendWithReadableBoundary(existing, suffix) : existing;
   }
   const incomingNormalized = normalizeConversationContent(incomingTrimmed);
   const existingNormalized = normalizeConversationContent(existingTrimmed);
   if (incomingNormalized.length >= 20 && existingNormalized.includes(incomingNormalized)) {
     return existing;
   }
-  return `${existing}${incoming}`;
+  return appendWithReadableBoundary(existing, incoming);
 }
 
 export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): ConversationMessage[] {
@@ -302,7 +307,31 @@ function cumulativeConversationSuffix(existing: string, incoming: string): strin
     suffixStart = index + 1;
   }
   if (matched !== existingNormalized.length) return null;
-  return incomingTrimmed.slice(suffixStart).replace(/^\s+/, '').trim();
+  const suffix = incomingTrimmed.slice(suffixStart).trim();
+  if (!suffix.trim()) return '';
+  return shouldInsertASCIIWordSpace(existingTrimmed, suffix) ? ` ${suffix}` : suffix;
+}
+
+function appendWithReadableBoundary(existing: string, incoming: string): string {
+  return shouldInsertASCIIWordSpace(existing, incoming)
+    ? `${existing} ${incoming}`
+    : `${existing}${incoming}`;
+}
+
+function shouldInsertASCIIWordSpace(left: string, right: string): boolean {
+  const first = firstChar(right);
+  if (!first || /\s/.test(first) || !/[A-Za-z0-9]/.test(first)) return false;
+  const last = lastChar(left);
+  return !!last && /[A-Za-z0-9]/.test(last);
+}
+
+function firstChar(value: string): string {
+  return Array.from(value)[0] || '';
+}
+
+function lastChar(value: string): string {
+  const chars = Array.from(value);
+  return chars[chars.length - 1] || '';
 }
 
 export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {
