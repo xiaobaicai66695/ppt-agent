@@ -28,24 +28,30 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	arkmodel "github.com/volcengine/volcengine-go-sdk/service/arkruntime/model"
 
+	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+)
+
+const (
+	modelRoleText = "text"
+	modelRoleQA   = "qa"
 )
 
 // ChatModelConfig ChatModel 配置选项
 type ChatModelConfig struct {
-	MaxTokens       *int
-	Temperature     *float32
-	TopP            *float32
-	DisableThinking *bool
-	JsonSchema      *openai.ChatCompletionResponseFormatJSONSchema
-	Model           *string
-	APIKey          *string
+	MaxTokens           *int
+	MaxCompletionTokens *int
+	Temperature         *float32
+	TopP                *float32
+	DisableThinking     *bool
+	JsonSchema          *openai.ChatCompletionResponseFormatJSONSchema
+	Model               *string
+	APIKey              *string
+	ModelRole           string
 }
 
 // ChatModelOption ChatModel 配置函数
@@ -100,15 +106,11 @@ func WithAPIKey(apiKey string) ChatModelOption {
 }
 
 // WithTextModel 覆盖 NewFallbackToolCallingChatModel 用于纯文本任务的模型链。
-// 使用 ARK_TEXT_MODEL，备用为 ARK_MODEL_BACKUP*。
+// 优先使用 MODEL_TEXT_* provider-aware 配置，旧环境下继续使用 ARK_TEXT_MODEL，
 // 如果 ARK_TEXT_MODEL 未设置，则回退到 ARK_MODEL。
 func WithTextModel() ChatModelOption {
-	textModel := os.Getenv("ARK_TEXT_MODEL")
-	if textModel == "" {
-		textModel = os.Getenv("ARK_MODEL")
-	}
 	return func(c *ChatModelConfig) {
-		c.Model = &textModel
+		c.ModelRole = modelRoleText
 	}
 }
 
@@ -116,13 +118,14 @@ func WithTextModel() ChatModelOption {
 // 使用 ARK_QA_MODEL；遇到瞬时失败时最多重试 3 次。
 // QA 质量不能因模型降级而受损——不使用降级链。
 func NewQAModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCallingChatModel, error) {
-	qaModel := os.Getenv("ARK_QA_MODEL")
-	if qaModel == "" {
-		return nil, fmt.Errorf("ARK_QA_MODEL 环境变量未设置")
-	}
 	baseCfg := &ChatModelConfig{}
 	for _, opt := range opts {
 		opt(baseCfg)
+	}
+	baseCfg.ModelRole = modelRoleQA
+	qaSpec, err := resolveSingleRoleModelSpec(modelRoleQA, baseCfg)
+	if err != nil {
+		return nil, err
 	}
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -135,14 +138,15 @@ func NewQAModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCalling
 		cfg.Temperature = &temp
 		cfg.TopP = &topP
 		cfg.DisableThinking = &disableThink
-		m, err := newSingleModel(ctx, qaModel, &cfg)
+		spec := applyConfigToModelSpec(qaSpec, &cfg)
+		m, err := newSingleModel(ctx, spec)
 		if err == nil {
 			return m, nil
 		}
 		lastErr = err
-		logger.Warn("qa_model_init_retry", "attempt", attempt, "model", qaModel, "error", err.Error())
+		logger.Warn("qa_model_init_retry", "attempt", attempt, "model", modelcompat.DisplayName(spec, -1), "error", err.Error())
 	}
-	return nil, fmt.Errorf("QA 模型 [%s] 创建失败（已重试 3 次）: %w", qaModel, lastErr)
+	return nil, fmt.Errorf("QA 模型 [%s] 创建失败（已重试 3 次）: %w", modelcompat.DisplayName(qaSpec, -1), lastErr)
 }
 
 func GetCurrentTime() string {
@@ -224,6 +228,7 @@ type FallbackChatModel struct {
 	models        []model.ToolCallingChatModel
 	modelNames    []string // 日志显示名（含 backup 后缀）
 	rawNames      []string // 原始 modelName，用于全局追踪
+	trackerNames  []string // provider:model，用于跨供应商限流隔离
 	mu            sync.Mutex
 	pauseDuration time.Duration
 	// compressorCfg 在 FallbackChatModel 被 ChatModelCompressor 包装时存储。
@@ -231,8 +236,9 @@ type FallbackChatModel struct {
 	compressorCfg *compressorConfig
 }
 
-// NewFallbackToolCallingChatModel 创建支持降级的 ChatModel
-// 会依次尝试 ARK_MODEL、ARK_MODEL_BACKUP1、ARK_MODEL_BACKUP2
+// NewFallbackToolCallingChatModel 创建支持降级的 ChatModel。
+// 优先使用 MODEL_CHAIN/MODEL_<ENTRY>_* provider-aware 配置；
+// 未配置时会依次尝试 ARK_MODEL、ARK_MODEL_BACKUP1、ARK_MODEL_BACKUP2
 // 遇到 429 时：当前模型暂停 30s 并尝试下一个模型
 // 所有模型都失败后才返回错误
 func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCallingChatModel, error) {
@@ -241,35 +247,31 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		opt(o)
 	}
 
-	modelNames := []string{
-		os.Getenv("ARK_MODEL"),
-		os.Getenv("ARK_MODEL_BACKUP1"),
-		os.Getenv("ARK_MODEL_BACKUP2"),
-		os.Getenv("ARK_MODEL_BACKUP3"),
-		os.Getenv("ARK_MODEL_BACKUP4"),
-	}
-
-	// WithModel overrides the primary model (e.g. for compressor, style, text tasks).
-	if o.Model != nil && *o.Model != "" {
-		modelNames = []string{*o.Model}
+	modelSpecs, err := resolveFallbackModelSpecs(o)
+	if err != nil {
+		return nil, err
 	}
 
 	var validModels []model.ToolCallingChatModel
 	var validNames []string
 	var rawNames []string
+	var trackerNames []string
 
-	for i, name := range modelNames {
-		if name != "" {
-			cm, err := newSingleModel(ctx, name, o)
-			if err != nil {
-				logger.Warn("model_init_failed", "model", name, "error", err.Error())
-				continue
-			}
-			validModels = append(validModels, cm)
-			validNames = append(validNames, fmt.Sprintf("%s(backup-%d)", name, i))
-			rawNames = append(rawNames, name)
-			logger.Info("model_init_success", "model", name, "backup", i)
+	for i, spec := range modelSpecs {
+		if strings.TrimSpace(spec.Model) == "" {
+			continue
 		}
+		cm, err := newSingleModel(ctx, spec)
+		displayName := modelcompat.DisplayName(spec, i)
+		if err != nil {
+			logger.Warn("model_init_failed", "model", displayName, "error", err.Error())
+			continue
+		}
+		validModels = append(validModels, cm)
+		validNames = append(validNames, displayName)
+		rawNames = append(rawNames, spec.Model)
+		trackerNames = append(trackerNames, modelcompat.TrackerKey(spec))
+		logger.Info("model_init_success", "model", displayName, "backup", i)
 	}
 
 	if len(validModels) == 0 {
@@ -280,54 +282,247 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		models:        validModels,
 		modelNames:    validNames,
 		rawNames:      rawNames,
+		trackerNames:  trackerNames,
 		pauseDuration: fallbackPauseDuration,
 	}, nil
 }
 
-// newSingleModel 根据模型名称创建单个模型
-func newSingleModel(ctx context.Context, modelName string, cfg *ChatModelConfig) (model.ToolCallingChatModel, error) {
-	conf := &ark.ChatModelConfig{
-		APIKey:      modelAPIKeyFromConfig(cfg),
-		BaseURL:     os.Getenv("ARK_BASE_URL"),
-		Region:      os.Getenv("ARK_REGION"),
-		Model:       modelName,
-		MaxTokens:   cfg.MaxTokens,
-		Temperature: cfg.Temperature,
-		TopP:        cfg.TopP,
+// newSingleModel 根据 provider-aware spec 创建单个模型。
+func newSingleModel(ctx context.Context, spec modelcompat.ModelSpec) (model.ToolCallingChatModel, error) {
+	return (modelcompat.DefaultFactory{}).NewToolCallingChatModel(ctx, spec)
+}
+
+func resolveFallbackModelSpecs(cfg *ChatModelConfig) ([]modelcompat.ModelSpec, error) {
+	if cfg == nil {
+		cfg = &ChatModelConfig{}
+	}
+	if cfg.ModelRole == modelRoleText {
+		spec, err := resolveSingleRoleModelSpec(modelRoleText, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return []modelcompat.ModelSpec{spec}, nil
+	}
+	if cfg.Model != nil && strings.TrimSpace(*cfg.Model) != "" {
+		spec := modelSpecFromEntry("primary", cfg)
+		spec.Model = strings.TrimSpace(*cfg.Model)
+		return []modelcompat.ModelSpec{spec}, nil
 	}
 
-	// DeepSeek 系列模型默认开启 thinking 模式，流式输出中会夹杂 reasoning_content，
-	// 导致 eino ReAct 框架解析 tool call JSON 失败。这里自动禁用。
-	// Qwen3.5/3.6, DeepSeek, Kimi-K2 等 thinking 模型会消耗 token 预算用于 reasoning_content，
-	// 在 ReAct 中破坏 tool call JSON 解析。所有此类模型在工具调用场景下禁用 thinking。
-	shouldDisable := strings.Contains(strings.ToLower(modelName), "deepseek") ||
-		strings.Contains(strings.ToLower(modelName), "qwen3.5") ||
-		strings.Contains(strings.ToLower(modelName), "qwen3.6") ||
-		strings.Contains(strings.ToLower(modelName), "kimi-k2")
-	if shouldDisable {
-		conf.Thinking = &arkmodel.Thinking{
-			Type: arkmodel.ThinkingTypeDisabled,
+	entries := configuredModelChain()
+	if len(entries) > 0 {
+		specs := make([]modelcompat.ModelSpec, 0, len(entries))
+		for _, entry := range entries {
+			spec := modelSpecFromEntry(entry, cfg)
+			if spec.Model != "" {
+				specs = append(specs, spec)
+			}
 		}
-	}
-	if cfg.DisableThinking != nil && *cfg.DisableThinking {
-		conf.Thinking = &arkmodel.Thinking{
-			Type: arkmodel.ThinkingTypeDisabled,
+		if len(specs) == 0 {
+			return nil, fmt.Errorf("MODEL_CHAIN 已配置但没有任何有效 MODEL_<ENTRY>_NAME")
 		}
+		return specs, nil
 	}
 
-	if cfg.JsonSchema != nil {
-		conf.ResponseFormat = &ark.ResponseFormat{
-			Type: arkmodel.ResponseFormatJSONSchema,
-			JSONSchema: &arkmodel.ResponseFormatJSONSchemaJSONSchemaParam{
-				Name:        cfg.JsonSchema.Name,
-				Description: cfg.JsonSchema.Description,
-				Schema:      cfg.JsonSchema.JSONSchema,
-				Strict:      cfg.JsonSchema.Strict,
-			},
-		}
+	return legacyArkFallbackSpecs(cfg), nil
+}
+
+func resolveSingleRoleModelSpec(role string, cfg *ChatModelConfig) (modelcompat.ModelSpec, error) {
+	entry := strings.ToLower(strings.TrimSpace(role))
+	spec := modelSpecFromEntry(entry, cfg)
+	if spec.Model != "" {
+		return spec, nil
 	}
 
-	return ark.NewChatModel(ctx, conf)
+	switch entry {
+	case modelRoleText:
+		modelName := strings.TrimSpace(os.Getenv("ARK_TEXT_MODEL"))
+		if modelName == "" {
+			modelName = strings.TrimSpace(os.Getenv("ARK_MODEL"))
+		}
+		if modelName == "" {
+			return modelcompat.ModelSpec{}, fmt.Errorf("ARK_TEXT_MODEL/ARK_MODEL 环境变量未设置")
+		}
+		spec := legacyArkSpec(modelName, cfg)
+		return spec, nil
+	case modelRoleQA:
+		modelName := strings.TrimSpace(os.Getenv("ARK_QA_MODEL"))
+		if modelName == "" {
+			return modelcompat.ModelSpec{}, fmt.Errorf("MODEL_QA_NAME/ARK_QA_MODEL 环境变量未设置")
+		}
+		return legacyArkSpec(modelName, cfg), nil
+	default:
+		return modelcompat.ModelSpec{}, fmt.Errorf("unsupported model role %q", role)
+	}
+}
+
+func configuredModelChain() []string {
+	chain := splitEnvList(os.Getenv("MODEL_CHAIN"))
+	if len(chain) > 0 {
+		return chain
+	}
+	if strings.TrimSpace(os.Getenv("MODEL_PRIMARY_NAME")) != "" || strings.TrimSpace(os.Getenv("MODEL_PRIMARY_MODEL")) != "" {
+		return []string{"primary"}
+	}
+	return nil
+}
+
+func splitEnvList(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func modelSpecFromEntry(entry string, cfg *ChatModelConfig) modelcompat.ModelSpec {
+	entryKey := modelEntryKey(entry)
+	provider := modelcompat.NormalizeProvider(firstNonEmpty(
+		os.Getenv("MODEL_"+entryKey+"_PROVIDER"),
+		os.Getenv("MODEL_PROVIDER"),
+	))
+	spec := modelcompat.ModelSpec{
+		Provider:            provider,
+		Model:               strings.TrimSpace(firstNonEmpty(os.Getenv("MODEL_"+entryKey+"_NAME"), os.Getenv("MODEL_"+entryKey+"_MODEL"))),
+		APIKey:              modelAPIKeyForProvider(provider, entryKey, cfg),
+		BaseURL:             modelBaseURLForProvider(provider, entryKey),
+		Region:              modelRegionForProvider(provider, entryKey),
+		Timeout:             modelTimeoutForEntry(entryKey),
+		MaxTokens:           cfg.MaxTokens,
+		MaxCompletionTokens: cfg.MaxCompletionTokens,
+		Temperature:         cfg.Temperature,
+		TopP:                cfg.TopP,
+		DisableThinking:     cfg.DisableThinking,
+		JSONSchema:          cfg.JsonSchema,
+	}
+	return modelcompat.NormalizeSpec(spec)
+}
+
+func legacyArkFallbackSpecs(cfg *ChatModelConfig) []modelcompat.ModelSpec {
+	modelNames := []string{
+		os.Getenv("ARK_MODEL"),
+		os.Getenv("ARK_MODEL_BACKUP1"),
+		os.Getenv("ARK_MODEL_BACKUP2"),
+		os.Getenv("ARK_MODEL_BACKUP3"),
+		os.Getenv("ARK_MODEL_BACKUP4"),
+	}
+	specs := make([]modelcompat.ModelSpec, 0, len(modelNames))
+	for _, name := range modelNames {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		specs = append(specs, legacyArkSpec(name, cfg))
+	}
+	return specs
+}
+
+func legacyArkSpec(modelName string, cfg *ChatModelConfig) modelcompat.ModelSpec {
+	spec := modelcompat.ModelSpec{
+		Provider:            modelcompat.ProviderArk,
+		Model:               strings.TrimSpace(modelName),
+		APIKey:              modelAPIKeyFromConfig(cfg),
+		BaseURL:             strings.TrimSpace(os.Getenv("ARK_BASE_URL")),
+		Region:              strings.TrimSpace(os.Getenv("ARK_REGION")),
+		Timeout:             modelTimeoutFromEnv("MODEL_TIMEOUT_SECONDS", modelcompat.DefaultTimeout),
+		MaxTokens:           cfg.MaxTokens,
+		MaxCompletionTokens: cfg.MaxCompletionTokens,
+		Temperature:         cfg.Temperature,
+		TopP:                cfg.TopP,
+		DisableThinking:     cfg.DisableThinking,
+		JSONSchema:          cfg.JsonSchema,
+	}
+	return modelcompat.NormalizeSpec(spec)
+}
+
+func applyConfigToModelSpec(spec modelcompat.ModelSpec, cfg *ChatModelConfig) modelcompat.ModelSpec {
+	spec.MaxTokens = cfg.MaxTokens
+	spec.MaxCompletionTokens = cfg.MaxCompletionTokens
+	spec.Temperature = cfg.Temperature
+	spec.TopP = cfg.TopP
+	spec.DisableThinking = cfg.DisableThinking
+	spec.JSONSchema = cfg.JsonSchema
+	if cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
+		spec.APIKey = strings.TrimSpace(*cfg.APIKey)
+	}
+	return modelcompat.NormalizeSpec(spec)
+}
+
+func modelEntryKey(entry string) string {
+	key := strings.ToUpper(strings.TrimSpace(entry))
+	key = strings.ReplaceAll(key, "-", "_")
+	return strings.ReplaceAll(key, " ", "_")
+}
+
+func modelAPIKeyForProvider(provider modelcompat.Provider, entryKey string, cfg *ChatModelConfig) string {
+	if cfg != nil && cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
+		return strings.TrimSpace(*cfg.APIKey)
+	}
+	if key := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_API_KEY")); key != "" {
+		return key
+	}
+	if keyEnv := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_API_KEY_ENV")); keyEnv != "" {
+		return strings.TrimSpace(os.Getenv(keyEnv))
+	}
+	return modelcompat.ResolveProviderAPIKey(provider, "")
+}
+
+func modelBaseURLForProvider(provider modelcompat.Provider, entryKey string) string {
+	if value := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_BASE_URL")); value != "" {
+		return value
+	}
+	switch modelcompat.NormalizeProvider(string(provider)) {
+	case modelcompat.ProviderArk:
+		return strings.TrimSpace(os.Getenv("ARK_BASE_URL"))
+	case modelcompat.ProviderOpenAI:
+		return strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
+	case modelcompat.ProviderSiliconFlow:
+		return strings.TrimSpace(os.Getenv("SILICONFLOW_BASE_URL"))
+	default:
+		return strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
+	}
+}
+
+func modelRegionForProvider(provider modelcompat.Provider, entryKey string) string {
+	if value := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_REGION")); value != "" {
+		return value
+	}
+	if modelcompat.NormalizeProvider(string(provider)) == modelcompat.ProviderArk {
+		return strings.TrimSpace(os.Getenv("ARK_REGION"))
+	}
+	return ""
+}
+
+func modelTimeoutForEntry(entryKey string) time.Duration {
+	if timeout := modelTimeoutFromEnv("MODEL_"+entryKey+"_TIMEOUT_SECONDS", 0); timeout > 0 {
+		return timeout
+	}
+	return modelTimeoutFromEnv("MODEL_TIMEOUT_SECONDS", modelcompat.DefaultTimeout)
+}
+
+func modelTimeoutFromEnv(key string, defaultValue time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return defaultValue
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func modelAPIKeyFromConfig(cfg *ChatModelConfig) string {
@@ -363,9 +558,12 @@ func (f *FallbackChatModel) markRateLimited(idx int) {
 	globalTracker.markRateLimited(name, f.pauseDuration)
 }
 
-// globalTrackerKey 返回用于全局追踪的 modelName。
-// 优先使用 rawNames（精确匹配），回退到 modelNames（兼容测试直接构造的实例）。
+// globalTrackerKey 返回用于全局追踪的 provider:model。
+// 优先使用 trackerNames，回退到 rawNames/modelNames 以兼容测试直接构造的实例。
 func (f *FallbackChatModel) globalTrackerKey(idx int) string {
+	if idx < len(f.trackerNames) {
+		return f.trackerNames[idx]
+	}
 	if idx < len(f.rawNames) {
 		return f.rawNames[idx]
 	}
@@ -708,6 +906,7 @@ func (f *FallbackChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCalli
 		models:        modelsWithTools,
 		modelNames:    f.modelNames,
 		rawNames:      f.rawNames,
+		trackerNames:  f.trackerNames,
 		pauseDuration: f.pauseDuration,
 	}
 

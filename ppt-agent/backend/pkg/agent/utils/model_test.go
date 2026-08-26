@@ -5,9 +5,12 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
 )
 
 type fakeToolCallingChatModel struct {
@@ -73,6 +76,150 @@ func TestResolveModelAPIKeyPrefersAccountKey(t *testing.T) {
 func TestResolveModelAPIKeyFallsBackToEnvironment(t *testing.T) {
 	if got := ResolveModelAPIKey("  ", " env-key "); got != "env-key" {
 		t.Fatalf("ResolveModelAPIKey() = %q, want env-key", got)
+	}
+}
+
+func TestResolveFallbackModelSpecsUsesLegacyArkConfig(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("ARK_MODEL", "ark-primary")
+	t.Setenv("ARK_MODEL_BACKUP1", "ark-backup")
+	t.Setenv("ARK_API_KEY", "ark-key")
+	t.Setenv("ARK_BASE_URL", "https://ark.example/v3")
+	t.Setenv("ARK_REGION", "cn-test")
+
+	specs, err := resolveFallbackModelSpecs(&ChatModelConfig{})
+	if err != nil {
+		t.Fatalf("resolveFallbackModelSpecs() error = %v", err)
+	}
+	if len(specs) != 2 {
+		t.Fatalf("len(specs) = %d, want 2", len(specs))
+	}
+	if specs[0].Provider != modelcompat.ProviderArk || specs[0].Model != "ark-primary" {
+		t.Fatalf("primary spec = %#v", specs[0])
+	}
+	if specs[0].APIKey != "ark-key" || specs[0].BaseURL != "https://ark.example/v3" || specs[0].Region != "cn-test" {
+		t.Fatalf("primary env fields = %#v", specs[0])
+	}
+	if specs[1].Model != "ark-backup" {
+		t.Fatalf("backup model = %q", specs[1].Model)
+	}
+}
+
+func TestResolveFallbackModelSpecsUsesProviderAwareChain(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("MODEL_CHAIN", "primary, backup1")
+	t.Setenv("MODEL_PRIMARY_PROVIDER", "siliconflow")
+	t.Setenv("MODEL_PRIMARY_NAME", "sf-model")
+	t.Setenv("SILICONFLOW_API_KEY", "sf-key")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "30")
+	t.Setenv("MODEL_BACKUP1_PROVIDER", "openai-compatible")
+	t.Setenv("MODEL_BACKUP1_NAME", "compat-model")
+	t.Setenv("MODEL_BACKUP1_API_KEY_ENV", "BACKUP_KEY")
+	t.Setenv("BACKUP_KEY", "backup-key")
+	t.Setenv("MODEL_BACKUP1_BASE_URL", "https://compat.example/v1")
+	t.Setenv("MODEL_BACKUP1_TIMEOUT_SECONDS", "45")
+
+	specs, err := resolveFallbackModelSpecs(&ChatModelConfig{})
+	if err != nil {
+		t.Fatalf("resolveFallbackModelSpecs() error = %v", err)
+	}
+	if len(specs) != 2 {
+		t.Fatalf("len(specs) = %d, want 2", len(specs))
+	}
+	if specs[0].Provider != modelcompat.ProviderSiliconFlow || specs[0].BaseURL != modelcompat.SiliconFlowBaseURL {
+		t.Fatalf("siliconflow spec = %#v", specs[0])
+	}
+	if specs[0].APIKey != "sf-key" || specs[0].Timeout != 30*time.Second {
+		t.Fatalf("siliconflow key/timeout = %#v", specs[0])
+	}
+	if specs[1].Provider != modelcompat.ProviderOpenAICompat || specs[1].APIKey != "backup-key" {
+		t.Fatalf("backup spec = %#v", specs[1])
+	}
+	if specs[1].BaseURL != "https://compat.example/v1" || specs[1].Timeout != 45*time.Second {
+		t.Fatalf("backup base/timeout = %#v", specs[1])
+	}
+}
+
+func TestResolveFallbackModelSpecsWithTextModelUsesProviderAwareText(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("MODEL_TEXT_PROVIDER", "siliconflow")
+	t.Setenv("MODEL_TEXT_NAME", "sf-text-model")
+	t.Setenv("SILICONFLOW_API_KEY", "sf-key")
+
+	cfg := &ChatModelConfig{}
+	WithTextModel()(cfg)
+
+	specs, err := resolveFallbackModelSpecs(cfg)
+	if err != nil {
+		t.Fatalf("resolveFallbackModelSpecs() error = %v", err)
+	}
+	if len(specs) != 1 {
+		t.Fatalf("len(specs) = %d, want 1", len(specs))
+	}
+	if specs[0].Provider != modelcompat.ProviderSiliconFlow || specs[0].Model != "sf-text-model" {
+		t.Fatalf("text spec = %#v", specs[0])
+	}
+}
+
+func TestFallbackGlobalTrackerKeyUsesProviderIdentity(t *testing.T) {
+	fallback := &FallbackChatModel{
+		modelNames:   []string{"display"},
+		rawNames:     []string{"same-model"},
+		trackerNames: []string{"siliconflow:same-model"},
+	}
+	if got := fallback.globalTrackerKey(0); got != "siliconflow:same-model" {
+		t.Fatalf("globalTrackerKey() = %q", got)
+	}
+}
+
+func clearModelEnv(t *testing.T) {
+	t.Helper()
+	keys := []string{
+		"MODEL_CHAIN",
+		"MODEL_PROVIDER",
+		"MODEL_TIMEOUT_SECONDS",
+		"MODEL_PRIMARY_PROVIDER",
+		"MODEL_PRIMARY_NAME",
+		"MODEL_PRIMARY_MODEL",
+		"MODEL_PRIMARY_API_KEY",
+		"MODEL_PRIMARY_API_KEY_ENV",
+		"MODEL_PRIMARY_BASE_URL",
+		"MODEL_PRIMARY_REGION",
+		"MODEL_PRIMARY_TIMEOUT_SECONDS",
+		"MODEL_BACKUP1_PROVIDER",
+		"MODEL_BACKUP1_NAME",
+		"MODEL_BACKUP1_MODEL",
+		"MODEL_BACKUP1_API_KEY",
+		"MODEL_BACKUP1_API_KEY_ENV",
+		"MODEL_BACKUP1_BASE_URL",
+		"MODEL_BACKUP1_REGION",
+		"MODEL_BACKUP1_TIMEOUT_SECONDS",
+		"MODEL_TEXT_PROVIDER",
+		"MODEL_TEXT_NAME",
+		"MODEL_TEXT_MODEL",
+		"MODEL_TEXT_API_KEY",
+		"MODEL_TEXT_API_KEY_ENV",
+		"MODEL_TEXT_BASE_URL",
+		"MODEL_TEXT_REGION",
+		"MODEL_TEXT_TIMEOUT_SECONDS",
+		"ARK_MODEL",
+		"ARK_MODEL_BACKUP1",
+		"ARK_MODEL_BACKUP2",
+		"ARK_MODEL_BACKUP3",
+		"ARK_MODEL_BACKUP4",
+		"ARK_TEXT_MODEL",
+		"ARK_QA_MODEL",
+		"ARK_API_KEY",
+		"ARK_BASE_URL",
+		"ARK_REGION",
+		"OPENAI_API_KEY",
+		"OPENAI_BASE_URL",
+		"SILICONFLOW_API_KEY",
+		"SILICONFLOW_BASE_URL",
+		"BACKUP_KEY",
+	}
+	for _, key := range keys {
+		t.Setenv(key, "")
 	}
 }
 
