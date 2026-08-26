@@ -381,6 +381,7 @@ export async function summarizeProfile(): Promise<{ summary: PreferenceSummary; 
 export interface UserApiKeyStatus {
   configured: boolean;
   provider: string;
+  default_provider?: string;
   masked_key: string;
   default_configured: boolean;
   updated_at?: string;

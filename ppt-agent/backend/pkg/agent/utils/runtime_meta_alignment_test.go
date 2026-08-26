@@ -350,6 +350,25 @@ func TestRuntimeMetaPersistsEventsBeyondRecentWindow(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetaRecordsVisibleAssistantOutput(t *testing.T) {
+	meta := NewRuntimeMeta("task-visible-answer", t.TempDir())
+	var event RuntimeEvent
+	meta.SetEventSink(func(recorded RuntimeEvent) { event = recorded })
+
+	meta.RecordAssistantOutput(" 正在读取组件契约。\n")
+
+	if event.Kind != "assistant_output" || event.Name != "visible_answer" {
+		t.Fatalf("unexpected assistant output event: %#v", event)
+	}
+	if got := event.Metadata["assistant_output"]; got != "正在读取组件契约。" {
+		t.Fatalf("assistant output metadata = %#v", event.Metadata)
+	}
+	summary := RuntimeEventSummary(event)
+	if got := summary.Metadata["assistant_output"]; got != "正在读取组件契约。" {
+		t.Fatalf("summary should keep visible answer output, got %#v", summary.Metadata)
+	}
+}
+
 func TestCompressionEventIncludesDifferenceAndUserAnchor(t *testing.T) {
 	meta := NewRuntimeMeta("task-compress", t.TempDir())
 	var event RuntimeEvent

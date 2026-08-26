@@ -144,6 +144,30 @@ func TestResolveFallbackModelSpecsUsesProviderAwareChain(t *testing.T) {
 	}
 }
 
+func TestAccountAPIKeyOnlyAppliesToMatchingProvider(t *testing.T) {
+	clearModelEnv(t)
+	t.Setenv("MODEL_CHAIN", "primary, backup1")
+	t.Setenv("MODEL_PRIMARY_PROVIDER", "ark")
+	t.Setenv("MODEL_PRIMARY_NAME", "ark-model")
+	t.Setenv("ARK_API_KEY", "ark-env-key")
+	t.Setenv("MODEL_BACKUP1_PROVIDER", "siliconflow")
+	t.Setenv("MODEL_BACKUP1_NAME", "sf-model")
+	t.Setenv("SILICONFLOW_API_KEY", "sf-env-key")
+
+	cfg := &ChatModelConfig{}
+	WithAPIKeyForProvider("siliconflow", " account-sf-key ")(cfg)
+	specs, err := resolveFallbackModelSpecs(cfg)
+	if err != nil {
+		t.Fatalf("resolveFallbackModelSpecs() error = %v", err)
+	}
+	if specs[0].Provider != modelcompat.ProviderArk || specs[0].APIKey != "ark-env-key" {
+		t.Fatalf("ark spec should keep env key, got %#v", specs[0])
+	}
+	if specs[1].Provider != modelcompat.ProviderSiliconFlow || specs[1].APIKey != "account-sf-key" {
+		t.Fatalf("siliconflow spec should use account key, got %#v", specs[1])
+	}
+}
+
 func TestResolveFallbackModelSpecsWithTextModelUsesProviderAwareText(t *testing.T) {
 	clearModelEnv(t)
 	t.Setenv("MODEL_TEXT_PROVIDER", "siliconflow")

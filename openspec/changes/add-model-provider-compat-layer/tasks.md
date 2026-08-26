@@ -23,3 +23,11 @@
 - [x] 4.3 Gate `FallbackChatModel.Generate` and `Stream` by resource-local concurrency slots while preserving fallback behavior.
 - [x] 4.4 Add focused tests for resource key isolation and per-resource serialization.
 - [x] 4.5 Re-run backend validation and update deployment notes.
+
+## 5. Account Key and Observable Timeline UI
+
+- [x] 5.1 Extend account API key UI so users must choose the upstream provider before saving their own key.
+- [x] 5.2 Carry account key provider through backend task config and apply the key only to matching provider model specs.
+- [x] 5.3 Support DeepSeek and Qwen as OpenAI-compatible provider profiles with safe default base URLs and env fallback.
+- [x] 5.4 Record visible assistant answer chunks as sanitized runtime timeline events and render assistant text/tool cards in event order.
+- [x] 5.5 Add focused frontend/backend tests and update iteration/deployment notes.

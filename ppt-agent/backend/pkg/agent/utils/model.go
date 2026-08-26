@@ -51,6 +51,7 @@ type ChatModelConfig struct {
 	JsonSchema          *openai.ChatCompletionResponseFormatJSONSchema
 	Model               *string
 	APIKey              *string
+	APIKeyProvider      *modelcompat.Provider
 	ModelRole           string
 }
 
@@ -102,6 +103,18 @@ func WithAPIKey(apiKey string) ChatModelOption {
 		if apiKey != "" {
 			c.APIKey = &apiKey
 		}
+	}
+}
+
+func WithAPIKeyForProvider(provider string, apiKey string) ChatModelOption {
+	return func(c *ChatModelConfig) {
+		apiKey = strings.TrimSpace(apiKey)
+		if apiKey == "" {
+			return
+		}
+		normalized := modelcompat.NormalizeProvider(provider)
+		c.APIKey = &apiKey
+		c.APIKeyProvider = &normalized
 	}
 }
 
@@ -493,7 +506,8 @@ func applyConfigToModelSpec(spec modelcompat.ModelSpec, cfg *ChatModelConfig) mo
 	spec.TopP = cfg.TopP
 	spec.DisableThinking = cfg.DisableThinking
 	spec.JSONSchema = cfg.JsonSchema
-	if cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
+	if cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" &&
+		(cfg.APIKeyProvider == nil || modelcompat.NormalizeProvider(string(spec.Provider)) == *cfg.APIKeyProvider) {
 		spec.APIKey = strings.TrimSpace(*cfg.APIKey)
 	}
 	return modelcompat.NormalizeSpec(spec)
@@ -507,7 +521,9 @@ func modelEntryKey(entry string) string {
 
 func modelAPIKeyForProvider(provider modelcompat.Provider, entryKey string, cfg *ChatModelConfig) string {
 	if cfg != nil && cfg.APIKey != nil && strings.TrimSpace(*cfg.APIKey) != "" {
-		return strings.TrimSpace(*cfg.APIKey)
+		if cfg.APIKeyProvider == nil || modelcompat.NormalizeProvider(string(provider)) == *cfg.APIKeyProvider {
+			return strings.TrimSpace(*cfg.APIKey)
+		}
 	}
 	if key := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_API_KEY")); key != "" {
 		return key
@@ -529,6 +545,10 @@ func modelBaseURLForProvider(provider modelcompat.Provider, entryKey string) str
 		return strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
 	case modelcompat.ProviderSiliconFlow:
 		return strings.TrimSpace(os.Getenv("SILICONFLOW_BASE_URL"))
+	case modelcompat.ProviderDeepSeek:
+		return strings.TrimSpace(os.Getenv("DEEPSEEK_BASE_URL"))
+	case modelcompat.ProviderQwen:
+		return strings.TrimSpace(firstNonEmpty(os.Getenv("DASHSCOPE_BASE_URL"), os.Getenv("QWEN_BASE_URL")))
 	default:
 		return strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
 	}

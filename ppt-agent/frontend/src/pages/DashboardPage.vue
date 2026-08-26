@@ -91,6 +91,7 @@ const conversationLoading = ref(false);
 const conversationMessages = ref<import('../types').ConversationMessage[]>([]);
 const streamingAssistant = ref('');
 const streamingAssistantStartedAt = ref('');
+const streamingAssistantSegments = ref<import('../types').ConversationMessage[]>([]);
 const continuationQueued = ref(false);
 
 const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
@@ -126,24 +127,75 @@ async function loadConversation(taskId: string, replace = false) {
   }
 }
 
-function appendAssistantDelta(delta: string) {
+function appendAssistantDelta(delta: string, timelineOrder = 0) {
   if (!delta) return;
   if (!streamingAssistant.value && !streamingAssistantStartedAt.value) {
     streamingAssistantStartedAt.value = new Date().toISOString();
   }
-  streamingAssistant.value = appendAssistantStreamContent(streamingAssistant.value, delta);
+  const previous = streamingAssistant.value;
+  const next = appendAssistantStreamContent(previous, delta);
+  const visibleDelta = visibleAssistantDelta(previous, next, delta);
+  streamingAssistant.value = next;
+  appendStreamingAssistantSegment(visibleDelta, timelineOrder);
 }
 
 function finalizeAssistantTurn() {
   const content = streamingAssistant.value.trim();
-  if (content) {
+  const segments = streamingAssistantSegments.value.filter(message => message.content.trim());
+  if (segments.length > 0) {
+    conversationMessages.value = mergeConversationMessages(conversationMessages.value, segments);
+  } else if (content) {
     conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
       role: 'assistant', content, timestamp: streamingAssistantStartedAt.value || new Date().toISOString(),
     }]);
   }
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
+  streamingAssistantSegments.value = [];
   composerLoading.value = false;
+}
+
+function visibleAssistantDelta(previous: string, next: string, rawDelta: string): string {
+  if (!next) return '';
+  if (!previous) return next;
+  if (next === previous) return '';
+  if (next.startsWith(previous)) return next.slice(previous.length);
+  return rawDelta;
+}
+
+function appendStreamingAssistantSegment(content: string, timelineOrder: number) {
+  if (!content.trim()) return;
+  const now = new Date().toISOString();
+  const segments = [...streamingAssistantSegments.value];
+  const last = segments[segments.length - 1];
+  if (last && !hasRuntimeBoundarySince(last.timestamp, now)) {
+    segments[segments.length - 1] = {
+      ...last,
+      content: appendAssistantStreamContent(last.content, content),
+      timestamp: now,
+      timeline_order: timelineOrder || last.timeline_order,
+    };
+  } else {
+    segments.push({
+      role: 'assistant',
+      content,
+      timestamp: now,
+      timeline_order: timelineOrder || undefined,
+    });
+  }
+  streamingAssistantSegments.value = segments;
+}
+
+function hasRuntimeBoundarySince(start: string, end: string): boolean {
+  const from = Date.parse(start || '');
+  const to = Date.parse(end || '');
+  if (Number.isNaN(from) || Number.isNaN(to)) return false;
+  return runtimeTimelineAll.value.some(event => {
+    const timestamp = Date.parse(event.timestamp || '');
+    if (Number.isNaN(timestamp) || timestamp <= from || timestamp > to) return false;
+    const kind = (event.kind || '').toLowerCase();
+    return kind.startsWith('tool_') || kind.startsWith('slide_render_') || kind === 'task_terminal';
+  });
 }
 
 async function submitComposer() {
@@ -175,6 +227,7 @@ async function submitComposer() {
   composerInput.value = '';
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
+  streamingAssistantSegments.value = [];
   try {
     const accepted = await continueTask(taskId, message);
     composerNotice.value = accepted.message;
@@ -679,6 +732,7 @@ function disconnectSSE() {
   stopPolling();
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
+  streamingAssistantSegments.value = [];
   composerLoading.value = false;
   continuationQueued.value = false;
   currentPhase.value = '';
@@ -823,6 +877,7 @@ interface TaskCache {
   conversationMessages: import('../types').ConversationMessage[];
   streamingAssistant: string;
   streamingAssistantStartedAt: string;
+  streamingAssistantSegments: import('../types').ConversationMessage[];
   lastSeenEventID: number;
 }
 const taskCache = new Map<string, TaskCache>();
@@ -844,6 +899,7 @@ function saveCache(id: string) {
     conversationMessages: mergeConversationMessages([], conversationMessages.value),
     streamingAssistant: streamingAssistant.value,
     streamingAssistantStartedAt: streamingAssistantStartedAt.value,
+    streamingAssistantSegments: mergeConversationMessages([], streamingAssistantSegments.value),
     lastSeenEventID,
   });
 }
@@ -866,6 +922,7 @@ function restoreCache(id: string): boolean {
   conversationMessages.value = mergeConversationMessages([], c.conversationMessages);
   streamingAssistant.value = c.streamingAssistant;
   streamingAssistantStartedAt.value = c.streamingAssistantStartedAt || '';
+  streamingAssistantSegments.value = mergeConversationMessages([], c.streamingAssistantSegments || []);
   lastSeenEventID = c.lastSeenEventID;
   return true;
 }
@@ -921,6 +978,7 @@ async function selectTask(id: string) {
 	lastSeenEventID = 0;
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
+  streamingAssistantSegments.value = [];
 
   if (t.status === 'running') {
     // Restore finalized turns first, then replay only the unfinished turn.
@@ -1443,6 +1501,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
           :mode="composerMode"
           :task-title="selectedTask ? selectedTaskTitle : undefined"
         :messages="conversationMessages"
+        :streaming-messages="streamingAssistantSegments"
         :streaming-content="streamingAssistant"
         :streaming-timestamp="streamingAssistantStartedAt"
         :history-loading="conversationLoading"

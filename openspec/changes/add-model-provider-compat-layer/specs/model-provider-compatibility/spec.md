@@ -57,3 +57,21 @@ The system SHALL limit concurrent model calls by provider/model/API-key resource
 - **WHEN** multiple PPT tasks call the same provider/model/API-key resource
 - **THEN** model calls for that resource are serialized by default
 - **AND** unrelated upstream resources are not blocked by that serialization
+
+### Requirement: Provider-aware account API key configuration
+The system SHALL let each signed-in user configure a model API key with an explicit upstream provider, and model creation SHALL apply that key only to matching provider resources.
+
+#### Scenario: User configures their own provider key
+- **WHEN** a user saves an account API key
+- **THEN** the request includes a provider such as `ark`, `openai`, `deepseek`, `qwen`, `siliconflow`, or `openai_compatible`
+- **AND** later model calls for the same provider prefer the account key instead of the shared system fallback
+
+#### Scenario: Account key provider differs from another fallback entry
+- **WHEN** the fallback chain contains providers different from the saved account key provider
+- **THEN** the account key is not sent to those providers
+- **AND** those providers continue to use their own provider-specific environment key resolution
+
+#### Scenario: Account settings guide users away from shared fallback keys
+- **WHEN** a user opens the account settings dialog without an account key
+- **THEN** the UI clearly recommends configuring their own provider key
+- **AND** any system default key is presented as a limited fallback rather than the normal usage path

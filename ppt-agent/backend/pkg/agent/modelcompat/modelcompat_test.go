@@ -32,6 +32,22 @@ func TestSiliconFlowDefaults(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleProviderDefaults(t *testing.T) {
+	tests := []struct {
+		provider Provider
+		wantURL  string
+	}{
+		{ProviderDeepSeek, DeepSeekBaseURL},
+		{ProviderQwen, QwenBaseURL},
+	}
+	for _, tt := range tests {
+		spec := NormalizeSpec(ModelSpec{Provider: tt.provider, Model: "model"})
+		if spec.BaseURL != tt.wantURL {
+			t.Fatalf("NormalizeSpec(%s).BaseURL = %q, want %q", tt.provider, spec.BaseURL, tt.wantURL)
+		}
+	}
+}
+
 func TestDisplayNameAndTrackerKeyIncludeProvider(t *testing.T) {
 	spec := ModelSpec{Provider: ProviderSiliconFlow, Model: "same-model"}
 	if got := DisplayName(spec, 1); got != "siliconflow/same-model(backup-1)" {

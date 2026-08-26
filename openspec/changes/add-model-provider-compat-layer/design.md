@@ -90,6 +90,16 @@ Rollback：保留旧 `ARK_*` 配置分支；若 provider-aware 配置解析异�
 
 ## Open Questions
 
-- 账号级 API key 是否需要在第一阶段携带 provider 字段，还是先沿用当前任务选择的 provider？
+- 账号级 API key 已补充 provider 字段：UI 必须让用户选择厂商，后端只把该 Key 应用于同厂商模型资源，避免跨平台误用。
 - SiliconFlow 上实际使用的默认模型名和 timeout 是否需要单独的 UI 配置入口？
-- DeepSeek/Qwen 专用 adapter 何时从预留扩展点转为正式支持？
+- DeepSeek/Qwen 首轮按 OpenAI-compatible profile 创建，并保留后续专用 Eino adapter 优化空间。
+
+## Follow-up Decisions
+
+### Decision 6: 可见正文进入 RuntimeMeta timeline
+
+前端最终展示的是可观测执行轨迹，不是隐藏思维链。后端把已经通过 SSE `answer` 事件发送给用户的可见正文同步记录为 `assistant_output` runtime event；工具调用、命令执行和可见正文共享同一条 RuntimeMeta 顺序号。前端据此按事件顺序穿插渲染，解决工具调用集中在上方、文本集中在下方的问题。
+
+### Decision 7: 账号 Key 配置从“单 Key”升级为“厂商 + Key”
+
+账户设置弹窗要求选择 provider 后保存 Key，并明确引导用户使用自己的 Key。系统默认 Key 只作为兜底提示。模型创建时，账户 Key 只注入 provider 匹配的 `ModelSpec`，不同 provider fallback entry 继续使用各自环境变量。

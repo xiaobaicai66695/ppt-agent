@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
@@ -143,7 +144,9 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	cfg.Query = req.Query
 	uid := userIDGin(c)
 	cfg.UserID = uid
-	cfg.ModelAPIKey = userModelAPIKey(uid)
+	credential := userModelCredential(uid)
+	cfg.ModelAPIKey = credential.APIKey
+	cfg.ModelProvider = credential.Provider
 
 	// 如果有 outline，先做服务端兜底校验/补齐；TaskManager 只将其写入规划草稿。
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
@@ -975,6 +978,7 @@ func extractTargetPages(message string) []int {
 
 func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *RouteResult, continueMessage string, ch chan task.SSERichEvent) {
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在更新页面计划并重新渲染...\n"}
+	credential := userModelCredential(ts.Info.UserID)
 
 	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
 	if err != nil || manifest == nil {
@@ -1035,13 +1039,14 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		if len(allowedTaskIDs) > 0 {
 			beforeFix, _ := manifest.MustMarshalJSON()
 			fixerCfg := &deck.PPTTaskConfig{
-				WorkDir:     ts.Info.WorkDir,
-				TaskID:      taskID,
-				Query:       ts.Info.Query,
-				SkillsDir:   s.skillDir,
-				Operator:    s.operator,
-				UserID:      ts.Info.UserID,
-				ModelAPIKey: userModelAPIKey(ts.Info.UserID),
+				WorkDir:       ts.Info.WorkDir,
+				TaskID:        taskID,
+				Query:         ts.Info.Query,
+				SkillsDir:     s.skillDir,
+				Operator:      s.operator,
+				UserID:        ts.Info.UserID,
+				ModelAPIKey:   credential.APIKey,
+				ModelProvider: credential.Provider,
 			}
 			fixerCtx, cancelFixer := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancelFixer()
@@ -1122,8 +1127,9 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		RuntimeMeta: runtimeMeta,
 		Concurrency: 5,
 		UserID:      ts.Info.UserID,
-		ModelAPIKey: userModelAPIKey(ts.Info.UserID),
 	}
+	cfg.ModelAPIKey = credential.APIKey
+	cfg.ModelProvider = credential.Provider
 	if _, err := deck.RenderDeckByTaskIDWorkflow(context.Background(), cfg, func(event deck.DeckRenderEvent) {
 		ch <- deckRenderSSE(event)
 	}); err != nil {
@@ -1433,17 +1439,20 @@ func (s *Server) handleGetUserAPIKey(c *gin.Context) {
 	if key == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"configured":         false,
-			"provider":           "ark",
+			"provider":           string(defaultModelProvider()),
+			"default_provider":   string(defaultModelProvider()),
 			"masked_key":         "",
-			"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+			"default_configured": systemProviderKeyConfigured(defaultModelProvider()),
 		})
 		return
 	}
+	provider := modelcompat.NormalizeProvider(key.Provider)
 	c.JSON(http.StatusOK, gin.H{
 		"configured":         true,
-		"provider":           key.Provider,
+		"provider":           string(provider),
+		"default_provider":   string(defaultModelProvider()),
 		"masked_key":         maskAPIKey(key.APIKey),
-		"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+		"default_configured": systemProviderKeyConfigured(provider),
 		"updated_at":         key.UpdatedAt,
 	})
 }
@@ -1462,19 +1471,21 @@ func (s *Server) handleUpdateUserAPIKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key 长度过短"})
 		return
 	}
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider = "ark"
+	provider := modelcompat.NormalizeProvider(req.Provider)
+	if !isSupportedAccountProvider(provider) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不支持的模型厂商: " + strings.TrimSpace(req.Provider)})
+		return
 	}
-	if err := db.UpsertUserAPIKey(uint(userIDGin(c)), provider, apiKey); err != nil {
+	if err := db.UpsertUserAPIKey(uint(userIDGin(c)), string(provider), apiKey); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 API Key 失败: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"configured":         true,
-		"provider":           provider,
+		"provider":           string(provider),
+		"default_provider":   string(defaultModelProvider()),
 		"masked_key":         maskAPIKey(apiKey),
-		"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+		"default_configured": systemProviderKeyConfigured(provider),
 		"updated_at":         time.Now(),
 	})
 }
@@ -1487,21 +1498,97 @@ func (s *Server) handleDeleteUserAPIKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":             "ok",
 		"configured":         false,
-		"default_configured": strings.TrimSpace(os.Getenv("ARK_API_KEY")) != "",
+		"provider":           string(defaultModelProvider()),
+		"default_provider":   string(defaultModelProvider()),
+		"default_configured": systemProviderKeyConfigured(defaultModelProvider()),
 	})
 }
 
-func userModelAPIKey(userID int) string {
+type modelCredential struct {
+	Provider string
+	APIKey   string
+}
+
+func userModelCredential(userID int) modelCredential {
+	provider := defaultModelProvider()
 	accountKey := ""
 	if userID > 0 && db.DB != nil {
 		key, err := db.GetUserAPIKey(uint(userID))
 		if err != nil {
 			logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
 		} else if key != nil {
+			provider = modelcompat.NormalizeProvider(key.Provider)
 			accountKey = key.APIKey
 		}
 	}
-	return agentutils.ResolveModelAPIKey(accountKey, os.Getenv("ARK_API_KEY"))
+	return modelCredential{
+		Provider: string(provider),
+		APIKey:   modelcompat.ResolveProviderAPIKey(provider, accountKey),
+	}
+}
+
+func defaultModelProvider() modelcompat.Provider {
+	for _, entry := range strings.Split(os.Getenv("MODEL_CHAIN"), ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		entryKey := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(entry, "-", "_"), " ", "_"))
+		if provider := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_PROVIDER")); provider != "" {
+			return modelcompat.NormalizeProvider(provider)
+		}
+	}
+	if provider := strings.TrimSpace(os.Getenv("MODEL_PRIMARY_PROVIDER")); provider != "" {
+		return modelcompat.NormalizeProvider(provider)
+	}
+	return modelcompat.NormalizeProvider(os.Getenv("MODEL_PROVIDER"))
+}
+
+func systemProviderKeyConfigured(provider modelcompat.Provider) bool {
+	provider = modelcompat.NormalizeProvider(string(provider))
+	if modelcompat.ResolveProviderAPIKey(provider, "") != "" {
+		return true
+	}
+	for _, entry := range append(strings.Split(os.Getenv("MODEL_CHAIN"), ","), "primary", "text", "qa") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		entryKey := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(entry, "-", "_"), " ", "_"))
+		entryProvider := modelcompat.NormalizeProvider(firstNonEmpty(
+			os.Getenv("MODEL_"+entryKey+"_PROVIDER"),
+			os.Getenv("MODEL_PROVIDER"),
+		))
+		if entryProvider != provider {
+			continue
+		}
+		if strings.TrimSpace(os.Getenv("MODEL_"+entryKey+"_API_KEY")) != "" {
+			return true
+		}
+		if keyEnv := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_API_KEY_ENV")); keyEnv != "" && strings.TrimSpace(os.Getenv(keyEnv)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedAccountProvider(provider modelcompat.Provider) bool {
+	switch modelcompat.NormalizeProvider(string(provider)) {
+	case modelcompat.ProviderArk, modelcompat.ProviderOpenAI, modelcompat.ProviderOpenAICompat,
+		modelcompat.ProviderSiliconFlow, modelcompat.ProviderDeepSeek, modelcompat.ProviderQwen:
+		return true
+	default:
+		return false
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func maskAPIKey(apiKey string) string {

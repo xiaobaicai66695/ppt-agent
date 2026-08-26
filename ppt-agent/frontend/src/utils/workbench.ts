@@ -170,6 +170,7 @@ export function appendAssistantStreamContent(current: string, chunk: string): st
 export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): ConversationMessage[] {
   const messages: ConversationMessage[] = [];
   const seen = new Set<string>();
+  const hasVisibleAnswerEvents = events.some(event => (event.kind || '').toLowerCase() === 'assistant_output');
   let toolEventSinceAssistant = false;
   for (const event of [...events].sort((a, b) => {
     if (a.id > 0 && b.id > 0 && a.id !== b.id) return a.id - b.id;
@@ -180,11 +181,24 @@ export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): Conversa
       continue;
     }
     const kind = (event.kind || '').toLowerCase();
-    if (!kind.includes('llm') || kind.includes('start')) continue;
+    const isVisibleAnswer = kind === 'assistant_output';
+    if (hasVisibleAnswerEvents && !isVisibleAnswer) continue;
+    if (!isVisibleAnswer && (!kind.includes('llm') || kind.includes('start'))) continue;
     const output = event.metadata?.assistant_output;
     if (typeof output !== 'string') continue;
-    const content = output.trim();
-    if (!content || seen.has(content)) continue;
+    const content = isVisibleAnswer ? output : output.trim();
+    if (!content.trim()) continue;
+    if (isVisibleAnswer) {
+      appendRuntimeAssistantDelta(messages, {
+        role: 'assistant',
+        content,
+        timestamp: event.timestamp || new Date(0).toISOString(),
+        runtime_event_id: event.id > 0 ? event.id : undefined,
+      }, toolEventSinceAssistant);
+      toolEventSinceAssistant = false;
+      continue;
+    }
+    if (seen.has(content)) continue;
     seen.add(content);
     mergeConversationMessage(messages, {
       role: 'assistant',
@@ -195,6 +209,22 @@ export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): Conversa
     toolEventSinceAssistant = false;
   }
   return messages;
+}
+
+function appendRuntimeAssistantDelta(
+  messages: ConversationMessage[],
+  incoming: ConversationMessage,
+  splitAfterTool: boolean,
+) {
+  const content = incoming.content;
+  if (!content.trim()) return;
+  const last = messages[messages.length - 1];
+  if (last?.role === 'assistant' && !splitAfterTool) {
+    last.content = appendAssistantStreamContent(last.content, content);
+    last.timestamp = incoming.timestamp || last.timestamp;
+    return;
+  }
+  messages.push({ ...incoming, content });
 }
 
 function mergeConversationMessage(
@@ -357,6 +387,9 @@ export type InlineConversationItem =
   | { type: 'tool_group'; key: string; timestamp: string; group: InlineToolGroupPreview };
 
 function inlineItemOrder(item: InlineConversationItem): number {
+  if (item.type === 'message' && item.message.timeline_order && item.message.timeline_order > 0) {
+    return item.message.timeline_order;
+  }
   if (item.type === 'message' && item.message.runtime_event_id && item.message.runtime_event_id > 0) {
     return item.message.runtime_event_id;
   }
@@ -1004,6 +1037,7 @@ export function runtimeEventKindLabel(event: RuntimeEvent): string {
     llm_start: '模型调用开始',
     llm_end: '模型调用完成',
     llm_error: '模型调用失败',
+    assistant_output: 'AI 正文',
     tool_start: '工具调用开始',
     tool_end: '工具调用完成',
     tool_error: '工具调用失败',
@@ -1014,6 +1048,7 @@ export function runtimeEventKindLabel(event: RuntimeEvent): string {
 export function runtimeEventNameLabel(event: RuntimeEvent): string {
   if ((event.kind === 'manifest_validated' || event.kind === 'deck_spec_validated') && event.name === 'tasks.json') return 'PPT 页清单';
   if (event.kind === 'compression' || event.kind === 'planner_context_compressed') return '对话上下文';
+  if (event.kind === 'assistant_output') return 'AI 正文';
   if (event.name === 'search') return '资料搜索';
   if (event.name === 'search_images') return '图片搜索';
   if (event.name === 'read_file') return '读取文件';
@@ -1049,6 +1084,7 @@ export function runtimeEventDetailLabel(event: RuntimeEvent): string {
     if (before > 0 || after > 0) return `Token ${before.toLocaleString()} → ${after.toLocaleString()}${saved ? `，节省 ${saved}` : ''}`;
     return '用户要求已锚定，早期轨迹已压缩';
   }
+  if (event.kind === 'assistant_output') return '已输出一段可见正文';
   if (event.name === 'search') {
     const metadata = event.metadata || {};
     const query = String(metadata.search_query || '').trim();
@@ -1102,6 +1138,7 @@ function isObservableEvent(event: RuntimeEvent): boolean {
   return kind.includes('intent')
     || kind.includes('phase')
     || kind.includes('llm')
+    || kind === 'assistant_output'
     || kind.includes('tool')
     || kind.includes('compress')
     || kind.includes('deck_spec')
@@ -1123,6 +1160,7 @@ function observableEventLabel(event: RuntimeEvent): string {
   if (kind === 'llm_start') return 'Planner 正在规划';
   if (kind === 'llm_end') return 'Planner 输出完成';
   if (kind === 'llm_error') return 'Planner 调用失败';
+  if (kind === 'assistant_output') return 'AI 输出正文';
   if (kind === 'compression' || kind === 'planner_context_compressed') return '正在压缩上下文';
   if (name === 'search') {
     const query = String(metadata.search_query || '').trim();
@@ -1150,6 +1188,7 @@ function observableEventCategory(event: RuntimeEvent): string {
   if (kind.includes('error') || event.status === 'error' || event.status === 'failed') return 'error';
   if (name === 'search' || name === 'search_images') return 'search';
   if (kind.includes('llm')) return 'planner';
+  if (kind === 'assistant_output') return 'planner';
   if (kind.includes('compress')) return 'delivery';
   if (kind.includes('slide_render') || name === 'generate_slide') return 'render';
   if (kind.includes('delivery') || kind.includes('deck_spec') || name === 'update_tasks_manifest') return 'delivery';

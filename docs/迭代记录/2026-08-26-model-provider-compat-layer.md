@@ -89,8 +89,37 @@ MODEL_TIMEOUT_SECONDS=600
   - `/api/ai/expand` 能触发模型链初始化，日志出现 `model_init_success model=ark/...`。
   - 上游仍返回 HTTP `402`，完整 LLM 生成冒烟继续受账户/计费侧阻塞。
 
+## 账号 Key 与执行轨迹修正
+
+- 代码范围：
+  - 后端：
+    - `ppt-agent/backend/pkg/agent/modelcompat/modelcompat.go`
+    - `ppt-agent/backend/pkg/agent/utils/model.go`
+    - `ppt-agent/backend/pkg/agent/utils/runtime_meta.go`
+    - `ppt-agent/backend/pkg/task/manager.go`
+    - `ppt-agent/backend/pkg/web/handler.go`
+    - `ppt-agent/backend/pkg/agent/deck/{types.go,agent.go}`
+  - 前端：
+    - `ppt-agent/frontend/src/components/AccountSettingsDialog.vue`
+    - `ppt-agent/frontend/src/components/ConversationComposer.vue`
+    - `ppt-agent/frontend/src/pages/DashboardPage.vue`
+    - `ppt-agent/frontend/src/utils/workbench.ts`
+    - `ppt-agent/frontend/src/api.ts`
+- 行为变化：
+  - 账户 API Key 配置从单 Key 升级为“厂商 + Key”，支持 Ark、OpenAI、硅基流动、DeepSeek、Qwen、OpenAI-compatible。
+  - 账户 Key 只注入同 provider 的模型资源，避免把一个厂商的 Key 误传给其他上游。
+  - 账户设置弹窗明确引导用户配置自己的厂商 Key，系统默认 Key 只作为共享兜底提示。
+  - DeepSeek 和 Qwen 先作为 OpenAI-compatible profile 接入，默认 base URL 分别为 `https://api.deepseek.com` 和 `https://dashscope.aliyuncs.com/compatible-mode/v1`，可通过环境变量覆盖。
+  - 已通过 SSE 展示给用户的可见 AI 正文会进入 RuntimeMeta `assistant_output` 事件；前端按 runtime event 顺序穿插渲染 AI 正文和工具调用卡片，不展示隐藏 chain-of-thought。
+- 本地验证：
+  - `npm run test -- src/utils/workbench.test.ts`
+  - `npm run build`
+  - `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task ./pkg/web`
+  - `go build ./...`
+- 上线记录：待部署后回填。
+
 ## 遗留
 
-- DeepSeek/Qwen 专用 Eino adapter 先保留扩展点，当前首轮不引入新依赖。
-- 账号级多 provider key 的前端/数据库模型暂未扩展；短期仍由任务选中的 provider 消费当前 `ModelAPIKey`。
+- DeepSeek/Qwen 专用 Eino adapter 仍保留扩展点，当前先走 OpenAI-compatible profile。
+- 账号级 key 当前仍是一组 provider/key；多 provider key 并存可作为后续增强。
 - 线上完整 LLM 冒烟需在上游 HTTP `402` 解决后复测。

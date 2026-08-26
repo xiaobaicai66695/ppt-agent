@@ -13,22 +13,40 @@ const emit = defineEmits<{ close: [] }>();
 
 const status = ref<UserApiKeyStatus | null>(null);
 const draft = ref('');
+const draftProvider = ref('ark');
 const loading = ref(false);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
 
+const providerOptions = [
+  { value: 'ark', label: '火山方舟', hint: 'Ark' },
+  { value: 'siliconflow', label: '硅基流动', hint: 'OpenAI-compatible' },
+  { value: 'openai', label: 'OpenAI', hint: '官方接口' },
+  { value: 'deepseek', label: 'DeepSeek', hint: '兼容接口' },
+  { value: 'qwen', label: 'Qwen', hint: 'DashScope' },
+  { value: 'openai_compatible', label: '自定义兼容', hint: '服务端配置 base URL' },
+];
+
+const providerLabel = computed(() => labelForProvider(status.value?.provider || draftProvider.value));
+const draftProviderHint = computed(() => providerOptions.find(item => item.value === draftProvider.value)?.hint || '');
+
 const effectiveSource = computed(() => {
-  if (status.value?.configured) return '当前账户 API Key';
-  if (status.value?.default_configured) return '系统默认 API Key';
+  if (status.value?.configured) return `${providerLabel.value} 账户 API Key`;
+  if (status.value?.default_configured) return `${labelForProvider(status.value?.default_provider || status.value?.provider)} 系统兜底 Key`;
   return '未配置 API Key';
 });
 
 const effectiveHint = computed(() => {
-  if (status.value?.configured) return '任务会优先使用当前账户的 Key。';
-  if (status.value?.default_configured) return '当前账户未单独配置，将使用服务端环境变量中的默认 Key。';
-  return '当前没有可用的模型 Key，生成任务会在模型初始化阶段失败。';
+  if (status.value?.configured) return `同厂商模型调用会优先使用你的 ${providerLabel.value} Key，不占用共享额度。`;
+  if (status.value?.default_configured) return '当前账户未单独配置，暂时会走系统兜底 Key；共享额度有限，建议配置自己的厂商 Key。';
+  return '当前没有可用的模型 Key。请先选择厂商并配置自己的 Key，再创建生成任务。';
 });
+
+function labelForProvider(provider?: string): string {
+  const normalized = (provider || 'ark').trim();
+  return providerOptions.find(item => item.value === normalized)?.label || normalized;
+}
 
 function formatTime(value?: string): string {
   if (!value) return '';
@@ -42,6 +60,7 @@ async function loadStatus() {
   saved.value = false;
   try {
     status.value = await fetchUserApiKeyStatus();
+    draftProvider.value = status.value.provider || status.value.default_provider || 'ark';
   } catch (e) {
     status.value = null;
     error.value = e instanceof Error ? e.message : 'API Key 状态加载失败';
@@ -61,7 +80,8 @@ async function save() {
   error.value = '';
   saved.value = false;
   try {
-    status.value = await updateUserApiKey(apiKey, status.value?.provider || 'ark');
+    status.value = await updateUserApiKey(apiKey, draftProvider.value);
+    draftProvider.value = status.value.provider || draftProvider.value;
     draft.value = '';
     saved.value = true;
     window.setTimeout(() => { saved.value = false; }, 2200);
@@ -115,7 +135,7 @@ watch(() => props.open, (open) => {
 
         <div v-else class="account-body">
           <p class="account-intro">
-            API Key 只作用于当前账户。完整密钥不会回显，系统仅保存脱敏状态供你确认。
+            建议配置你自己的厂商 Key。系统默认 Key 只作为临时兜底，完整密钥不会回显。
           </p>
 
           <div class="account-status">
@@ -127,21 +147,41 @@ watch(() => props.open, (open) => {
             </div>
             <p>{{ effectiveHint }}</p>
             <div class="status-details">
+              <span>厂商：{{ labelForProvider(status?.provider || status?.default_provider) }}</span>
               <span v-if="status?.configured">账户 Key：<code>{{ status.masked_key }}</code></span>
               <span v-else>账户 Key：未配置</span>
-              <span v-if="status?.default_configured">系统默认 Key：可用</span>
-              <span v-else>系统默认 Key：不可用</span>
+              <span v-if="status?.default_configured">系统兜底：可用但不建议长期占用</span>
+              <span v-else>系统兜底：不可用</span>
               <span v-if="status?.updated_at">更新于 {{ formatTime(status.updated_at) }}</span>
             </div>
           </div>
 
+          <fieldset class="provider-field">
+            <legend>选择 API 厂商</legend>
+            <div class="provider-grid">
+              <label
+                v-for="provider in providerOptions"
+                :key="provider.value"
+                class="provider-option"
+                :class="{ selected: draftProvider === provider.value }"
+              >
+                <input v-model="draftProvider" type="radio" name="model-provider" :value="provider.value" :disabled="saving" />
+                <span>
+                  <strong>{{ provider.label }}</strong>
+                  <small>{{ provider.hint }}</small>
+                </span>
+              </label>
+            </div>
+            <p>当前选择：{{ labelForProvider(draftProvider) }}<template v-if="draftProviderHint">，{{ draftProviderHint }}</template>。</p>
+          </fieldset>
+
           <label class="account-field">
-            <span>设置账户 Key</span>
+            <span>设置 {{ labelForProvider(draftProvider) }} Key</span>
             <input
               v-model="draft"
               type="password"
               autocomplete="new-password"
-              placeholder="粘贴新的模型 API Key"
+              :placeholder="`粘贴你的 ${labelForProvider(draftProvider)} API Key`"
               :disabled="saving"
             />
           </label>
@@ -218,6 +258,18 @@ watch(() => props.open, (open) => {
 .status-details { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-muted); font-size: 10px; }
 .status-details code { color: var(--text-secondary); font-family: ui-monospace, monospace; }
 
+.provider-field { min-width: 0; margin: 0; padding: 0; display: grid; gap: 8px; border: 0; }
+.provider-field legend { padding: 0; color: var(--text-secondary); font-size: 11px; font-weight: 750; }
+.provider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.provider-option { min-width: 0; min-height: 56px; padding: 9px 10px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--surface); cursor: pointer; }
+.provider-option:hover { border-color: #b7ccd2; background: #fbfcfd; }
+.provider-option.selected { border-color: var(--action-ink); background: var(--action-soft); }
+.provider-option input { width: 15px; height: 15px; flex: 0 0 auto; accent-color: var(--action-ink); }
+.provider-option span { min-width: 0; display: grid; gap: 2px; }
+.provider-option strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-option small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-field p { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+
 .account-field { display: grid; gap: 7px; color: var(--text-secondary); font-size: 11px; font-weight: 750; }
 .account-field input { width: 100%; min-height: 42px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 6px; outline: 0; color: var(--text); background: var(--surface); font-size: 13px; }
 .account-field input:focus { border-color: var(--info); box-shadow: 0 0 0 3px var(--info-soft); }
@@ -238,6 +290,7 @@ watch(() => props.open, (open) => {
   .account-modal { width: 100%; max-height: 92dvh; border-radius: 10px 10px 0 0; }
   .account-body { padding: 16px; }
   .account-actions { flex-wrap: wrap; }
+  .provider-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .account-danger { order: 3; }.account-actions-spacer { display: none; }
   .account-secondary, .account-primary { flex: 1; }
 }

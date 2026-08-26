@@ -224,6 +224,9 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		event.Content = normalizeAnswerChunk(ts.answerTurn.String(), event.Content)
 		ts.fullAnswer.WriteString(event.Content)
 		ts.answerTurn.WriteString(event.Content)
+		if ts.runtimeMeta != nil && strings.TrimSpace(event.Content) != "" {
+			ts.runtimeMeta.RecordAssistantOutput(event.Content)
+		}
 	}
 	ts.Events = append(ts.Events, event)
 	if len(ts.Events) > 500 {
@@ -618,6 +621,16 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		runtimeMeta:     runtimeMeta,
 		assistantTurnFn: tm.onAssistantTurn,
 	}
+	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
+		persistRuntimeEvent(event)
+		go func() {
+			snap := runtimeMeta.Snapshot()
+			ts.Broadcast(SSERichEvent{
+				Type:        "runtime_meta",
+				RuntimeMeta: &snap,
+			})
+		}()
+	})
 	type workDirSetter interface {
 		SetWorkDir(context.Context, string) context.Context
 	}

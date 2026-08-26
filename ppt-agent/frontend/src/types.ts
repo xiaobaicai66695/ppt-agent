@@ -27,6 +27,7 @@ export interface ConversationMessage {
   content: string;
   timestamp: string;
   runtime_event_id?: number;
+  timeline_order?: number;
 }
 
 export interface ConversationSession {

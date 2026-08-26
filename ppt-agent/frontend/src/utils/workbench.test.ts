@@ -339,6 +339,90 @@ describe('workbench utilities', () => {
     expect(items[2].type === 'message' ? items[2].message.content : '').toBe(second);
   });
 
+  it('uses visible assistant output runtime events to split text around tools', () => {
+    const events: RuntimeEvent[] = [
+      {
+        id: 1,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:01Z',
+        elapsed_ms: 1000,
+        kind: 'assistant_output',
+        name: 'visible_answer',
+        status: 'ok',
+        metadata: { assistant_output: '先读取组件契约。' },
+      },
+      {
+        id: 2,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:02Z',
+        elapsed_ms: 2000,
+        kind: 'tool_end',
+        name: 'read_file',
+        status: 'ok',
+        metadata: { file_path: 'component_contracts.json' },
+      },
+      {
+        id: 3,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:03Z',
+        elapsed_ms: 3000,
+        kind: 'assistant_output',
+        name: 'visible_answer',
+        status: 'ok',
+        metadata: { assistant_output: '已读取完成，继续搜索资料。' },
+      },
+      {
+        id: 4,
+        task_id: 'task-1',
+        timestamp: '2026-08-26T00:00:04Z',
+        elapsed_ms: 4000,
+        kind: 'llm_end',
+        name: 'planner',
+        status: 'ok',
+        metadata: { assistant_output: '先读取组件契约。已读取完成，继续搜索资料。' },
+      },
+    ];
+
+    const messages = runtimeAssistantOutputMessages(events);
+    const items = deriveInlineConversationItems(messages, events);
+
+    expect(messages.map(message => message.content)).toEqual(['先读取组件契约。', '已读取完成，继续搜索资料。']);
+    expect(items.map(item => item.type)).toEqual(['message', 'tool_group', 'message']);
+  });
+
+  it('orders live assistant segments by timeline order before timestamps', () => {
+    const messages: ConversationMessage[] = [
+      {
+        role: 'assistant',
+        content: '我先说明下一步。',
+        timestamp: '2026-08-26T00:00:05Z',
+        timeline_order: 1,
+      },
+      {
+        role: 'assistant',
+        content: '工具完成后继续输出。',
+        timestamp: '2026-08-26T00:00:01Z',
+        timeline_order: 3,
+      },
+    ];
+    const events: RuntimeEvent[] = [{
+      id: 2,
+      task_id: 'task-1',
+      timestamp: '2026-08-26T00:00:02Z',
+      elapsed_ms: 2000,
+      kind: 'tool_end',
+      name: 'read_file',
+      status: 'ok',
+      metadata: { file_path: 'component_contracts.json' },
+    }];
+
+    const items = deriveInlineConversationItems(messages, events);
+
+    expect(items.map(item => item.type)).toEqual(['message', 'tool_group', 'message']);
+    expect(items[0].type === 'message' ? items[0].message.content : '').toBe('我先说明下一步。');
+    expect(items[2].type === 'message' ? items[2].message.content : '').toBe('工具完成后继续输出。');
+  });
+
   it('does not expose tool output previews as assistant chat content', () => {
     const events: RuntimeEvent[] = [
       {

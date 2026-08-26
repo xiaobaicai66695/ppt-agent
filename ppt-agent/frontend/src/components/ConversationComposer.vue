@@ -13,6 +13,7 @@ const props = defineProps<{
   mode: 'create' | 'queue' | 'continue';
   taskTitle?: string;
   messages: ConversationMessage[];
+  streamingMessages?: ConversationMessage[];
   streamingContent?: string;
   streamingTimestamp?: string;
   historyLoading?: boolean;
@@ -49,17 +50,18 @@ const placeholder = computed(() => props.mode === 'create'
   : '描述希望如何改进这套演示');
 
 const displayMessages = computed(() => mergeConversationMessages(
-  props.messages,
   runtimeAssistantOutputMessages(props.runtimeEvents || []),
+  props.messages,
 ));
 const streamingAlreadyShown = computed(() => {
   const content = props.streamingContent?.trim();
   return Boolean(content && displayMessages.value.some(message => message.role === 'assistant' && message.content.trim() === content));
 });
 const visibleMessages = computed(() => {
-  const messages = [...displayMessages.value];
+  const streamingMessages = (props.streamingMessages || []).filter(message => message.content?.trim());
+  const messages = mergeConversationMessages(displayMessages.value, streamingMessages);
   const content = props.streamingContent?.trim();
-  if (content && !streamingAlreadyShown.value) {
+  if (content && streamingMessages.length === 0 && !streamingAlreadyShown.value) {
     return mergeConversationMessages(messages, [{
       role: 'assistant',
       content,

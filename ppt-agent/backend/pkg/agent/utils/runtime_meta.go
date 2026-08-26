@@ -463,6 +463,20 @@ func (m *RuntimeMeta) RecordLLMEnd(name string, metadata map[string]any) {
 	m.recordEventLocked("llm_end", name, "ok", "", metadata)
 }
 
+func (m *RuntimeMeta) RecordAssistantOutput(content string) {
+	if m == nil {
+		return
+	}
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordEventLocked("assistant_output", "visible_answer", "ok", "", map[string]any{
+		"assistant_output": content,
+	})
+}
+
 func (m *RuntimeMeta) RecordLLMErrorDetails(name, errText string, metadata map[string]any) {
 	if m == nil {
 		return
@@ -855,7 +869,7 @@ func publicRuntimeEventMetadata(event RuntimeEvent) map[string]any {
 	if strings.HasPrefix(kind, "tool_") || strings.HasPrefix(kind, "slide_render_") {
 		return publicToolRuntimeEventMetadata(event.Name, event.Metadata)
 	}
-	if strings.Contains(kind, "llm") && !strings.Contains(kind, "start") {
+	if kind == "assistant_output" || (strings.Contains(kind, "llm") && !strings.Contains(kind, "start")) {
 		output, ok := event.Metadata["assistant_output"].(string)
 		if !ok {
 			return nil

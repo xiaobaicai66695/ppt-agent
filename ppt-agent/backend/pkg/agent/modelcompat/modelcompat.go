@@ -26,6 +26,8 @@ const (
 	ProviderQwen         Provider = "qwen"
 
 	SiliconFlowBaseURL = "https://api.siliconflow.cn/v1"
+	DeepSeekBaseURL    = "https://api.deepseek.com"
+	QwenBaseURL        = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	DefaultTimeout     = 10 * time.Minute
 )
 
@@ -56,7 +58,7 @@ func (DefaultFactory) NewToolCallingChatModel(ctx context.Context, spec ModelSpe
 	switch spec.Provider {
 	case ProviderArk:
 		return arkext.NewChatModel(ctx, BuildArkConfig(spec))
-	case ProviderOpenAI, ProviderOpenAICompat, ProviderSiliconFlow:
+	case ProviderOpenAI, ProviderOpenAICompat, ProviderSiliconFlow, ProviderDeepSeek, ProviderQwen:
 		return openaiext.NewChatModel(ctx, BuildOpenAIConfig(spec))
 	default:
 		return nil, fmt.Errorf("unsupported model provider %q", spec.Provider)
@@ -95,6 +97,12 @@ func NormalizeSpec(spec ModelSpec) ModelSpec {
 	}
 	if spec.Provider == ProviderSiliconFlow && spec.BaseURL == "" {
 		spec.BaseURL = SiliconFlowBaseURL
+	}
+	if spec.Provider == ProviderDeepSeek && spec.BaseURL == "" {
+		spec.BaseURL = DeepSeekBaseURL
+	}
+	if spec.Provider == ProviderQwen && spec.BaseURL == "" {
+		spec.BaseURL = QwenBaseURL
 	}
 	if spec.ExtraFields != nil {
 		copied := make(map[string]any, len(spec.ExtraFields))

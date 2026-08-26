@@ -141,8 +141,8 @@ func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int
 		agentutils.WithTemperature(0),
 	}
 	if strings.TrimSpace(cfg.ModelAPIKey) != "" {
-		modelOpts = append(modelOpts, agentutils.WithAPIKey(cfg.ModelAPIKey))
-		compressorOpts = append(compressorOpts, agentutils.WithAPIKey(cfg.ModelAPIKey))
+		modelOpts = append(modelOpts, agentutils.WithAPIKeyForProvider(cfg.ModelProvider, cfg.ModelAPIKey))
+		compressorOpts = append(compressorOpts, agentutils.WithAPIKeyForProvider(cfg.ModelProvider, cfg.ModelAPIKey))
 	}
 
 	chatModel, err := agentutils.NewFallbackToolCallingChatModel(ctx, modelOpts...)
