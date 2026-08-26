@@ -39,7 +39,7 @@ const effectiveSource = computed(() => {
 
 const effectiveHint = computed(() => {
   if (status.value?.configured) return `同厂商模型调用会优先使用你的 ${providerLabel.value} Key，不占用共享额度。`;
-  if (status.value?.default_configured) return '当前账户未单独配置，暂时会走系统兜底 Key；共享额度有限，建议配置自己的厂商 Key。';
+  if (status.value?.default_configured) return '当前账户未单独配置，会临时走系统兜底 Key；共享额度有限，请尽快配置自己的厂商 Key。';
   return '当前没有可用的模型 Key。请先选择厂商并配置自己的 Key，再创建生成任务。';
 });
 
@@ -135,8 +135,13 @@ watch(() => props.open, (open) => {
 
         <div v-else class="account-body">
           <p class="account-intro">
-            建议配置你自己的厂商 Key。系统默认 Key 只作为临时兜底，完整密钥不会回显。
+            生成任务优先使用你的厂商 Key。系统默认 Key 只保留为临时兜底，额度有限且不适合长期共用，完整密钥不会回显。
           </p>
+
+          <div v-if="!status?.configured" class="account-key-required">
+            <strong>建议先配置自己的 Key 再生成</strong>
+            <span>选择正在使用的模型厂商并保存 Key 后，同厂商请求会走你的账户额度，避免占用共享兜底 Key。</span>
+          </div>
 
           <div class="account-status">
             <div class="status-heading">
@@ -250,6 +255,9 @@ watch(() => props.open, (open) => {
 .account-loading { min-height: 260px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); }
 .account-body { padding: 20px; display: grid; gap: 16px; }
 .account-intro { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
+.account-key-required { padding: 11px 12px; display: grid; gap: 4px; border: 1px solid #ead3a4; border-radius: 7px; color: #7b5108; background: #fff7e5; }
+.account-key-required strong { font-size: 12px; }
+.account-key-required span { font-size: 11px; line-height: 1.55; }
 
 .account-status { padding: 14px; display: grid; gap: 7px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
 .status-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-muted); font-size: 11px; font-weight: 700; }

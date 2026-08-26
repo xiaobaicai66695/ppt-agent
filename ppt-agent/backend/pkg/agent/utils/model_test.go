@@ -115,7 +115,7 @@ func TestResolveFallbackModelSpecsUsesProviderAwareChain(t *testing.T) {
 	t.Setenv("MODEL_PRIMARY_PROVIDER", "siliconflow")
 	t.Setenv("MODEL_PRIMARY_NAME", "sf-model")
 	t.Setenv("SILICONFLOW_API_KEY", "sf-key")
-	t.Setenv("MODEL_TIMEOUT_SECONDS", "30")
+	t.Setenv("MODEL_SILICONFLOW_TIMEOUT_SECONDS", "35")
 	t.Setenv("MODEL_BACKUP1_PROVIDER", "openai-compatible")
 	t.Setenv("MODEL_BACKUP1_NAME", "compat-model")
 	t.Setenv("MODEL_BACKUP1_API_KEY_ENV", "BACKUP_KEY")
@@ -133,7 +133,7 @@ func TestResolveFallbackModelSpecsUsesProviderAwareChain(t *testing.T) {
 	if specs[0].Provider != modelcompat.ProviderSiliconFlow || specs[0].BaseURL != modelcompat.SiliconFlowBaseURL {
 		t.Fatalf("siliconflow spec = %#v", specs[0])
 	}
-	if specs[0].APIKey != "sf-key" || specs[0].Timeout != 30*time.Second {
+	if specs[0].APIKey != "sf-key" || specs[0].Timeout != 35*time.Second {
 		t.Fatalf("siliconflow key/timeout = %#v", specs[0])
 	}
 	if specs[1].Provider != modelcompat.ProviderOpenAICompat || specs[1].APIKey != "backup-key" {
@@ -250,12 +250,74 @@ func TestModelCallLimiterSeparatesResources(t *testing.T) {
 	releaseSecond()
 }
 
+func TestFallbackGenerateRecordsAuditableModelRequestContext(t *testing.T) {
+	meta := NewRuntimeMeta("task-1", t.TempDir())
+	ctx := WithRuntimeMeta(context.Background(), meta)
+	fallback := &FallbackChatModel{
+		models: []model.ToolCallingChatModel{
+			fakeToolCallingChatModel{generate: func(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
+				return schema.AssistantMessage("ok", nil), nil
+			}},
+		},
+		modelNames: []string{"siliconflow/sf-model"},
+		profiles: []modelCallProfile{{
+			Provider: "siliconflow",
+			Model:    "sf-model",
+			Timeout:  15 * time.Minute,
+		}},
+	}
+	messages := []*schema.Message{
+		schema.SystemMessage("system rules"),
+		schema.UserMessage("生成一份 PPT"),
+		schema.AssistantMessage("准备搜索", []schema.ToolCall{{
+			ID:   "call-search",
+			Type: "function",
+			Function: schema.FunctionCall{
+				Name:      "search",
+				Arguments: `{"query":"test"}`,
+			},
+		}}),
+		{Role: schema.Tool, ToolName: "search", ToolCallID: "call-search", Content: "result"},
+	}
+
+	if _, err := fallback.Generate(ctx, messages); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if len(meta.RecentEvents) == 0 {
+		t.Fatal("expected runtime event")
+	}
+	event := meta.RecentEvents[len(meta.RecentEvents)-1]
+	if event.Kind != "model_request" {
+		t.Fatalf("event kind = %q, want model_request", event.Kind)
+	}
+	if event.Metadata["provider"] != "siliconflow" || event.Metadata["model"] != "sf-model" {
+		t.Fatalf("provider/model metadata = %#v", event.Metadata)
+	}
+	counts, ok := event.Metadata["role_counts"].(map[string]any)
+	if !ok {
+		t.Fatalf("role_counts missing or wrong type: %#v", event.Metadata["role_counts"])
+	}
+	for _, role := range []string{"system", "user", "assistant", "tool"} {
+		if counts[role] == nil {
+			t.Fatalf("role %q missing from counts: %#v", role, counts)
+		}
+	}
+	history, ok := event.Metadata["history"].([]any)
+	if !ok || len(history) != 4 {
+		t.Fatalf("history = %#v, want 4 messages", event.Metadata["history"])
+	}
+	if first, ok := history[0].(map[string]any); !ok || first["content"] != nil {
+		t.Fatalf("system message should hide raw content: %#v", history[0])
+	}
+}
+
 func clearModelEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
 		"MODEL_CHAIN",
 		"MODEL_PROVIDER",
 		"MODEL_TIMEOUT_SECONDS",
+		"MODEL_SILICONFLOW_TIMEOUT_SECONDS",
 		"MODEL_PRIMARY_PROVIDER",
 		"MODEL_PRIMARY_NAME",
 		"MODEL_PRIMARY_MODEL",

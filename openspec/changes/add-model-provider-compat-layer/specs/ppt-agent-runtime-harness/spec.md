@@ -20,3 +20,16 @@ The system SHALL present user-visible assistant text and observable tool/runtime
 - **WHEN** the UI builds the observable execution timeline
 - **THEN** it uses SSE answer chunks and sanitized runtime metadata
 - **AND** hidden chain-of-thought or provider-private reasoning content is not exposed as assistant chat content
+
+### Requirement: Runtime model context preserves observable roles
+The system SHALL show a sanitized model-request context snapshot that preserves observable message roles for debugging provider behavior.
+
+#### Scenario: Model input contains mixed roles
+- **WHEN** a model request includes system, user, assistant, and tool messages
+- **THEN** the runtime detail view shows role counts and recent messages for those roles
+- **AND** tool messages are not silently filtered out of the model context section
+
+#### Scenario: System prompt exists in model input
+- **WHEN** a model request contains a system message
+- **THEN** the detail view may show a bounded system summary
+- **AND** the full system prompt body is not exposed in the message history payload

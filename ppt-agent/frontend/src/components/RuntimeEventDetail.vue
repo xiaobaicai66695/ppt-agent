@@ -101,8 +101,39 @@ const preservedRequirements = computed(() => (
 const historyMessages = computed(() => {
   const value = metadata.value.history;
   return Array.isArray(value)
-    ? value.filter(isRecord).filter(message => String(message.role || '').toLowerCase() !== 'tool')
+    ? value.filter(isRecord)
     : [];
+});
+
+const modelContextRows = computed(() => {
+  const rows: Array<{ label: string; value: string }> = [];
+  const fields: Array<[string, string]> = [
+    ['provider', '厂商'],
+    ['model', '模型'],
+    ['mode', '调用方式'],
+    ['timeout', '超时'],
+    ['message_count', '消息数'],
+    ['system_preview', '系统摘要'],
+    ['last_user_preview', '最近用户输入'],
+  ];
+  for (const [key, label] of fields) {
+    const value = metadata.value[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      rows.push({ label, value: String(value).trim() });
+    }
+  }
+  const roleCounts = metadata.value.role_counts;
+  if (isRecord(roleCounts)) {
+    const summary = Object.entries(roleCounts)
+      .map(([role, count]) => `${role}:${String(count)}`)
+      .join(' / ');
+    if (summary) rows.push({ label: '角色', value: summary });
+  }
+  if (Array.isArray(metadata.value.tool_names)) {
+    const tools = metadata.value.tool_names.map(item => String(item).trim()).filter(Boolean).join('、');
+    if (tools) rows.push({ label: '工具', value: tools });
+  }
+  return rows;
 });
 
 const reasoningPreview = computed(() => String(metadata.value.reasoning_preview || '').trim());
@@ -372,6 +403,16 @@ function filterThoughtMetadata(record: RuntimeRecord): RuntimeRecord {
         </summary>
         <div v-if="messageContent(assistantMessage)" class="markdown-body" v-html="renderMarkdown(messageContent(assistantMessage))"></div>
       </details>
+    </section>
+
+    <section v-if="modelContextRows.length" class="runtime-detail-section observation-section">
+      <h4>上下文概览</h4>
+      <div class="observation-grid">
+        <div v-for="row in modelContextRows" :key="row.label" class="observation-row">
+          <span>{{ row.label }}</span>
+          <strong>{{ row.value }}</strong>
+        </div>
+      </div>
     </section>
 
     <section v-if="historyMessages.length" class="runtime-detail-section">

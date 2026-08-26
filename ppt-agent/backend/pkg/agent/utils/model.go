@@ -286,11 +286,18 @@ type FallbackChatModel struct {
 	rawNames      []string // 原始 modelName，用于全局追踪
 	trackerNames  []string // provider:model，用于跨供应商限流隔离
 	resourceKeys  []string // provider:model:key-hash，用于跨供应商/API key 并发隔离
+	profiles      []modelCallProfile
 	mu            sync.Mutex
 	pauseDuration time.Duration
 	// compressorCfg 在 FallbackChatModel 被 ChatModelCompressor 包装时存储。
 	// 调用 WithTools 时，会重新应用压缩器到新的模型实例。
 	compressorCfg *compressorConfig
+}
+
+type modelCallProfile struct {
+	Provider string
+	Model    string
+	Timeout  time.Duration
 }
 
 // NewFallbackToolCallingChatModel 创建支持降级的 ChatModel。
@@ -314,11 +321,13 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 	var rawNames []string
 	var trackerNames []string
 	var resourceKeys []string
+	var profiles []modelCallProfile
 
 	for i, spec := range modelSpecs {
 		if strings.TrimSpace(spec.Model) == "" {
 			continue
 		}
+		spec = modelcompat.NormalizeSpec(spec)
 		cm, err := newSingleModel(ctx, spec)
 		displayName := modelcompat.DisplayName(spec, i)
 		if err != nil {
@@ -330,6 +339,11 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		rawNames = append(rawNames, spec.Model)
 		trackerNames = append(trackerNames, modelcompat.TrackerKey(spec))
 		resourceKeys = append(resourceKeys, modelcompat.ConcurrencyKey(spec))
+		profiles = append(profiles, modelCallProfile{
+			Provider: string(spec.Provider),
+			Model:    spec.Model,
+			Timeout:  spec.Timeout,
+		})
 		logger.Info("model_init_success", "model", displayName, "backup", i)
 	}
 
@@ -343,6 +357,7 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		rawNames:      rawNames,
 		trackerNames:  trackerNames,
 		resourceKeys:  resourceKeys,
+		profiles:      profiles,
 		pauseDuration: fallbackPauseDuration,
 	}, nil
 }
@@ -451,7 +466,7 @@ func modelSpecFromEntry(entry string, cfg *ChatModelConfig) modelcompat.ModelSpe
 		APIKey:              modelAPIKeyForProvider(provider, entryKey, cfg),
 		BaseURL:             modelBaseURLForProvider(provider, entryKey),
 		Region:              modelRegionForProvider(provider, entryKey),
-		Timeout:             modelTimeoutForEntry(entryKey),
+		Timeout:             modelTimeoutForProviderEntry(provider, entryKey),
 		MaxTokens:           cfg.MaxTokens,
 		MaxCompletionTokens: cfg.MaxCompletionTokens,
 		Temperature:         cfg.Temperature,
@@ -564,9 +579,15 @@ func modelRegionForProvider(provider modelcompat.Provider, entryKey string) stri
 	return ""
 }
 
-func modelTimeoutForEntry(entryKey string) time.Duration {
+func modelTimeoutForProviderEntry(provider modelcompat.Provider, entryKey string) time.Duration {
 	if timeout := modelTimeoutFromEnv("MODEL_"+entryKey+"_TIMEOUT_SECONDS", 0); timeout > 0 {
 		return timeout
+	}
+	providerKey := modelEntryKey(string(modelcompat.NormalizeProvider(string(provider))))
+	if providerKey != "" {
+		if timeout := modelTimeoutFromEnv("MODEL_"+providerKey+"_TIMEOUT_SECONDS", 0); timeout > 0 {
+			return timeout
+		}
 	}
 	return modelTimeoutFromEnv("MODEL_TIMEOUT_SECONDS", modelcompat.DefaultTimeout)
 }
@@ -701,7 +722,12 @@ func (f *FallbackChatModel) Generate(ctx context.Context, messages []*schema.Mes
 		defer release()
 		msgs := make([]*schema.Message, len(messages))
 		copy(msgs, messages)
-		return f.models[idx].Generate(ctx, msgs, opts...)
+		f.recordModelRequest(ctx, idx, "generate", msgs)
+		msg, err := f.models[idx].Generate(ctx, msgs, opts...)
+		if err != nil {
+			f.recordModelError(ctx, idx, "generate", err)
+		}
+		return msg, err
 	})
 }
 
@@ -734,6 +760,7 @@ func (f *FallbackChatModel) streamWithFallback(ctx context.Context, messages []*
 					if recvErr == io.EOF {
 						return
 					}
+					f.recordModelError(ctx, idx, "stream_read", recvErr)
 					if ctx.Err() != nil {
 						writer.Send(nil, recvErr)
 						return
@@ -791,8 +818,10 @@ func (f *FallbackChatModel) openStreamFrom(ctx context.Context, startIdx int, me
 				f.markRateLimited(idx)
 				continue
 			}
+			f.recordModelError(ctx, idx, "stream_open", err)
 			return idx, nil, err
 		}
+		f.recordModelRequest(ctx, idx, "stream", msgs)
 		return idx, releaseOnStreamDone(sanitizeStreamingToolCallDeltas(stream), release), nil
 	}
 
@@ -814,6 +843,187 @@ func (f *FallbackChatModel) modelDisplayName(idx int) string {
 		return f.rawNames[idx]
 	}
 	return fmt.Sprintf("model-%d", idx)
+}
+
+func (f *FallbackChatModel) modelProfile(idx int) modelCallProfile {
+	if idx >= 0 && idx < len(f.profiles) {
+		return f.profiles[idx]
+	}
+	return modelCallProfile{Model: f.modelDisplayName(idx)}
+}
+
+func (f *FallbackChatModel) recordModelRequest(ctx context.Context, idx int, mode string, messages []*schema.Message) {
+	meta := RuntimeMetaFromContext(ctx)
+	if meta == nil {
+		return
+	}
+	metadata := modelRequestMetadata(f.modelProfile(idx), mode, messages)
+	meta.RecordEvent("model_request", f.modelDisplayName(idx), "running", "", metadata)
+}
+
+func (f *FallbackChatModel) recordModelError(ctx context.Context, idx int, mode string, err error) {
+	meta := RuntimeMetaFromContext(ctx)
+	if meta == nil || err == nil {
+		return
+	}
+	metadata := modelRequestMetadata(f.modelProfile(idx), mode, nil)
+	meta.RecordLLMErrorDetails(f.modelDisplayName(idx), err.Error(), metadata)
+}
+
+func modelRequestMetadata(profile modelCallProfile, mode string, messages []*schema.Message) map[string]any {
+	metadata := map[string]any{
+		"mode":          strings.TrimSpace(mode),
+		"provider":      strings.TrimSpace(profile.Provider),
+		"model":         strings.TrimSpace(profile.Model),
+		"timeout":       profile.Timeout.String(),
+		"timeout_ms":    profile.Timeout.Milliseconds(),
+		"message_count": len(messages),
+	}
+	if profile.Timeout <= 0 {
+		delete(metadata, "timeout")
+		delete(metadata, "timeout_ms")
+	}
+	if history := compactModelRequestHistory(messages); len(history) > 0 {
+		metadata["history"] = history
+	}
+	if roles := modelRequestRoleCounts(messages); len(roles) > 0 {
+		metadata["role_counts"] = roles
+	}
+	if preview := firstModelMessagePreview(messages, string(schema.System), 220); preview != "" {
+		metadata["system_preview"] = preview
+	}
+	if preview := lastUserModelMessagePreview(messages, 220); preview != "" {
+		metadata["last_user_preview"] = preview
+	}
+	if names := modelRequestToolNames(messages); len(names) > 0 {
+		metadata["tool_names"] = names
+	}
+	return metadata
+}
+
+func compactModelRequestHistory(messages []*schema.Message) []any {
+	if len(messages) == 0 {
+		return nil
+	}
+	const maxMessages = 18
+	start := 0
+	if len(messages) > maxMessages {
+		start = len(messages) - maxMessages
+	}
+	history := make([]any, 0, len(messages)-start)
+	for i := start; i < len(messages); i++ {
+		message := messages[i]
+		if message == nil {
+			continue
+		}
+		role := strings.TrimSpace(string(message.Role))
+		if role == "" {
+			role = "message"
+		}
+		item := map[string]any{
+			"index": i,
+			"role":  role,
+		}
+		if strings.TrimSpace(message.Name) != "" {
+			item["name"] = truncateString(strings.TrimSpace(message.Name), 120)
+		}
+		if role == string(schema.System) {
+			item["content_preview"] = "[系统指令已隐藏，仅保留下方 system_preview 摘要]"
+		} else if content := strings.TrimSpace(message.Content); content != "" {
+			item["content"] = content
+			item["content_preview"] = truncateString(content, 600)
+		}
+		if strings.TrimSpace(message.ToolCallID) != "" {
+			item["tool_call_id"] = truncateString(strings.TrimSpace(message.ToolCallID), 120)
+		}
+		if strings.TrimSpace(message.ToolName) != "" {
+			item["tool_name"] = truncateString(strings.TrimSpace(message.ToolName), 120)
+		}
+		if len(message.ToolCalls) > 0 {
+			names := make([]string, 0, len(message.ToolCalls))
+			calls := make([]any, 0, len(message.ToolCalls))
+			for _, call := range message.ToolCalls {
+				names = append(names, strings.TrimSpace(call.Function.Name))
+				calls = append(calls, map[string]any{
+					"id":                truncateString(strings.TrimSpace(call.ID), 120),
+					"name":              truncateString(strings.TrimSpace(call.Function.Name), 120),
+					"arguments_preview": truncateString(strings.TrimSpace(call.Function.Arguments), 300),
+				})
+			}
+			item["tool_calls"] = strings.Join(names, ", ")
+			item["tool_call_details"] = calls
+		}
+		history = append(history, item)
+	}
+	return history
+}
+
+func modelRequestRoleCounts(messages []*schema.Message) map[string]any {
+	counts := map[string]any{}
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		role := strings.TrimSpace(string(message.Role))
+		if role == "" {
+			role = "message"
+		}
+		current, _ := counts[role].(int)
+		counts[role] = current + 1
+	}
+	return counts
+}
+
+func firstModelMessagePreview(messages []*schema.Message, role string, maxLen int) string {
+	for _, message := range messages {
+		if message != nil && string(message.Role) == role {
+			return truncateString(strings.TrimSpace(message.Content), maxLen)
+		}
+	}
+	return ""
+}
+
+func lastUserModelMessagePreview(messages []*schema.Message, maxLen int) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if message == nil || message.Role != schema.User {
+			continue
+		}
+		content := strings.TrimSpace(message.Content)
+		if strings.HasPrefix(content, "<agent_progress>") && strings.Contains(content, "</agent_progress>") {
+			continue
+		}
+		return truncateString(content, maxLen)
+	}
+	return ""
+}
+
+func modelRequestToolNames(messages []*schema.Message) []string {
+	seen := map[string]struct{}{}
+	names := []string{}
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		if name := strings.TrimSpace(message.ToolName); name != "" {
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				names = append(names, name)
+			}
+		}
+		for _, call := range message.ToolCalls {
+			name := strings.TrimSpace(call.Function.Name)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func releaseOnStreamDone(stream *schema.StreamReader[*schema.Message], release func()) *schema.StreamReader[*schema.Message] {

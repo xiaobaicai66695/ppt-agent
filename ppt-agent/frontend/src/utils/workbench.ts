@@ -1034,6 +1034,7 @@ export function runtimeEventKindLabel(event: RuntimeEvent): string {
     file_created: '文件已生成',
     compression: '上下文压缩',
     planner_context_compressed: '上下文压缩',
+    model_request: '模型请求上下文',
     llm_start: '模型调用开始',
     llm_end: '模型调用完成',
     llm_error: '模型调用失败',
@@ -1048,6 +1049,7 @@ export function runtimeEventKindLabel(event: RuntimeEvent): string {
 export function runtimeEventNameLabel(event: RuntimeEvent): string {
   if ((event.kind === 'manifest_validated' || event.kind === 'deck_spec_validated') && event.name === 'tasks.json') return 'PPT 页清单';
   if (event.kind === 'compression' || event.kind === 'planner_context_compressed') return '对话上下文';
+  if (event.kind === 'model_request') return event.name || '模型请求';
   if (event.kind === 'assistant_output') return 'AI 正文';
   if (event.name === 'search') return '资料搜索';
   if (event.name === 'search_images') return '图片搜索';
@@ -1085,6 +1087,15 @@ export function runtimeEventDetailLabel(event: RuntimeEvent): string {
     return '用户要求已锚定，早期轨迹已压缩';
   }
   if (event.kind === 'assistant_output') return '已输出一段可见正文';
+  if (event.kind === 'model_request') {
+    const metadata = event.metadata || {};
+    const provider = String(metadata.provider || '').trim();
+    const model = String(metadata.model || event.name || '').trim();
+    const timeout = String(metadata.timeout || '').trim();
+    const messageCount = Number(metadata.message_count || 0);
+    const identity = [provider, model].filter(Boolean).join('/');
+    return `${identity || '模型请求'}${messageCount > 0 ? `，${messageCount} 条上下文` : ''}${timeout ? `，timeout ${timeout}` : ''}`;
+  }
   if (event.name === 'search') {
     const metadata = event.metadata || {};
     const query = String(metadata.search_query || '').trim();
@@ -1138,6 +1149,7 @@ function isObservableEvent(event: RuntimeEvent): boolean {
   return kind.includes('intent')
     || kind.includes('phase')
     || kind.includes('llm')
+    || kind === 'model_request'
     || kind === 'assistant_output'
     || kind.includes('tool')
     || kind.includes('compress')
@@ -1157,6 +1169,7 @@ function observableEventLabel(event: RuntimeEvent): string {
   const name = (event.name || '').toLowerCase();
   const metadata = event.metadata || {};
   if (kind === 'intent_classified') return '已完成意图分类';
+  if (kind === 'model_request') return '已记录模型请求上下文';
   if (kind === 'llm_start') return 'Planner 正在规划';
   if (kind === 'llm_end') return 'Planner 输出完成';
   if (kind === 'llm_error') return 'Planner 调用失败';
@@ -1187,6 +1200,7 @@ function observableEventCategory(event: RuntimeEvent): string {
   const name = (event.name || '').toLowerCase();
   if (kind.includes('error') || event.status === 'error' || event.status === 'failed') return 'error';
   if (name === 'search' || name === 'search_images') return 'search';
+  if (kind === 'model_request') return 'planner';
   if (kind.includes('llm')) return 'planner';
   if (kind === 'assistant_output') return 'planner';
   if (kind.includes('compress')) return 'delivery';

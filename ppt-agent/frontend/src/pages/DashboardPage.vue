@@ -358,7 +358,7 @@ function runtimeEventCategory(evt: RuntimeEvent): RuntimeCategory {
   const name = (evt.name || '').toLowerCase();
   const status = (evt.status || '').toLowerCase();
   if (status === 'error' || status === 'failed' || kind.includes('error')) return 'error';
-  if (kind.startsWith('llm') || name.includes('chatmodel') || name.includes('chat_model')) return 'llm';
+  if (kind.startsWith('llm') || kind === 'model_request' || name.includes('chatmodel') || name.includes('chat_model')) return 'llm';
   if (kind.startsWith('tool') || name === 'toolnode') return 'tool';
   if (kind === 'compression' || kind === 'planner_context_compressed') return 'compression';
   if (kind.includes('manifest') || kind.includes('file') || kind.includes('terminal') || kind.includes('delivery') || kind.includes('plan') || kind.includes('intent')) return 'delivery';

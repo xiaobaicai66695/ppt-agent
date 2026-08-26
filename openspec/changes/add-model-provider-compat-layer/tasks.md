@@ -31,3 +31,11 @@
 - [x] 5.3 Support DeepSeek and Qwen as OpenAI-compatible provider profiles with safe default base URLs and env fallback.
 - [x] 5.4 Record visible assistant answer chunks as sanitized runtime timeline events and render assistant text/tool cards in event order.
 - [x] 5.5 Add focused frontend/backend tests and update iteration/deployment notes.
+
+## 6. Provider Timeout Diagnostics and User-owned Key Guidance
+
+- [x] 6.1 Record provider/model/timeout and actual request message role summaries before each fallback model call.
+- [x] 6.2 Render model context detail with system/user/assistant/tool role summaries instead of hiding tool messages.
+- [x] 6.3 Add provider-specific timeout configuration for OpenAI-compatible upstream incidents such as SiliconFlow long reads.
+- [x] 6.4 Strengthen account settings guidance so users configure their own provider key before generation instead of relying on the shared fallback key.
+- [x] 6.5 Add focused tests, redeploy, smoke-check, and update deployment notes.

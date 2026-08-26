@@ -138,3 +138,45 @@ MODEL_TIMEOUT_SECONDS=600
 - DeepSeek/Qwen 专用 Eino adapter 仍保留扩展点，当前先走 OpenAI-compatible profile。
 - 账号级 key 当前仍是一组 provider/key；多 provider key 并存可作为后续增强。
 - 线上完整 LLM 冒烟需在上游 HTTP `402` 解决后复测。
+
+## 硅基流动超时诊断与上下文角色修正
+
+- 代码范围：
+  - 后端：
+    - `ppt-agent/backend/pkg/agent/utils/model.go`
+    - `ppt-agent/backend/pkg/agent/utils/model_test.go`
+  - 前端：
+    - `ppt-agent/frontend/src/components/RuntimeEventDetail.vue`
+    - `ppt-agent/frontend/src/components/AccountSettingsDialog.vue`
+    - `ppt-agent/frontend/src/pages/DashboardPage.vue`
+    - `ppt-agent/frontend/src/utils/workbench.ts`
+  - OpenSpec：
+    - `openspec/changes/add-model-provider-compat-layer/tasks.md`
+    - `openspec/changes/add-model-provider-compat-layer/specs/model-provider-compatibility/spec.md`
+    - `openspec/changes/add-model-provider-compat-layer/specs/ppt-agent-runtime-harness/spec.md`
+- 行为变化：
+  - `FallbackChatModel.Generate/Stream` 在真正调用上游前记录 `model_request` 事件，包含 provider、model、timeout、message_count、role_counts、system/user 摘要、tool 名称和最近上下文 history。
+  - 流式读取阶段如果出现 `context deadline exceeded ... while reading body`，会补充记录带 provider/model/timeout 的 `llm_error`，便于区分平台长读超时和任务流超时。
+  - 前端运行详情不再从“模型上下文”中过滤 `tool` role，并新增“上下文概览”展示 system/user/tool 等可观测摘要；system 原文仍不放入 history。
+  - 新增 provider 级 timeout 配置：`MODEL_SILICONFLOW_TIMEOUT_SECONDS=900` 可单独拉长硅基流动，不影响 Ark/OpenAI/DeepSeek/Qwen。
+  - 账户 Key 弹窗进一步提示用户先配置自己的厂商 Key，系统兜底 Key 只作为临时共享额度。
+- 本地验证：
+  - `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task ./pkg/web`
+  - `go build ./...`
+  - `npm run test -- src/utils/workbench.test.ts`
+  - `npm run build`
+  - `openspec validate add-model-provider-compat-layer --strict`
+- 上线记录：
+  - 提交：`feat: record provider model request context`
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：2026-08-26 21:28 Asia/Shanghai
+  - 新进程：PID `3559464`，命令 `../ppt-agent-linux -mode web -addr :8080`，cwd `/ppt/ppt-agent/backend`
+  - 远端配置：`MODEL_SILICONFLOW_TIMEOUT_SECONDS=900`，未记录任何 Key 或凭据。
+  - 启动确认：
+    - `/api/health` 返回 HTTP 200，`{"status":"ok"}`
+    - `/` 返回 HTTP 200，709 bytes
+    - `/api/templates/layouts` 返回 HTTP 200，17469 bytes
+    - `/api/themes` 返回 HTTP 200，2614 bytes
+    - 未登录访问 `/api/users/me/api-key` 返回 HTTP 401，鉴权保护正常
+  - 清理：远端 `/tmp/ppt-agent-linux-modelctx`、`/tmp/ppt-agent-frontend-dist-modelctx.tar` 和冒烟临时响应文件已删除。
+  - 说明：未主动发起完整 LLM 生成任务，避免继续消耗共享/平台 Key；后续用户使用自备 Key 跑任务时，若硅基流动仍在长读阶段断开，运行详情会显示具体 provider/model/timeout 和真实消息角色摘要。

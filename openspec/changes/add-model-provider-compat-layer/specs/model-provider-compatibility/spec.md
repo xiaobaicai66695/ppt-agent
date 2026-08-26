@@ -58,6 +58,19 @@ The system SHALL limit concurrent model calls by provider/model/API-key resource
 - **THEN** model calls for that resource are serialized by default
 - **AND** unrelated upstream resources are not blocked by that serialization
 
+### Requirement: Provider-specific model timeout diagnostics
+The system SHALL support provider-specific model timeout configuration and expose non-secret timeout identity in runtime diagnostics.
+
+#### Scenario: SiliconFlow stream read is slow
+- **WHEN** a SiliconFlow model call is opened
+- **THEN** runtime diagnostics include provider, model, timeout, and message count for that request
+- **AND** operators can set `MODEL_SILICONFLOW_TIMEOUT_SECONDS` without changing other providers
+
+#### Scenario: A model request fails while reading the response
+- **WHEN** a provider call returns a timeout or read-body error
+- **THEN** the runtime trace records the failing provider/model identity and configured timeout
+- **AND** raw API keys, tokens, and system prompt content are not exposed
+
 ### Requirement: Provider-aware account API key configuration
 The system SHALL let each signed-in user configure a model API key with an explicit upstream provider, and model creation SHALL apply that key only to matching provider resources.
 
