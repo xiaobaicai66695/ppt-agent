@@ -111,7 +111,7 @@
     "scene_query_rule": "Use a concrete visible subject, action and environment; use real-world imagery for examples and keep facts in source/search fields.",
     "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints.",
       "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed by content_type so same-type slides share one asset; scene/evidence image components keep their page-specific queries.",
-      "background_color_rule": "The renderer extracts a muted palette from downloaded background images and uses those tokens for panels, accents and text. Do not recommend a fixed scene theme color unless the user explicitly asks for one."
+      "background_color_rule": "The renderer extracts muted colors from downloaded background images for panels, accent bars, dividers and decorative fills. Text tokens remain contrast-safe dark/readable colors; do not route pale background colors into titles, subtitles, body copy or image captions."
   },
   "content_types": {
     "title_slide": {

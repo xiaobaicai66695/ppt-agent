@@ -370,7 +370,8 @@ def _fit_background_image(
 
 def background_image_palette(image: Image.Image, palette: str = "ocean_soft") -> dict[str, str]:
     """Extract a muted, readable color token set from a background bitmap."""
-    colors = PALETTES.get(palette, PALETTES["ocean_soft"]).copy()
+    base_colors = PALETTES.get(palette, PALETTES["ocean_soft"])
+    colors = base_colors.copy()
     sample = image.resize((96, 96), Image.Resampling.BILINEAR)
     quantized = sample.quantize(colors=5, method=Image.Quantize.MEDIANCUT).convert("RGB")
     counts = quantized.getcolors(96 * 96) or []
@@ -380,23 +381,27 @@ def background_image_palette(image: Image.Image, palette: str = "ocean_soft") ->
     mean_r, mean_g, mean_b = ImageStat.Stat(sample).mean[:3]
     average = (int(mean_r), int(mean_g), int(mean_b))
 
-    primary = _muted_token(dominant, light_mix=0.38, saturation=0.42, min_luma=74, max_luma=132)
-    secondary_token = _muted_token(secondary, light_mix=0.52, saturation=0.32, min_luma=98, max_luma=158)
+    primary_fill = _muted_token(dominant, light_mix=0.48, saturation=0.36, min_luma=92, max_luma=150)
+    secondary_fill = _muted_token(secondary, light_mix=0.58, saturation=0.28, min_luma=116, max_luma=170)
     accent = _accent_from_color(dominant)
     surface = _muted_token(average, light_mix=0.86, saturation=0.16, min_luma=226, max_luma=246)
     divider = _muted_token(average, light_mix=0.72, saturation=0.20, min_luma=176, max_luma=212)
 
     colors.update({
-        "primary": _hex(primary),
-        "secondary": _hex(secondary_token),
-        "accent": _hex(accent),
+        # Text tokens must stay contrast-safe. Background-derived colors are
+        # exposed through *_fill tokens so shapes can harmonize with the image
+        # without turning captions, subtitles or KPI labels into low-contrast
+        # yellow/green/gray text on glass panels.
+        "primary": base_colors.get("primary", "2C5282"),
+        "secondary": "51616D",
+        "accent": base_colors.get("primary", "2C5282"),
         "text": "17202A",
         "text_muted": "62717D",
         "light_bg": _hex(surface),
         "background": _hex(_mix(average, (255, 255, 255), 0.90)),
         "divider": _hex(divider),
-        "primary_fill": _hex(_muted_token(dominant, light_mix=0.48, saturation=0.36, min_luma=92, max_luma=150)),
-        "secondary_fill": _hex(_muted_token(secondary, light_mix=0.58, saturation=0.28, min_luma=116, max_luma=170)),
+        "primary_fill": _hex(primary_fill),
+        "secondary_fill": _hex(secondary_fill),
         "accent_fill": _hex(_mix(accent, (255, 255, 255), 0.22)),
     })
     return colors

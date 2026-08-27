@@ -80,7 +80,7 @@ Python generators 负责：
 - 每个章节先用 1 页 `section_divider` 明确阶段主题；章节少于 2 个时可以省略分割页。
 - 内容页先确定本页主观点，再选择 2-4 个论据组件支撑；论据可以是事实、数据、图片、案例、引用或表格。
 - 除纯数据、流程、对比表和总结页外，默认优先使用“观点 + 论据”的图文混排：一侧承载判断与解释，另一侧用真实场景图、案例图、数据或证据承载论据，避免连续多页纯卡片或纯列表。
-- 默认每页都提供外部背景图片计划；同一 `content_type` 复用同一个背景关键词和同一张背景图，不同 `content_type` 可以使用不同背景，避免视觉过于单调。背景 `asset_query` 尽量只写一个英文关键词，例如 `diplomacy`、`energy`、`city`、`technology`，不要写长句、页面标题、`wide landscape`、`clean negative space` 或明暗构图词。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊、降饱和、降对比和位图级可读性柔化，并从背景图提取弱化后的色系 token 供文字、面板和强调色使用；规划只描述图片主体，不填写 blur、透明度、透视、字号或固定主题色参数。
+- 默认每页都提供外部背景图片计划；同一 `content_type` 复用同一个背景关键词和同一张背景图，不同 `content_type` 可以使用不同背景，避免视觉过于单调。背景 `asset_query` 尽量只写一个英文关键词，例如 `diplomacy`、`energy`、`city`、`technology`，不要写长句、页面标题、`wide landscape`、`clean negative space` 或明暗构图词。只有用户明确要求纯文字/无图片时才省略，并在 `visual_intent.role` 明确写 `clean_text_only`，避免背景策略处于未知状态。生成器会自动做轻度模糊、降饱和、降对比和位图级可读性柔化，并从背景图提取弱化后的色系 token 供面板、色块、分割线和强调装饰使用；正文、标题、小标题和图片说明保持深色可读文本 token。规划只描述图片主体，不填写 blur、透明度、透视、字号或固定主题色参数。
 - 需要更多图片时，不要继续增加背景查询；改用 `image` 组件，设置 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，把图片作为图文混排、案例、证据或细节说明的一部分。
 - 深度说明页优先使用 `argument_block` 承载完整论述，再配列表、证据、KPI、图片或架构组件。
 - 对比、选型、方案评估优先用 `comparison_table` 或 `two_column`，并用 `recommendation` 给出结论。

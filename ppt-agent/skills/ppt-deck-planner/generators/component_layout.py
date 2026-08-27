@@ -169,45 +169,64 @@ def render_component_slide(
 ) -> Presentation:
     background_blur = 4 if content_type in {"title_slide", "section_divider"} else 2
     prs, slide, colors, has_background = setup_slide(prs, palette, background, blur_radius=background_blur)
+    render_palette = palette
+    if has_background:
+        render_palette = f"__runtime_background_{id(slide)}"
+        PALETTES[render_palette] = shape_palette_from_background_colors(colors, palette)
     components = normalize_components(components or [], title=title, subtitle=subtitle, content_type=content_type)
 
-    if content_type == "title_slide":
-        _render_title(slide, colors, palette, title, subtitle, kicker, components, has_background)
-    elif content_type == "section_divider":
-        _render_section(slide, colors, palette, title, subtitle, kicker, components)
-    elif content_type == "quote_slide":
-        _render_quote(slide, colors, palette, title, subtitle, components)
-    else:
-        _render_workbench(
-            slide,
-            colors,
-            palette,
-            title,
-            subtitle,
-            kicker,
-            components,
-            content_type,
-            layout_variant,
-            has_source=bool(clean(source)),
-        )
+    try:
+        if content_type == "title_slide":
+            _render_title(slide, colors, render_palette, title, subtitle, kicker, components, has_background)
+        elif content_type == "section_divider":
+            _render_section(slide, colors, render_palette, title, subtitle, kicker, components)
+        elif content_type == "quote_slide":
+            _render_quote(slide, colors, render_palette, title, subtitle, components)
+        else:
+            _render_workbench(
+                slide,
+                colors,
+                render_palette,
+                title,
+                subtitle,
+                kicker,
+                components,
+                content_type,
+                layout_variant,
+                has_source=bool(clean(source)),
+            )
 
-    add_source_line(slide, source, palette)
-    if has_background:
-        # LibreOffice may omit a bottom-most full-slide picture when exporting a
-        # standalone slide unless a full-canvas alpha shape participates in the
-        # final composition. At 1/255 opacity this top-most trigger is invisible
-        # to viewers but keeps the background in PDF/JPG previews.
-        add_rect(
-            slide,
-            0,
-            0,
-            SLIDE_W,
-            SLIDE_H,
-            (255, 255, 255, 1),
-            palette=palette,
-            line_color=None,
-        )
+        add_source_line(slide, source, render_palette)
+        if has_background:
+            # LibreOffice may omit a bottom-most full-slide picture when exporting a
+            # standalone slide unless a full-canvas alpha shape participates in the
+            # final composition. At 1/255 opacity this top-most trigger is invisible
+            # to viewers but keeps the background in PDF/JPG previews.
+            add_rect(
+                slide,
+                0,
+                0,
+                SLIDE_W,
+                SLIDE_H,
+                (255, 255, 255, 1),
+                palette=render_palette,
+                line_color=None,
+            )
+    finally:
+        if render_palette != palette:
+            PALETTES.pop(render_palette, None)
     return prs
+
+
+def shape_palette_from_background_colors(colors: dict[str, str], palette: str) -> dict[str, str]:
+    base = PALETTES.get(palette, PALETTES["ocean_soft"]).copy()
+    base.update(colors)
+    base.update({
+        "primary": colors.get("primary_fill", base.get("primary", "5A8AA8")),
+        "secondary": colors.get("secondary_fill", base.get("secondary", "7BA3B8")),
+        "accent": colors.get("accent_fill", base.get("accent", "A8C4D4")),
+    })
+    return base
 
 
 def normalize_components(

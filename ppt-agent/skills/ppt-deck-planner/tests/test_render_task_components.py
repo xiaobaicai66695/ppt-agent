@@ -1,6 +1,7 @@
 import unittest
 from io import BytesIO
 from pathlib import Path
+import re
 import sys
 import tempfile
 import zipfile
@@ -15,7 +16,7 @@ sys.path.insert(0, str(SKILL_ROOT))
 
 from generators import render_task
 from generators import new_presentation, save_presentation, save_slide, set_image_background
-from generators.base import PALETTES, compact_source_text
+from generators.base import PALETTES, background_image_palette, compact_source_text
 from generators.comparison_table_generator import generate as generate_comparison_table
 from generators.kpi_dashboard_generator import generate as generate_kpi_dashboard
 from generators.component_layout import (
@@ -311,7 +312,18 @@ class RenderTaskComponentsTest(unittest.TestCase):
             self.assertGreater(top_center[0], 180, top_center)
             self.assertGreater(bottom_center[2], 180, bottom_center)
 
-    def test_background_image_palette_overrides_fixed_theme_colors(self):
+    def test_background_image_palette_keeps_text_readable_and_moves_image_color_to_fills(self):
+        image = Image.new("RGB", (960, 540), color=(214, 178, 80))
+        colors = background_image_palette(image, palette="ocean_soft")
+
+        self.assertEqual(colors["primary"], PALETTES["ocean_soft"]["primary"])
+        self.assertEqual(colors["accent"], PALETTES["ocean_soft"]["primary"])
+        self.assertEqual(colors["secondary"], "51616D")
+        self.assertNotEqual(colors["primary_fill"], PALETTES["ocean_soft"]["primary"])
+        self.assertGreater(int(colors["text"][:2], 16), 0)
+        self.assertTrue(colors["light_bg"].startswith(("E", "F")), colors["light_bg"])
+
+    def test_background_image_palette_returns_fill_tokens_for_shapes(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_path = Path(tmp) / "background.jpg"
             Image.new("RGB", (960, 540), color=(70, 125, 150)).save(image_path)
@@ -321,9 +333,37 @@ class RenderTaskComponentsTest(unittest.TestCase):
             colors = set_image_background(slide, str(image_path), palette="government_red")
 
         self.assertIsInstance(colors, dict)
-        self.assertNotEqual(colors["primary"], PALETTES["government_red"]["primary"])
-        self.assertNotEqual(colors["accent"], PALETTES["government_red"]["accent"])
+        self.assertEqual(colors["primary"], PALETTES["government_red"]["primary"])
+        self.assertNotEqual(colors["primary_fill"], PALETTES["government_red"]["primary"])
+        self.assertNotEqual(colors["accent_fill"], PALETTES["government_red"]["accent"])
         self.assertTrue(colors["light_bg"].startswith(("E", "F")), colors["light_bg"])
+
+    def test_background_runtime_palette_applies_image_color_to_shapes_not_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            image_path = work_dir / "yellow-background.jpg"
+            Image.new("RGB", (960, 540), color=(214, 178, 80)).save(image_path)
+
+            prs = render_component_slide(
+                title="背景取色",
+                subtitle="说明文字应保持可读",
+                kicker="图文解读",
+                content_type="content_slide",
+                background=str(image_path),
+                components=[{"type": "paragraph", "title": "关键判断", "body": "形状色跟随背景，文字色保持深色。"}],
+            )
+            output = work_dir / "runtime-palette.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        xml_colors = set(re.findall(r'val="([0-9A-F]{6})"', slide_xml))
+        static_colors = set(PALETTES["ocean_soft"].values())
+        readable_text_colors = {"17202A", "51616D", "5A8AA8", "FFFFFF"}
+        derived_shape_colors = xml_colors - static_colors - readable_text_colors
+        self.assertTrue(derived_shape_colors, xml_colors)
+        self.assertIn("51616D", xml_colors)
+        self.assertIn("17202A", xml_colors)
 
     def test_all_background_slides_receive_blur(self):
         with tempfile.TemporaryDirectory() as tmp:
