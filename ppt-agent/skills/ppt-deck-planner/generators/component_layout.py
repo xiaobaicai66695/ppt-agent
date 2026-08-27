@@ -587,9 +587,19 @@ def _render_narrative_panel(
     if narrative:
         narrative_text = clean(narrative.get("body") or narrative.get("text") or narrative.get("description")) or component_body(narrative)
     compact_panel = compact_short and narrative and not lists and not supporting and len(narrative_text) < 180
+    list_limit = min(3, len(lists))
+    list_only_panel = not narrative and list_limit > 0
 
     if compact_panel:
         panel_h = min(height, max(1.55, min(2.7, 1.15 + len(narrative_text) / 130)))
+        top = top + max(0.0, (height - panel_h) / 2)
+        height = panel_h
+    elif list_only_panel:
+        visible_items = []
+        for item in lists[:list_limit]:
+            visible_items.extend(component_items(item)[:5])
+        total_chars = sum(len(value) for value in visible_items)
+        panel_h = min(height, max(2.25, 1.05 + len(visible_items) * 0.24 + total_chars / 150))
         top = top + max(0.0, (height - panel_h) / 2)
         height = panel_h
 
@@ -624,18 +634,41 @@ def _render_narrative_panel(
         add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=0.98)
         y += body_h + 0.24
 
-    for item in lists[:3]:
+    list_only = not narrative and list_limit > 0
+    if list_only:
+        available = max(0.74, bottom - y)
+        gap = 0.18 if list_limit > 1 else 0
+        list_h = max(0.95, (available - gap * (list_limit - 1)) / list_limit)
+        list_font = 13.4 if list_limit == 1 else 12.2
+        list_anchor = "middle" if list_limit == 1 else "top"
+    else:
+        list_h = 0
+        list_font = 11.0
+        list_anchor = "top"
+
+    for item in lists[:list_limit]:
         if y >= bottom - 0.58:
             break
-        list_h = min(1.32, max(0.74, bottom - y))
-        _render_list_block(slide, colors, palette, item, inner_left, y, inner_w, list_h)
-        y += list_h + 0.16
+        current_h = min(list_h, max(0.74, bottom - y)) if list_only else min(1.32, max(0.74, bottom - y))
+        _render_list_block(slide, colors, palette, item, inner_left, y, inner_w, current_h, body_font=list_font, vertical_alignment=list_anchor)
+        y += current_h + 0.16
 
     if supporting and width >= 9.0:
         _render_cards(slide, colors, palette, supporting[:4], side_left, top, side_w, height, compact=True, align_y="middle")
 
 
-def _render_list_block(slide, colors: dict, palette: str, item: dict[str, Any], left: float, top: float, width: float, height: float):
+def _render_list_block(
+    slide,
+    colors: dict,
+    palette: str,
+    item: dict[str, Any],
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    body_font: float = 11.0,
+    vertical_alignment: str = "top",
+):
     title = clean(item.get("title") or item.get("label"))
     items = component_items(item)
     numbered = item.get("type") == "numbered_list"
@@ -652,7 +685,7 @@ def _render_list_block(slide, colors: dict, palette: str, item: dict[str, Any], 
     for i, value in enumerate(items[:5]):
         prefix = f"{i + 1}. " if numbered else "• "
         prefix_items.append(prefix + value)
-    add_text(slide, "\n".join(prefix_items), left + 0.02, body_top, width - 0.04, body_h, 11.0, color="secondary", palette=palette, colors=colors, min_font_size=8.5, max_font_size=False, vertical_alignment="top", line_spacing=0.92)
+    add_text(slide, "\n".join(prefix_items), left + 0.02, body_top, width - 0.04, body_h, body_font, color="secondary", palette=palette, colors=colors, min_font_size=8.5, max_font_size=False, vertical_alignment=vertical_alignment, line_spacing=0.98)
 
 
 def _render_table(

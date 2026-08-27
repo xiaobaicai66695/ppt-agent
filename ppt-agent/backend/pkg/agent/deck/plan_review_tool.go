@@ -16,6 +16,8 @@ const planReviewFileName = "tasks.review.json"
 
 const argumentBlockTargetMinChars = 440
 const imageTextNarrativeMinChars = 240
+const informationPageNarrativeMinChars = 220
+const componentBodyMinChars = 18
 const minVisualMixedSlidesForDeck = 2
 
 type PlanReviewReport struct {
@@ -149,6 +151,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 	}
 	for i := range plan.Components {
 		component := &plan.Components[i]
+		reviewComponentContentQuality(task.ContentType, page, component, report)
 		if isExternalBackgroundComponent(component) && strings.TrimSpace(component.LocalPath) == "" && strings.TrimSpace(component.AssetQuery) == "" {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "missing_background_image",
@@ -188,6 +191,17 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 			})
 		}
 	}
+	if requiresInformationDensity(task.ContentType) {
+		narrativeChars := informationNarrativeChars(plan.Components)
+		if narrativeChars > 0 && narrativeChars < informationPageNarrativeMinChars {
+			report.Issues = append(report.Issues, PlanReviewIssue{
+				Code:      "low_information_density",
+				Severity:  "warning",
+				PageIndex: page,
+				Message:   fmt.Sprintf("%s 页面正文组件总量当前约 %d 字，少于 %d 字；需要补足背景、事实、影响和结论，避免大面积文本面板空洞。", task.ContentType, narrativeChars, informationPageNarrativeMinChars),
+			})
+		}
+	}
 }
 
 // plannerPreflightIssues returns quality problems that the Planner can and
@@ -202,7 +216,11 @@ func plannerPreflightIssues(manifest *TasksManifest) []PlanReviewIssue {
 	issues := make([]PlanReviewIssue, 0, len(report.Issues))
 	for _, issue := range report.Issues {
 		switch strings.TrimSpace(issue.Code) {
-		case "invalid_component_schema", "missing_background_image", "weak_narrative", "low_information_density", "overload_capacity", "layout_mismatch":
+		case "low_information_density":
+			if !strings.EqualFold(strings.TrimSpace(issue.Severity), "warning") {
+				issues = append(issues, issue)
+			}
+		case "invalid_component_schema", "missing_background_image", "weak_narrative", "overload_capacity", "layout_mismatch":
 			issues = append(issues, issue)
 		}
 	}
@@ -551,6 +569,163 @@ func imageTextNarrativeChars(components []PlanComponent) int {
 		}
 	}
 	return maxChars
+}
+
+func requiresInformationDensity(contentType string) bool {
+	switch strings.TrimSpace(contentType) {
+	case "content_slide", "summary_slide", "deep_dive", "case_study", "example_detail", "card_grid", "two_column", "three_column", "comparison_table", "swot_analysis":
+		return true
+	default:
+		return false
+	}
+}
+
+func informationNarrativeChars(components []PlanComponent) int {
+	total := 0
+	for _, component := range components {
+		if isExternalBackgroundComponent(&component) {
+			continue
+		}
+		switch strings.TrimSpace(component.Type) {
+		case "headline", "deck_title", "subheadline", "section_marker", "source_note", "image", "map", "diagram", "divider", "shape", "arrow", "icon", "tag":
+			continue
+		case "list", "numbered_list", "bullet_list", "evidence_list":
+			for _, item := range component.Items {
+				total += runeLen(item)
+			}
+			if len(component.Items) == 0 {
+				total += runeLen(firstNonEmptyString(component.Body, component.Text, component.Description))
+			}
+		default:
+			componentChars := runeLen(firstNonEmptyString(component.Body, component.Text, component.Description))
+			if componentChars == 0 && len(component.Items) > 0 {
+				for _, item := range component.Items {
+					componentChars += runeLen(item)
+				}
+			}
+			total += componentChars
+		}
+	}
+	return total
+}
+
+func reviewComponentContentQuality(contentType string, page int, component *PlanComponent, report *PlanReviewReport) {
+	if component == nil || report == nil || isExternalBackgroundComponent(component) {
+		return
+	}
+	componentType := strings.TrimSpace(component.Type)
+	if isStructuralComponentType(componentType) {
+		return
+	}
+	body := firstNonEmptyString(component.Body, component.Text, component.Description)
+	if isPlaceholderLikeText(body) {
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:        "low_information_density",
+			Severity:    "error",
+			PageIndex:   page,
+			ComponentID: component.ID,
+			Message:     fmt.Sprintf("组件 %s 仍是占位/大纲文本 %q；必须改成包含具体对象、事实、时间、数字、影响或结论的可上屏正文。", component.ID, body),
+		})
+	}
+	for _, item := range component.Items {
+		if isPlaceholderLikeText(item) {
+			report.Issues = append(report.Issues, PlanReviewIssue{
+				Code:        "low_information_density",
+				Severity:    "error",
+				PageIndex:   page,
+				ComponentID: component.ID,
+				Message:     fmt.Sprintf("组件 %s 的列表项 %q 仍是占位/大纲文本；必须补成完整事实、解释或判断。", component.ID, item),
+			})
+		}
+	}
+	if requiresInformationDensity(contentType) && requiresComponentBody(componentType) {
+		bodyChars := runeLen(body)
+		itemChars := 0
+		for _, item := range component.Items {
+			itemChars += runeLen(item)
+		}
+		if bodyChars == 0 && itemChars == 0 {
+			report.Issues = append(report.Issues, PlanReviewIssue{
+				Code:        "low_information_density",
+				Severity:    "error",
+				PageIndex:   page,
+				ComponentID: component.ID,
+				Message:     fmt.Sprintf("组件 %s 缺少可上屏正文；信息页不能只保留标题、栏目名或空卡片。", component.ID),
+			})
+		}
+		if bodyChars > 0 && bodyChars < componentBodyMinChars {
+			report.Issues = append(report.Issues, PlanReviewIssue{
+				Code:        "low_information_density",
+				Severity:    "error",
+				PageIndex:   page,
+				ComponentID: component.ID,
+				Message:     fmt.Sprintf("组件 %s 正文约 %d 字，少于 %d 字；不能只写栏目名或大纲短语。", component.ID, bodyChars, componentBodyMinChars),
+			})
+		}
+		for _, item := range component.Items {
+			if chars := runeLen(item); chars > 0 && chars < componentBodyMinChars {
+				report.Issues = append(report.Issues, PlanReviewIssue{
+					Code:        "low_information_density",
+					Severity:    "error",
+					PageIndex:   page,
+					ComponentID: component.ID,
+					Message:     fmt.Sprintf("组件 %s 的列表项约 %d 字，少于 %d 字；需要写成完整要点而不是大纲词。", component.ID, chars, componentBodyMinChars),
+				})
+			}
+		}
+	}
+}
+
+func isStructuralComponentType(componentType string) bool {
+	switch strings.TrimSpace(componentType) {
+	case "headline", "deck_title", "subheadline", "section_marker", "source_note", "image", "map", "diagram", "divider", "shape", "arrow", "icon", "tag":
+		return true
+	default:
+		return false
+	}
+}
+
+func requiresComponentBody(componentType string) bool {
+	switch strings.TrimSpace(componentType) {
+	case "feature_card", "fact_card", "key_point", "insight", "recommendation", "risk_item", "opportunity_item", "decision_item", "case_snapshot", "paragraph", "text_block", "list", "numbered_list", "bullet_list", "evidence_list":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPlaceholderLikeText(text string) bool {
+	value := strings.TrimSpace(text)
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	for _, marker := range []string{"todo", "tbd", "xxx", "占位", "待补充", "待填写", "待定", "{", "}", "示例文本", "这里填写", "若干数据", "某公司"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	compact := strings.NewReplacer(" ", "", "　", "", "：", "", ":", "", "-", "", "_", "").Replace(value)
+	if runeLen(compact) <= 8 {
+		generic := map[string]bool{
+			"左栏成就": true, "左栏成就一": true, "左栏成就二": true, "左栏成就三": true,
+			"右栏短板": true, "右栏短板一": true, "右栏短板二": true, "右栏短板三": true,
+			"左栏事实": true, "右栏事实": true, "左栏风险": true, "右栏风险": true,
+			"卡片一": true, "卡片二": true, "卡片三": true, "卡片四": true,
+			"要点一": true, "要点二": true, "要点三": true, "要点四": true,
+			"观点一": true, "观点二": true, "观点三": true, "观点四": true,
+			"内容一": true, "内容二": true, "内容三": true, "内容四": true,
+		}
+		if generic[compact] {
+			return true
+		}
+	}
+	switch compact {
+	case "对比后的判断", "未来展望洞察", "本页洞察", "核心洞察", "核心观点", "关键结论", "补充说明":
+		return true
+	default:
+		return false
+	}
 }
 
 func hasPlanNarrativeSummary(task *TaskItem, plan *ContentPlan) bool {

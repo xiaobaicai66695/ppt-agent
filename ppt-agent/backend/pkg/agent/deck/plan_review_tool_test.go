@@ -50,8 +50,17 @@ func TestPlanReviewAllowsTextOnlySlideWithoutBackground(t *testing.T) {
 	if !report.Passed {
 		t.Fatalf("text-only slide should pass with non-blocking background warning: %#v", report)
 	}
-	if report.IssueCount != 1 || report.Issues[0].Code != "missing_background_image" || report.Issues[0].Severity != "warning" {
-		t.Fatalf("expected one background warning, got %#v", report.Issues)
+	foundBackgroundWarning := false
+	for _, issue := range report.Issues {
+		if issue.Code == "missing_background_image" && issue.Severity == "warning" {
+			foundBackgroundWarning = true
+		}
+		if issue.Severity != "warning" {
+			t.Fatalf("expected only non-blocking warnings, got %#v", report.Issues)
+		}
+	}
+	if !foundBackgroundWarning {
+		t.Fatalf("expected background warning, got %#v", report.Issues)
 	}
 	if _, ok, err := CommitReviewedTasksDraftManifestIfPresent(workDir); err != nil || !ok {
 		t.Fatalf("reviewed text-only draft was not committed: ok=%v err=%v", ok, err)
@@ -85,6 +94,73 @@ func TestPlanReviewUsesContractArgumentBlockMinimum(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected short argument_block issue, got %#v", report.Issues)
+	}
+}
+
+func TestPlannerPreflightBlocksOutlinePlaceholders(t *testing.T) {
+	manifest := &TasksManifest{
+		Title: "制造强国复盘", Theme: "ocean_soft", Template: "dynamic",
+		Tasks: []*TaskItem{{
+			TaskID: "slide-12", PageIndex: 12, Title: "成就与短板：客观审视", ContentType: "two_column",
+			Description: "对比制造强国建设中的阶段成果、现实约束和后续判断。", OutputFile: "12_gap.pptx", Status: StatusPending,
+			ContentPlan: &ContentPlan{
+				Summary:      "从事实、风险和洞察三个层面对制造强国建设进行客观审视。",
+				SlideIntent:  "用左右对比说明已有积累和仍需补齐的关键短板。",
+				VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "industry"},
+				Components: []PlanComponent{
+					{ID: "left-fact-1", Type: "fact_card", Title: "事实", Body: "左栏成就"},
+					{ID: "right-risk-1", Type: "risk_item", Title: "风险", Body: "右栏短板"},
+					{ID: "insight-1", Type: "insight", Title: "洞察", Body: "对比后的判断"},
+				},
+			},
+		}},
+	}
+
+	report := ReviewTasksManifest(manifest, "tasks.draft.json", 1)
+	if report.Passed {
+		t.Fatalf("placeholder scaffold text must block review: %#v", report)
+	}
+	found := 0
+	for _, issue := range report.Issues {
+		if issue.Code == "low_information_density" && issue.Severity == "error" {
+			found++
+		}
+	}
+	if found < 3 {
+		t.Fatalf("expected blocking density errors for placeholder bodies, got %#v", report.Issues)
+	}
+}
+
+func TestPlannerPreflightBlocksShortOutlineBodies(t *testing.T) {
+	manifest := &TasksManifest{
+		Title: "制造强国复盘", Theme: "ocean_soft", Template: "dynamic",
+		Tasks: []*TaskItem{{
+			TaskID: "slide-14", PageIndex: 14, Title: "未来规划", ContentType: "content_slide",
+			Description: "说明制造强国后续规划中的关键方向和行动重点。", OutputFile: "14_future.pptx", Status: StatusPending,
+			ContentPlan: &ContentPlan{
+				Summary:      "梳理自主可控、智能制造、绿色低碳和开放合作四个方向。",
+				SlideIntent:  "把纲要式方向扩写为可执行判断，避免只有标题词。",
+				VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "industry"},
+				Components: []PlanComponent{
+					{ID: "future-list", Type: "numbered_list", Items: []string{"自主可控", "智能制造", "绿色低碳", "开放合作"}},
+					{ID: "insight-1", Type: "insight", Title: "洞察", Body: "未来展望"},
+				},
+			},
+		}},
+	}
+
+	report := ReviewTasksManifest(manifest, "tasks.draft.json", 1)
+	if report.Passed {
+		t.Fatalf("outline-only bodies must block review: %#v", report)
+	}
+	found := false
+	for _, issue := range report.Issues {
+		if issue.Code == "low_information_density" && issue.Severity == "error" && issue.ComponentID == "future-list" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected short list item density error, got %#v", report.Issues)
 	}
 }
 

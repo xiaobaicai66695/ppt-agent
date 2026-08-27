@@ -130,6 +130,33 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertIn("先判断本页主张是否具体", slide_xml)
         self.assertIn("长论述和列表拆开后", slide_xml)
 
+    def test_list_only_narrative_panel_uses_available_space(self):
+        items = [
+            "自主可控不只是国产替代口号，而是围绕高端芯片、基础软件和关键材料建立可验证供应链。",
+            "智能制造要从单点设备升级转向生产数据、质量追溯和柔性排产联动，形成可复制的工厂能力。",
+            "绿色低碳需要把能耗、排放和循环利用纳入制造过程指标，让效率提升和减排目标同步落地。",
+            "开放合作的重点从规模出口转向标准、品牌和服务体系出海，降低产业链外部波动影响。",
+        ]
+
+        prs = render_component_slide(
+            palette="ocean_soft",
+            title="十五五规划与制造强国新征程",
+            subtitle="四个方向都需要从纲要词扩展为可执行判断",
+            content_type="content_slide",
+            components=[
+                {"type": "numbered_list", "title": "重点方向", "items": items},
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "list-only-panel.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn(items[-1], slide_xml)
+        self.assertIn('sz="1340"', slide_xml)
+
     def test_argument_block_keeps_long_text_without_early_clamp(self):
         long_body = (
             "低空经济并不是单一飞行器赛道，而是由空域管理、飞行服务、制造供应链、运营平台和多行业应用共同构成的新型产业系统。"

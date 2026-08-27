@@ -27,6 +27,7 @@
     ],
     "component_text_density": {
       "principle": "Prefer complete, presentation-ready information units. Components should include concrete facts, named entities, scenario context, impact and conclusion when relevant; avoid noun-only or slogan-like short fragments.",
+      "placeholder_forbidden": "Do not use template scaffold text or outline labels as body/items, including 左栏成就、右栏短板、卡片一、要点一、观点一、内容一、对比后的判断、未来展望洞察、核心观点、补充说明, TODO/TBD/XXX, braces, 某公司 or 若干数据. Expand user outlines into concrete presentation-ready copy.",
       "card_body_target_chars": [70, 130],
       "primary_card_body_max_chars": 160,
       "paragraph_target_chars": [240, 440],

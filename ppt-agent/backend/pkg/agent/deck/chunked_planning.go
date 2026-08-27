@@ -92,7 +92,7 @@ func runChunkedDeckPlanning(ctx context.Context, cfg *PPTTaskConfig, userQuery s
 		return nil, fmt.Errorf("chunked blueprint produced no pages")
 	}
 	if onEvent != nil {
-		onEvent(AgentEvent{Type: AgentEventProgress, Phase: "planning", PhaseDetail: fmt.Sprintf("蓝图已确定 %d 页，正在按章节并行补全内容", len(blueprint.Pages))})
+		onEvent(AgentEvent{Type: AgentEventProgress, Phase: "planning", PhaseDetail: fmt.Sprintf("蓝图已确定 %d 页，TaskExpander 正在按章节并行扩充页面内容", len(blueprint.Pages))})
 	}
 	shards, err := generateSectionPlanShards(ctx, cfg, userQuery, blueprint, onEvent)
 	if err != nil {
@@ -294,7 +294,7 @@ func generateSectionPlanShards(ctx context.Context, cfg *PPTTaskConfig, userQuer
 			}
 			defer func() { <-sem }()
 			if onEvent != nil {
-				onEvent(AgentEvent{Type: AgentEventProgress, Phase: "planning", PhaseDetail: fmt.Sprintf("正在补全章节 %s（第 %d-%d 页）", job.SectionTitle, job.StartPage, job.EndPage)})
+				onEvent(AgentEvent{Type: AgentEventProgress, Phase: "planning", PhaseDetail: fmt.Sprintf("TaskExpander 正在扩充章节 %s（第 %d-%d 页）", job.SectionTitle, job.StartPage, job.EndPage)})
 			}
 			shard, err := generateOneSectionShard(ctx, cfg, userQuery, blueprint, job)
 			if err != nil {
@@ -363,7 +363,7 @@ func generateOneSectionShard(ctx context.Context, cfg *PPTTaskConfig, userQuery 
 	}
 	prompt := buildSectionPlannerPrompt(userQuery, blueprint, job)
 	resp, err := model.Generate(ctx, []*schema.Message{
-		schema.SystemMessage("你是 Section Task Planner。只输出 JSON 对象，不输出 Markdown、解释或代码块。"),
+		schema.SystemMessage("你是 Section Task Expander。你的职责是把蓝图页扩写成完整 task 内容；只输出 JSON 对象，不输出 Markdown、解释或代码块。"),
 		schema.UserMessage(prompt),
 	})
 	if err != nil {
@@ -391,7 +391,7 @@ func generateOneSectionShard(ctx context.Context, cfg *PPTTaskConfig, userQuery 
 func buildSectionPlannerPrompt(userQuery string, blueprint *deckPlanningBlueprint, job sectionPlanningJob) string {
 	bp, _ := json.Marshal(blueprint)
 	pages, _ := json.Marshal(job.Pages)
-	return fmt.Sprintf(`请补全一个 PPT 章节的页面内容。不要改变页码、标题、content_type、章节顺序。
+	return fmt.Sprintf(`请以 TaskExpander 身份补全一个 PPT 章节的页面内容。不要改变页码、标题、content_type、章节顺序。
 
 用户主题：
 %s
@@ -432,6 +432,7 @@ func buildSectionPlannerPrompt(userQuery string, blueprint *deckPlanningBlueprin
 内容要求：
 - 每个非章节页至少写 2 个有信息密度的组件，不能只有概念词。
 - fact_card/key_point/insight 的 body 目标 70-130 字，必须包含具体对象或证据。
+- 严禁把模板脚手架、栏目名或大纲词当作正文；例如“左栏成就”“右栏短板”“卡片一”“要点一”“观点一”“内容一”“对比后的判断”“未来展望洞察”“核心观点”“补充说明”等都不是可上屏 body/items，必须改写为包含事实、时间、数字、影响或结论的完整表达。
 - image_text 页必须包含 image 组件，asset_purpose 为 scene 或 evidence；背景仍写 visual_intent。
 - 不写 task_id、output_file、status、created_at、capacity_hint.component_count，这些由系统合并。`, userQuery, bp, pages,
 		firstNonEmptyString(job.Previous, "无"), firstNonEmptyString(job.Next, "无"),
