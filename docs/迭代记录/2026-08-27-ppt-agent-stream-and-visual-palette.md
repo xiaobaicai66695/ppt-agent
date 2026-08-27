@@ -136,3 +136,41 @@
     - 在 `/tmp/ppt-agent-palette-text-smoke` 创建 1 页黄底 `image_text` 临时任务，不调用模型。
     - `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功生成 `slide_01.pptx`，83,300 bytes。
     - PPTX XML 包含可读文本色 `17202A`、`51616D` 和背景派生 shape 色 `B8CC6C`，临时 workdir 和传输包已清理。
+
+## 内容密度与 TaskExpander 可见性修正
+
+- 问题：
+  - 部分页只把用户大纲或模板脚手架写进 `components.body/items`，例如“左栏成就”“右栏短板”“对比后的判断”“自主可控”等，导致缩略图看起来只有栏目名，没有真正填充内容。
+  - `content_slide` / `summary_slide` 在只有列表正文时仍使用大面积叙事面板，旧逻辑又把列表块限制在约 1.32 英寸高度，短列表会集中在面板顶部，进一步放大空洞感。
+  - 分片规划链路中真正扩充页面内容的是 SectionPlanner，但前端和 prompt 文案没有明确呈现“TaskExpander”职责，容易误解为 Planner 一次性写完整正文。
+- 行为变化：
+  - Go `TaskPlanReviewer` 增加组件级内容质量门：信息页中的 `feature_card/fact_card/key_point/insight/risk_item/recommendation/paragraph/list` 等必须有可上屏正文；占位/大纲词和 18 字以下的极短正文变为 blocking error。
+  - Planner 预检只把 blocking `low_information_density` 返回给 `initialize`，整页总字数偏低仍保留为 reviewer warning，避免普通短页被非阻断提醒卡死。
+  - Planner prompt、Section Task Expander prompt、Skill 和组件契约同步禁止“左栏成就/右栏短板/卡片一/要点一/对比后的判断/未来展望洞察”等脚手架正文。
+  - chunked planning 阶段的可见进度和系统提示改为 `TaskExpander`，明确它负责把蓝图页扩写成完整 task 内容。
+  - 生成器对列表-only 叙事面板改为按内容量收缩并居中，列表正文可使用更大的可读字号，不再用大空框硬撑版面。
+- 本地验证：
+  - `go test ./pkg/agent/deck`
+  - `D:\anaconda\python.exe -m unittest tests.test_render_task_components`
+  - `Get-ChildItem -LiteralPath generators -Filter *.py | ForEach-Object { D:\anaconda\python.exe -m py_compile $_.FullName }`
+  - `python -m json.tool templates\component_contracts.json`
+  - 本地构造列表-only `content_slide` smoke，经 `render_task.py` 生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG；确认列表已扩写为完整句，面板按内容量收缩并居中。
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：2026-08-27 11:28 Asia/Shanghai
+  - 部署基线：代码提交 `bdb1ff1`
+  - 新进程：PID `3762155`，命令 `../ppt-agent-linux -mode web -addr :8080`
+  - 二进制 SHA256：`4f165208624d2e429e991585c5f317b9cbaab744f1346422e925a7e447a813e4`
+  - 备份：
+    - 二进制：`/ppt/ppt-agent/ppt-agent-linux.bak.202608271128-density`
+    - Skill：`/ppt/ppt-agent/skills.bak.202608271128-density`
+  - 启动确认：
+    - `/api/health` 返回 HTTP 200，`{"status":"ok"}`
+    - `/api/templates/layouts` 返回 HTTP 200，17522 bytes
+    - `:8080` 正常监听，进程为 `3762155`
+    - 启动日志包含 `deck_planner_skill_ready`、`mysql_connected`、`server_starting addr=:8080`，无立即失败。
+  - 线上生成器 smoke：
+    - 在 `/tmp/ppt-agent-density-smoke-bdb1ff1` 创建 1 页列表-only `content_slide` 临时任务，不调用模型。
+    - `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功生成 `slide_01_density.pptx`，29,470 bytes。
+    - PPTX XML 包含第 4 条完整列表“开放合作的重点...”，并包含新列表字号标记 `sz="1340"`。
+    - 临时 workdir、上传的临时 `tasks.json`、接口响应文件和传输包已清理。
