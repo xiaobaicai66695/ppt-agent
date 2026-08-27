@@ -1,6 +1,70 @@
 package deck
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestShouldUseChunkedPlanningKeepsOutlineOnTaskExpanderPath(t *testing.T) {
+	t.Setenv("PLANNER_CHUNKED_DISABLED", "")
+	cfg := &PPTTaskConfig{
+		Outline: &TaskOutline{Slides: []SlideOutline{{Title: "用户大纲页", ContentType: "content_slide"}}},
+	}
+
+	if !shouldUseChunkedPlanning(cfg) {
+		t.Fatal("outline tasks should still use chunked planning so TaskExpander, not monolithic Planner, fills page content")
+	}
+}
+
+func TestDeckBlueprintFromOutlineCarriesSectionDraft(t *testing.T) {
+	blueprint := deckBlueprintFromOutline(&TaskOutline{
+		Title: "制造强国",
+		Theme: "ocean_soft",
+		Slides: []SlideOutline{
+			{Title: "封面", ContentType: "title_slide", Description: "建立主题。"},
+			{Title: "成就与短板", ContentType: "two_column", Description: "左栏成就，右栏短板。", ContentPlan: &ContentPlan{
+				Components: []PlanComponent{{ID: "left", Type: "fact_card", Body: "左栏成就"}},
+			}},
+			{Title: "未来规划", ContentType: "section_divider", Description: "进入未来规划章节。"},
+			{Title: "重点方向", ContentType: "content_slide", Description: "自主可控、智能制造、绿色低碳。"},
+		},
+	}, "制造强国汇报")
+
+	if len(blueprint.Pages) != 4 {
+		t.Fatalf("len(pages)=%d, want 4", len(blueprint.Pages))
+	}
+	if blueprint.Pages[1].DraftDescription == "" || blueprint.Pages[1].DraftContentPlan == nil {
+		t.Fatalf("outline draft was not carried into blueprint page: %#v", blueprint.Pages[1])
+	}
+	if len(blueprint.Sections) != 2 {
+		t.Fatalf("len(sections)=%d, want 2: %#v", len(blueprint.Sections), blueprint.Sections)
+	}
+	if blueprint.Pages[3].SectionTitle != "未来规划" {
+		t.Fatalf("page 4 section title=%q, want future section", blueprint.Pages[3].SectionTitle)
+	}
+}
+
+func TestTaskExpanderPromptUsesSectionDraftNotFullPageRewrite(t *testing.T) {
+	blueprint := deckBlueprintFromOutline(&TaskOutline{
+		Title: "制造强国",
+		Slides: []SlideOutline{
+			{Title: "成就与短板", ContentType: "two_column", Description: "左栏成就，右栏短板。"},
+		},
+	}, "制造强国汇报")
+	jobs := BuildSectionPlanningJobs(blueprint, 4)
+	if len(jobs) != 1 {
+		t.Fatalf("len(jobs)=%d, want 1", len(jobs))
+	}
+
+	prompt := buildSectionPlannerPrompt("制造强国汇报", blueprint, jobs[0])
+
+	if !strings.Contains(prompt, "本节草稿页面") || !strings.Contains(prompt, "draft_description") {
+		t.Fatalf("TaskExpander prompt should carry section draft, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "只扩写“本节草稿页面”") {
+		t.Fatalf("TaskExpander prompt should forbid rewriting whole deck, got: %s", prompt)
+	}
+}
 
 func TestBuildSectionPlanningJobsSplitsLongSections(t *testing.T) {
 	blueprint := &deckPlanningBlueprint{

@@ -29,14 +29,16 @@ type deckPlanningBlueprint struct {
 }
 
 type deckBlueprintPage struct {
-	PageIndex     int      `json:"page_index"`
-	SectionID     string   `json:"section_id,omitempty"`
-	SectionTitle  string   `json:"section_title,omitempty"`
-	Title         string   `json:"title"`
-	ContentType   string   `json:"content_type"`
-	LayoutVariant string   `json:"layout_variant,omitempty"`
-	PageIntent    string   `json:"page_intent,omitempty"`
-	EvidenceRefs  []string `json:"evidence_refs,omitempty"`
+	PageIndex        int          `json:"page_index"`
+	SectionID        string       `json:"section_id,omitempty"`
+	SectionTitle     string       `json:"section_title,omitempty"`
+	Title            string       `json:"title"`
+	ContentType      string       `json:"content_type"`
+	LayoutVariant    string       `json:"layout_variant,omitempty"`
+	PageIntent       string       `json:"page_intent,omitempty"`
+	EvidenceRefs     []string     `json:"evidence_refs,omitempty"`
+	DraftDescription string       `json:"draft_description,omitempty"`
+	DraftContentPlan *ContentPlan `json:"draft_content_plan,omitempty"`
 }
 
 type sectionPlanShard struct {
@@ -63,7 +65,7 @@ func shouldUseChunkedPlanning(cfg *PPTTaskConfig) bool {
 		return false
 	}
 	if cfg != nil && cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
-		return false
+		return true
 	}
 	threshold := agentutils.EnvInt("PLANNER_CHUNKED_PAGE_THRESHOLD", defaultChunkedPlanningThreshold)
 	if threshold <= 0 {
@@ -126,6 +128,9 @@ func runChunkedDeckPlanning(ctx context.Context, cfg *PPTTaskConfig, userQuery s
 }
 
 func generateDeckBlueprint(ctx context.Context, cfg *PPTTaskConfig, userQuery string) (*deckPlanningBlueprint, error) {
+	if cfg != nil && cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
+		return deckBlueprintFromOutline(cfg.Outline, userQuery), nil
+	}
 	model, err := newPlanningChatModel(ctx, cfg, 8192)
 	if err != nil {
 		return nil, err
@@ -147,6 +152,128 @@ func generateDeckBlueprint(ctx context.Context, cfg *PPTTaskConfig, userQuery st
 		return nil, fmt.Errorf("parse blueprint JSON: %w", err)
 	}
 	return &blueprint, nil
+}
+
+func deckBlueprintFromOutline(outline *TaskOutline, userQuery string) *deckPlanningBlueprint {
+	if outline == nil {
+		return &deckPlanningBlueprint{}
+	}
+	pages := make([]deckBlueprintPage, 0, len(outline.Slides))
+	for i, slide := range outline.Slides {
+		pageIndex := i + 1
+		title := strings.TrimSpace(slide.Title)
+		if title == "" {
+			title = fmt.Sprintf("第 %d 页", pageIndex)
+		}
+		contentType := strings.TrimSpace(slide.ContentType)
+		if contentType == "" {
+			contentType = "content_slide"
+		}
+		description := strings.TrimSpace(slide.Description)
+		pages = append(pages, deckBlueprintPage{
+			PageIndex:        pageIndex,
+			Title:            title,
+			ContentType:      contentType,
+			LayoutVariant:    strings.TrimSpace(slide.LayoutVariant),
+			PageIntent:       firstNonEmptyString(description, title),
+			DraftDescription: description,
+			DraftContentPlan: cloneContentPlan(slide.ContentPlan),
+		})
+	}
+	sections := inferBlueprintSectionsFromPageTypes(pages)
+	sectionsByID := map[string]DeckSection{}
+	for _, section := range sections {
+		sectionsByID[section.ID] = section
+	}
+	for i := range pages {
+		page := &pages[i]
+		if page.SectionID != "" {
+			continue
+		}
+		for _, section := range sections {
+			if page.PageIndex >= section.StartPage && page.PageIndex <= section.EndPage {
+				page.SectionID = section.ID
+				page.SectionTitle = section.Title
+				break
+			}
+		}
+		if section, ok := sectionsByID[page.SectionID]; ok && strings.TrimSpace(page.SectionTitle) == "" {
+			page.SectionTitle = section.Title
+		}
+	}
+	return &deckPlanningBlueprint{
+		Title:    compactManifestTitle(firstNonEmptyString(outline.Title, userQuery)),
+		Theme:    firstNonEmptyString(outline.Theme, defaultManifestTheme),
+		Template: firstNonEmptyString(outline.Template, defaultManifestTemplate),
+		Sections: sections,
+		Pages:    pages,
+	}
+}
+
+func cloneContentPlan(plan *ContentPlan) *ContentPlan {
+	if plan == nil {
+		return nil
+	}
+	copied := *plan
+	if plan.EvidenceRefs != nil {
+		copied.EvidenceRefs = append([]string(nil), plan.EvidenceRefs...)
+	}
+	if plan.Components != nil {
+		copied.Components = append([]PlanComponent(nil), plan.Components...)
+	}
+	if plan.VisualIntent != nil {
+		visual := *plan.VisualIntent
+		copied.VisualIntent = &visual
+	}
+	if plan.CapacityHint != nil {
+		capacity := *plan.CapacityHint
+		copied.CapacityHint = &capacity
+	}
+	if plan.ReviewerStatus != nil {
+		status := *plan.ReviewerStatus
+		if plan.ReviewerStatus.Issues != nil {
+			status.Issues = append([]PlanReviewIssue(nil), plan.ReviewerStatus.Issues...)
+		}
+		copied.ReviewerStatus = &status
+	}
+	return &copied
+}
+
+func inferBlueprintSectionsFromPageTypes(pages []deckBlueprintPage) []DeckSection {
+	if len(pages) == 0 {
+		return nil
+	}
+	type startMarker struct {
+		index int
+		title string
+	}
+	markers := []startMarker{}
+	for _, page := range pages {
+		if strings.TrimSpace(page.ContentType) != "section_divider" {
+			continue
+		}
+		markers = append(markers, startMarker{index: page.PageIndex, title: firstNonEmptyString(page.Title, fmt.Sprintf("章节 %d", len(markers)+1))})
+	}
+	if len(markers) == 0 || markers[0].index > pages[0].PageIndex {
+		markers = append([]startMarker{{index: pages[0].PageIndex, title: "开篇"}}, markers...)
+	}
+	sections := make([]DeckSection, 0, len(markers))
+	for i, marker := range markers {
+		endPage := pages[len(pages)-1].PageIndex
+		if i+1 < len(markers) {
+			endPage = markers[i+1].index - 1
+		}
+		id := fmt.Sprintf("section-%02d", i+1)
+		sections = append(sections, DeckSection{
+			ID:        id,
+			Title:     marker.title,
+			Summary:   fmt.Sprintf("围绕“%s”扩充对应页面内容", marker.title),
+			StartPage: marker.index,
+			EndPage:   endPage,
+			PageCount: endPage - marker.index + 1,
+		})
+	}
+	return sections
 }
 
 func buildDeckBlueprintPrompt(cfg *PPTTaskConfig, userQuery string, pageHint int) string {
@@ -389,17 +516,17 @@ func generateOneSectionShard(ctx context.Context, cfg *PPTTaskConfig, userQuery 
 }
 
 func buildSectionPlannerPrompt(userQuery string, blueprint *deckPlanningBlueprint, job sectionPlanningJob) string {
-	bp, _ := json.Marshal(blueprint)
-	pages, _ := json.Marshal(job.Pages)
+	deckContext, _ := json.Marshal(taskExpanderDeckContext(blueprint, job))
+	sectionDraft, _ := json.Marshal(job.Pages)
 	return fmt.Sprintf(`请以 TaskExpander 身份补全一个 PPT 章节的页面内容。不要改变页码、标题、content_type、章节顺序。
 
 用户主题：
 %s
 
-整套蓝图：
+整套蓝图摘要：
 %s
 
-本次负责页面：
+本节草稿页面：
 %s
 
 相邻章节：上一节=%s；下一节=%s
@@ -430,13 +557,36 @@ func buildSectionPlannerPrompt(userQuery string, blueprint *deckPlanningBlueprin
 }
 
 内容要求：
+- 只扩写“本节草稿页面”，不要重写整套 PPT 结构；草稿中的 draft_description/draft_content_plan 是输入素材，必须补成可执行正文后再输出。
 - 每个非章节页至少写 2 个有信息密度的组件，不能只有概念词。
 - fact_card/key_point/insight 的 body 目标 70-130 字，必须包含具体对象或证据。
 - 严禁把模板脚手架、栏目名或大纲词当作正文；例如“左栏成就”“右栏短板”“卡片一”“要点一”“观点一”“内容一”“对比后的判断”“未来展望洞察”“核心观点”“补充说明”等都不是可上屏 body/items，必须改写为包含事实、时间、数字、影响或结论的完整表达。
 - image_text 页必须包含 image 组件，asset_purpose 为 scene 或 evidence；背景仍写 visual_intent。
-- 不写 task_id、output_file、status、created_at、capacity_hint.component_count，这些由系统合并。`, userQuery, bp, pages,
+- 不写 task_id、output_file、status、created_at、capacity_hint.component_count，这些由系统合并。`, userQuery, deckContext, sectionDraft,
 		firstNonEmptyString(job.Previous, "无"), firstNonEmptyString(job.Next, "无"),
 		job.SectionID, job.SectionTitle, job.StartPage, job.EndPage)
+}
+
+func taskExpanderDeckContext(blueprint *deckPlanningBlueprint, job sectionPlanningJob) map[string]any {
+	context := map[string]any{
+		"title":            "",
+		"theme":            defaultManifestTheme,
+		"template":         defaultManifestTemplate,
+		"sections":         []DeckSection{},
+		"previous_section": firstNonEmptyString(job.Previous, "无"),
+		"next_section":     firstNonEmptyString(job.Next, "无"),
+	}
+	if blueprint == nil {
+		return context
+	}
+	context["title"] = blueprint.Title
+	context["theme"] = firstNonEmptyString(blueprint.Theme, defaultManifestTheme)
+	context["template"] = firstNonEmptyString(blueprint.Template, defaultManifestTemplate)
+	context["sections"] = blueprint.Sections
+	if len(blueprint.ContentBank) > 0 {
+		context["content_bank"] = blueprint.ContentBank
+	}
+	return context
 }
 
 func MergeSectionPlanShards(blueprint *deckPlanningBlueprint, shards []sectionPlanShard) (*TasksManifest, error) {
@@ -489,7 +639,7 @@ func MergeSectionPlanShards(blueprint *deckPlanningBlueprint, shards []sectionPl
 func taskItemFromBlueprintAndPatch(page deckBlueprintPage, patch manifestTaskPatch) *TaskItem {
 	title := firstPatchString(patch.Title, page.Title)
 	contentType := firstPatchString(patch.ContentType, page.ContentType)
-	description := firstPatchString(patch.Description, page.PageIntent, page.Title)
+	description := firstPatchString(patch.Description, page.DraftDescription, page.PageIntent, page.Title)
 	sectionID := firstPatchString(patch.SectionID, page.SectionID)
 	sectionTitle := firstPatchString(patch.SectionTitle, page.SectionTitle)
 	pageIntent := firstPatchString(patch.PageIntent, page.PageIntent)
@@ -510,7 +660,7 @@ func taskItemFromBlueprintAndPatch(page deckBlueprintPage, patch manifestTaskPat
 		EvidenceRefs:  evidenceRefs,
 		OutputFile:    fmt.Sprintf("slide_%02d_%s.pptx", page.PageIndex, sanitizeTaskFilename(title)),
 		Status:        StatusPending,
-		ContentPlan:   patch.ContentPlan,
+		ContentPlan:   firstNonNilContentPlan(patch.ContentPlan, page.DraftContentPlan),
 		CreatedAt:     time.Now().Format(time.RFC3339),
 	}
 	if item.ContentPlan == nil {
@@ -531,6 +681,15 @@ func taskItemFromBlueprintAndPatch(page deckBlueprintPage, patch manifestTaskPat
 		ComponentCount:   len(item.ContentPlan.Components),
 	}
 	return item
+}
+
+func firstNonNilContentPlan(values ...*ContentPlan) *ContentPlan {
+	for _, value := range values {
+		if value != nil {
+			return cloneContentPlan(value)
+		}
+	}
+	return nil
 }
 
 func (p *ContentPlan) CapacityHintValue(kind string) string {
