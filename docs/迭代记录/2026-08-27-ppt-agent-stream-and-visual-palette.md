@@ -174,3 +174,31 @@
     - `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功生成 `slide_01_density.pptx`，29,470 bytes。
     - PPTX XML 包含第 4 条完整列表“开放合作的重点...”，并包含新列表字号标记 `sz="1340"`。
     - 临时 workdir、上传的临时 `tasks.json`、接口响应文件和传输包已清理。
+
+## Outline 草稿进入 TaskExpander
+
+- 问题：
+  - 用户已经在编排页提供大纲/模板脚手架时，`shouldUseChunkedPlanning` 直接返回 false，导致任务回到单体 PPTPlanner。
+  - 这会让 Planner 同时承担“制定草稿”和“逐页扩写正文”，和 BlueprintPlanner + TaskExpander 的职责边界冲突，也更容易把大纲词原样写进 `tasks.json`。
+- 行为变化：
+  - 有 `cfg.Outline` 时不再禁用分片规划；outline 会被确定性转换为 `deckPlanningBlueprint`，作为结构草稿进入 TaskExpander 链路。
+  - `deckBlueprintPage` 增加 `draft_description` 和 `draft_content_plan`，保留用户/模板给出的分节草稿，但只作为 TaskExpander 的输入素材。
+  - TaskExpander prompt 从“整套蓝图全文 + 本次页面”改为“整套蓝图摘要 + 本节草稿页面 + 用户主题”，并明确只扩写本节草稿，不重写整套结构。
+  - Merger 在 TaskExpander 未覆盖字段时可回退到草稿 description/content_plan，但最终仍会经过 Reviewer 和 Go 质量门。
+- 本地验证：
+  - `go test ./pkg/agent/deck`
+  - `go build ./...`
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent`
+  - 时间：2026-08-27 12:57 Asia/Shanghai
+  - 部署基线：代码提交 `99bf425`
+  - 新进程：PID `3782803`，命令 `../ppt-agent-linux -mode web -addr :8080`
+  - 二进制 SHA256：`32cabeeadaa2a5836317d653758f0c2fd222771bf7bd775e425371d40db74906`
+  - 备份：`/ppt/ppt-agent/ppt-agent-linux.bak.202608271145-taskexpander`
+  - 启动确认：
+    - `/api/health` 返回 HTTP 200，15 bytes
+    - `/api/templates/layouts` 返回 HTTP 200，17522 bytes
+    - `:8080` 正常监听，进程为 `3782803`
+    - 启动日志包含 `deck_planner_skill_ready`、`mysql_connected`、`server_starting addr=:8080`，无立即失败。
+  - 清理：远端 `/tmp/ppt-agent-linux-99bf425`、health/layouts smoke 响应文件已删除。
+  - 遗留：本次未发起完整 LLM 生成任务，避免额外消耗用户 Key；已通过单元测试覆盖 outline 进入 TaskExpander 路径，通过线上 health/layouts 和进程重启确认运行包生效。
