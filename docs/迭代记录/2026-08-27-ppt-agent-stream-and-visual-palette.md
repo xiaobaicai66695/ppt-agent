@@ -111,3 +111,28 @@
   - 清理：远端 `/tmp/ppt-home-smoke.html`、`/tmp/ppt-layouts-smoke.json`、`/tmp/ppt-themes-smoke.json`、`/tmp/ppt-agent-linux-deploy`、`/tmp/ppt-agent-frontend-dist-3dbc750.tar.gz`、`/tmp/ppt-agent-skill-3dbc750.tar.gz` 已删除。
   - 备份：二进制备份为 `ppt-agent-linux.bak.20260827013702-chunked`；前端可回退备份沿用上一轮 `frontend/dist.bak.20260827004200-bgvisible`。
   - 遗留：未发起完整 LLM 生成任务，避免额外消耗上游 Key；分片 Planner 的端到端模型质量仍建议后续用 1 个低页数任务或专门评测集补测。
+
+## 背景取色文本可读性修正
+
+- 问题：
+  - 背景图偏黄时，生成器把背景提取色直接写入 `primary` / `secondary` / `accent` 文本 token，导致 kicker、副标题、图片说明等文字变成浅黄，和浅色背景/玻璃面板低对比。
+  - 同时，矩形、面板和分割线仍主要使用固定主题色，出现“文字跟背景走，色块不跟背景走”的反向效果。
+- 行为变化：
+  - `background_image_palette()` 将文本 token 和形状 token 分离：正文、标题、小标题、图片说明保持深色/主题可读文本色；背景派生色只通过 `primary_fill`、`secondary_fill`、`accent_fill` 供面板、色块、分割线和强调装饰使用。
+  - 组件渲染在带背景图时临时创建 runtime shape palette，让形状使用背景派生色，同时所有 `add_text(..., colors=colors)` 仍读取可读文本 token。
+  - Skill、generator 参考文档和组件契约同步改为“背景取色用于容器和装饰，不用于浅色文字”。
+- 本地验证：
+  - `D:\anaconda\python.exe -m unittest tests.test_render_task_components`
+  - `Get-ChildItem -LiteralPath generators -Filter *.py | ForEach-Object { D:\anaconda\python.exe -m py_compile $_.FullName }`
+  - `D:\anaconda\python.exe -m json.tool templates\component_contracts.json`
+  - 本地构造黄底 `image_text` smoke，经 `render_task.py` 生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG；检查到 XML 同时包含可读文本色 `17202A` / `51616D` 和背景派生 shape 色 `B8CC6C`。
+- 上线记录：
+  - 目标：`remote-dev:/ppt/ppt-agent/skills/ppt-deck-planner`
+  - 时间：2026-08-27 10:39 Asia/Shanghai
+  - 部署基线：代码提交 `44135bf`
+  - 后端进程：PID `3624298` 保持运行，未重启；`/api/health` 返回 HTTP 200，`{"status":"ok"}`
+  - 备份：`/ppt/ppt-agent/skills.bak.20260827103809-palette-text`
+  - 线上生成器 smoke：
+    - 在 `/tmp/ppt-agent-palette-text-smoke` 创建 1 页黄底 `image_text` 临时任务，不调用模型。
+    - `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功生成 `slide_01.pptx`，83,300 bytes。
+    - PPTX XML 包含可读文本色 `17202A`、`51616D` 和背景派生 shape 色 `B8CC6C`，临时 workdir 和传输包已清理。
