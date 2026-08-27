@@ -228,14 +228,17 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	normalizeManifestLayoutVariants(manifest)
 	normalizePlannerInitialManifest(manifest)
 	if issues := plannerPreflightIssues(manifest); len(issues) > 0 {
+		if err := t.inner.writeManifest(manifest); err != nil {
+			return "", err
+		}
 		payload, _ := json.Marshal(map[string]any{
-			"ok":                  false,
+			"ok":                  true,
 			"mode":                "initialize",
 			"target":              "draft",
 			"quality_gate_passed": false,
 			"issue_count":         len(issues),
 			"issues":              issues,
-			"next_action":         "按 issues 修正完整页面数组后重新调用 initialize；未通过质量门的草稿不会写入 tasks.draft.json。",
+			"next_action":         "草稿已写入 tasks.draft.json；停止全量重写，等待 Task Reviewer 按失败页/章节切片 patch。",
 		})
 		return string(payload), nil
 	}
@@ -268,8 +271,8 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		manifest, err = t.initializeManifest(input)
 		target = t.writeTarget()
 	case "patch":
-		if len(input.Tasks) == 0 {
-			return manifestToolRecoverableError(input.Mode, t.writeTarget(), fmt.Errorf("tasks must not be empty")), nil
+		if len(input.Tasks) == 0 && !hasManifestHeaderPatch(input) {
+			return manifestToolRecoverableError(input.Mode, t.writeTarget(), fmt.Errorf("tasks must not be empty unless title, theme or template is patched")), nil
 		}
 		manifest, err = t.patchManifest(input)
 		target = t.writeTarget()
@@ -292,6 +295,14 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		"ok": true, "mode": input.Mode, "target": target, "updated": len(input.Tasks), "total": len(manifest.Tasks),
 	})
 	return string(result), nil
+}
+
+func hasManifestHeaderPatch(input manifestToolInput) bool {
+	return strings.TrimSpace(input.Title) != "" ||
+		strings.TrimSpace(input.Theme) != "" ||
+		strings.TrimSpace(input.Template) != "" ||
+		input.ContentBank != nil ||
+		input.Sections != nil
 }
 
 func manifestToolRecoverableError(mode, target string, err error) string {

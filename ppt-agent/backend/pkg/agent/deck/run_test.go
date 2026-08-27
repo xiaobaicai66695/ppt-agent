@@ -7,7 +7,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func TestAssistantContentWithToolCallsIsEmittable(t *testing.T) {
+func TestAssistantContentWithToolCallsIsNotEmittable(t *testing.T) {
 	msg := schema.AssistantMessage("Thought: 需要读取模板\nAction: read_file", []schema.ToolCall{{
 		ID:   "call-read-template",
 		Type: "function",
@@ -16,8 +16,8 @@ func TestAssistantContentWithToolCallsIsEmittable(t *testing.T) {
 			Arguments: `{"path":"/tmp/template.json"}`,
 		},
 	}})
-	if !isChunkEmittable(msg) {
-		t.Fatal("assistant content with tool_calls should remain visible")
+	if isChunkEmittable(msg) {
+		t.Fatal("assistant content with tool_calls should stay telemetry-only")
 	}
 }
 

@@ -39,10 +39,24 @@ var draftTasksPatchToolInfo = &schema.ToolInfo{
 	}),
 }
 
-type draftTasksPatchTool struct{ workDir string }
+type draftTasksPatchTool struct {
+	workDir string
+	scoped  bool
+	allowed map[string]bool
+}
 
 func newDraftTasksPatchTool(workDir string) tool.InvokableTool {
 	return &draftTasksPatchTool{workDir: workDir}
+}
+
+func newScopedDraftTasksPatchTool(workDir string, allowedTaskIDs []string) tool.InvokableTool {
+	allowed := make(map[string]bool, len(allowedTaskIDs))
+	for _, taskID := range allowedTaskIDs {
+		if taskID = strings.TrimSpace(taskID); taskID != "" {
+			allowed[taskID] = true
+		}
+	}
+	return &draftTasksPatchTool{workDir: workDir, scoped: true, allowed: allowed}
 }
 
 func (t *draftTasksPatchTool) Info(context.Context) (*schema.ToolInfo, error) {
@@ -54,8 +68,22 @@ func (t *draftTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	if err != nil {
 		return fixerToolError(fmt.Errorf("invalid draft patch: %w", err)), nil
 	}
-	if len(input.Tasks) == 0 {
-		return fixerToolError(fmt.Errorf("tasks must not be empty")), nil
+	if len(input.Tasks) == 0 && !hasManifestHeaderPatch(input) {
+		return fixerToolError(fmt.Errorf("tasks must not be empty unless title, theme or template is patched")), nil
+	}
+	if t.scoped {
+		for _, patch := range input.Tasks {
+			taskID := strings.TrimSpace(patch.TaskID)
+			if taskID == "" {
+				return fixerToolError(fmt.Errorf("scoped draft patch requires task_id")), nil
+			}
+			if !t.allowed[taskID] {
+				return fixerToolError(fmt.Errorf("task_id %q is not authorized for this review slice", taskID)), nil
+			}
+			if patch.PageIndex != nil || patch.OutputFile != nil || patch.Status != nil || patch.FixAttempts != nil {
+				return fixerToolError(fmt.Errorf("task_id %q cannot change page_index, output_file, status or fix_attempts", taskID)), nil
+			}
+		}
 	}
 	input.Mode = "patch"
 	payload, err := json.Marshal(input)

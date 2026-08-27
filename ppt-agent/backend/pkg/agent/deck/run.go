@@ -193,33 +193,6 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 		}
 	}()
 
-	if shouldUseChunkedPlanning(cfg) {
-		chunkStart := time.Now()
-		manifest, chunkErr := runChunkedDeckPlanning(ctx, cfg, userQuery, onEvent)
-		if chunkErr == nil && manifest != nil && len(manifest.Tasks) > 0 {
-			committed, reviewErr := reviewAndCommitDeckSpec(ctx, cfg, onEvent)
-			result = &PPTTaskResult{Message: "chunked planning completed", Duration: time.Since(chunkStart)}
-			if reviewErr != nil {
-				return result, reviewErr
-			}
-			if committed == nil || len(committed.Tasks) == 0 {
-				return result, fmt.Errorf("Planner 生成的 DeckSpec 为空，无法进入渲染")
-			}
-			result.TotalSlides = len(committed.Tasks)
-			result.DoneSlides = committed.CompletedCount()
-			for _, t := range committed.Tasks {
-				if t.Status == StatusDone || t.Status == StatusQADone || t.Status == StatusFixed {
-					result.Files = append(result.Files, filepath.Join(cfg.WorkDir, t.OutputFile))
-				}
-			}
-			return result, nil
-		}
-		if cfg.RuntimeMeta != nil {
-			cfg.RuntimeMeta.RecordEvent("deck_spec_chunked_fallback", "chunked_planner", "warning", fmt.Sprintf("fallback to monolithic planner: %v", chunkErr), nil)
-		}
-		onEvent(AgentEvent{Type: AgentEventProgress, Phase: "planning", PhaseDetail: "分片规划暂不可用，回退到完整 Planner"})
-	}
-
 	start, err := StartPPTPlanner(ctx, agent, cfg, userQuery)
 	if err != nil {
 		return nil, err
@@ -389,7 +362,6 @@ func ensurePlannerDraft(cfg *PPTTaskConfig, userQuery, plannerOutput string, onE
 }
 
 func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent AgentEventCallback) (*TasksManifest, error) {
-	var reviewer adk.Agent
 	var latest *PlanReviewReport
 	for round := 1; round <= maxPlanReviewRounds; round++ {
 		report, err := ReviewTasksDraftManifest(cfg.WorkDir, round)
@@ -429,14 +401,22 @@ func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Ag
 			return manifest, nil
 		}
 
-		if reviewer == nil {
-			reviewer, err = NewTaskPlanReviewerAgent(ctx, cfg)
-			if err != nil {
-				return nil, err
-			}
+		input, allowedTaskIDs, err := buildPlanReviewRevisionInput(cfg.WorkDir, round, report)
+		if err != nil {
+			return nil, fmt.Errorf("构建第 %d 轮 Reviewer 切片输入失败: %w", round, err)
 		}
-		reportJSON, _ := json.MarshalIndent(report, "", "  ")
-		input := fmt.Sprintf("这是第 %d 轮审查报告。请读取当前 tasks.draft.json，只修正报告指出的问题，并合并为一次 patch：\n%s", round, reportJSON)
+		if cfg.RuntimeMeta != nil {
+			cfg.RuntimeMeta.RecordEvent("deck_spec_review_slice", "TaskPlanReviewer", "needs_revision", fmt.Sprintf("scoped review patch for %d tasks", len(allowedTaskIDs)), map[string]any{
+				"round":          round,
+				"allowed_tasks":  allowedTaskIDs,
+				"allowed_count":  len(allowedTaskIDs),
+				"review_summary": report.Summary,
+			})
+		}
+		reviewer, err := NewTaskPlanReviewerAgent(ctx, cfg, allowedTaskIDs)
+		if err != nil {
+			return nil, err
+		}
 		if err := runAgentWithCallback(ctx, reviewer, input, onEvent); err != nil {
 			return nil, fmt.Errorf("Task Reviewer 第 %d 轮修正失败: %w", round, err)
 		}
@@ -461,9 +441,8 @@ func makePrintCallback() AgentEventCallback {
 }
 
 // isChunkEmittable 如果消息的 content 应作为 LLM 答案文本发出则返回 true。
-// 工具结果块（Role=="tool" 或 ToolCallID!=""）被跳过，因为它们是执行元数据。
-// assistant 消息即使同时携带 ToolCalls，也可能包含 ReAct 风格的 Thought/Action 文本；
-// 这部分 content 需要展示给用户，ToolCalls 本身仍通过 tool_call 事件单独转发。
+// 工具结果块和携带 ToolCalls 的 assistant 内容都被跳过，避免把内部工具规划
+// 或供应商格式碎片作为用户可见回答输出。ToolCalls 本身仍通过 tool_call 事件转发。
 func isChunkEmittable(chunk *schema.Message) bool {
 	if chunk == nil {
 		return false
@@ -472,6 +451,9 @@ func isChunkEmittable(chunk *schema.Message) bool {
 		return false
 	}
 	if chunk.ToolCallID != "" {
+		return false
+	}
+	if len(chunk.ToolCalls) > 0 {
 		return false
 	}
 	return true
@@ -555,7 +537,6 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 			}
 			return
 		}
-		// 跳过工具结果块；assistant content 即使伴随 tool_calls 也应作为可见文本发送。
 		if !isChunkEmittable(chunk) {
 			continue
 		}

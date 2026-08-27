@@ -311,7 +311,7 @@ func TestPlannerManifestToolNormalizesShortArgumentBlockWhenLongArgumentIsNotReq
 	}
 }
 
-func TestPlannerManifestToolRejectsPreventableQualityIssuesBeforeWritingDraft(t *testing.T) {
+func TestPlannerManifestToolWritesDraftWhenPreflightFindsQualityIssues(t *testing.T) {
 	workDir := t.TempDir()
 	planner := newPlannerManifestTool(workDir, nil, "AI 产业趋势")
 
@@ -330,7 +330,11 @@ func TestPlannerManifestToolRejectsPreventableQualityIssuesBeforeWritingDraft(t 
 		!strings.Contains(result, `"missing_background_image"`) {
 		t.Fatalf("unexpected preflight result: %s", result)
 	}
-	if _, err := os.Stat(filepath.Join(workDir, tasksDraftFileName)); !os.IsNotExist(err) {
-		t.Fatalf("failed planner preflight must not write a draft: %v", err)
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatalf("planner preflight issues should still leave a reviewable draft: %v", err)
+	}
+	if len(manifest.Tasks) != 1 || manifest.Tasks[0].TaskID != "section-1" {
+		t.Fatalf("unexpected draft after preflight issues: %#v", manifest)
 	}
 }

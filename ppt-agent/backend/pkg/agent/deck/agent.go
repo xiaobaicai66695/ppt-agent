@@ -76,14 +76,14 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 
 // NewTaskPlanReviewerAgent 创建独立的 DeckSpec 质量审查与修正 Agent。
 // 硬校验、轮次上限和最终提交由 Go workflow 负责。
-func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
+func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedTaskIDs []string) (adk.Agent, error) {
 	chatModel, err := newPlanningChatModel(ctx, cfg, 32768)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Reviewer 模型失败: %w", err)
 	}
 
 	reviewerTools := []tool.BaseTool{
-		newDraftTasksPatchTool(cfg.WorkDir),
+		newScopedDraftTasksPatchTool(cfg.WorkDir, allowedTaskIDs),
 		tools.NewReadFileTool(cfg.Operator),
 	}
 

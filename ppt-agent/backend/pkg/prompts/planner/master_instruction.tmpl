@@ -21,7 +21,7 @@
 
 1. 完整读取 `SKILL.md`、组件契约和页面类型说明。背景图片策略、图片检索、内容密度、组件容量和 visual_intent 全部以 skill 为准。
 2. 先完成主题理解、事实准备、整套叙事和逐页组件计划。需要事实时使用 `search`；{{if .ImageSearchAvailable}}需要外部图片时使用 `search_images(download=true)`，并保留来源页和摄影师署名。{{else}}没有可用图片搜索时只记录 `visual_intent.asset_query`。{{end}}
-3. 无论是否有用户大纲，都必须调用 `update_tasks_manifest(mode="initialize")`，一次性提交完整页面数组到规划草稿。目标是一次通过；若工具返回 `quality_gate_passed=false`，必须按逐页问题修正完整数组并重新 initialize。不要逐页 patch，不要调用 commit。
+3. 无论是否有用户大纲，都必须调用 `update_tasks_manifest(mode="initialize")`，一次性提交完整页面数组到规划草稿。目标是一次通过；若工具返回 `quality_gate_passed=false`，不要继续全量重写或重新 initialize，直接结束并交给 Task Reviewer 按失败页/章节切片修正。Planner 不要逐页 patch，不要调用 commit。
 4. 每页必须有非空的 `title`、`description`、合法 `content_type`、稳定 `task_id/output_file/status=pending`，以及可执行的 `content_plan.slide_intent`、`components` 和 `capacity_hint`。
 5. `theme` 只作为无背景页和旧接口的兜底 token，不根据意图或历史偏好推荐固定主题色；带背景图页面由生成器从背景图提取弱化色系并保障可读性。除非用户明确指定配色，顶层 `theme` 使用 `ocean_soft`。
 6. 背景图按页面类型统一规划：同一 `content_type` 必须复用同一个背景 `asset_query`；不同 `content_type` 可以使用不同背景，让版式节奏更丰富。背景搜索词尽量只写一个英文关键词（如 `diplomacy`、`energy`、`city`、`technology`），不要把 `wide landscape`、`clean negative space`、明暗、构图或页面标题写进 `asset_query`。页面需要更多真实图片时，写成 `image` 组件并使用 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，配合 `image_text`、`case_study`、`example_detail` 等图文混排页使用。
