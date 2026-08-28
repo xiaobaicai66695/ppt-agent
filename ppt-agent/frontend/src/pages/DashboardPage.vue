@@ -18,7 +18,7 @@ import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta, RuntimeEvent } from '..
 import { STATUS_LABELS } from '../types';
 import {
   fetchTasks, createTask, fetchTask, cancelTask, deleteTask,
-  isLoggedIn, continueTask, fetchConversation, fetchRuntimeEvent,
+  isLoggedIn, continueTask, fetchConversation, fetchRuntimeEvent, routeMessage,
 } from '../api';
 import { authState } from '../stores/auth';
 import AppShell from '../components/AppShell.vue';
@@ -93,6 +93,7 @@ const streamingAssistant = ref('');
 const streamingAssistantStartedAt = ref('');
 const streamingAssistantSegments = ref<import('../types').ConversationMessage[]>([]);
 const continuationQueued = ref(false);
+const manualAgentMode = ref<'chat' | 'pptagent'>('chat');
 
 const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
   if (!selectedTask.value) return 'create';
@@ -207,8 +208,35 @@ async function submitComposer() {
   if (!selectedTask.value) {
     composerLoading.value = true;
     try {
-      const info = await createTask(message);
       composerInput.value = '';
+      const routed = await routeMessage(message);
+      if (routed.intent === 'chat' || routed.action === 'reply') {
+        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
+          { role: 'user', content: message, timestamp: new Date().toISOString() },
+          { role: 'assistant', content: routed.reply || '这是普通对话，不会创建 PPT 任务。', timestamp: new Date().toISOString() },
+        ]);
+        return;
+      }
+      if (routed.intent === 'plan' || routed.action === 'save_plan') {
+        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
+          { role: 'user', content: message, timestamp: new Date().toISOString() },
+          { role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: new Date().toISOString() },
+        ]);
+        composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，未创建任务。` : '已识别为规划请求，未创建任务。可打开高级编排继续完善 DeckSpec。';
+        return;
+      }
+      if (routed.intent === 'fix') {
+        composerError.value = withTaskCandidates(routed.reply || '这是修复请求，请先选择要修改的任务。', routed.task_candidates || []);
+        return;
+      }
+      if (routed.needs_confirmation || routed.action === 'ask_clarification') {
+        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
+          { role: 'user', content: message, timestamp: new Date().toISOString() },
+          { role: 'assistant', content: routed.reply || '已识别为 PPT 意图，但还需要补充信息。', timestamp: new Date().toISOString() },
+        ]);
+        return;
+      }
+      const info = await createTask(routed.normalized_request || message);
       tasks.value = [info, ...tasks.value.filter(task => task.id !== info.id)];
       selectTask(info.id);
     } catch (error) {
@@ -221,6 +249,7 @@ async function submitComposer() {
 
   const taskId = selectedTask.value.id;
   composerLoading.value = true;
+  const now = new Date().toISOString();
   conversationMessages.value = [...conversationMessages.value, {
     role: 'user', content: message, timestamp: new Date().toISOString(),
   }];
@@ -229,6 +258,33 @@ async function submitComposer() {
   streamingAssistantStartedAt.value = '';
   streamingAssistantSegments.value = [];
   try {
+    const routed = await routeMessage(message, taskId, manualAgentMode.value);
+    manualAgentMode.value = routed.mode;
+    if (routed.intent === 'chat' || routed.action === 'reply') {
+      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
+        role: 'assistant', content: routed.reply || '这是普通对话，不会进入修复流程。', timestamp: now,
+      }]);
+      return;
+    }
+    if (routed.intent === 'plan' || routed.action === 'save_plan') {
+      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
+        role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: now,
+      }]);
+      composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，未修改当前任务。` : '已识别为规划请求，未修改当前任务。';
+      return;
+    }
+    if (routed.intent === 'create') {
+      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
+        role: 'assistant', content: '这像是新建 PPT 请求。为避免覆盖当前任务，请回到新建入口创建新的演示。', timestamp: now,
+      }]);
+      return;
+    }
+    if (routed.needs_confirmation || routed.action === 'ask_clarification') {
+      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
+        role: 'assistant', content: routed.reply || '请说明要修复的任务、页码或具体问题。', timestamp: now,
+      }]);
+      return;
+    }
     const accepted = await continueTask(taskId, message);
     composerNotice.value = accepted.message;
     continuationQueued.value = accepted.status === 'queued';
@@ -240,6 +296,16 @@ async function submitComposer() {
     composerError.value = error instanceof Error ? error.message : '发送失败，请重试';
     composerLoading.value = false;
   }
+}
+
+function withDraftNote(content: string, draftId?: string): string {
+  if (!draftId) return content;
+  return `${content}\n\n草稿已保存：${draftId}`;
+}
+
+function withTaskCandidates(content: string, candidates: import('../api').TaskCandidate[]): string {
+  if (!candidates.length) return content;
+  return `${content}\n\n最近可选任务：\n${candidates.map(item => `- ${item.title || item.id} (${item.id})`).join('\n')}`;
 }
 
 // ── Online Preview Modal ────────────────────────────────────────────────
@@ -997,7 +1063,12 @@ async function handleCreateTask(query: string) {
   creating.value = true;
   loadError.value = '';
   try {
-    const info = await createTask(query);
+    const routed = await routeMessage(query);
+    if (routed.intent !== 'create' || routed.needs_confirmation || routed.action === 'ask_clarification') {
+      loadError.value = routed.reply || '当前输入还不能直接创建 PPT。';
+      return;
+    }
+    const info = await createTask(routed.normalized_request || query);
     tasks.value = [info, ...tasks.value];
     selectTask(info.id);
   } catch (e: any) {

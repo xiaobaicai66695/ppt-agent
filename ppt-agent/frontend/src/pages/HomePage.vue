@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowRight, Clock3, LayoutPanelTop, LoaderCircle, Sparkles, WandSparkles } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
-import { createTask, isLoggedIn } from '../api';
+import { createTask, isLoggedIn, routeMessage } from '../api';
 import { authState } from '../stores/auth';
 
 type CreationMode = 'planned' | 'custom';
@@ -14,6 +14,8 @@ const brief = ref('');
 const mode = ref<CreationMode>('planned');
 const creating = ref(false);
 const createError = ref('');
+const intentNotice = ref('');
+const activeMode = ref<'chat' | 'pptagent'>('chat');
 
 const canStart = computed(() => brief.value.trim().length > 0 && !creating.value);
 const selectedLabel = computed(() => mode.value === 'planned' ? '智能规划' : '自定义编排');
@@ -26,6 +28,7 @@ async function startCreation() {
   const query = brief.value.trim();
   if (!query || creating.value) return;
   createError.value = '';
+  intentNotice.value = '';
 
   if (mode.value === 'custom') {
     await router.push({ path: '/compose', query: { brief: query, mode: 'custom' } });
@@ -34,7 +37,26 @@ async function startCreation() {
 
   creating.value = true;
   try {
-    const task = await createTask(query);
+    const routed = await routeMessage(query, '', activeMode.value);
+    activeMode.value = routed.mode;
+    if (routed.intent === 'chat' || routed.action === 'reply') {
+      intentNotice.value = routed.reply || '这是普通对话，不会创建 PPT 任务。';
+      return;
+    }
+    if (routed.intent === 'plan' || routed.action === 'save_plan') {
+      await router.push({ path: '/compose', query: { brief: routed.normalized_request || query, mode: 'plan', draft: routed.draft_id || undefined } });
+      return;
+    }
+    if (routed.intent === 'fix') {
+      const candidates = (routed.task_candidates || []).map(item => `- ${item.title || item.id} (${item.id})`).join('\n');
+      intentNotice.value = (routed.reply || '这是修复请求，请先在任务记录中选择要修改的 PPT。') + (candidates ? `\n\n最近可选任务：\n${candidates}` : '');
+      return;
+    }
+    if (routed.needs_confirmation || routed.action === 'ask_clarification') {
+      intentNotice.value = routed.reply || '已识别为 PPT 意图，但还需要补充信息。';
+      return;
+    }
+    const task = await createTask(routed.normalized_request || query);
     await router.push({ path: '/dashboard', query: { select: task.id } });
   } catch (error) {
     createError.value = error instanceof Error ? error.message : '任务创建失败，请重试';
@@ -90,6 +112,7 @@ async function startCreation() {
             <ArrowRight v-if="!creating" :size="18" />
           </button>
         </div>
+        <p v-if="intentNotice" class="intent-notice" role="status">{{ intentNotice }}</p>
         <p v-if="createError" class="creation-error" role="alert">{{ createError }}</p>
       </div>
     </section>
@@ -126,6 +149,7 @@ async function startCreation() {
 .start-button:hover:not(:disabled) { background: #064d48; }
 .start-button:disabled { border-color: var(--border-strong); color: var(--text-disabled); background: var(--surface-pressed); cursor: not-allowed; }
 .creation-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
+.intent-notice { margin: 10px 0 0; padding: 10px 11px; border-left: 3px solid var(--info); color: var(--text-secondary); background: var(--info-soft); font-size: 12px; line-height: 1.6; white-space: pre-line; }
 .workflow-strip { margin-top: 42px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .workflow-strip div { min-width: 0; padding: 18px 20px; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 3px 9px; border-right: 1px solid var(--divider); }
 .workflow-strip div:last-child { border-right: 0; }

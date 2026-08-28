@@ -74,6 +74,10 @@ type TaskInfo struct {
 	TotalTokens         int64      `json:"total_tokens"`
 	ConversationContent string     `json:"conversation_content,omitempty"` // 拼接后的对话内容
 	FullAnswer          string     `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
+	Intent              string     `json:"intent,omitempty"`
+	ConversationID      string     `json:"conversation_id,omitempty"`
+	SourceMessageID     string     `json:"source_message_id,omitempty"`
+	ParentTaskID        string     `json:"parent_task_id,omitempty"`
 }
 
 // TaskState 保存单个任务的内部状态。
@@ -498,6 +502,10 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		TotalTokens:         info.TotalTokens,
 		ConversationContent: mysqlSafeText(info.ConversationContent),
 		FullAnswer:          mysqlSafeText(info.FullAnswer),
+		Intent:              mysqlSafeText(info.Intent),
+		ConversationID:      mysqlSafeText(info.ConversationID),
+		SourceMessageID:     mysqlSafeText(info.SourceMessageID),
+		ParentTaskID:        mysqlSafeText(info.ParentTaskID),
 	}
 }
 
@@ -549,6 +557,10 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		TotalTokens:         r.TotalTokens,
 		ConversationContent: r.ConversationContent,
 		FullAnswer:          r.FullAnswer,
+		Intent:              r.Intent,
+		ConversationID:      r.ConversationID,
+		SourceMessageID:     r.SourceMessageID,
+		ParentTaskID:        r.ParentTaskID,
 	}
 }
 
@@ -571,6 +583,10 @@ func (ts *TaskState) persist() {
 		"total_tokens":         r.TotalTokens,
 		"conversation_content": r.ConversationContent,
 		"full_answer":          r.FullAnswer,
+		"intent":               r.Intent,
+		"conversation_id":      r.ConversationID,
+		"source_message_id":    r.SourceMessageID,
+		"parent_task_id":       r.ParentTaskID,
 	}); err != nil {
 		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}
@@ -651,12 +667,16 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 
 	ts := &TaskState{
 		Info: TaskInfo{
-			ID:        cfg.TaskID,
-			UserID:    userID,
-			Query:     query,
-			Status:    TaskStatusRunning,
-			WorkDir:   workDir,
-			CreatedAt: time.Now(),
+			ID:              cfg.TaskID,
+			UserID:          userID,
+			Query:           query,
+			Status:          TaskStatusRunning,
+			WorkDir:         workDir,
+			CreatedAt:       time.Now(),
+			Intent:          cfg.Intent,
+			ConversationID:  cfg.ConversationID,
+			SourceMessageID: cfg.SourceMessageID,
+			ParentTaskID:    cfg.ParentTaskID,
 		},
 		listeners:       make(map[string]chan SSERichEvent),
 		reportedFiles:   make(map[string]bool),

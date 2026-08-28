@@ -173,6 +173,21 @@ func NewServer(cfg *ServerConfig) *Server {
 	}
 
 	// 任务路由（需要认证）
+	messages := engine.Group("/api/messages")
+	messages.Use(s.authMiddleware())
+	{
+		messages.POST("", s.handleMessage)
+	}
+
+	planDrafts := engine.Group("/api/plan-drafts")
+	planDrafts.Use(s.authMiddleware())
+	{
+		planDrafts.POST("", s.handleCreatePlanDraft)
+		planDrafts.GET("", s.handleListPlanDrafts)
+		planDrafts.GET("/:id", s.handleGetPlanDraft)
+	}
+
+	// 任务路由（需要认证）
 	tasks := engine.Group("/api/tasks")
 	tasks.Use(s.authMiddleware())
 	{

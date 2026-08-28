@@ -52,6 +52,25 @@ func TestTaskInfoToRecordDropsFourByteRunesForLegacyMySQL(t *testing.T) {
 	}
 }
 
+func TestTaskInfoRecordCarriesIntentMetadata(t *testing.T) {
+	record := taskInfoToRecord(&TaskInfo{
+		ID:              "task-meta",
+		UserID:          7,
+		Query:           "做一份产品评审 PPT",
+		Intent:          "create",
+		ConversationID:  "conv-1",
+		SourceMessageID: "msg-1",
+		ParentTaskID:    "parent-1",
+	})
+	if record.Intent != "create" || record.ConversationID != "conv-1" || record.SourceMessageID != "msg-1" || record.ParentTaskID != "parent-1" {
+		t.Fatalf("record metadata not carried: %#v", record)
+	}
+	info := recordToTaskInfo(record)
+	if info.Intent != "create" || info.ConversationID != "conv-1" || info.SourceMessageID != "msg-1" || info.ParentTaskID != "parent-1" {
+		t.Fatalf("task info metadata not restored: %#v", info)
+	}
+}
+
 func TestPersistConversationContentDoesNotHoldTaskLockDuringDatabaseRead(t *testing.T) {
 	oldList := listConversationMessagesForSummary
 	started := make(chan struct{})

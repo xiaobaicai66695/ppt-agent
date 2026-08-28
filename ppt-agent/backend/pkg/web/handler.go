@@ -158,6 +158,10 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		})
 		return
 	}
+	if duplicate := s.findRecentDuplicateTask(uid, req.Query); duplicate != nil {
+		c.JSON(http.StatusOK, duplicate)
+		return
+	}
 
 	taskID := s.taskIDGen()
 	cfg := s.makeTaskConfig(taskID)
@@ -165,6 +169,8 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	cfg.UserID = uid
 	cfg.ModelAPIKey = credential.APIKey
 	cfg.ModelProvider = credential.Provider
+	cfg.Intent = messageIntentCreate
+	cfg.ConversationID = taskID
 
 	// 如果有 outline，先做服务端兜底校验/补齐；TaskManager 只将其写入规划草稿。
 	if req.Outline != nil && len(req.Outline.Slides) > 0 {
@@ -191,6 +197,104 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	sess.AddUserMessage(req.Query)
 
 	c.JSON(http.StatusCreated, info)
+}
+
+func (s *Server) findRecentDuplicateTask(uid int, query string) *task.TaskInfo {
+	queryKey := normalizeMessageKey(query)
+	if queryKey == "" || s.tasks == nil {
+		return nil
+	}
+	deadline := time.Now().Add(-2 * time.Minute)
+	for _, info := range s.tasks.ListTasks(uid) {
+		if info.CreatedAt.Before(deadline) {
+			continue
+		}
+		if info.Status == task.TaskStatusCancelled || info.Status == task.TaskStatusFailed {
+			continue
+		}
+		if normalizeMessageKey(info.Query) == queryKey {
+			copy := info
+			return &copy
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleMessage(c *gin.Context) {
+	var req struct {
+		Message        string `json:"message"`
+		SelectedTaskID string `json:"selected_task_id,omitempty"`
+		ManualMode     string `json:"manual_mode,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Message) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "message is required"})
+		return
+	}
+
+	uid := userIDGin(c)
+	credential := userModelCredential(uid)
+	route := s.routeMessageRequest(c.Request.Context(), req.Message, req.SelectedTaskID, credential)
+	if strings.EqualFold(strings.TrimSpace(req.ManualMode), messageModePPTAgent) && route.Intent == messageIntentChat && mentionsDeck(strings.ToLower(req.Message)) {
+		route.Mode = messageModePPTAgent
+		route.Intent = messageIntentCreate
+		route.Action = messageActionPrepareCreate
+		route.Reason = firstCreateRouteText(route.Reason, "用户手动选择 PPT Agent，按创建准备处理")
+	}
+	if route.Intent == messageIntentPlan {
+		draft := s.newPlanDraftRecord(uid, req.Message, route.NormalizedRequest, route.Reply, route.TaskID, "")
+		if err := db.CreatePlanDraft(draft); err == nil {
+			route.DraftID = draft.ID
+			if route.Reply == "" {
+				route.Reply = draft.DraftContent
+			}
+		} else {
+			route.NeedsConfirmation = true
+			route.Action = messageActionAskClarification
+			route.Reply = "规划草稿保存失败，请稍后重试。"
+		}
+	}
+	if route.Intent == messageIntentFix && route.TaskID == "" {
+		route.TaskCandidates = s.recentTaskCandidates(uid, 5)
+		if len(route.TaskCandidates) > 0 {
+			route.Reply = "这像是修复已有 PPT。请选择一个要修改的任务后再继续。"
+		}
+	}
+	if route.Intent == messageIntentChat && route.Action == messageActionReply {
+		route.Reply = s.buildChatReply(c.Request.Context(), req.Message, route.Reply)
+	}
+	c.JSON(http.StatusOK, route)
+}
+
+func (s *Server) recentTaskCandidates(uid int, limit int) []TaskCandidate {
+	if s.tasks == nil || limit <= 0 {
+		return nil
+	}
+	infos := s.tasks.ListTasks(uid)
+	candidates := make([]TaskCandidate, 0, limit)
+	for _, info := range infos {
+		if info.Status == task.TaskStatusCancelled || info.Status == task.TaskStatusFailed {
+			continue
+		}
+		candidates = append(candidates, TaskCandidate{
+			ID:        info.ID,
+			Title:     compactWebSummary(info.Query, 48),
+			Status:    string(info.Status),
+			CreatedAt: info.CreatedAt,
+		})
+		if len(candidates) >= limit {
+			break
+		}
+	}
+	return candidates
+}
+
+func compactWebSummary(value string, limit int) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	runes := []rune(value)
+	if limit > 0 && len(runes) > limit {
+		return string(runes[:limit]) + "..."
+	}
+	return value
 }
 
 func (s *Server) handleGetTask(c *gin.Context) {

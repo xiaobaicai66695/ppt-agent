@@ -52,6 +52,10 @@ type PPTTaskConfig struct {
 	CompressorTracker *agentutils.TokenTracker
 	RuntimeMeta       *agentutils.RuntimeMeta
 	Outline           *TaskOutline // 用户编排的大纲；作为 Planner 草稿约束，不跳过规划与审查
+	Intent            string
+	ConversationID    string
+	SourceMessageID   string
+	ParentTaskID      string
 
 	UserID int // 用户ID
 }

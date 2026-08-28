@@ -14,6 +14,8 @@ const loading = ref(false);
 const loadError = ref('');
 const generating = ref(false);
 const generationError = ref('');
+const intentMode = computed(() => route.query.mode === 'plan' ? 'plan' : 'create');
+const planDraftId = computed(() => typeof route.query.draft === 'string' ? route.query.draft : '');
 
 // Editing state
 const pptTitle = ref('');
@@ -281,6 +283,11 @@ async function startGeneration() {
       </div>
     </section>
 
+    <p v-if="intentMode === 'plan'" class="workspace-notice" role="status">
+      已识别为规划请求：当前只整理标题、页面结构和 DeckSpec 草稿；点击“开始生成”前不会创建或渲染 PPT 文件。
+      <span v-if="planDraftId">服务端草稿 ID：{{ planDraftId }}</span>
+    </p>
+
     <p v-if="loadError" class="workspace-error" role="alert">
       <span>{{ loadError }}</span>
       <button type="button" @click="loadWorkspaceData">重新加载</button>
@@ -421,6 +428,8 @@ async function startGeneration() {
 
 .workspace-error { margin: 0; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-left: 3px solid var(--danger); color: var(--danger); background: var(--danger-soft); font-size: 12px; }
 .workspace-error button { min-height: 36px; border: 0; color: var(--danger); background: transparent; font-weight: 700; cursor: pointer; }
+.workspace-notice { margin: 0; padding: 10px 12px; border-left: 3px solid var(--info); color: var(--text-secondary); background: var(--info-soft); font-size: 12px; line-height: 1.55; }
+.workspace-notice span { display: block; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
 
 .editor-workspace {
   min-height: 0; flex: 1; display: grid; grid-template-columns: 276px minmax(420px,1fr) 334px;

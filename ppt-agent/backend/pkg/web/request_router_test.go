@@ -12,6 +12,33 @@ type fakeCreateRouteModel struct {
 	called   *bool
 }
 
+func TestNormalizeMessageRouteUsesConfigurableConfidenceThreshold(t *testing.T) {
+	t.Setenv("PPT_INTENT_LOW_CONFIDENCE_THRESHOLD", "0.7")
+	got := normalizeMessageRoute(MessageRouteResult{
+		Intent:     messageIntentChat,
+		Mode:       messageModeChat,
+		Action:     messageActionReply,
+		Confidence: 0.6,
+	}, "你好", "")
+	if got.Action != messageActionAskClarification || !got.NeedsConfirmation {
+		t.Fatalf("low confidence should ask clarification: %#v", got)
+	}
+}
+
+func TestNormalizeMessageRouteMissingCreateFieldsRequiresConfirmationBelowThreshold(t *testing.T) {
+	t.Setenv("PPT_INTENT_CREATE_MISSING_FIELDS_AUTO_THRESHOLD", "0.95")
+	got := normalizeMessageRoute(MessageRouteResult{
+		Intent:            messageIntentCreate,
+		Mode:              messageModePPTAgent,
+		Action:            messageActionPrepareCreate,
+		Confidence:        0.9,
+		NormalizedRequest: "帮我做个 PPT",
+	}, "帮我做个 PPT", "")
+	if got.Action != messageActionAskClarification || !got.NeedsConfirmation || len(got.MissingFields) == 0 {
+		t.Fatalf("missing create fields should ask clarification: %#v", got)
+	}
+}
+
 func (f fakeCreateRouteModel) Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (*schema.Message, error) {
 	if f.called != nil {
 		*f.called = true
@@ -27,7 +54,7 @@ func TestRouteCreateRequestUsesLLMClassification(t *testing.T) {
 		}, error) {
 			return fakeCreateRouteModel{
 				called:   &called,
-				response: `{"intent":"chat","reason":"模型判断为能力咨询","clarification_question":"请说明要制作的 PPT 主题。","confidence":0.91}`,
+				response: `{"intent":"chat","mode":"chat","reason":"模型判断为能力咨询","action":"reply","reply":"请说明要制作的 PPT 主题。","confidence":0.91}`,
 			}, nil
 		},
 	}
@@ -38,6 +65,49 @@ func TestRouteCreateRequestUsesLLMClassification(t *testing.T) {
 	}
 	if got.Intent != createIntentChat || got.Reason != "模型判断为能力咨询" {
 		t.Fatalf("route = %#v, want LLM classification result", got)
+	}
+}
+
+func TestRouteMessageRequestRuleFallback(t *testing.T) {
+	server := &Server{}
+	cases := []struct {
+		name       string
+		query      string
+		selectedID string
+		wantIntent string
+		wantMode   string
+		wantAction string
+		wantNeeds  bool
+	}{
+		{name: "small talk", query: "你好", wantIntent: messageIntentChat, wantMode: messageModeChat, wantAction: messageActionReply},
+		{name: "clear create", query: "为研发负责人做一份 10 页产品评审 PPT，风格务实", wantIntent: messageIntentCreate, wantMode: messageModePPTAgent, wantAction: messageActionPrepareCreate},
+		{name: "plan only", query: "先规划一下 AI 技术分享的结构，不要生成", wantIntent: messageIntentPlan, wantMode: messageModePPTAgent, wantAction: messageActionSavePlan},
+		{name: "fix without task", query: "修复上一版 PPT 的第三页标题溢出", wantIntent: messageIntentFix, wantMode: messageModePPTAgent, wantAction: messageActionAskClarification, wantNeeds: true},
+		{name: "fix with task", query: "把第2页标题字体调大一点", selectedID: "task-1", wantIntent: messageIntentFix, wantMode: messageModePPTAgent, wantAction: messageActionUpdateTask},
+		{name: "vague create", query: "帮我做个PPT", wantIntent: messageIntentCreate, wantMode: messageModePPTAgent, wantAction: messageActionAskClarification, wantNeeds: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := server.routeMessageRequest(context.Background(), tc.query, tc.selectedID)
+			if got.Intent != tc.wantIntent || got.Mode != tc.wantMode || got.Action != tc.wantAction || got.NeedsConfirmation != tc.wantNeeds {
+				t.Fatalf("route = %#v", got)
+			}
+		})
+	}
+}
+
+func TestNormalizeMessageRouteRequiresTaskForFix(t *testing.T) {
+	got := normalizeMessageRoute(MessageRouteResult{
+		Intent:     messageIntentFix,
+		Mode:       messageModePPTAgent,
+		Action:     messageActionUpdateTask,
+		Confidence: 0.92,
+	}, "修复上一版第三页", "")
+	if got.Action != messageActionAskClarification || !got.NeedsConfirmation {
+		t.Fatalf("fix without task should ask clarification: %#v", got)
+	}
+	if len(got.MissingFields) != 1 || got.MissingFields[0] != "task_id" {
+		t.Fatalf("missing fields = %#v, want task_id", got.MissingFields)
 	}
 }
 

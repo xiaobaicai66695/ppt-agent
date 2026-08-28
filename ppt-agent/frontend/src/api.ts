@@ -247,6 +247,67 @@ export async function createTaskWithOutline(query: string, outline: TaskOutline)
   return res.json();
 }
 
+// ── Unified message / intent API ─────────────────────────────────────────────
+
+export type MessageIntent = 'chat' | 'create' | 'plan' | 'fix';
+export type AgentMode = 'chat' | 'pptagent';
+export type MessageAction = 'reply' | 'prepare_create' | 'save_plan' | 'update_task' | 'ask_clarification';
+
+export interface MessageRouteResult {
+  intent: MessageIntent;
+  mode: AgentMode;
+  confidence: number;
+  needs_confirmation: boolean;
+  normalized_request: string;
+  task_id: string;
+  draft_id?: string;
+  missing_fields: string[];
+  action: MessageAction;
+  reason?: string;
+  reply?: string;
+  task_candidates?: TaskCandidate[];
+}
+
+export interface TaskCandidate {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string;
+}
+
+export interface PlanDraft {
+  id: string;
+  user_id: number;
+  conversation_id: string;
+  source_message_id: string;
+  query: string;
+  normalized_request: string;
+  draft_content: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function routeMessage(message: string, selectedTaskId = '', manualMode: AgentMode = 'chat'): Promise<MessageRouteResult> {
+	const res = await checkResponse(await apiFetch('/api/messages', {
+		method: 'POST',
+		headers: authHeaders(),
+		body: JSON.stringify({ message, selected_task_id: selectedTaskId, manual_mode: manualMode }),
+	}));
+  return res.json();
+}
+
+export async function fetchPlanDrafts(): Promise<PlanDraft[]> {
+	const res = await checkResponse(await apiFetch('/api/plan-drafts', { headers: authHeaders() }));
+  const data = await res.json();
+  return data.drafts || [];
+}
+
+export async function fetchPlanDraft(id: string): Promise<PlanDraft> {
+	const res = await checkResponse(await apiFetch(`/api/plan-drafts/${encodeURIComponent(id)}`, { headers: authHeaders() }));
+  return res.json();
+}
+
 // ── Continue / Session API ──────────────────────────────────────────────────────
 
 export interface ContinueTaskResult {

@@ -68,8 +68,26 @@ type TaskRecord struct {
 	Files               string    `gorm:"type:text" json:"files"`
 	ConversationContent string    `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
 	FullAnswer          string    `gorm:"type:longtext" json:"full_answer"`          // 完整拼接的 LLM 回答（用于冷加载恢复）
+	Intent              string    `gorm:"size:32;index" json:"intent"`
+	ConversationID      string    `gorm:"size:64;index" json:"conversation_id"`
+	SourceMessageID     string    `gorm:"size:64;index" json:"source_message_id"`
+	ParentTaskID        string    `gorm:"size:64;index" json:"parent_task_id"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// PlanDraftRecord stores PPT Agent planning results that must not trigger PPT rendering.
+type PlanDraftRecord struct {
+	ID                string    `gorm:"size:64;primaryKey" json:"id"`
+	UserID            uint      `gorm:"index;not null" json:"user_id"`
+	ConversationID    string    `gorm:"size:64;index" json:"conversation_id"`
+	SourceMessageID   string    `gorm:"size:64;index" json:"source_message_id"`
+	Query             string    `gorm:"type:text" json:"query"`
+	NormalizedRequest string    `gorm:"type:text" json:"normalized_request"`
+	DraftContent      string    `gorm:"type:longtext" json:"draft_content"`
+	Status            string    `gorm:"size:32;index;not null;default:'draft'" json:"status"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // ConversationMessage — 任务对话历史中的单条消息。
@@ -139,6 +157,51 @@ func ListTaskRecordsByUser(userID uint) ([]TaskRecord, error) {
 
 func DeleteTaskRecord(id string) error {
 	return DB.Where("id = ?", id).Delete(&TaskRecord{}).Error
+}
+
+// ── PlanDraftRecord CRUD ──────────────────────────────────────────────────
+
+func CreatePlanDraft(r *PlanDraftRecord) error {
+	if DB == nil {
+		return nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	return DB.WithContext(ctx).Create(r).Error
+}
+
+func GetPlanDraft(id string) (*PlanDraftRecord, error) {
+	if DB == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	var r PlanDraftRecord
+	err := DB.WithContext(ctx).Where("id = ?", id).First(&r).Error
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func ListPlanDraftsByUser(userID uint) ([]PlanDraftRecord, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	var records []PlanDraftRecord
+	err := DB.WithContext(ctx).Where("user_id = ?", userID).Order("created_at DESC").Find(&records).Error
+	return records, err
+}
+
+func UpdatePlanDraft(id string, updates map[string]any) error {
+	if DB == nil {
+		return nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	return DB.WithContext(ctx).Model(&PlanDraftRecord{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // ── ConversationMessage 增删改查 ─────────────────────────────────────────────
@@ -295,7 +358,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &PlanDraftRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 
