@@ -46,6 +46,7 @@ Thumbs.db
 
 # Archives
 *.zip
+*.tar
 *.tar.gz
 *.7z
 
@@ -58,7 +59,13 @@ test/*
 test/plan_benchmark/results/
 !test/gold_decks/
 !test/gold_decks/**
+test/gold_decks/generated_*/
 
 # Build artifacts
 *.tsbuildinfo
 .claude/
+
+# Local delivery binaries and generator workspaces
+hydrate-deck-assets-linux
+ppt-agent-linux*
+skills/ppt-deck-planner/work/

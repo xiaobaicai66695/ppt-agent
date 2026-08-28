@@ -19,6 +19,11 @@ __pycache__/
 *.pyo
 *.exe
 *.zip
+*.tar
+*.tar.gz
+
+# Local probe workspaces
+tmp-eino-qwen-probe/
 
 # Logs and local configuration
 *.log
