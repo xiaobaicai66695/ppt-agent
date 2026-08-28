@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
 import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
 import {
@@ -49,8 +49,14 @@ const placeholder = computed(() => props.mode === 'create'
   ? '例如：为产品评审制作 10 页演示，面向研发负责人，重点说明架构与风险'
   : '描述希望如何改进这套演示');
 
+const hasLiveAssistantStream = computed(() => Boolean(
+  props.streamingContent?.trim() || props.streamingMessages?.some(message => message.content?.trim()),
+));
 const displayMessages = computed(() => mergeConversationMessages(
-  runtimeAssistantOutputMessages(props.runtimeEvents || []),
+  // While a turn is in flight, the runtime snapshot contains the same chunks
+  // as streamingContent. Reconstructing both produces duplicated prose and
+  // makes every snapshot re-render the full transcript.
+  hasLiveAssistantStream.value ? [] : runtimeAssistantOutputMessages(props.runtimeEvents || []),
   props.messages,
 ));
 const streamingAlreadyShown = computed(() => {
@@ -76,17 +82,29 @@ const conversationItems = computed(() => deriveInlineConversationItems(
 ));
 const visibleItemCount = computed(() => conversationItems.value.length);
 
-watch(() => [conversationItems.value.length, props.streamingContent], async () => {
+let scrollFrame: number | null = null;
+
+function scheduleThreadScroll() {
   if (conversationItems.value.length > 0 || props.streamingContent) showHistory.value = true;
-  const shouldScroll = autoFollowThread.value || !thread.value;
-  const previousScrollTop = thread.value?.scrollTop ?? 0;
-  await nextTick();
-  if (!thread.value) return;
-  if (shouldScroll) {
-    thread.value.scrollTop = thread.value.scrollHeight;
-  } else {
-    thread.value.scrollTop = previousScrollTop;
-  }
+  if (scrollFrame !== null) return;
+  scrollFrame = window.requestAnimationFrame(async () => {
+    scrollFrame = null;
+    const shouldScroll = autoFollowThread.value || !thread.value;
+    const previousScrollTop = thread.value?.scrollTop ?? 0;
+    await nextTick();
+    if (!thread.value) return;
+    if (shouldScroll) {
+      thread.value.scrollTop = thread.value.scrollHeight;
+    } else {
+      thread.value.scrollTop = previousScrollTop;
+    }
+  });
+}
+
+watch(() => [conversationItems.value.length, props.streamingContent], scheduleThreadScroll);
+
+onUnmounted(() => {
+  if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
 });
 
 function isNearThreadBottom(el: HTMLElement): boolean {

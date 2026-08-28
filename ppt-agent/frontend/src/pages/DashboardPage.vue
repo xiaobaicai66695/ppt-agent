@@ -94,6 +94,9 @@ const streamingAssistantStartedAt = ref('');
 const streamingAssistantSegments = ref<import('../types').ConversationMessage[]>([]);
 const continuationQueued = ref(false);
 const manualAgentMode = ref<'chat' | 'pptagent'>('chat');
+const STREAMING_RENDER_INTERVAL_MS = 100;
+let pendingAssistantDeltas: { content: string; timelineOrder: number }[] = [];
+let streamingRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
 const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
   if (!selectedTask.value) return 'create';
@@ -140,7 +143,31 @@ function appendAssistantDelta(delta: string, timelineOrder = 0) {
   appendStreamingAssistantSegment(visibleDelta, timelineOrder);
 }
 
+function flushAssistantDeltas() {
+  if (streamingRenderTimer) {
+    clearTimeout(streamingRenderTimer);
+    streamingRenderTimer = null;
+  }
+  const deltas = pendingAssistantDeltas;
+  pendingAssistantDeltas = [];
+  for (const delta of deltas) appendAssistantDelta(delta.content, delta.timelineOrder);
+}
+
+function queueAssistantDelta(content: string, timelineOrder = 0) {
+  if (!content) return;
+  pendingAssistantDeltas.push({ content, timelineOrder });
+  if (streamingRenderTimer) return;
+  streamingRenderTimer = setTimeout(flushAssistantDeltas, STREAMING_RENDER_INTERVAL_MS);
+}
+
+function clearPendingAssistantDeltas() {
+  if (streamingRenderTimer) clearTimeout(streamingRenderTimer);
+  streamingRenderTimer = null;
+  pendingAssistantDeltas = [];
+}
+
 function finalizeAssistantTurn() {
+  flushAssistantDeltas();
   const content = streamingAssistant.value.trim();
   const segments = streamingAssistantSegments.value.filter(message => message.content.trim());
   if (segments.length > 0) {
@@ -256,6 +283,7 @@ async function submitComposer() {
     role: 'user', content: message, timestamp: userTimestamp,
   }];
   composerInput.value = '';
+  clearPendingAssistantDeltas();
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
   streamingAssistantSegments.value = [];
@@ -620,7 +648,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
       case 'answer': {
         const chunk = evt.content || '';
         if (chunk) {
-          appendAssistantDelta(chunk);
+          queueAssistantDelta(chunk);
         }
 		break;
 	  }
@@ -799,6 +827,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
 function disconnectSSE() {
   if (es) { es.close(); es = null; }
   stopPolling();
+  clearPendingAssistantDeltas();
   streamingAssistant.value = '';
   streamingAssistantStartedAt.value = '';
   streamingAssistantSegments.value = [];

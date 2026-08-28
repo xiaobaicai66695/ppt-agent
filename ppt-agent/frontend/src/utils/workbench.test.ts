@@ -4,6 +4,7 @@ import {
   appendAssistantStreamContent, canonicalOutputFile, compactRuntimeEvents, deriveInlineConversationItems, deriveInlineToolPreviews,
   deriveLiveActivity, deriveObservableSteps, formatToolPreviewFields, mergeConversationMessages,
   mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
+  RUNTIME_EVENT_TAIL_LIMIT,
   runtimeAssistantOutputMessages, runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
   summarizeTaskTitle,
 } from './workbench';
@@ -799,6 +800,19 @@ describe('workbench utilities', () => {
 	const meta = mergeRuntimeMeta({ elapsed_ms: 1, recent_events: persisted }, { elapsed_ms: 3, recent_events: tail });
 	expect(meta.elapsed_ms).toBe(3);
 	expect(meta.recent_events).toHaveLength(3);
+  });
+
+  it('bounds repeated runtime snapshot merges to the live event tail', () => {
+    const event = (id: number): RuntimeEvent => ({
+      id, task_id: 'task-1', timestamp: `2026-08-05T00:00:${String(id).padStart(2, '0')}Z`, elapsed_ms: id,
+      kind: 'assistant_output', name: 'visible_answer', status: 'ok', metadata: { assistant_output: `chunk-${id}` },
+    });
+    const merged = Array.from({ length: RUNTIME_EVENT_TAIL_LIMIT + 30 }, (_, index) => index + 1)
+      .reduce<RuntimeEvent[]>((current, id) => mergeRuntimeEvents(current, [event(id)]), []);
+
+    expect(merged).toHaveLength(RUNTIME_EVENT_TAIL_LIMIT);
+    expect(merged[0].id).toBe(31);
+    expect(merged[merged.length - 1]?.id).toBe(RUNTIME_EVENT_TAIL_LIMIT + 30);
   });
 
   it('labels compression as an observable before-after event', () => {

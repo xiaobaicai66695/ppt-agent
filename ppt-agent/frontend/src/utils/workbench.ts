@@ -1004,6 +1004,11 @@ function runtimeEventIdentity(event: RuntimeEvent): string {
   return runtimeEventFingerprint(event);
 }
 
+// The server publishes a sliding operational tail, not an immutable audit log.
+// Keep a small overlap beyond its current 80-event window so repeated runtime
+// snapshots cannot grow the reactive conversation state for a long-running job.
+export const RUNTIME_EVENT_TAIL_LIMIT = 120;
+
 export function mergeRuntimeEvents(current: RuntimeEvent[] = [], incoming: RuntimeEvent[] = []): RuntimeEvent[] {
   const merged = new Map<string, RuntimeEvent>();
   for (const event of [...current, ...incoming]) {
@@ -1020,10 +1025,11 @@ export function mergeRuntimeEvents(current: RuntimeEvent[] = [], incoming: Runti
       metadata_loaded: event.metadata_loaded ?? previous.metadata_loaded,
     });
   }
-  return [...merged.values()].sort((a, b) => {
+  const sorted = [...merged.values()].sort((a, b) => {
     if (a.id > 0 && b.id > 0 && a.id !== b.id) return a.id - b.id;
     return Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
   });
+  return sorted.slice(-RUNTIME_EVENT_TAIL_LIMIT);
 }
 
 export function mergeRuntimeMeta(current: RuntimeMeta | null | undefined, incoming: RuntimeMeta): RuntimeMeta {
