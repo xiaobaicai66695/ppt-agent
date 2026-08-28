@@ -1,11 +1,8 @@
 """PPT slide generators - exports all generators."""
 from .base import (
     PALETTES, new_presentation, set_slide_background, set_image_background,
-    save_presentation, save_slide, resolve_background, get_background_path,
+    save_presentation, save_slide, resolve_background,
     add_text_boxed, apply_slide_transition, apply_presentation_transitions,
-)
-from .background_manager import (
-    get_palette_for_background, BACKGROUND_PALETTE_MAP,
 )
 from .title_slide_generator import generate as generate_title_slide
 from .section_divider_generator import generate as generate_section_divider
@@ -43,10 +40,7 @@ __all__ = [
     "apply_slide_transition",
     "apply_presentation_transitions",
     "resolve_background",
-    "get_background_path",
     "add_text_boxed",
-    "get_palette_for_background",
-    "BACKGROUND_PALETTE_MAP",
     "generate_title_slide",
     "generate_section_divider",
     "generate_content_slide",

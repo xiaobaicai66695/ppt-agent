@@ -1,6 +1,6 @@
 # 幻灯片类型体系
 
-本文档列出 `tasks.json` 中允许使用的唯一合法 `content_type`。规划、前端大纲、full-deck 模板和 SlideExecutor 都必须使用这些英文 id；图表形态、表格含义、视觉风格等细节应写入 `description` 或 `content_plan`，不要发明新的 `content_type`。
+本文档列出 `tasks.json` 中允许使用的唯一合法 `content_type`。规划、前端大纲、full-deck 模板和 SlideExecutor 都必须使用这些英文 id；图表形态、表格含义、视觉风格等细节应写入 `content_plan`，不要发明新的 `content_type`。
 
 `layout_variant` 用于表达同一 `content_type` 下的具体排法，例如 `title_slide` 的 `photo_full_bleed_center` 或 `image_text` 的 `left_photo`。它不是新的页面类型，不能写入 `content_type` 字段。
 
@@ -13,7 +13,7 @@
 - `summary_slide`: 总结页
 
 ### 内容陈述类
-- `content_slide`: 普通内容页（兜底类型）
+- `content_slide`: 普通内容页
 - `quote_slide`: 金句/引言页
 - `image_text`: 图文混排页
 - `image_hero`: 视觉冲击页
@@ -45,7 +45,7 @@
 
 ## 禁止使用的历史别名
 
-以下 id 不是合法 `content_type`，只能在旧任务兼容读取时临时映射，不能写入新的 `tasks.json` 或模板 JSON：
+以下 id 不是合法 `content_type`，不能写入 `tasks.json` 或模板 JSON：
 
 - `bar_chart`、`line_chart`、`pie_chart`、`doughnut_chart`: 改用 `chart_slide`，并在 `content_plan.chart_type` 中写 `bar`、`line`、`pie`、`doughnut`
 - `table`: 改用 `comparison_table`

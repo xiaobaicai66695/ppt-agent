@@ -1,0 +1,45 @@
+{
+  "title": "图表页示例",
+  "audience": "需要验证结构化图表数据的通用 Agent",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "季度采用率对比",
+      "content_type": "chart_slide",
+      "content_plan": {
+        "summary": "用结构化 chart 组件生成基础柱状图。",
+        "slide_intent": "验证 chart.data.chart_type、labels 和 datasets 能被确定性渲染。",
+        "components": [
+          {
+            "type": "chart",
+            "title": "采用率变化",
+            "data": {
+              "chart_type": "bar",
+              "labels": ["Q1", "Q2", "Q3", "Q4"],
+              "datasets": [
+                {
+                  "name": "团队 A",
+                  "values": [32, 45, 58, 71]
+                },
+                {
+                  "name": "团队 B",
+                  "values": [28, 41, 49, 64]
+                }
+              ]
+            }
+          },
+          {
+            "type": "insight",
+            "title": "核心判断",
+            "body": "两个团队的采用率都在持续上升，团队 A 在 Q3 后形成更明显的领先优势。"
+          },
+          {
+            "type": "source_note",
+            "text": "来源: 示例数据，仅用于验证渲染契约"
+          }
+        ]
+      }
+    }
+  ]
+}

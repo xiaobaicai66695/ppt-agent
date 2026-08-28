@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Render one slide from tasks.json by task_id.
 
-This script is the deterministic renderer used by the backend worker pool. It
-keeps LLM work in planning and turns a SlideSpec into generator calls.
+This deterministic renderer keeps LLM work in planning and turns a SlideSpec
+into generator calls. Callers may provide ``output_file``; otherwise the script
+derives ``<task_id>.pptx``.
 """
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Callable
+
+
+DEFAULT_PALETTE = "ocean_soft"
 
 
 def main() -> int:
@@ -63,10 +67,10 @@ def main() -> int:
     if not task:
         raise SystemExit(f"task_id {args.task_id} not found")
 
-    palette = manifest.get("theme") or "ocean_soft"
+    palette = manifest_palette(manifest)
     content_type = normalize_content_type(task.get("content_type", "content_slide"))
     background = background_from_task(task, work_dir)
-    output_file = task.get("output_file") or f"{task.get('page_index', args.task_id)}.pptx"
+    output_file = clean_text(task.get("output_file")) or default_output_file(args.task_id)
     output_path = work_dir / output_file
 
     generators: dict[str, Callable[..., Any]] = {
@@ -120,9 +124,18 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def find_task(manifest: dict[str, Any], task_id: str) -> dict[str, Any] | None:
     for task in manifest.get("tasks", []):
-        if str(task.get("task_id")) == str(task_id) or str(task.get("page_index")) == str(task_id):
+        if str(task.get("task_id")) == str(task_id):
             return task
     return None
+
+
+def default_output_file(task_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", clean_text(task_id)).strip("._-")
+    return f"{safe or 'slide'}.pptx"
+
+
+def manifest_palette(manifest: dict[str, Any]) -> str:
+    return clean_text(manifest.get("theme") or manifest.get("palette")) or DEFAULT_PALETTE
 
 
 def normalize_content_type(content_type: str) -> str:
@@ -145,7 +158,7 @@ def accepted_params(func: Callable[..., Any], params: dict[str, Any]) -> dict[st
 def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, Any], work_dir: Path | None = None) -> dict[str, Any]:
     plan = task.get("content_plan") or {}
     title = task.get("title") or plan.get("summary") or "页面"
-    summary = plan.get("summary") or plan.get("slide_intent") or task.get("description") or title
+    summary = plan.get("summary") or plan.get("slide_intent") or title
     source = extract_source(plan)
     items = extract_items(plan, task)
     cards = extract_cards(plan, items)
@@ -313,12 +326,12 @@ def extract_items(plan: dict[str, Any], task: dict[str, Any]) -> list[str]:
             text = clean_text(item)
             if text:
                 result.append(text)
-        for key in ("text", "body", "description", "title"):
+        for key in ("text", "body", "title"):
             text = clean_text(component.get(key))
             if text:
                 result.append(text)
     if not result:
-        result = split_text(plan.get("summary") or task.get("description") or task.get("title") or "")
+        result = split_text(plan.get("summary") or plan.get("slide_intent") or task.get("title") or "")
     return [x for x in result if x][:8]
 
 
@@ -365,7 +378,7 @@ def extract_cards(plan: dict[str, Any], items: list[str]) -> list[dict[str, str]
     cards: list[dict[str, str]] = []
     for component in semantic_components(plan, {"feature_card", "key_point", "callout"}):
         title = clean_text(component.get("title") or component.get("text"))
-        body = clean_text(component.get("body") or component.get("description") or component.get("text"))
+        body = clean_text(component.get("body") or component.get("text"))
         if title or body:
             cards.append({
                 "header": title or body[:16],
@@ -436,8 +449,10 @@ def normalize_component_asset_paths(component: dict[str, Any], work_dir: Path | 
 
 def resolve_workdir_path(value: str, work_dir: Path | None) -> str:
     value = clean_text(value)
-    if not value or value.startswith("asset:"):
+    if not value:
         return value
+    if value.startswith("asset:"):
+        raise ValueError(f"legacy asset id is unsupported: {value}")
     candidate = Path(value).expanduser()
     if candidate.is_absolute():
         return str(candidate)
@@ -542,7 +557,7 @@ def paragraph_from(items: list[str], summary: str) -> str:
 def first_by_type(plan: dict[str, Any], element_type: str) -> str:
     for component in semantic_components(plan):
         if component.get("type") == element_type:
-            return clean_text(component.get("text") or component.get("body") or component.get("description") or component.get("title"))
+            return clean_text(component.get("text") or component.get("body") or component.get("title"))
     return ""
 
 
@@ -569,13 +584,12 @@ def section_number(task: dict[str, Any], manifest: dict[str, Any]) -> str:
     if clean_text(explicit):
         return normalize_section_number(clean_text(explicit))
 
-    current_page = int(task.get("page_index") or 0)
     count = 0
     for candidate in sorted(manifest.get("tasks", []), key=lambda item: int(item.get("page_index") or 0)):
         if normalize_content_type(candidate.get("content_type", "")) != "section_divider":
             continue
         count += 1
-        if str(candidate.get("task_id")) == str(task.get("task_id")) or int(candidate.get("page_index") or 0) == current_page:
+        if str(candidate.get("task_id")) == str(task.get("task_id")):
             return f"{count:02d}"
     return "01"
 
@@ -595,7 +609,7 @@ def clean_text(value: Any) -> str:
         return value.strip()
     if isinstance(value, dict):
         title = clean_text(value.get("title") or value.get("label") or value.get("name"))
-        body = clean_text(value.get("description") or value.get("text") or value.get("value"))
+        body = clean_text(value.get("body") or value.get("text") or value.get("value"))
         if title and body and title != body:
             return f"{title}: {body}"
         return title or body
@@ -645,7 +659,7 @@ def kpis(plan: dict[str, Any], cards: list[dict[str, str]]) -> list[dict[str, st
                 "value": clean_text(data.get("value") or component.get("text") or component.get("title")),
                 "label": clean_text(data.get("label") or component.get("title") or component.get("body")),
                 "delta": clean_text(data.get("delta") or component.get("emphasis") or "稳步推进"),
-                "baseline": clean_text(data.get("baseline") or component.get("body") or component.get("description")),
+                "baseline": clean_text(data.get("baseline") or component.get("body")),
             })
         return result
     raw = plan.get("kpis") or plan.get("metrics")
@@ -660,7 +674,6 @@ def kpis(plan: dict[str, Any], cards: list[dict[str, str]]) -> list[dict[str, st
             "baseline": card.get("body") or "",
         })
     return result or [{"value": "1", "label": "核心指标", "delta": "持续改善", "baseline": plan.get("summary", "")}]
-
 
 def comparison_params(title: str, summary: str, plan: dict[str, Any], items: list[str], source: str) -> dict[str, Any]:
     headers = plan.get("headers")

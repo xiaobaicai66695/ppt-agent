@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "purpose": "Planner reads this single file to understand semantic components, content_type capacity and implemented layout variants. Single-page JSON files remain UI/runtime compatibility metadata.",
+  "purpose": "Agents read this single file to understand semantic components, content_type capacity and implemented layout variants. Single-page JSON files are layout metadata for UI/runtime display only.",
   "planning_rules": {
     "semantic_only": true,
     "forbidden_component_fields": [
@@ -40,11 +40,11 @@
       "source_requirement": "When a page uses facts, data, quotes or charts, add a source_note or component source field whenever a concrete source is available."
     },
     "first_draft_quality_gate": {
-      "default_background_required": true,
-      "background_exception": "Only omit an external background when the user explicitly requests a text-only or no-image deck; set visual_intent.role=clean_text_only so the policy is explicit.",
+      "explicit_image_paths_required": true,
+      "image_rule": "Images are optional, but any planned image that should be rendered must point to a readable local file before validation/rendering. Query-only image plans are metadata for the calling Agent or host workflow, not generator input.",
       "narrative_anchor_types": ["headline", "deck_title", "argument_block", "insight", "recommendation", "key_point", "quote_block"],
       "section_marker_required_field": "text",
-      "planner_retry_rule": "If initialize returns quality_gate_passed=false, fix the complete page array and initialize again before ending the Planner turn."
+      "revision_rule": "When validation fails, revise only the failing pages or fields unless the deck structure itself is wrong. Do not rely on render-time fallbacks to repair invalid content."
     },
     "layout_variant_rule": "Only use layout_variant values listed in this file. An empty variants array means the generator uses adaptive component layout and Planner should leave layout_variant empty. image_text may omit layout_variant only when accepting the renderer's page-order rotation."
   },
@@ -107,12 +107,10 @@
   },
   "asset_planning": {
     "purpose_values": ["background", "scene", "evidence", "decorative"],
-    "background_query_rule": "Use one short English keyword for each background asset_query, such as diplomacy, energy, city or technology. Do not include long phrases, slide titles, wide landscape, clean negative space, light/bright/airy, or layout words.",
-    "background_rotation_rule": "Reuse the same background keyword for every slide with the same content_type. Different content_types may use different background keywords. Additional page imagery belongs in image components with asset_purpose scene or evidence.",
-    "scene_query_rule": "Use a concrete visible subject, action and environment; use real-world imagery for examples and keep facts in source/search fields.",
-    "query_contract": "asset_query is the provider-ready transformed query; asset_subject records the visual proxy; composition records semantic framing constraints.",
-      "materialization_rule": "Before render workers start, query-only image plans are deterministically downloaded and written back with local_path/source metadata. Backgrounds are collapsed by content_type so same-type slides share one asset; scene/evidence image components keep their page-specific queries.",
-      "background_color_rule": "The renderer extracts muted colors from downloaded background images for panels, accent bars, dividers and decorative fills. Text tokens remain contrast-safe dark/readable colors; do not route pale background colors into titles, subtitles, body copy or image captions."
+    "query_rule": "If the calling Agent needs to search for an image, asset_query should describe a concrete visible subject, action and environment. Generators do not execute searches or resolve query-only plans.",
+    "local_path_rule": "Before validation/rendering, any image that should appear in the deck must be written as a real local_path/image_path/asset_path value that exists on disk. The skill does not prescribe where that file is stored.",
+    "query_contract": "asset_query is optional planning metadata; asset_subject records the visual proxy; composition records semantic framing constraints.",
+    "background_color_rule": "When a real local background image is provided, the renderer may extract muted colors for panels, accent bars, dividers and decorative fills. Text tokens remain contrast-safe dark/readable colors; do not route pale background colors into titles, subtitles, body copy or image captions."
   },
   "content_types": {
     "title_slide": {

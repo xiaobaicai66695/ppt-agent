@@ -256,9 +256,12 @@ def set_image_background(
     Example:
         set_image_background(slide, "D:/path/to/background.jpg")
     """
+    if not image_path:
+        raise ValueError("background image path is required")
+    if str(image_path).startswith("asset:"):
+        raise ValueError(f"legacy asset id is unsupported for background: {image_path}")
     if not os.path.exists(image_path):
-        print(f"Warning: Background image not found: {image_path}")
-        return
+        raise FileNotFoundError(f"background image not found: {image_path}")
 
     with Image.open(image_path) as source:
         img = source.convert("RGB")
@@ -1265,31 +1268,12 @@ def add_text_in_shape(
 # Background utilities
 # ---------------------------------------------------------------------------
 
-def get_background_path(
-    theme: str = None,
-    scenario: str = None,
-    random_select: bool = False,
-) -> str:
-    """Compatibility no-op for the removed local background catalog."""
-    from .background_manager import get_background as _get_bg
-    return _get_bg(theme=theme, scenario=scenario, random_select=random_select)
-
-
 def resolve_background(background: str) -> str:
-    """Resolve only explicit image file paths.
-
-    Legacy theme/scenario names are no longer resolved; new plans pass
-    downloaded image paths through visual_intent.local_path or image components.
-    """
+    """Resolve only explicit existing image file paths."""
     if not background:
         return None
-
-    # 已经是绝对路径
-    if os.path.isabs(background) and os.path.exists(background):
-        return background
-
-    # 文件存在
+    if str(background).startswith("asset:"):
+        raise ValueError(f"legacy asset id is unsupported for background: {background}")
     if os.path.exists(background):
         return background
-
-    return None
+    raise FileNotFoundError(f"background image not found: {background}")

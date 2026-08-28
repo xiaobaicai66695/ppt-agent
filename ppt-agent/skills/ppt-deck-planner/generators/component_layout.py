@@ -67,7 +67,7 @@ def clean(value: Any) -> str:
         return " / ".join(clean(item) for item in value if clean(item))
     if isinstance(value, dict):
         title = clean(value.get("title") or value.get("label") or value.get("name"))
-        body = clean(value.get("body") or value.get("text") or value.get("description") or value.get("value"))
+        body = clean(value.get("body") or value.get("text") or value.get("value"))
         if title and body and title != body:
             return f"{title}: {body}"
         return title or body
@@ -389,23 +389,22 @@ def _render_workbench(
     elif content_type in {"image_text", "case_study", "example_detail", "deep_dive"}:
         image_component = first_component(body_components, "image")
         image_path = component_image_path(image_component)
+        if image_component and not image_path:
+            raise ValueError(f"{content_type} image component requires an explicit local_path/image_path")
         if image_path:
-            photo = resolve_photo(image_path=image_path, text=component_text(image_component))
+            photo = resolve_photo(image_path=image_path)
         else:
             photo = None
         image_box, text_box, caption_box = image_text_regions(layout_variant, 0.65, top, 11.95, height)
         image_left, image_top, image_w, image_h = image_box
         text_left, text_top, text_w, text_h = text_box
         caption_left, caption_top, caption_w, caption_h = caption_box
-        if photo and add_cropped_photo(slide, photo, image_left, image_top, image_w, image_h):
+        if photo:
+            add_cropped_photo(slide, photo, image_left, image_top, image_w, image_h)
             caption = clean(image_component.get("caption") or image_component.get("attribution") or component_text(image_component))
             if caption:
                 add_glass_panel(slide, caption_left, caption_top, caption_w, caption_h, palette=palette, fill_color="background", alpha=224)
                 add_text(slide, clamp_text(caption, text_limit(caption_w - 0.28, caption_h - 0.25, 9.0, 0.95)), caption_left + 0.14, caption_top + 0.14, caption_w - 0.28, caption_h - 0.25, 9.0, color="secondary", palette=palette, colors=colors, min_font_size=7, max_font_size=False)
-        else:
-            add_glass_panel(slide, image_left, image_top, image_w, image_h, palette=palette, fill_color="light_bg", alpha=210)
-            image_text = component_text(image_component) or "主题视觉"
-            add_text(slide, image_text, image_left + 0.3, image_top + max(0.2, image_h / 2 - 0.4), image_w - 0.6, 0.8, 22, True, "primary", "center", palette=palette, colors=colors)
         text_side = [c for c in body_components if c.get("type") not in MEDIA_TYPES]
         if has_narrative_components(text_side):
             _render_narrative_panel(slide, colors, palette, text_side, text_left, text_top, text_w, text_h, compact_short=content_type == "image_text")
@@ -585,7 +584,7 @@ def _render_narrative_panel(
     supporting = [c for c in components if c is not narrative and id(c) not in list_ids and c.get("type") not in {"divider", "shape", "arrow"}]
     narrative_text = ""
     if narrative:
-        narrative_text = clean(narrative.get("body") or narrative.get("text") or narrative.get("description")) or component_body(narrative)
+        narrative_text = clean(narrative.get("body") or narrative.get("text")) or component_body(narrative)
     compact_panel = compact_short and narrative and not lists and not supporting and len(narrative_text) < 180
     list_limit = min(3, len(lists))
     list_only_panel = not narrative and list_limit > 0
@@ -828,7 +827,7 @@ def _render_architecture_diagram(
         else:
             title_y = y + 0.18
         title = clamp_text(clean(item.get("title") or item.get("text") or item.get("label")), text_limit(box_w - 0.35, 0.32, 13.5, 0.96))
-        body = clamp_text(clean(item.get("body") or item.get("description")), text_limit(box_w - 0.35, box_h - 0.62, 9.8, 0.86))
+        body = clamp_text(clean(item.get("body")), text_limit(box_w - 0.35, box_h - 0.62, 9.8, 0.86))
         add_text(slide, title or f"模块 {index + 1}", x + 0.18, title_y, box_w - 0.35, 0.3, 13.5, True, "text", "center", palette=palette, colors=colors, min_font_size=8, max_font_size=False)
         add_text(slide, body, x + 0.18, y + box_h - 0.46, box_w - 0.35, 0.34, 9.2, color="secondary", alignment="center", palette=palette, colors=colors, min_font_size=7, max_font_size=False, line_spacing=0.92)
 
@@ -887,20 +886,20 @@ def component_label(item: dict[str, Any], index: int) -> str:
 def component_body(item: dict[str, Any]) -> str:
     component_type = clean(item.get("type"))
     if component_type in LIST_TYPES:
-        return clean(item.get("items") or item.get("text") or item.get("body") or item.get("description"))
+        return clean(item.get("items") or item.get("text") or item.get("body"))
     if component_type in METRIC_TYPES:
         data = item.get("data") if isinstance(item.get("data"), dict) else {}
-        return clean(item.get("body") or item.get("description") or data.get("baseline") or data.get("delta"))
+        return clean(item.get("body") or data.get("baseline") or data.get("delta"))
     if component_type in QUOTE_TYPES:
-        return clean(item.get("text") or item.get("body") or item.get("description"))
-    return clean(item.get("body") or item.get("description") or item.get("text") or item.get("items"))
+        return clean(item.get("text") or item.get("body"))
+    return clean(item.get("body") or item.get("text") or item.get("items"))
 
 
 def component_items(item: dict[str, Any]) -> list[str]:
     raw = item.get("items")
     if isinstance(raw, list):
         return [clean(value) for value in raw if clean(value)]
-    text = clean(raw or item.get("body") or item.get("text") or item.get("description"))
+    text = clean(raw or item.get("body") or item.get("text"))
     if not text:
         return []
     lines = [line.strip(" -•\t") for line in re.split(r"[\n\r]+", text) if line.strip(" -•\t")]
@@ -918,7 +917,7 @@ def _render_metric_grid(slide, colors: dict, palette: str, components: list[dict
     for i, item in enumerate(components[:6]):
         data = item.get("data") if isinstance(item.get("data"), dict) else {}
         value = clean(data.get("value") or item.get("text") or item.get("title") or f"{i + 1}")
-        label = clean(data.get("label") or item.get("body") or item.get("description") or item.get("title"))
+        label = clean(data.get("label") or item.get("body") or item.get("title"))
         x = left + (i % cols) * (card_w + gap)
         y = top + (i // cols) * (card_h + gap)
         add_glass_panel(slide, x, y, card_w, card_h, palette=palette, fill_color="light_bg", alpha=214)
@@ -935,7 +934,7 @@ def _render_flow(slide, colors: dict, palette: str, components: list[dict[str, A
         add_round_rect(slide, x, top, step_w, height, "light_bg", palette=palette, line_color="divider", line_width=0.4)
         add_text(slide, f"{i + 1:02d}", x + 0.14, top + 0.16, step_w - 0.28, 0.38, 15, True, "primary", "center", palette=palette, colors=colors)
         title = clamp_text(clean(item.get("title") or item.get("text")), text_limit(step_w - 0.32, 0.44, 14, 0.95))
-        body = clamp_text(clean(item.get("body") or item.get("description")), text_limit(step_w - 0.32, 0.62, 10.5, 0.88))
+        body = clamp_text(clean(item.get("body")), text_limit(step_w - 0.32, 0.62, 10.5, 0.88))
         add_text(slide, title, x + 0.16, top + 0.68, step_w - 0.32, 0.44, 14, True, "text", "center", palette=palette, colors=colors, min_font_size=9, max_font_size=False)
         add_text(slide, body, x + 0.16, top + 1.18, step_w - 0.32, 0.62, 10.5, color="secondary", alignment="center", palette=palette, colors=colors, min_font_size=8, max_font_size=False)
 
@@ -961,7 +960,7 @@ def _render_quadrant(slide, colors: dict, palette: str, components: list[dict[st
         add_glass_panel(slide, x, y, card_w, card_h, palette=palette, fill_color="light_bg", alpha=212)
         add_rect(slide, x, y, card_w, 0.08, accent, palette=palette)
         title = clean(item.get("title") or item.get("label") or fallback_title)
-        body = clean(item.get("body") or item.get("description") or item.get("text") or item.get("items"))
+        body = clean(item.get("body") or item.get("text") or item.get("items"))
         add_text(slide, clamp_text(title, text_limit(card_w - 0.55, 0.45, 18, 0.95)), x + 0.28, y + 0.3, card_w - 0.55, 0.45, 18, True, "text", palette=palette, colors=colors, min_font_size=12, max_font_size=False)
         add_text(slide, clamp_text(body, text_limit(card_w - 0.55, card_h - 0.95, 12, 0.9)), x + 0.28, y + 0.9, card_w - 0.55, card_h - 1.05, 12, color="secondary", palette=palette, colors=colors, min_font_size=8.5, max_font_size=False, line_spacing=0.95)
 
@@ -987,7 +986,7 @@ def _render_brand_focus(slide, colors: dict, palette: str, components: list[dict
     cy = top + height / 2
     add_ellipse(slide, cx - 1.42, cy - 1.0, 2.84, 2.0, "light_bg", palette=palette, line_color="divider", line_width=0.6)
     add_text(slide, clamp_text(clean(center.get("title") or center.get("text")), text_limit(2.2, 0.48, 18, 0.95)), cx - 1.1, cy - 0.44, 2.2, 0.48, 18, True, "primary", "center", palette=palette, colors=colors, min_font_size=11, max_font_size=False)
-    add_text(slide, clamp_text(clean(center.get("body") or center.get("description")), text_limit(2.2, 0.5, 10.5, 0.9)), cx - 1.1, cy + 0.1, 2.2, 0.5, 10.5, color="secondary", alignment="center", palette=palette, colors=colors, min_font_size=8, max_font_size=False)
+    add_text(slide, clamp_text(clean(center.get("body")), text_limit(2.2, 0.5, 10.5, 0.9)), cx - 1.1, cy + 0.1, 2.2, 0.5, 10.5, color="secondary", alignment="center", palette=palette, colors=colors, min_font_size=8, max_font_size=False)
     satellites = [c for c in components if c is not center][:6]
     positions = [
         (left + 0.25, top + 0.2),
@@ -1007,7 +1006,7 @@ def _render_region_map(slide, colors: dict, palette: str, components: list[dict[
     panel_w = width * 0.55
     add_glass_panel(slide, left, top, panel_w, height, palette=palette, fill_color="light_bg", alpha=204)
     add_text(slide, clamp_text(clean(map_item.get("title") or "区域关系"), text_limit(panel_w - 0.8, 0.42, 18, 0.95)), left + 0.4, top + 0.42, panel_w - 0.8, 0.42, 18, True, "primary", "center", palette=palette, colors=colors, min_font_size=11, max_font_size=False)
-    add_text(slide, clamp_text(clean(map_item.get("body") or map_item.get("description") or "以空间位置、路线或业务版图解释各区域之间的关系"), text_limit(panel_w - 1.2, 0.78, 13, 0.9)), left + 0.6, top + height / 2 - 0.4, panel_w - 1.2, 0.78, 13, color="secondary", alignment="center", palette=palette, colors=colors, min_font_size=9, max_font_size=False)
+    add_text(slide, clamp_text(clean(map_item.get("body") or "以空间位置、路线或业务版图解释各区域之间的关系"), text_limit(panel_w - 1.2, 0.78, 13, 0.9)), left + 0.6, top + height / 2 - 0.4, panel_w - 1.2, 0.78, 13, color="secondary", alignment="center", palette=palette, colors=colors, min_font_size=9, max_font_size=False)
     for i, dot in enumerate([0.22, 0.45, 0.67, 0.82]):
         add_ellipse(slide, left + panel_w * dot, top + height * (0.3 + 0.12 * (i % 2)), 0.16, 0.16, "accent" if i == 1 else "primary", palette=palette)
     side_components = [c for c in components if c.get("type") not in MEDIA_TYPES][:5]
@@ -1017,7 +1016,9 @@ def _render_region_map(slide, colors: dict, palette: str, components: list[dict[
 def _render_image_hero(slide, colors: dict, palette: str, components: list[dict[str, Any]], left: float, top: float, width: float, height: float):
     image_component = first_component(components, "image")
     image_path = component_image_path(image_component)
-    photo = resolve_photo(image_path=image_path, text=component_text(image_component)) if image_path else None
+    if image_component and not image_path:
+        raise ValueError("image_hero image component requires an explicit local_path/image_path")
+    photo = resolve_photo(image_path=image_path) if image_path else None
     if photo:
         add_cropped_photo(slide, photo, left, top, width, height)
         add_glass_panel(slide, left + width - 4.55, top + 0.35, 4.35, height - 0.7, palette=palette, fill_color="background", alpha=222)
@@ -1059,7 +1060,7 @@ def first_value(components: list[dict[str, Any]], component_type: str) -> str:
 
 
 def component_text(item: dict[str, Any]) -> str:
-    return clean(item.get("text") or item.get("body") or item.get("description") or item.get("title") or item.get("items"))
+    return clean(item.get("text") or item.get("body") or item.get("title") or item.get("items"))
 
 
 def component_image_path(item: dict[str, Any]) -> str:

@@ -236,8 +236,11 @@ npm run dev
 ### Python 生成器
 
 ```bash
-python -m py_compile skills/ppt-deck-planner/generators/*.py
-python skills/ppt-deck-planner/generators/generator.py
+python -m compileall -q skills/ppt-deck-planner/generators
+python skills/ppt-deck-planner/generators/validate_deck.py --work-dir skills/ppt-deck-planner/examples/minimal --skills-dir skills
+python skills/ppt-deck-planner/generators/render_deck.py --work-dir skills/ppt-deck-planner/examples/minimal --skills-dir skills --output deck.pptx
+python skills/ppt-deck-planner/generators/render_task.py --help
+python -m unittest discover -s skills/ppt-deck-planner/tests -v
 ```
 
 生成器依赖 `python-pptx`。缩略图和 QA 渲染链路依赖 LibreOffice 与 Poppler。

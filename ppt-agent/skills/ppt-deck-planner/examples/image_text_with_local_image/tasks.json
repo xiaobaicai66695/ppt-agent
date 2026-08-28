@@ -1,0 +1,35 @@
+{
+  "title": "本地图文页示例",
+  "audience": "需要验证图片路径契约的通用 Agent",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "显式本地图片路径进入图文页",
+      "content_type": "image_text",
+      "layout_variant": "image_left",
+      "content_plan": {
+        "summary": "展示通用 Agent 下载或准备图片后，如何把本地路径写入 image 组件。",
+        "slide_intent": "验证 image.local_path 存在时，生成器嵌入真实图片并保留说明文字。",
+        "components": [
+          {
+            "type": "image",
+            "asset_purpose": "scene",
+            "asset_subject": "workspace presentation planning",
+            "local_path": "sample_scene.png",
+            "caption": "Local sample image bundled with this standalone example"
+          },
+          {
+            "type": "argument_block",
+            "title": "图片由调用方负责落地",
+            "body": "独立 skill 不限定图片下载工具、保存目录或网络来源。通用 Agent 可以使用自身联网能力搜索并下载图片，然后把真实可读的本地路径写入 local_path；生成器只负责读取该路径并完成版面适配。如果路径不存在、仍是旧 asset: id，或者只写了网络 URL 而没有本地文件，预检和渲染都应直接失败。"
+          },
+          {
+            "type": "source_note",
+            "text": "来源: 本地示例图片，用于验证路径和嵌入逻辑"
+          }
+        ]
+      }
+    }
+  ]
+}

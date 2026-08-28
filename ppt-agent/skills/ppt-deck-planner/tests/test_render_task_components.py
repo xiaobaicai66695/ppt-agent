@@ -42,7 +42,7 @@ class RenderTaskComponentsTest(unittest.TestCase):
             ],
         }
 
-        items = render_task.extract_items(plan, {"description": "旧描述"})
+        items = render_task.extract_items(plan, {})
         cards = render_task.extract_cards(plan, items)
 
         self.assertIn("三层能力矩阵支撑端到端交付", items)
@@ -168,9 +168,8 @@ class RenderTaskComponentsTest(unittest.TestCase):
         prs = render_component_slide(
             palette="ocean_soft",
             title="低空经济：概念、政策与产业定位",
-            content_type="image_text",
+            content_type="content_slide",
             components=[
-                {"type": "image", "title": "城市低空场景", "body": "低空经济综合应用"},
                 {"type": "argument_block", "title": "核心判断", "body": long_body},
             ],
         )
@@ -218,6 +217,30 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("Photo by Demo on Unsplash", slide_xml)
 
+    def test_image_text_rejects_legacy_asset_id(self):
+        with self.assertRaisesRegex(ValueError, "legacy asset id is unsupported"):
+            render_component_slide(
+                palette="ocean_soft",
+                title="旧素材 ID 应直接暴露",
+                content_type="image_text",
+                components=[
+                    {"type": "image", "local_path": "asset:photo_business_work"},
+                    {"type": "paragraph", "body": "旧 asset id 不再解析为离线素材。"},
+                ],
+            )
+
+    def test_image_text_rejects_missing_local_image_path(self):
+        with self.assertRaisesRegex(FileNotFoundError, "image path does not exist"):
+            render_component_slide(
+                palette="ocean_soft",
+                title="缺失图片路径应失败",
+                content_type="image_text",
+                components=[
+                    {"type": "image", "local_path": "missing-image.jpg"},
+                    {"type": "paragraph", "body": "显式图片字段必须指向真实本地文件。"},
+                ],
+            )
+
     def test_image_text_layout_variants_change_regions(self):
         left_image, left_text, _ = image_text_regions("image_left", 0.65, 1.72, 11.95, 5.0)
         right_image, right_text, _ = image_text_regions("image_right", 0.65, 1.72, 11.95, 5.0)
@@ -246,7 +269,6 @@ class RenderTaskComponentsTest(unittest.TestCase):
             task = {
                 "title": "图文页",
                 "content_type": "image_text",
-                "description": "说明",
                 "content_plan": {
                     "summary": "说明",
                     "components": [
@@ -565,7 +587,7 @@ class RenderTaskComponentsTest(unittest.TestCase):
             and shape.height > Inches(4.0)
         ]
 
-        self.assertEqual(len(content_panels), 2)
+        self.assertEqual(len(content_panels), 1)
         for panel in content_panels:
             self.assertLessEqual(panel.top + panel.height, footer_divider.top - Inches(0.2))
 

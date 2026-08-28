@@ -1,0 +1,37 @@
+{
+  "title": "独立 Skill 最小示例",
+  "audience": "需要快速验证 PPT skill 的通用 Agent",
+  "tasks": [
+    {
+      "task_id": "slide_01",
+      "page_index": 1,
+      "title": "独立 skill 的最小闭环",
+      "content_type": "content_slide",
+      "content_plan": {
+        "summary": "用一页内容说明 DeckSpec 可以脱离 ppt-agent 后端直接渲染。",
+        "slide_intent": "验证无图片场景下，生成器只依赖结构化语义组件完成页面表达。",
+        "components": [
+          {
+            "type": "headline",
+            "text": "DeckSpec 是 Agent 与生成器之间的稳定契约"
+          },
+          {
+            "type": "key_point",
+            "title": "规划边界",
+            "body": "Planner 负责页序、页面类型、组件内容和来源信息，不写运行态字段。"
+          },
+          {
+            "type": "key_point",
+            "title": "渲染边界",
+            "body": "Python generators 只消费已过检的语义组件和显式本地图片路径。"
+          },
+          {
+            "type": "recommendation",
+            "title": "独立使用建议",
+            "body": "先运行 validate_deck.py 暴露契约错误，再运行 render_deck.py 生成整套 PPTX。"
+          }
+        ]
+      }
+    }
+  ]
+}
