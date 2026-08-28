@@ -22,10 +22,6 @@ go test ./pkg/agent/utils/ -v       # 模型 fallback 单元测试
 go test ./pkg/tools/qa/ -v          # QA 转换器集成测试
 go test ./pkg/tools/search/ -v      # 搜索集成测试
 
-# 独立搜索工具测试 (交互式)
-cd backend
-go run ./cmd/search_runner.go
-
 # 运行时环境变量
 export AGENT_MODE=planner           # 默认 Planner + renderer workflow
 export INTERACTIVE=false           # 跳过人机交互确认
@@ -46,7 +42,7 @@ export ENABLE_QA="false"           # 是否启用生成后 Visual QA；web 主�
 
 ### 执行模式
 
-当前默认链路是 `AGENT_MODE=planner`：先做意图分类和模板/背景推荐，再由 `PPTPlanner` 生成 `tasks.json` / DeckSpec，目标态会通过 Plan Reviewer / Plan Refiner 做渲染前质量门，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
+当前默认链路是 `AGENT_MODE=planner`：由 `PPTPlanner` 基于用户输入生成 `tasks.json` / DeckSpec，目标态会通过 Plan Reviewer / Plan Refiner 做渲染前质量门，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
 
 ### QA 质检开关
 
@@ -60,7 +56,7 @@ export ENABLE_QA="false"           # 是否启用生成后 Visual QA；web 主�
 - `pkg/agent/deck/types.go` 中的 `PPTTaskConfig.EnableQA` 字段
 - `pkg/prompts/planner/master_instruction.tmpl` 中的 Planner 阶段约束
 
-渲染前 Plan Reviewer / Plan Refiner 与生成后 Visual QA 分工不同：前者审查 DeckSpec 的结构、容量、用户画像门控和组件计划；后者检查已生成 PPTX 的视觉结果。
+渲染前 Plan Reviewer / Plan Refiner 与生成后 Visual QA 分工不同：前者审查 DeckSpec 的结构、容量和组件计划；后者检查已生成 PPTX 的视觉结果。
 
 ### 模型 Fallback 链
 
@@ -140,15 +136,6 @@ LLM 分析器使用 `read_file` 工具动态读取相关 prompt 模板和 Python
 - `LOG_ANALYSIS_IDLE_INTERVAL`：空闲分析间隔（例如 `5m`，`0` 禁用）
 - `STREAM_TIMEOUT`：单次 LLM 流式调用可阻塞的最长时间（例如 `3m`，`0` 禁用）。超时时任务退出并返回超时错误，以便取消和恢复。
 
-### 用户偏好学习
+### 用户风格输入
 
-`pkg/agent/learning/` 模块自动分析用户历史任务并提取风格偏好：
-- 偏好收集器 (`collector.go`) 从完成的任务中提取配色、布局、语言风格等信息
-- 偏好分析器 (`analyzer.go`) 调用 LLM 总结偏好
-- 偏好更新器 (`updater.go`) 将分析结果存储到 `user_style_profiles` 表
-- 学习引擎 (`engine.go`) 协调整个学习流程
-- 偏好数据用于在 `PPTTaskConfig.StyleContext` 中注入个性化上下文
-
-### 路由引擎
-
-`pkg/agent/router/engine.go` 根据任务特征（查询内容、用户偏好、当前负载）决定将任务分配给哪个执行模式。
+固定风格、称谓、组织背景、配色或表达偏好应由用户在任务提示词中显式说明，由 Planner 在当前任务内一次性使用。

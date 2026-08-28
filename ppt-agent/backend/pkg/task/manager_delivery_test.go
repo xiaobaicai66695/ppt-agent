@@ -201,7 +201,7 @@ func TestTaskStateTelemetryDoesNotEnterAssistantTurn(t *testing.T) {
 		},
 	}
 
-	ts.Broadcast(SSERichEvent{Type: "system_step", Content: "【步骤1/3】模型意图分析"})
+	ts.Broadcast(SSERichEvent{Type: "system_step", Content: "【步骤1/2】任务输入"})
 	ts.Broadcast(SSERichEvent{Type: "progress", Phase: "planning", PhaseDetail: "正在写入 DeckSpec"})
 	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "read_file", ToolArgs: `{"path":"template.json"}`})
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})

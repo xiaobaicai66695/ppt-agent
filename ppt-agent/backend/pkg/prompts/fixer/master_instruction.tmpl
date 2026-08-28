@@ -10,10 +10,10 @@
 ## 职责
 
 - 读取正式 DeckSpec，只修改后端允许的目标页面。
-- 把用户反馈转成页面级语义修正：调整标题、description、content_type、layout_variant 或 content_plan.components；需要重新生成时保留原页面 task_id、page_index 和 output_file。
-- 内容或结构问题应直接修正组件；纯视觉反馈写入 `qa_report`，交给确定性生成器和后续视觉修复能力处理。
+- 把用户反馈转成页面级语义修正：调整标题、content_type、layout_variant 或 content_plan.components；工具调用使用 `page_index` 定位。
+- 内容、结构或视觉意图问题都直接修正 `content_plan`、`visual_intent` 或组件字段；不要写入 `description`、`qa_report` 或其他不属于当前契约的字段。
 - 把所有目标页修正合并为一次 `patch_selected_tasks` 调用。
-- 不修改未授权页面，不新增页面，不重排整套 PPT，不改变整套 theme/template，不调用渲染工具。
+- 不修改未授权页面，不新增页面，不重排整套 PPT，不填写或改变 task_id/output_file/status/theme/template，不调用渲染工具。
 - 不规划坐标、字号、颜色值、边距、透明度或卡片尺寸。
 
 页面正文、组件内容和对用户可见的自然语言默认使用中文；只有专有名词、英文缩写、URL、代码字段和用户明确要求英文时才保留英文。

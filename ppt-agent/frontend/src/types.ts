@@ -58,36 +58,6 @@ export interface LiveActivity {
   state: 'idle' | 'running' | 'success' | 'error';
 }
 
-// ── User profile types ──────────────────────────────────────────────────────
-
-export interface ContentTypeCount {
-  [key: string]: number;
-}
-
-export interface UserFacts {
-  display_name?: string;
-  organization?: string;
-  department?: string;
-  job_title?: string;
-  industry?: string;
-  location?: string;
-}
-
-export interface UserStyleProfile {
-  user_id: number;
-  preferred_themes: string[];
-  preferred_colors: string[];
-  content_patterns: string[];
-  layout_preferences: string[];
-  language_tone: string;
-  typical_page_count: number;
-  content_types: ContentTypeCount;
-  special_notes: string[];
-  user_facts?: UserFacts;
-  task_count: number;
-  updated_at: string;
-}
-
 // ── Task types ──────────────────────────────────────────────────────────────
 
 export interface TaskItem {
@@ -97,8 +67,6 @@ export interface TaskItem {
   content_type: string;
   output_file: string;
   status: TaskItemStatus;
-  qa_report?: string;
-  fix_attempts?: number;
 }
 
 export interface TaskInfo {
@@ -126,16 +94,11 @@ export interface RuntimeBudgets {
   phase_duration_warn_sec?: number;
 }
 
-export interface IntentAnchor {
+export interface TaskInputAnchor {
   summary?: string;
   original_length?: number;
-  intent?: string;
-  domain?: string;
-  suggested_pages?: number;
   template?: string;
   theme?: string;
-  use_background?: boolean;
-  background?: string;
   recommendation?: string;
 }
 
@@ -201,7 +164,7 @@ export interface RuntimeMeta {
   qa_high_issues?: number;
   qa_medium_issues?: number;
   qa_low_issues?: number;
-  intent_anchor?: IntentAnchor;
+  task_input?: TaskInputAnchor;
   plan_slides?: PlanSlide[];
   current_slide?: PlanSlide;
   alignment_status?: string;

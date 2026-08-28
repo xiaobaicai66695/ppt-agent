@@ -37,7 +37,7 @@ func TestVisibleMessageContentKeepsRawPlannerOutput(t *testing.T) {
 
 func TestVisibleMessageContentHidesCompressionSummaryJSON(t *testing.T) {
 	raw := `{
-  "user_intent_summary": "制作一份关于2025年国际局势纷争不断的PPT，共5325页",
+  "user_request_summary": "制作一份关于2025年国际局势纷争不断的PPT，共5325页",
   "progress_summary": "已生成部分 DeckSpec",
   "conversation_summary": "内部压缩摘要"
 }`
@@ -47,7 +47,7 @@ func TestVisibleMessageContentHidesCompressionSummaryJSON(t *testing.T) {
 }
 
 func TestVisibleMessageContentHidesFencedCompressionSummaryJSON(t *testing.T) {
-	raw := "```json\n{\"user_intent_summary\":\"x\",\"progress_summary\":\"y\"}\n```"
+	raw := "```json\n{\"user_request_summary\":\"x\",\"progress_summary\":\"y\"}\n```"
 	if got := visibleMessageContent(raw); got != "" {
 		t.Fatalf("visibleMessageContent() = %q, want hidden compression summary", got)
 	}

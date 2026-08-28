@@ -1052,7 +1052,7 @@ export function runtimeEventKindLabel(event: RuntimeEvent): string {
     deck_spec_validated: 'DeckSpec 校验',
     deck_spec_frozen: '页面计划冻结',
     deck_spec_alignment: '计划对齐检查',
-    intent_classified: '意图分类',
+    task_input_recorded: '任务输入',
     phase_changed: '阶段切换',
     slide_progress: '页面生成进度',
     delivery_progress: '交付进度',
@@ -1176,7 +1176,7 @@ export function deriveObservableSteps(events: RuntimeEvent[], limit = 6): Observ
 function isObservableEvent(event: RuntimeEvent): boolean {
   const kind = (event.kind || '').toLowerCase();
   const name = (event.name || '').toLowerCase();
-  return kind.includes('intent')
+  return kind === 'task_input_recorded'
     || kind.includes('phase')
     || kind.includes('llm')
     || kind === 'model_request'
@@ -1198,7 +1198,7 @@ function observableEventLabel(event: RuntimeEvent): string {
   const kind = (event.kind || '').toLowerCase();
   const name = (event.name || '').toLowerCase();
   const metadata = event.metadata || {};
-  if (kind === 'intent_classified') return '已完成意图分类';
+  if (kind === 'task_input_recorded') return '已记录任务输入';
   if (kind === 'model_request') return '已记录模型请求上下文';
   if (kind === 'llm_start') return 'Planner 正在规划';
   if (kind === 'llm_end') return 'Planner 输出完成';

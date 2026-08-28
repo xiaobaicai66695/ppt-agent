@@ -612,37 +612,6 @@ func (tm *TaskManager) HasRunningTasks() bool {
 func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	factory AgentFactory, cfg *deck.PPTTaskConfig) (*TaskInfo, error) {
 
-	// ── 意图识别与路由 ──
-	// 如果配置中没有意图结果，进行意图识别
-	if cfg.IntentResult == nil {
-		routingCtx, cancelRouting := context.WithTimeout(ctx,
-			time.Duration(utils.EnvInt("INTENT_ROUTE_TIMEOUT_SECONDS", 30))*time.Second)
-		intentCfg, err := deck.ProcessUserIntent(routingCtx, query, userID)
-		cancelRouting()
-		if err != nil {
-			logger.Warn("intent_process_failed", "error", err.Error())
-		} else if intentCfg != nil {
-			// 合并意图识别结果
-			if intentCfg.IntentResult != nil {
-				cfg.IntentResult = intentCfg.IntentResult
-			}
-			if intentCfg.RoutingDecision != nil {
-				cfg.RoutingDecision = intentCfg.RoutingDecision
-			}
-			if intentCfg.EnhancedProfile != nil {
-				cfg.EnhancedProfile = intentCfg.EnhancedProfile
-			}
-			// 如果有推荐的样式上下文，追加到现有上下文
-			if intentCfg.StyleContext != "" {
-				if cfg.StyleContext != "" {
-					cfg.StyleContext += "\n" + intentCfg.StyleContext
-				} else {
-					cfg.StyleContext = intentCfg.StyleContext
-				}
-			}
-		}
-	}
-
 	workDir := filepath.Join(tm.baseDir, fmt.Sprintf("%d-%s", userID, cfg.TaskID))
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return nil, err
@@ -650,24 +619,13 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	cfg.WorkDir = workDir
 	runtimeMeta := utils.NewRuntimeMeta(cfg.TaskID, workDir)
 	runtimeMeta.SetEventSink(persistRuntimeEvent)
-	intentAnchor := utils.IntentAnchor{
-		Summary: compactIntentSummary(query, 120), OriginalLength: len([]rune(query)),
-	}
-	if cfg.IntentResult != nil {
-		intentAnchor.Intent = cfg.IntentResult.Intent.String()
-		intentAnchor.Domain = cfg.IntentResult.Domain.String()
-		intentAnchor.SuggestedPages = cfg.IntentResult.SuggestedPageCount
-		intentAnchor.VisualHint = cfg.IntentResult.VisualHint
-		if cfg.IntentResult.UseVisualAssets != nil {
-			intentAnchor.UseVisualAssets = *cfg.IntentResult.UseVisualAssets
-		}
+	taskInput := utils.TaskInputAnchor{
+		Summary: compactRequestSummary(query, 120), OriginalLength: len([]rune(query)),
 	}
 	if cfg.Outline != nil {
-		intentAnchor.Template = cfg.Outline.Template
-		intentAnchor.Theme = cfg.Outline.Theme
-		intentAnchor.Recommendation = cfg.Outline.RecommendationReason
+		taskInput.Recommendation = cfg.Outline.RecommendationReason
 	}
-	runtimeMeta.RecordIntent(intentAnchor)
+	runtimeMeta.RecordTaskInput(taskInput)
 	runtimeMeta.RecordEvent("task_created", "task", "ok", query, map[string]any{
 		"user_id": userID,
 	})
@@ -770,68 +728,24 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.runtimeMeta.RecordPhase("preparing", "初始化任务运行环境")
 	}
 
-	// ── 步骤1：意图分析结果 ──────────────────────────────
+	// ── 步骤1：任务输入 ──────────────────────────────
 	var step1 strings.Builder
-	step1.WriteString("【步骤1/3】模型意图分析\n")
-	if cfg.IntentResult != nil {
-		step1.WriteString(fmt.Sprintf("  • 意图: %s\n", cfg.IntentResult.Intent))
-		step1.WriteString(fmt.Sprintf("  • 领域: %s\n", cfg.IntentResult.Domain))
-		step1.WriteString(fmt.Sprintf("  • 复杂度: %d\n", cfg.IntentResult.Complexity.Level))
-		step1.WriteString(fmt.Sprintf("  • 预估页数: %d 页\n", cfg.IntentResult.SuggestedPageCount))
-		step1.WriteString(fmt.Sprintf("  • 置信度: %.0f%%\n", cfg.IntentResult.Confidence*100))
-		if cfg.IntentResult.RoutingSource == "llm" {
-			step1.WriteString("  • 决策来源: LLM 结构化路由\n")
-		} else {
-			step1.WriteString("  • 决策来源: 固定兜底（模型路由不可用）\n")
-		}
+	step1.WriteString("【步骤1/2】任务输入\n")
+	if cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
+		step1.WriteString(fmt.Sprintf("  • 用户大纲: %d 页\n", len(cfg.Outline.Slides)))
 	} else {
-		step1.WriteString("  • 意图分类未启用\n")
+		step1.WriteString("  • 用户大纲: 未提供，由 Planner 规划\n")
 	}
 
-	// ── 步骤2：用户画像加载 ────────────────────────────
+	// ── 步骤2：执行链路 ────────────────────────────
 	var step2 strings.Builder
-	step2.WriteString("【步骤2/3】用户画像加载\n")
-	if cfg.EnhancedProfile != nil {
-		if cfg.EnhancedProfile.LanguageTone != "" {
-			step2.WriteString(fmt.Sprintf("  • 语言风格: %s\n", cfg.EnhancedProfile.LanguageTone))
-		}
-		if len(cfg.EnhancedProfile.PreferredColors) > 0 {
-			step2.WriteString(fmt.Sprintf("  • 配色偏好: %s\n", strings.Join(cfg.EnhancedProfile.PreferredColors, " / ")))
-		}
-		if len(cfg.EnhancedProfile.LayoutPreferences) > 0 {
-			step2.WriteString(fmt.Sprintf("  • 布局偏好: %s\n", strings.Join(cfg.EnhancedProfile.LayoutPreferences, " / ")))
-		}
-		if len(cfg.EnhancedProfile.SuccessPatterns) > 0 {
-			step2.WriteString(fmt.Sprintf("  • 历史成功经验: %d 条\n", len(cfg.EnhancedProfile.SuccessPatterns)))
-		}
-		if cfg.EnhancedProfile.TotalTasks > 0 {
-			step2.WriteString(fmt.Sprintf("  • 历史任务: %d 个\n", cfg.EnhancedProfile.TotalTasks))
-		}
-	} else if cfg.RoutingDecision != nil && !cfg.RoutingDecision.CacheProfile {
-		step2.WriteString("  • 无历史偏好，使用默认策略\n")
-	} else {
-		step2.WriteString("  • 首次使用，加载默认偏好\n")
-	}
+	step2.WriteString("【步骤2/2】执行链路\n")
+	step2.WriteString("  • Planner 规划 → Task Reviewer 审查 → Go 校验提交 → Worker Pool 渲染\n")
+	step2.WriteString("  • 用户风格不再自动读取；如需全局风格，请在任务提示词中手动说明\n")
 
-	// ── 步骤3：路由决策 ───────────────────────────────
-	var step3 strings.Builder
-	step3.WriteString("【步骤3/3】Agent 路由决策\n")
-	if cfg.RoutingDecision != nil {
-		step3.WriteString(fmt.Sprintf("  • Agent类型: %s\n", cfg.RoutingDecision.AgentType))
-		step3.WriteString(fmt.Sprintf("  • 流水线: %s\n", strings.Join(cfg.RoutingDecision.Pipeline, " → ")))
-		step3.WriteString(fmt.Sprintf("  • 并发数: %d\n", cfg.RoutingDecision.Concurrency))
-		step3.WriteString("  • QA质检: 已停用\n")
-	} else {
-		step3.WriteString("  • 使用默认配置\n")
-	}
-
-	// 立即广播前3个步骤（意图分析、用户画像、路由决策）
-	// 这些信息在 CreateTask 阶段已完成，用户连接 SSE 时可立即看到
 	ts.Broadcast(SSERichEvent{Type: "system_step", Content: step1.String()})
 	ts.Broadcast(SSERichEvent{Type: "system_step_end", Content: ""})
 	ts.Broadcast(SSERichEvent{Type: "system_step", Content: step2.String()})
-	ts.Broadcast(SSERichEvent{Type: "system_step_end", Content: ""})
-	ts.Broadcast(SSERichEvent{Type: "system_step", Content: step3.String()})
 	ts.Broadcast(SSERichEvent{Type: "system_step_end", Content: ""})
 
 	defer tm.cleanupTask(ts)
@@ -1053,7 +967,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	// 再构建并写入 conversation_content。
 	ts.persistConversationContent()
 
-	// 触发任务完成回调。当前基线不从生成产物自动学习用户偏好，避免把系统选择反写成用户记忆。
+	// 触发任务完成回调。
 	if tm.onTaskComplete != nil && ts.Info.UserID > 0 && ts.Info.Status == TaskStatusCompleted {
 		go tm.onTaskComplete(ts.Info.UserID, ts.Info.WorkDir, ts.Info.Query)
 	}
@@ -1537,10 +1451,8 @@ func outlineToManifest(outline *deck.TaskOutline, workDir string) *deck.TasksMan
 			PageIndex:   i + 1,
 			Title:       slide.Title,
 			ContentType: slide.ContentType,
-			Description: slide.Description,
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
 			Status:      deck.StatusPending,
-			CreatedAt:   time.Now().Format(time.RFC3339),
 		}
 		// Carry through content_plan if present
 		if slide.ContentPlan != nil {
@@ -1553,10 +1465,8 @@ func outlineToManifest(outline *deck.TaskOutline, workDir string) *deck.TasksMan
 		tasks = append(tasks, item)
 	}
 	return &deck.TasksManifest{
-		Title:    outline.Title,
-		Theme:    outline.Theme,
-		Template: outline.Template,
-		Tasks:    tasks,
+		Title: outline.Title,
+		Tasks: tasks,
 	}
 }
 
@@ -1581,7 +1491,7 @@ func isCompletedSlideStatus(status string) bool {
 	return status == deck.StatusDone || status == deck.StatusQADone || status == deck.StatusFixed
 }
 
-func compactIntentSummary(query string, limit int) string {
+func compactRequestSummary(query string, limit int) string {
 	query = strings.ReplaceAll(query, "\r", "\n")
 	parts := strings.FieldsFunc(query, func(r rune) bool { return r == '\n' || r == '。' || r == '！' || r == '？' })
 	summary := strings.TrimSpace(query)
@@ -1626,15 +1536,11 @@ func (ts *TaskState) persistConversationContent() {
 
 	if manifestErr == nil && manifest != nil && len(manifest.Tasks) > 0 {
 		b.WriteString("\n## 幻灯片概览\n")
-		b.WriteString("| # | 标题 | 类型 | 状态 | QA |\n")
-		b.WriteString("|---|------|------|------|----|\n")
+		b.WriteString("| # | 标题 | 类型 | 状态 |\n")
+		b.WriteString("|---|------|------|------|\n")
 		for _, t := range manifest.Tasks {
-			qa := ""
-			if t.QAReport != "" {
-				qa = "有"
-			}
-			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s |\n",
-				t.PageIndex, t.Title, t.ContentType, t.Status, qa))
+			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s |\n",
+				t.PageIndex, t.Title, t.ContentType, t.Status))
 		}
 	}
 
@@ -1683,15 +1589,11 @@ func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) str
 	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
 	if err == nil && manifest != nil {
 		b.WriteString("\n## 当前页面列表\n")
-		b.WriteString("| # | 标题 | 类型 | 状态 | QA |\n")
-		b.WriteString("|---|------|------|------|----|\n")
+		b.WriteString("| # | 标题 | 类型 | 状态 |\n")
+		b.WriteString("|---|------|------|------|\n")
 		for _, t := range manifest.Tasks {
-			qa := ""
-			if t.QAReport != "" {
-				qa = "有报告"
-			}
-			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s |\n",
-				t.PageIndex, t.Title, t.ContentType, t.Status, qa))
+			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s |\n",
+				t.PageIndex, t.Title, t.ContentType, t.Status))
 		}
 	}
 

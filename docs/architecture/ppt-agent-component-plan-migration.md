@@ -8,7 +8,7 @@
 
 ```text
 用户输入
-→ 意图识别 / 用户画像门控
+→ 创建入口意图分类
 → Deck Planner：整套 PPT 叙事规划
 → Content Planner：页级内容规划
 → Component Planner：页内组件编排
@@ -55,4 +55,4 @@
 
 第二阶段再把 Python generator 内部抽成组件渲染器，例如 `feature_card`、`kpi_metric`、`quote_block`、`chart_component`。第三阶段再做组件级 QA 和局部修复，例如只缩短第 3 页第二张卡片，而不是重写整页。
 
-当前阶段先验证收益：减少用户画像过拟合、提升内容密度审查能力，并降低 generator 从自然语言中猜参数的压力。
+当前阶段先验证收益：提升内容密度审查能力，并降低 generator 从自然语言中猜参数的压力。

@@ -9,15 +9,12 @@ import (
 func TestPlanReviewAllowsTextOnlySlideWithoutBackground(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{
-		Title:    "架构清理验证",
-		Theme:    "simple_gray",
-		Template: "dynamic",
+		Title: "架构清理验证",
 		Tasks: []*TaskItem{{
 			TaskID:      "slide-1",
 			PageIndex:   1,
 			Title:       "架构清理验证",
 			ContentType: "content_slide",
-			Description: "说明固定模板和旧自由工具已清理，当前链路以动态 DeckSpec、Task Reviewer 和确定性渲染为核心。",
 			OutputFile:  "1_architecture_cleanup.pptx",
 			Status:      StatusPending,
 			ContentPlan: &ContentPlan{
@@ -70,10 +67,10 @@ func TestPlanReviewAllowsTextOnlySlideWithoutBackground(t *testing.T) {
 func TestPlanReviewUsesContractArgumentBlockMinimum(t *testing.T) {
 	shortBody := strings.Repeat("论据与解释仍然不足。", 30)
 	manifest := &TasksManifest{
-		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Title: "AI 产业分析",
 		Tasks: []*TaskItem{{
 			TaskID: "slide-1", PageIndex: 1, Title: "产业判断", ContentType: "deep_dive",
-			Description: "解释 AI 产业从技术突破走向规模化落地的关键条件。", OutputFile: "1_analysis.pptx", Status: StatusPending,
+			OutputFile: "1_analysis.pptx", Status: StatusPending,
 			ContentPlan: &ContentPlan{
 				SlideIntent:  "用完整论述串联技术、市场和组织证据。",
 				VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "AI data center wide landscape clean negative space"},
@@ -99,10 +96,10 @@ func TestPlanReviewUsesContractArgumentBlockMinimum(t *testing.T) {
 
 func TestPlannerPreflightBlocksOutlinePlaceholders(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "制造强国复盘", Theme: "ocean_soft", Template: "dynamic",
+		Title: "制造强国复盘",
 		Tasks: []*TaskItem{{
 			TaskID: "slide-12", PageIndex: 12, Title: "成就与短板：客观审视", ContentType: "two_column",
-			Description: "对比制造强国建设中的阶段成果、现实约束和后续判断。", OutputFile: "12_gap.pptx", Status: StatusPending,
+			OutputFile: "12_gap.pptx", Status: StatusPending,
 			ContentPlan: &ContentPlan{
 				Summary:      "从事实、风险和洞察三个层面对制造强国建设进行客观审视。",
 				SlideIntent:  "用左右对比说明已有积累和仍需补齐的关键短板。",
@@ -133,10 +130,10 @@ func TestPlannerPreflightBlocksOutlinePlaceholders(t *testing.T) {
 
 func TestPlannerPreflightBlocksShortOutlineBodies(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "制造强国复盘", Theme: "ocean_soft", Template: "dynamic",
+		Title: "制造强国复盘",
 		Tasks: []*TaskItem{{
 			TaskID: "slide-14", PageIndex: 14, Title: "未来规划", ContentType: "content_slide",
-			Description: "说明制造强国后续规划中的关键方向和行动重点。", OutputFile: "14_future.pptx", Status: StatusPending,
+			OutputFile: "14_future.pptx", Status: StatusPending,
 			ContentPlan: &ContentPlan{
 				Summary:      "梳理自主可控、智能制造、绿色低碳和开放合作四个方向。",
 				SlideIntent:  "把纲要式方向扩写为可执行判断，避免只有标题词。",
@@ -166,10 +163,10 @@ func TestPlannerPreflightBlocksShortOutlineBodies(t *testing.T) {
 
 func TestPlanReviewAcceptsExplicitCleanTextOnlyPolicy(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "纯文字汇报", Theme: "simple_gray", Template: "dynamic",
+		Title: "纯文字汇报",
 		Tasks: []*TaskItem{{
 			TaskID: "slide-1", PageIndex: 1, Title: "核心结论", ContentType: "content_slide",
-			Description: "按用户要求使用纯文字页面表达核心结论。", OutputFile: "1_summary.pptx", Status: StatusPending,
+			OutputFile: "1_summary.pptx", Status: StatusPending,
 			ContentPlan: &ContentPlan{
 				SlideIntent:  "在无图片约束下清晰呈现核心判断。",
 				VisualIntent: &VisualIntent{Role: "clean_text_only"},
@@ -188,7 +185,7 @@ func TestPlanReviewAcceptsExplicitCleanTextOnlyPolicy(t *testing.T) {
 
 func TestPlannerPreflightFlagsMultipleBackgroundKeywordsForSameContentType(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Title: "AI 产业分析",
 		Tasks: []*TaskItem{
 			backgroundQueryTask(1, "diplomacy"),
 			backgroundQueryTask(2, "energy"),
@@ -208,7 +205,7 @@ func TestPlannerPreflightFlagsMultipleBackgroundKeywordsForSameContentType(t *te
 
 func TestPlannerPreflightFlagsVerboseBackgroundQuery(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Title: "AI 产业分析",
 		Tasks: []*TaskItem{
 			backgroundQueryTask(1, "light global diplomacy meeting wide landscape clean negative space"),
 		},
@@ -227,7 +224,7 @@ func TestPlannerPreflightFlagsVerboseBackgroundQuery(t *testing.T) {
 
 func TestPlannerPreflightFlagsLowVisualMixForNarrativeDeck(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Title: "AI 产业分析",
 		Tasks: []*TaskItem{
 			backgroundQueryTask(1, "light AI office collaboration wide landscape clean negative space"),
 			backgroundQueryTask(2, "light AI office collaboration wide landscape clean negative space"),
@@ -254,7 +251,7 @@ func TestPlannerPreflightFlagsImageTextWithoutForegroundImage(t *testing.T) {
 		{ID: "paragraph-1", Type: "paragraph", Body: "正文负责解释场景、问题和结论，形成可读的图文混排页面。"},
 	}
 	manifest := &TasksManifest{
-		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Title: "AI 产业分析",
 		Tasks: []*TaskItem{task},
 	}
 	issues := plannerPreflightIssues(manifest)
@@ -271,7 +268,7 @@ func TestPlannerPreflightFlagsImageTextWithoutForegroundImage(t *testing.T) {
 
 func TestPlanReviewFlagsSingleImageTextVariantAcrossDeck(t *testing.T) {
 	manifest := &TasksManifest{
-		Title: "AI 产业分析", Theme: "simple_gray", Template: "dynamic",
+		Title: "AI 产业分析",
 		Tasks: []*TaskItem{
 			imageTextTask("slide-1", 1),
 			imageTextTask("slide-2", 2),
@@ -321,7 +318,7 @@ func TestNormalizeManifestLayoutVariantsRotatesImageTextVariants(t *testing.T) {
 func backgroundQueryTask(page int, query string) *TaskItem {
 	return &TaskItem{
 		TaskID: fmt.Sprintf("slide-%d", page), PageIndex: page, Title: fmt.Sprintf("页面 %d", page), ContentType: "content_slide",
-		Description: "说明本页的核心判断、事实证据和业务影响。", OutputFile: fmt.Sprintf("%d_slide.pptx", page), Status: StatusPending,
+		OutputFile: fmt.Sprintf("%d_slide.pptx", page), Status: StatusPending,
 		ContentPlan: &ContentPlan{
 			SlideIntent:  "用观点和证据支撑整套叙事。",
 			VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query},
@@ -333,7 +330,7 @@ func backgroundQueryTask(page int, query string) *TaskItem {
 func imageTextTask(id string, page int) *TaskItem {
 	return &TaskItem{
 		TaskID: id, PageIndex: page, Title: fmt.Sprintf("图文页 %d", page), ContentType: "image_text",
-		Description: "使用真实图片和正文说明共同呈现一个业务场景。", OutputFile: fmt.Sprintf("%d_image_text.pptx", page), Status: StatusPending,
+		OutputFile: fmt.Sprintf("%d_image_text.pptx", page), Status: StatusPending,
 		ContentPlan: &ContentPlan{
 			SlideIntent:  "通过图文混排说明场景证据。",
 			VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI office collaboration wide landscape clean negative space"},

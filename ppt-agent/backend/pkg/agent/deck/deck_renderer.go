@@ -144,7 +144,7 @@ func validateDeckRenderInput(ctx context.Context, input *deckRenderInput) (*deck
 		}, nil
 	}
 
-	concurrency := getConcurrency(cfg.RoutingDecision)
+	concurrency := 5
 	if cfg.Concurrency > 0 {
 		concurrency = cfg.Concurrency
 	}
@@ -272,7 +272,7 @@ func renderOneTask(ctx context.Context, cfg *PPTTaskConfig, task *TaskItem, onEv
 	if cfg.RuntimeMeta != nil {
 		cfg.RuntimeMeta.RecordToolStart("generate_slide", fmt.Sprintf(`{"task_id":"%s"}`, taskID))
 	}
-	if err := PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusGenerating, "", 0); err != nil {
+	if err := PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusGenerating); err != nil {
 		return err
 	}
 
@@ -282,7 +282,7 @@ func renderOneTask(ctx context.Context, cfg *PPTTaskConfig, task *TaskItem, onEv
 		if msg == "" {
 			msg = err.Error()
 		}
-		patchErr := PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusFailed, msg, 1)
+		patchErr := PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusFailed)
 		if cfg.RuntimeMeta != nil {
 			cfg.RuntimeMeta.RecordToolErrorDetails("generate_slide", msg, map[string]any{
 				"task_id": taskID,
@@ -306,14 +306,14 @@ func renderOneTask(ctx context.Context, cfg *PPTTaskConfig, task *TaskItem, onEv
 		outputPath := filepath.Join(cfg.WorkDir, task.OutputFile)
 		if _, statErr := os.Stat(outputPath); statErr != nil {
 			msg := fmt.Sprintf("expected output file missing: %s", task.OutputFile)
-			_ = PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusFailed, msg, 1)
+			_ = PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusFailed)
 			return fmt.Errorf("task %s render failed: %s", taskID, msg)
 		}
 		if cfg.RuntimeMeta != nil {
 			cfg.RuntimeMeta.RecordFileCreated(task.OutputFile)
 		}
 	}
-	if err := PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusDone, "", 0); err != nil {
+	if err := PatchTaskRuntimeFields(cfg.WorkDir, taskID, StatusDone); err != nil {
 		return err
 	}
 	if cfg.RuntimeMeta != nil {

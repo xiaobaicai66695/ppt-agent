@@ -8,7 +8,7 @@
 
 1. 前端直接提交智能规划请求，或在自定义编排中选择合法页面类型形成 `TaskOutline`。
 2. Go Web API 校验并补齐 outline，创建任务工作目录。
-3. `TaskManager` 完成意图识别、用户画像门控和路由决策，并通过 SSE 推送进度。
+3. Web 创建入口完成意图分类，区分新建 PPT、修改已有任务、主题澄清和闲聊；`TaskManager` 创建任务并通过 SSE 推送进度。
 4. `PPTPlanner` 无论有无 outline，都通过 `update_tasks_manifest` 一次性生成完整 `tasks.draft.json`。
 5. `TaskPlanReviewer` 根据 Go 硬校验报告批量修正草稿，Go 最多执行三轮并在通过后提交 `tasks.json`。
 6. `DeckRenderWorkflow` 按 `task_id` 并发调用 Python `render_task.py`，由 `generators` 包生成单页 `.pptx`。
@@ -19,8 +19,9 @@ flowchart LR
   U["用户"] --> F["frontend<br/>Compose / Dashboard"]
   F --> W["backend/pkg/web<br/>REST + SSE"]
   W --> TM["backend/pkg/task<br/>TaskManager"]
-  TM --> PI["intent / learning / router<br/>意图与画像门控"]
-  PI --> PL["backend/pkg/agent/deck<br/>PPTPlanner"]
+  W --> CR["request_router<br/>创建入口意图分类"]
+  CR --> TM
+  TM --> PL["backend/pkg/agent/deck<br/>PPTPlanner"]
   PL --> D["tasks.draft.json<br/>规划草稿"]
   D --> RV["TaskPlanReviewer<br/>按 Go issues 批量修正"]
   RV --> D
@@ -38,7 +39,7 @@ flowchart LR
 | 层级 | 主要路径 | 职责 | 后续改动边界 |
 | --- | --- | --- | --- |
 | Web 入口 | `ppt-agent/backend/main.go` | 读取 `.env`、初始化 logger/callback/skill/backend/db，组装 web/cli 两种启动模式 | 改服务启动、模型工厂、skill 路径、输出目录时看这里 |
-| HTTP API | `ppt-agent/backend/pkg/web` | Gin 路由、认证、任务接口、模板接口、AI 补全、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
+| HTTP API | `ppt-agent/backend/pkg/web` | Gin 路由、认证、创建入口意图分类、任务接口、模板接口、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
 | 任务生命周期 | `ppt-agent/backend/pkg/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
 | 规划与渲染编排 | `ppt-agent/backend/pkg/agent/deck` | `PPTPlanner`、`TaskPlanReviewer`、`PPTFixer`、manifest 草稿/提交、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、继续修复或 Agent prompt 时看这里 |
 | Prompt 模板 | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
@@ -57,11 +58,11 @@ flowchart LR
 - `runWebMode` 将输出目录设为 `ppt-agent/weboutput`。
 - `skillsDir` 指向 `ppt-agent/skills`，供 Eino skill backend、prompt 和 Python 生成器共同使用。
 - `agentFactory` 为每个任务创建新的 `deck.NewPPTPlannerAgent`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
-- `web.NewServer` 负责路由、模板 loader、任务管理器、风格画像、日志分析服务。
+- `web.NewServer` 负责路由、创建入口意图分类、模板 loader、任务管理器和日志分析服务。
 
 ### 3.2 智能规划 / 自定义编排到任务创建
 
-当前新建任务不再依赖固定整套模板推荐。首页智能规划直接提交用户输入，由意图识别和 Planner 动态生成 DeckSpec；自定义编排页只读取页面能力和配色：
+当前新建任务不再依赖固定整套模板推荐。首页智能规划直接提交用户输入，经创建入口意图分类后由 Planner 动态生成 DeckSpec；自定义编排页只读取页面能力和配色：
 
 - `/api/templates/layouts`：组件化页面类型和容量契约。该路径保留历史命名，但只表示 layout contract，不返回整套 preset。
 - `/api/themes`：后端内置配色。
@@ -87,7 +88,7 @@ interface TaskOutline {
 后端 `handleCreateTask` 会调用 `prepareOutline`：
 
 - 校验 `content_type` 必须存在于 `templates/component_contracts.json` 支持的页面类型中。
-- `theme` 不存在时由意图识别和 Planner 选择，最终由 Go 校验兜底。
+- `theme` 是历史兼容字段；当前规划不依赖入口分类推荐主题。
 - `template` 仅为兼容/来源标记，不再匹配固定 preset。
 - `background` 是历史字段；新规划应保持为空，图片素材走 `visual_intent` / `image` 组件。
 - `description` 太短或缺少 `content_plan` 时，通过 `/api/ai/generate-outline` 同一套逻辑补齐。
@@ -191,7 +192,7 @@ interface TaskOutline {
 - `tasks.json` 必须通过 `update_tasks_manifest` 写入，避免 LLM 直接覆盖 JSON 文件。
 - `content_type` 只能是生成器支持的英文 id。任何中文显示名都只能用于 UI。
 - `description` 和 `content_plan` 是渲染器输入，不应塞超出布局容量的长段落。
-- 用户画像只应注入确定性信息和同场景偏好；跨场景历史风格应被 Reviewer 拦截，避免过拟合。
+- 固定风格、称谓、组织背景、配色或表达偏好由用户在当前任务提示词中显式说明。
 
 ### 4.2 `TaskPlanReviewer`
 
@@ -202,8 +203,7 @@ interface TaskOutline {
 - 检查整套 PPT 的叙事节奏、章节结构、页数和受众匹配。
 - 检查每页是否有明确 `role_in_deck`，是否重复、空洞或信息过载。
 - 检查 `content_type`、`layout_variant` 和组件计划是否符合模板容量。
-- 检查用户画像使用是否过拟合：确定性信息可直接使用，风格偏好必须经过场景相似度门控。
-- 输出结构化 issues，例如 `intent_mismatch`、`profile_overfit`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`。
+- 输出结构化 issues，例如 `intent_mismatch`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`。
 - Reviewer 只根据 issues 批量修订 DeckSpec，不做文学化改写，也不改底层视觉参数。
 
 循环策略：
@@ -357,7 +357,6 @@ SSE 消费重点：
 Planner 输出不得直接视为可渲染。当前主流程由 TaskPlanReviewer 与 Go Validator 形成渲染前质量门：
 
 - `intent_mismatch`：与用户本次输入不匹配。
-- `profile_overfit`：套用了不同场景下的历史偏好。
 - `weak_narrative`：章节节奏弱、页面角色不清。
 - `low_information_density`：页面空洞，缺事实、数据或观点。
 - `overload_capacity`：内容超过模板容量，应拆页或换布局。

@@ -21,7 +21,7 @@
 //	├── prompts.go                       # 本文件，通用加载函数
 //	├── planner/                         # PPT Planner 模板
 //	│   └── master_instruction.tmpl
-//	└── style/                          # Style extraction templates
+//	└── reviewer/                        # DeckSpec Reviewer 模板
 //
 // 每个模板通过 Render*(data) 系列函数加载并渲染。
 package prompts
@@ -58,10 +58,7 @@ func parseWithFuncs(pattern string) (*template.Template, error) {
 type TemplateData struct {
 	SkillsDir            string
 	TasksJSON            string
-	HasOutline           bool
 	OutlineQuery         string
-	SuggestedPageCount   int
-	StyleContext         string
 	ImageSearchAvailable bool
 }
 

@@ -97,7 +97,7 @@ function switchMode(next: 'code' | 'password') {
         <div class="auth-heading">
           <span class="auth-kicker">个人工作区</span>
           <h1 id="auth-title">登录并继续你的演示</h1>
-          <p>任务进度、模板偏好和生成结果会保留在你的工作区。</p>
+          <p>任务进度和生成结果会保留在你的工作区。</p>
         </div>
 
         <div class="auth-tabs" role="tablist" aria-label="登录方式">

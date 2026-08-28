@@ -16,7 +16,7 @@ func TestChatModelCompressorEmitsVisibleRuntimePhase(t *testing.T) {
 		return schema.AssistantMessage("ok", nil), nil
 	}}
 	summarizer := fakeToolCallingChatModel{generate: func(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-		return schema.AssistantMessage(`{"user_intent_summary":"生成PPT","preserved_requirements":["保持最新要求"],"progress_summary":"已压缩","conversation_summary":"旧上下文"}`, nil), nil
+		return schema.AssistantMessage(`{"user_request_summary":"生成PPT","preserved_requirements":["保持最新要求"],"progress_summary":"已压缩","conversation_summary":"旧上下文"}`, nil), nil
 	}}
 	meta := NewRuntimeMeta("task-compress", t.TempDir())
 	var stages []string

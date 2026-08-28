@@ -3,21 +3,19 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ArrowDown, ArrowUp, Copy, GripVertical, LayoutTemplate, ListPlus, PanelsTopLeft, Play, Plus, Sparkles, Trash2, X } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
-import { createTaskWithOutline, fetchLayouts, fetchThemes } from '../api';
-import type { AtomicLayout, ThemeInfo, TaskOutline, SlideOutline } from '../api';
+import { createTaskWithOutline, fetchLayouts } from '../api';
+import type { AtomicLayout, TaskOutline, SlideOutline } from '../api';
 
 const route = useRoute();
 const router = useRouter();
 // State
 const layouts = ref<AtomicLayout[]>([]);
-const themes = ref<ThemeInfo[]>([]);
 const loading = ref(false);
 const loadError = ref('');
 const generating = ref(false);
 const generationError = ref('');
 
 // Editing state
-const selectedTheme = ref('ocean_soft');
 const pptTitle = ref('');
 const topicInput = ref('');
 const topicTrimmed = computed(() => topicInput.value.trim());
@@ -133,12 +131,8 @@ async function loadWorkspaceData() {
   loading.value = true;
   loadError.value = '';
   try {
-    const [l, t] = await Promise.all([
-      fetchLayouts(),
-      fetchThemes(),
-    ]);
+    const l = await fetchLayouts();
     layouts.value = l;
-    themes.value = t;
 
     const initialBrief = typeof route.query.brief === 'string' ? route.query.brief.trim() : '';
     if (initialBrief) {
@@ -147,9 +141,9 @@ async function loadWorkspaceData() {
     }
     if (slides.value.length === 0) {
       slides.value = [
-        { title: '', content_type: 'title_slide', description: '' },
-        { title: '', content_type: 'content_slide', description: '' },
-        { title: '', content_type: 'summary_slide', description: '' },
+        { title: '', content_type: 'title_slide' },
+        { title: '', content_type: 'content_slide' },
+        { title: '', content_type: 'summary_slide' },
       ];
     }
   } catch (e) {
@@ -164,14 +158,11 @@ onMounted(loadWorkspaceData);
 
 function buildOutline(): TaskOutline {
   return {
-    template: 'custom',
-    theme: selectedTheme.value || 'ocean_soft',
     title: pptTitle.value || topicTrimmed.value || '未命名PPT',
     content_mode: 'user_outline',
     slides: slides.value.map(s => ({
       title: s.title,
       content_type: s.content_type,
-      description: s.description || '',
       content_plan: s.content_plan,
     })),
   };
@@ -181,7 +172,6 @@ function addSlideFromLayout(layout: AtomicLayout) {
   const slide: SlideOutline = {
     title: layout.display_name,
     content_type: layout.name,
-    description: '',
   };
   let insertIndex = slides.value.length;
   if (selectedSlideIndex.value >= 0) {
@@ -241,7 +231,6 @@ function addBlankSlide() {
   const slide: SlideOutline = {
     title: '新页面',
     content_type: 'content_slide',
-    description: '',
   };
   slides.value.push(slide);
 }
@@ -290,12 +279,6 @@ async function startGeneration() {
         <label for="topic-input">生成目标</label>
         <textarea id="topic-input" v-model="topicInput" rows="2" :disabled="slides.length === 0" placeholder="说明受众、场景、重点结论和期望页数。" />
       </div>
-      <div class="theme-field">
-        <label for="theme-select">配色主题</label>
-        <select id="theme-select" v-model="selectedTheme">
-          <option v-for="theme in themes" :key="theme.name" :value="theme.name">{{ theme.display_name }}</option>
-        </select>
-      </div>
     </section>
 
     <p v-if="loadError" class="workspace-error" role="alert">
@@ -343,8 +326,6 @@ async function startGeneration() {
               <span class="slide-copy">
                 <strong>{{ slide.title || '未命名页面' }}</strong>
                 <small>{{ getLayoutDisplayName(slide.content_type) }}</small>
-                <span v-if="slide.description" class="slide-description">{{ slide.description }}</span>
-                <span v-else class="slide-description missing">尚未填写内容描述</span>
               </span>
             </button>
             <div class="slide-actions">
@@ -389,10 +370,6 @@ async function startGeneration() {
               <div v-if="capacityGuidance.length"><span>容量</span><p><small v-for="item in capacityGuidance" :key="item.key">{{ item.label }} {{ item.value }}</small></p></div>
             </section>
 
-            <div class="field-group">
-              <label for="field-desc">内容描述</label>
-              <textarea id="field-desc" v-model="editingSlide.description" rows="8" placeholder="写清本页要表达的结论、事实和结构，AI 将据此填充字段。" />
-            </div>
           </div>
 
           <footer class="property-footer">
@@ -402,7 +379,7 @@ async function startGeneration() {
         </template>
 
         <div v-else class="property-empty">
-          <span><PanelsTopLeft :size="22" /></span><h3>选择一张页面</h3><p>在这里编辑布局、标题和内容描述。</p>
+          <span><PanelsTopLeft :size="22" /></span><h3>选择一张页面</h3><p>在这里编辑布局和标题。</p>
         </div>
       </aside>
     </div>
@@ -433,15 +410,14 @@ async function startGeneration() {
 
 .brief-strip {
   min-height: 84px; padding: 12px 14px; display: grid;
-  grid-template-columns: minmax(180px,.7fr) minmax(320px,1.6fr) minmax(150px,.45fr);
+  grid-template-columns: minmax(180px,.7fr) minmax(320px,1.6fr);
   gap: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
 }
 .brief-strip > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .brief-strip label, .field-group label { color: var(--text-muted); font-size: 10px; font-weight: 750; }
-.brief-strip input, .brief-strip textarea, .brief-strip select { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; }
+.brief-strip input, .brief-strip textarea { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; }
 .brief-strip input { height: 34px; font-size: 14px; font-weight: 700; }
 .brief-strip textarea { min-height: 42px; resize: none; font-size: 13px; line-height: 1.5; }
-.brief-strip select { height: 36px; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-muted); font-size: 12px; }
 
 .workspace-error { margin: 0; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-left: 3px solid var(--danger); color: var(--danger); background: var(--danger-soft); font-size: 12px; }
 .workspace-error button { min-height: 36px; border: 0; color: var(--danger); background: transparent; font-weight: 700; cursor: pointer; }
@@ -508,8 +484,6 @@ async function startGeneration() {
 .slide-copy { min-width: 0; display: flex; flex-direction: column; }
 .slide-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .slide-copy small { margin-top: 3px; color: var(--action-ink); font-size: 10px; }
-.slide-description { display: -webkit-box; margin-top: 8px; overflow: hidden; color: var(--text-secondary); font-size: 11px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.slide-description.missing { color: var(--warning); }
 .slide-actions { padding: 8px 7px; display: grid; grid-template-columns: repeat(2,34px); align-content: center; gap: 3px; border-left: 1px solid var(--divider); }
 .slide-actions button, .close-property {
   width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
@@ -558,7 +532,6 @@ async function startGeneration() {
 @media (max-width:1000px) {
   :global(.compose-workspace) { height:auto; min-height:calc(100dvh - 56px); overflow:visible; }
   .brief-strip { grid-template-columns:1fr 1.5fr; }
-  .theme-field { grid-column:1/-1; }
   .editor-workspace { min-height:760px; grid-template-columns:250px minmax(0,1fr); overflow:visible; }
   .property-panel {
     position:fixed; inset:0 0 0 auto; z-index:var(--z-modal); width:min(92vw,380px);
@@ -573,7 +546,6 @@ async function startGeneration() {
   .toolbar-action.primary { min-width:44px; padding:0 10px; }
   .toolbar-action.primary span { display:none; }
   .brief-strip { grid-template-columns:1fr; }
-  .theme-field { grid-column:auto; }
   .editor-workspace { min-height:0; display:block; border:0; background:transparent; }
   .resource-panel { max-height:370px; margin-bottom:10px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
   .outline-panel { min-height:560px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
@@ -588,7 +560,6 @@ async function startGeneration() {
   .slide-card { min-height:0; }
   .slide-open-button { grid-template-columns:1fr; padding:9px; }
   .slide-miniature { width:100%; }
-  .slide-description { -webkit-line-clamp:3; }
   .property-panel { width:100vw; }
 }
 </style>

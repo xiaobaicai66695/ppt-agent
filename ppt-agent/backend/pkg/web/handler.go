@@ -23,9 +23,7 @@ import (
 	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/session"
-	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/task"
-	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
 // safePath 将 baseDir 与 filename 连接并返回清理后的绝对路径。
@@ -139,12 +137,32 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		return
 	}
 
+	uid := userIDGin(c)
+	credential := userModelCredential(uid)
+	route := s.routeCreateRequest(c.Request.Context(), req.Query, req.Outline != nil && len(req.Outline.Slides) > 0, credential)
+	switch route.Intent {
+	case createIntentFixExisting:
+		c.JSON(http.StatusConflict, gin.H{
+			"error":                  firstCreateRouteText(route.ClarificationQuestion, "这像是对已有 PPT 的修改请求，请先选择对应任务后继续修改。"),
+			"intent":                 route.Intent,
+			"reason":                 route.Reason,
+			"clarification_question": route.ClarificationQuestion,
+		})
+		return
+	case createIntentClarifyTopic, createIntentChat:
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":                  firstCreateRouteText(route.ClarificationQuestion, "请补充要制作的 PPT 主题、受众或使用场景。"),
+			"intent":                 route.Intent,
+			"reason":                 route.Reason,
+			"clarification_question": route.ClarificationQuestion,
+		})
+		return
+	}
+
 	taskID := s.taskIDGen()
 	cfg := s.makeTaskConfig(taskID)
 	cfg.Query = req.Query
-	uid := userIDGin(c)
 	cfg.UserID = uid
-	credential := userModelCredential(uid)
 	cfg.ModelAPIKey = credential.APIKey
 	cfg.ModelProvider = credential.Provider
 
@@ -157,8 +175,6 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		}
 		cfg.Outline = outline
 	}
-
-	// 用户偏好由意图识别后的 domain-aware 路径统一注入，避免在未知领域时提前强绑定历史风格。
 
 	info, err := s.tasks.CreateTask(c.Request.Context(), req.Query, uid, s.agentFactory, cfg)
 	if err != nil {
@@ -280,86 +296,9 @@ func (s *Server) handleListLayouts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"layouts": layouts})
 }
 
-func (s *Server) handleListThemes(c *gin.Context) {
-	themes := s.templateLoader.ListThemes()
-	c.JSON(http.StatusOK, gin.H{"themes": themes})
-}
-
-func (s *Server) handleAIExpand(c *gin.Context) {
-	var req struct {
-		Title       string `json:"title"`
-		ContentType string `json:"content_type"`
-		Description string `json:"description"`
-		Theme       string `json:"theme"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
-	}
-
-	ctx := c.Request.Context()
-	model, err := s.aiModelFactory(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "模型初始化失败: " + err.Error()})
-		return
-	}
-
-	layout := s.templateLoader.GetLayout(req.ContentType)
-	layoutName := req.ContentType
-	if layout != nil {
-		layoutName = layout.DisplayName
-	}
-
-	theme, _ := s.getTheme(req.Theme)
-	themeName := req.Theme
-	if theme != nil {
-		themeName = theme.DisplayName
-	}
-
-	prompt := fmt.Sprintf(`你是一个PPT内容生成专家。用户正在制作PPT，请根据以下信息，为一页幻灯片生成详细内容描述。
-
-页面信息：
-- 标题：%s
-- 布局类型：%s
-- 当前描述：%s
-- 配色主题：%s
-- 容量要求：%s
-
-请根据这些信息，生成一段详细的内容描述，供AI生成PPT页面使用。要求：
-1. 内容与标题紧密相关
-2. 描述具体、充实，避免空洞
-3. 包含具体的要点、数据或案例（如适用）
-4. 适合该布局类型（%s）
-5. 中文输出
-6. 描述应该包含该页面的具体内容要点，供AI直接使用生成PPT内容
-
-输出只包含内容描述。容量要求表示正常信息密度目标，可根据事实完整性在可渲染范围内适度调整。`, req.Title, layoutName, req.Description, themeName, layoutDescriptionTarget(req.ContentType), layoutName)
-
-	resp, err := model.Generate(ctx, []*schema.Message{
-		schema.UserMessage(prompt),
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成失败: " + err.Error()})
-		return
-	}
-
-	content := ""
-	if resp != nil {
-		content = resp.Content
-	}
-
-	c.JSON(http.StatusOK, gin.H{"description": content})
-}
-
 func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.TaskOutline) (*deck.TaskOutline, error) {
 	if outline == nil || len(outline.Slides) == 0 {
 		return outline, nil
-	}
-	if strings.TrimSpace(outline.Theme) == "" {
-		outline.Theme = "ocean_soft"
-	}
-	if _, err := s.getTheme(outline.Theme); err != nil {
-		outline.Theme = "ocean_soft"
 	}
 	if strings.TrimSpace(outline.Title) == "" {
 		outline.Title = strings.TrimSpace(query)
@@ -370,229 +309,12 @@ func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.T
 		slide := &outline.Slides[i]
 		slide.Title = strings.TrimSpace(slide.Title)
 		slide.ContentType = strings.TrimSpace(slide.ContentType)
-		slide.Description = strings.TrimSpace(slide.Description)
 		if s.templateLoader.GetLayout(slide.ContentType) == nil {
 			return nil, fmt.Errorf("第%d页 content_type=%q 不存在", i+1, slide.ContentType)
 		}
 	}
 
 	return outline, nil
-}
-
-// enrichOutline keeps the legacy explicit AI-fill endpoint compatible. Task
-// creation deliberately avoids it; the main Agent completes template content.
-func (s *Server) enrichOutline(ctx context.Context, query string, outline *deck.TaskOutline) (*deck.TaskOutline, error) {
-	prepared, err := s.prepareOutline(ctx, query, outline)
-	if err != nil {
-		return nil, err
-	}
-	if !outlineNeedsEnrichment(prepared) {
-		return prepared, nil
-	}
-	enriched, err := s.generateOutlineSlides(ctx, query, prepared)
-	if err != nil {
-		return nil, err
-	}
-	return s.mergeOutlineSlides(prepared, enriched), nil
-}
-
-func outlineNeedsEnrichment(outline *deck.TaskOutline) bool {
-	for _, slide := range outline.Slides {
-		if len([]rune(strings.TrimSpace(slide.Description))) < 30 || slide.ContentPlan == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) mergeOutlineSlides(base *deck.TaskOutline, enriched []deck.SlideOutline) *deck.TaskOutline {
-	for i := range base.Slides {
-		if i >= len(enriched) {
-			break
-		}
-		e := enriched[i]
-		if strings.TrimSpace(e.Title) != "" {
-			base.Slides[i].Title = strings.TrimSpace(e.Title)
-		}
-		if s.templateLoader.GetLayout(e.ContentType) != nil {
-			base.Slides[i].ContentType = e.ContentType
-		}
-		if strings.TrimSpace(e.Description) != "" {
-			base.Slides[i].Description = strings.TrimSpace(e.Description)
-		}
-		if e.ContentPlan != nil {
-			base.Slides[i].ContentPlan = e.ContentPlan
-		}
-	}
-	return base
-}
-
-func (s *Server) isValidBackground(name string) bool {
-	_ = name
-	return false
-}
-
-func layoutDescriptionTarget(contentType string) string {
-	switch contentType {
-	case "title_slide", "section_divider":
-		return "40-80字，给标题、副标题、讲述角度，不写长段落"
-	case "content_slide":
-		return "4-6条要点，每条目标35-60字，事实、解释和结论组合完整"
-	case "two_column":
-		return "左右各3-5条，每条目标30-55字，体现可比较的共同维度"
-	case "three_column":
-		return "每栏2-4条，每条目标24-45字，三栏粒度保持一致"
-	case "card_grid":
-		return "4-6张卡片，header 6-16字，body目标60-100字"
-	case "process_flow":
-		return "4-6个步骤，每步包含动作、对象和结果"
-	case "summary_slide":
-		return "3-5条总结，每条目标35-60字，可附行动建议或展望"
-	case "kpi_dashboard", "stat_slide", "chart_slide", "comparison_table":
-		return "120-220字，必须包含可结构化的数据、指标、分类或表格字段"
-	case "image_text", "case_study", "example_detail", "deep_dive":
-		return "180-320字，允许稍长，但必须分清段落、案例、数据和结论"
-	case "quote_slide":
-		return "quote目标35-110字，attribution目标8-32字，保留完整观点与出处"
-	default:
-		return "100-180字，内容密度匹配页面容量"
-	}
-}
-
-func (s *Server) generateOutlineSlides(ctx context.Context, query string, outline *deck.TaskOutline) ([]deck.SlideOutline, error) {
-	model, err := s.aiModelFactory(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("模型初始化失败: %w", err)
-	}
-
-	theme, _ := s.getTheme(outline.Theme)
-	themeName := outline.Theme
-	if theme != nil {
-		themeName = theme.DisplayName
-	}
-
-	var slideContexts strings.Builder
-	for i, slide := range outline.Slides {
-		layout := s.templateLoader.GetLayout(slide.ContentType)
-		layoutName := slide.ContentType
-		if layout != nil {
-			layoutName = layout.DisplayName
-		}
-		slideContexts.WriteString(fmt.Sprintf(
-			"\n第%d页：标题「%s」 | content_type=`%s` | 布局「%s」 | 容量要求：%s | 现有描述：%s",
-			i+1, slide.Title, slide.ContentType, layoutName, layoutDescriptionTarget(slide.ContentType), slide.Description,
-		))
-	}
-
-	prompt := fmt.Sprintf(`你是PPT内容规划专家。用户已编排好PPT结构，你的任务是根据用户主题为每一页生成可直接消费的结构化内容。
-
-## 用户主题（所有内容必须围绕此展开）
-%s
-
-## 配色方案
-%s
-
-## 页面结构
-%s
-
-## 输出格式
-{
-  "slides": [
-    {
-      "title": "实际标题",
-      "content_type": "content_slide",
-      "description": "与布局容量匹配的内容描述",
-      "content_plan": {
-        "summary": "一句话概括",
-        "components": [
-          {"id": "headline_1", "type": "headline", "text": "本页核心判断"},
-          {"id": "evidence_1", "type": "evidence_list", "items": ["短要点1：具体事实", "短要点2：具体数据"]}
-        ]
-      }
-    }
-  ]
-}
-
-## 生成契约
-- slides 数量和顺序与页面结构保持一致。
-- content_type 使用页面结构中的稳定英文 id。
-- description 以各页容量目标为正常密度，内容完整性与版式容量共同决定最终长度。
-- content_plan.components 只使用组件契约中的稳定类型，如 headline、argument_block、evidence_list、feature_card、table、chart、image、callout、quote_block。
-- 需要图片时填写 visual_intent 或 image 组件的 asset_subject、asset_query、composition；下载后补齐 local_path 和署名字段。
-- 每页包含具体实体、数据、场景或案例；真实数据明确搜索项和来源方向。
-- 输出为一个 JSON 对象。`, query, themeName, slideContexts.String())
-
-	resp, err := model.Generate(ctx, []*schema.Message{
-		schema.UserMessage(prompt),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("生成失败: %w", err)
-	}
-
-	content := ""
-	if resp != nil {
-		content = strings.TrimSpace(resp.Content)
-	}
-	if content == "" {
-		return nil, fmt.Errorf("模型返回为空，请重试")
-	}
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return nil, fmt.Errorf("模型返回格式为空，请重试")
-	}
-
-	var result struct {
-		Slides []deck.SlideOutline `json:"slides"`
-	}
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, fmt.Errorf("解析失败: %w", err)
-	}
-	if len(result.Slides) == 0 {
-		return nil, fmt.Errorf("模型未返回有效内容")
-	}
-	if len(result.Slides) != len(outline.Slides) {
-		return nil, fmt.Errorf("模型返回页数不匹配: got=%d want=%d", len(result.Slides), len(outline.Slides))
-	}
-	return result.Slides, nil
-}
-
-// handleAIGenerateOutline 接收带有空描述的部分大纲（幻灯片）和用户主题查询，
-// 使用 AI 为每个空描述的幻灯片生成 content_plan。
-// 返回填充后的幻灯片数组。
-func (s *Server) handleAIGenerateOutline(c *gin.Context) {
-	var req struct {
-		Query   string            `json:"query"`
-		Outline *deck.TaskOutline `json:"outline"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
-	}
-	if req.Outline == nil || len(req.Outline.Slides) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "outline.slides is required"})
-		return
-	}
-
-	outline, err := s.enrichOutline(c.Request.Context(), req.Query, req.Outline)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"slides": outline.Slides})
-}
-
-// getTheme 根据名称返回主题信息
-func (s *Server) getTheme(name string) (*templates.ThemeInfo, error) {
-	themes := s.templateLoader.ListThemes()
-	for i := range themes {
-		if themes[i].Name == name {
-			return &themes[i], nil
-		}
-	}
-	return nil, fmt.Errorf("theme not found")
 }
 
 func (s *Server) handleDeleteTask(c *gin.Context) {
@@ -999,7 +721,6 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			PageIndex:   nextPage,
 			Title:       title,
 			ContentType: "content_slide",
-			Description: fmt.Sprintf("根据用户继续请求新增页面：%s", continueMessage),
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", nextPage, title),
 			Status:      deck.StatusPending,
 			ContentPlan: &deck.ContentPlan{
@@ -1029,14 +750,14 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			return
 		}
 		instruction := buildContinueInstruction(route, continueMessage)
-		allowedTaskIDs := make([]string, 0, len(pages))
+		allowedPageIndexes := make([]int, 0, len(pages))
 		for _, pageIdx := range pages {
 			if item := findManifestTaskByPage(manifest, pageIdx); item != nil {
-				allowedTaskIDs = append(allowedTaskIDs, item.TaskID)
+				allowedPageIndexes = append(allowedPageIndexes, item.PageIndex)
 			}
 		}
 		fixerApplied := false
-		if len(allowedTaskIDs) > 0 {
+		if len(allowedPageIndexes) > 0 {
 			beforeFix, _ := manifest.MustMarshalJSON()
 			fixerCfg := &deck.PPTTaskConfig{
 				WorkDir:       ts.Info.WorkDir,
@@ -1050,7 +771,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			}
 			fixerCtx, cancelFixer := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancelFixer()
-			fixer, fixerErr := deck.NewPPTFixerAgent(fixerCtx, fixerCfg, allowedTaskIDs)
+			fixer, fixerErr := deck.NewPPTFixerAgent(fixerCtx, fixerCfg, allowedPageIndexes)
 			if fixerErr == nil {
 				fixerInput := fmt.Sprintf("用户要求：%s\n允许修改的页面：%v\n结构化修复提示：%s", continueMessage, pages, instruction)
 				fixerErr = deck.RunPPTFixerWithCallback(fixerCtx, fixer, fixerInput, func(event deck.AgentEvent) {
@@ -1076,7 +797,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 					fixerErr = fmt.Errorf("Fixer 未产生结构化页面修改")
 				}
 				logger.Warn("ppt_fixer_failed_using_code_fallback", "task_id", taskID, "error", fixerErr.Error())
-				ch <- task.SSERichEvent{Type: "answer", Content: "定点修复规划未完成，系统已保留用户要求并使用代码兜底进入重渲染。\n"}
+				ch <- task.SSERichEvent{Type: "answer", Content: "定点修复规划未完成，系统已使用现有页面计划进入重渲染。\n"}
 			}
 		}
 		for _, pageIdx := range pages {
@@ -1176,13 +897,6 @@ func markTaskForRerender(workDir string, item *deck.TaskItem, instruction string
 	if item == nil {
 		return
 	}
-	if strings.TrimSpace(instruction) != "" {
-		item.QAReport = instruction
-		if isFix {
-			item.Description = strings.TrimSpace(item.Description + "\n继续修改要求：" + instruction)
-			item.FixAttempts++
-		}
-	}
 	item.Status = deck.StatusPending
 	if item.OutputFile != "" {
 		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
@@ -1193,8 +907,6 @@ func markTaskForFixRerender(workDir string, item *deck.TaskItem, instruction str
 	if item == nil {
 		return
 	}
-	item.QAReport = instruction
-	item.FixAttempts++
 	item.Status = deck.StatusPending
 	if item.OutputFile != "" {
 		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
@@ -1643,112 +1355,6 @@ func runtimeEventCounts(events []agentutils.RuntimeEvent) map[string]int {
 	return counts
 }
 
-// ── 用户资料处理器 ───────────────────────────────────────────────────────
-
-func (s *Server) handleGetUserProfile(c *gin.Context) {
-	uid := userIDGin(c)
-	p := s.styleStore.Get(uid)
-
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":    p.UserID,
-		"task_count": p.TaskCount,
-		"profile":    p,
-		"updated_at": p.UpdatedAt,
-	})
-}
-
-func (s *Server) handleUpdateUserProfile(c *gin.Context) {
-	uid := userIDGin(c)
-
-	var req struct {
-		PreferredThemes   []string         `json:"preferred_themes"`
-		PreferredColors   []string         `json:"preferred_colors"`
-		ContentPatterns   []string         `json:"content_patterns"`
-		LayoutPreferences []string         `json:"layout_preferences"`
-		LanguageTone      string           `json:"language_tone"`
-		TypicalPageCount  int              `json:"typical_page_count"`
-		SpecialNotes      []string         `json:"special_notes"`
-		UserFacts         *style.UserFacts `json:"user_facts"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
-	}
-
-	p := s.styleStore.Get(uid)
-
-	if req.PreferredThemes != nil {
-		p.PreferredThemes = req.PreferredThemes
-	}
-	if req.PreferredColors != nil {
-		p.PreferredColors = req.PreferredColors
-	}
-	if req.ContentPatterns != nil {
-		p.ContentPatterns = req.ContentPatterns
-	}
-	if req.LayoutPreferences != nil {
-		p.LayoutPreferences = req.LayoutPreferences
-	}
-	if req.LanguageTone != "" {
-		p.LanguageTone = req.LanguageTone
-	}
-	if req.TypicalPageCount > 0 {
-		p.TypicalPageCount = req.TypicalPageCount
-	}
-	if req.SpecialNotes != nil {
-		p.SpecialNotes = req.SpecialNotes
-	}
-	if req.UserFacts != nil {
-		p.UserFacts = *req.UserFacts
-	}
-
-	s.styleStore.Save(p)
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "profile": p})
-}
-
-func (s *Server) handleResetUserProfile(c *gin.Context) {
-	uid := userIDGin(c)
-	p := s.styleStore.Get(uid)
-
-	// Reset to default
-	p.PreferredThemes = nil
-	p.PreferredColors = nil
-	p.ContentPatterns = nil
-	p.LayoutPreferences = nil
-	p.LanguageTone = ""
-	p.TypicalPageCount = 0
-	p.ContentTypes = nil
-	p.SpecialNotes = nil
-	p.TaskCount = 0
-
-	s.styleStore.Save(p)
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "风格偏好已重置"})
-}
-
-// handleSummarizeProfile returns the LLM-summarized user preferences
-// (already stored in styleStore from previous task completions).
-// User can review and manually edit before saving via PUT /me/profile.
-func (s *Server) handleSummarizeProfile(c *gin.Context) {
-	uid := userIDGin(c)
-	p := s.styleStore.Get(uid)
-
-	c.JSON(http.StatusOK, gin.H{
-		"summary": gin.H{
-			"preferred_themes":   p.PreferredThemes,
-			"preferred_colors":   p.PreferredColors,
-			"content_patterns":   p.ContentPatterns,
-			"layout_preferences": p.LayoutPreferences,
-			"language_tone":      p.LanguageTone,
-			"typical_page_count": p.TypicalPageCount,
-			"special_notes":      p.SpecialNotes,
-			"user_facts":         p.UserFacts,
-		},
-		"task_count": p.TaskCount,
-		"updated_at": p.UpdatedAt,
-	})
-}
-
 // handleListLogAnalyses 返回最近的日志分析列表。
 func (s *Server) handleListLogAnalyses(c *gin.Context) {
 	if s.logAnalysis == nil {
@@ -1776,22 +1382,6 @@ func (s *Server) handleGetTaskLogAnalyses(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
-}
-
-// ── Preference recommendation handlers ───────────────────────────────────────
-
-func (s *Server) handleGetRecommendations(c *gin.Context) {
-	uid := userIDGin(c)
-	domain := c.Query("domain")
-
-	engine := deck.GetLearningEngine()
-	if engine == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "学习引擎未初始化"})
-		return
-	}
-
-	rec := engine.GetRecommendations(uid, domain)
-	c.JSON(http.StatusOK, gin.H{"recommendation": rec})
 }
 
 // onTaskContinue 任务完成后自动触发继续处理（TaskManager 通过回调调用）。
@@ -1888,15 +1478,6 @@ func (s *Server) handleAdminLogAnalyses(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"analyses": analyses})
-}
-
-func (s *Server) handleAdminStyleProfiles(c *gin.Context) {
-	profiles, err := db.ListAllStyleProfiles()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询风格偏好失败: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"profiles": profiles})
 }
 
 func (s *Server) handleAdminStats(c *gin.Context) {

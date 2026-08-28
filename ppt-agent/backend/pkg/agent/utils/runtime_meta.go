@@ -84,7 +84,7 @@ type RuntimeMeta struct {
 	QAMediumIssues int
 	QALowIssues    int
 
-	IntentAnchor      IntentAnchor
+	TaskInput         TaskInputAnchor
 	PlanSlides        []PlanSlide
 	CurrentSlide      *PlanSlide
 	AlignmentStatus   string
@@ -114,17 +114,12 @@ type RuntimeBudgets struct {
 	PhaseDurationWarnSec int `json:"phase_duration_warn_sec,omitempty"`
 }
 
-type IntentAnchor struct {
-	Summary         string `json:"summary,omitempty"`
-	OriginalLength  int    `json:"original_length,omitempty"`
-	Intent          string `json:"intent,omitempty"`
-	Domain          string `json:"domain,omitempty"`
-	SuggestedPages  int    `json:"suggested_pages,omitempty"`
-	Template        string `json:"template,omitempty"`
-	Theme           string `json:"theme,omitempty"`
-	UseVisualAssets bool   `json:"use_visual_assets,omitempty"`
-	VisualHint      string `json:"visual_hint,omitempty"`
-	Recommendation  string `json:"recommendation,omitempty"`
+type TaskInputAnchor struct {
+	Summary        string `json:"summary,omitempty"`
+	OriginalLength int    `json:"original_length,omitempty"`
+	Template       string `json:"template,omitempty"`
+	Theme          string `json:"theme,omitempty"`
+	Recommendation string `json:"recommendation,omitempty"`
 }
 
 type PlanSlide struct {
@@ -183,7 +178,7 @@ type RuntimeMetaSnapshot struct {
 	QAMediumIssues int `json:"qa_medium_issues,omitempty"`
 	QALowIssues    int `json:"qa_low_issues,omitempty"`
 
-	IntentAnchor      IntentAnchor       `json:"intent_anchor,omitempty"`
+	TaskInput         TaskInputAnchor    `json:"task_input,omitempty"`
 	PlanSlides        []PlanSlide        `json:"plan_slides,omitempty"`
 	CurrentSlide      *PlanSlide         `json:"current_slide,omitempty"`
 	AlignmentStatus   string             `json:"alignment_status,omitempty"`
@@ -237,18 +232,16 @@ func NewRuntimeMeta(taskID, workDir string) *RuntimeMeta {
 	}
 }
 
-func (m *RuntimeMeta) RecordIntent(anchor IntentAnchor) {
+func (m *RuntimeMeta) RecordTaskInput(anchor TaskInputAnchor) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	anchor.Summary = truncateString(strings.TrimSpace(anchor.Summary), 160)
-	m.IntentAnchor = anchor
-	m.recordEventLocked("intent_classified", "user_intent", "ok", anchor.Summary, map[string]any{
-		"intent": anchor.Intent, "domain": anchor.Domain, "suggested_pages": anchor.SuggestedPages,
-		"template": anchor.Template, "theme": anchor.Theme, "visual_hint": anchor.VisualHint,
-		"use_visual_assets": anchor.UseVisualAssets, "recommendation": anchor.Recommendation,
+	m.TaskInput = anchor
+	m.recordEventLocked("task_input_recorded", "user_request", "ok", anchor.Summary, map[string]any{
+		"template": anchor.Template, "theme": anchor.Theme, "recommendation": anchor.Recommendation,
 	})
 }
 
@@ -553,7 +546,7 @@ func (m *RuntimeMeta) RecordCompression(beforeTokens, afterTokens int, savedPct 
 	m.RecordCompressionDetails(0, 0, beforeTokens, afterTokens, "", nil)
 }
 
-func (m *RuntimeMeta) RecordCompressionDetails(beforeMessages, afterMessages, beforeTokens, afterTokens int, userIntent string, requirements []string) {
+func (m *RuntimeMeta) RecordCompressionDetails(beforeMessages, afterMessages, beforeTokens, afterTokens int, userRequest string, requirements []string) {
 	if m == nil {
 		return
 	}
@@ -578,7 +571,7 @@ func (m *RuntimeMeta) RecordCompressionDetails(beforeMessages, afterMessages, be
 		"after_tokens":           afterTokens,
 		"saved_tokens":           m.CompressionSavedTokens,
 		"saved_pct":              savedPct,
-		"user_intent_summary":    truncateString(strings.TrimSpace(userIntent), 240),
+		"user_request_summary":   truncateString(strings.TrimSpace(userRequest), 240),
 		"preserved_requirements": boundedStrings(requirements, 6, 180),
 	})
 }
@@ -728,7 +721,7 @@ func (m *RuntimeMeta) Snapshot() RuntimeMetaSnapshot {
 		QAHighIssues:               m.QAHighIssues,
 		QAMediumIssues:             m.QAMediumIssues,
 		QALowIssues:                m.QALowIssues,
-		IntentAnchor:               m.IntentAnchor,
+		TaskInput:                  m.TaskInput,
 		PlanSlides:                 clonePlanSlides(m.PlanSlides),
 		CurrentSlide:               clonePlanSlide(m.CurrentSlide),
 		AlignmentStatus:            m.AlignmentStatus,

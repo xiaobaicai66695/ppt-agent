@@ -81,22 +81,6 @@ type ConversationMessage struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// UserStyleProfile — 从过去任务中学习的持久化用户风格偏好。
-type UserStyleProfile struct {
-	UserID              uint      `gorm:"primaryKey" json:"user_id"`
-	PreferredThemes     string    `gorm:"type:text" json:"preferred_themes"` // JSON array
-	PreferredColors     string    `gorm:"type:text" json:"preferred_colors"` // JSON array
-	ContentPatterns     string    `gorm:"type:text" json:"content_patterns"` // JSON array
-	LayoutPreferences   string    `gorm:"type:text" json:"-"`                // deprecated
-	LanguageTone        string    `gorm:"size:50" json:"language_tone"`
-	TypicalPageCount    int       `gorm:"default:0" json:"typical_page_count"`
-	ContentTypes        string    `gorm:"type:text" json:"content_types"`        // JSON map
-	SpecialNotes        string    `gorm:"type:text" json:"special_notes"`        // JSON array
-	ExtendedPreferences string    `gorm:"type:text" json:"extended_preferences"` // JSON for enhanced profile
-	TaskCount           int       `gorm:"default:0" json:"task_count"`
-	UpdatedAt           time.Time `json:"updated_at"`
-}
-
 // TaskErrorAnalysis — 任务失败时的日志分析结果，用于迭代修复参考。
 type TaskErrorAnalysis struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
@@ -246,25 +230,6 @@ func DeleteRuntimeEvents(taskID string) error {
 	return DB.Where("task_id = ?", taskID).Delete(&RuntimeEventRecord{}).Error
 }
 
-// ── UserStyleProfile 增删改查 ─────────────────────────────────────────────────
-
-func UpsertUserStyleProfile(p *UserStyleProfile) error {
-	return DB.Save(p).Error
-}
-
-func GetUserStyleProfile(userID uint) (*UserStyleProfile, error) {
-	var p UserStyleProfile
-	err := DB.Where("user_id = ?", userID).First(&p).Error
-	if err == gorm.ErrRecordNotFound {
-		return nil, nil
-	}
-	return &p, err
-}
-
-func DeleteUserStyleProfile(userID uint) error {
-	return DB.Where("user_id = ?", userID).Delete(&UserStyleProfile{}).Error
-}
-
 // ── TaskErrorAnalysis 增删改查 ────────────────────────────────────────────────
 
 func CreateTaskErrorAnalysis(a *TaskErrorAnalysis) error {
@@ -330,7 +295,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &UserStyleProfile{}, &TaskErrorAnalysis{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 
@@ -377,13 +342,6 @@ func ListAllTaskRecords(limit int) ([]TaskRecord, error) {
 	var records []TaskRecord
 	err := DB.Order("created_at DESC").Limit(limit).Find(&records).Error
 	return records, err
-}
-
-// ListAllStyleProfiles 返回所有用户风格偏好。
-func ListAllStyleProfiles() ([]UserStyleProfile, error) {
-	var profiles []UserStyleProfile
-	err := DB.Find(&profiles).Error
-	return profiles, err
 }
 
 // DeleteErrorAnalysis 删除指定 ID 的日志分析记录。

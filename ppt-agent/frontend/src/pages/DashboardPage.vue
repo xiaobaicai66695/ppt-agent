@@ -1290,8 +1290,8 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
             <div class="dev-status-grid">
             <div class="dev-stat intent-stat">
               <span class="dev-stat-label">用户意图</span>
-              <strong>{{ runtimeMeta.intent_anchor?.summary || selectedTaskTitle }}</strong>
-              <small>{{ runtimeMeta.intent_anchor?.domain || '领域待识别' }} · {{ runtimeMeta.intent_anchor?.suggested_pages || totalCount || '?' }} 页 · {{ runtimeMeta.intent_anchor?.template || '自动模板' }}</small>
+              <strong>{{ runtimeMeta.task_input?.summary || selectedTaskTitle }}</strong>
+              <small>{{ totalCount || '?' }} 页 · {{ runtimeMeta.task_input?.template || '动态规划' }}</small>
             </div>
             <div class="dev-stat">
               <span class="dev-stat-label">契约对齐</span>

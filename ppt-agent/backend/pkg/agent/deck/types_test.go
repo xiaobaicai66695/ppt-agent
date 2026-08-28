@@ -10,9 +10,9 @@ import (
 func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
 	var outline TaskOutline
 	err := json.Unmarshal([]byte(`{
-		"template":"custom","theme":"ocean_soft","title":"测试",
-		"slides":[{"title":"数据","content_type":"content_slide","layout_variant":"icon_rows","description":"",
-		"content_plan":{"visual_intent":{"role":"icon","preferred_variant":"icon_rows"},"components":[{"type":"bullet_list","items":[{"title":"增长","description":"20%"},"稳定"]}]}}]
+		"title":"测试",
+		"slides":[{"title":"数据","content_type":"content_slide","layout_variant":"icon_rows",
+		"content_plan":{"visual_intent":{"role":"icon","preferred_variant":"icon_rows"},"components":[{"type":"bullet_list","items":[{"title":"增长","body":"20%"},"稳定"]}]}}]
 	}`), &outline)
 	if err != nil {
 		t.Fatalf("unmarshal outline: %v", err)
@@ -29,21 +29,21 @@ func TestTaskOutlineUnmarshalNormalizesObjectItems(t *testing.T) {
 	}
 }
 
-func TestPlanComponentUnmarshalNormalizesTextAndDescriptionArrays(t *testing.T) {
+func TestPlanComponentUnmarshalNormalizesTextAndBodyArrays(t *testing.T) {
 	var component PlanComponent
 	if err := json.Unmarshal([]byte(`{
 		"type":"column",
 		"title":"自然风光",
 		"text":["天山天池","喀纳斯湖"],
-		"description":["高山湖泊","四季皆美"]
+		"body":["高山湖泊","四季皆美"]
 	}`), &component); err != nil {
 		t.Fatal(err)
 	}
 	if component.Text != "天山天池\n喀纳斯湖" {
 		t.Fatalf("text = %q", component.Text)
 	}
-	if component.Description != "高山湖泊\n四季皆美" || component.Body != component.Description {
-		t.Fatalf("description/body = %q/%q", component.Description, component.Body)
+	if component.Body != "高山湖泊\n四季皆美" {
+		t.Fatalf("body = %q", component.Body)
 	}
 }
 
@@ -54,7 +54,6 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 		"slides":[{
 			"title":"配送无人机实例",
 			"content_type":"image_text",
-			"description":"",
 			"content_plan":{
 				"visual_intent":{
 					"role":"hero_photo",
@@ -76,7 +75,7 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 					"preview_url":"https://images.unsplash.com/photo-small.jpg",
 					"source_url":"https://unsplash.com/photos/drone",
 					"attribution":"Photo by Demo on Unsplash",
-					"description":["配送对象","飞行路径"]
+					"body":["配送对象","飞行路径"]
 				}]
 			}
 		}]
@@ -105,7 +104,7 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 		component.LocalPath != "assets/images/unsplash_drone.jpg" ||
 		component.SourceURL != "https://unsplash.com/photos/drone" ||
 		component.Attribution != "Photo by Demo on Unsplash" ||
-		component.Description != "配送对象\n飞行路径" {
+		component.Body != "配送对象\n飞行路径" {
 		t.Fatalf("component image contract lost: %#v", component)
 	}
 }
@@ -118,10 +117,8 @@ func TestWriteTasksManifestKeepsExplicitRuntimeStatus(t *testing.T) {
 		PageIndex:   1,
 		Title:       "Initial",
 		ContentType: "content_slide",
-		Description: "initial",
 		OutputFile:  "slide-1.pptx",
 		Status:      StatusPending,
-		CreatedAt:   "2026-07-31T10:00:00Z",
 	}}}
 	if err := WriteTasksManifest(workDir, initial); err != nil {
 		t.Fatalf("write initial manifest: %v", err)
@@ -132,7 +129,6 @@ func TestWriteTasksManifestKeepsExplicitRuntimeStatus(t *testing.T) {
 		PageIndex:   1,
 		Title:       "Updated",
 		ContentType: "content_slide",
-		Description: "updated",
 		OutputFile:  "slide-1.pptx",
 		Status:      StatusDone,
 	}}}
@@ -150,9 +146,6 @@ func TestWriteTasksManifestKeepsExplicitRuntimeStatus(t *testing.T) {
 	}
 	if item.Status != StatusDone {
 		t.Fatalf("status = %q, want %q", item.Status, StatusDone)
-	}
-	if item.CreatedAt != "2026-07-31T10:00:00Z" {
-		t.Fatalf("created_at = %q, want original timestamp", item.CreatedAt)
 	}
 }
 

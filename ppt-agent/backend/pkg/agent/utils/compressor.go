@@ -113,8 +113,8 @@ func envIntWithFallback(primary, legacy string, defaultVal int) int {
 
 // CompressionSummary 是压缩后摘要的结构化格式
 type CompressionSummary struct {
-	// UserIntentSummary is a deterministic anchor copied from the first real user request.
-	UserIntentSummary string `json:"user_intent_summary"`
+	// UserRequestSummary is a deterministic anchor copied from the first real user request.
+	UserRequestSummary string `json:"user_request_summary"`
 
 	// PreservedRequirements keeps whole user messages as bounded requirements.
 	PreservedRequirements []string `json:"preserved_requirements"`
@@ -140,7 +140,7 @@ type CompressionSummary struct {
 func ExtractKeyDecisions(messages []*schema.Message) *CompressionSummary {
 	summary := &CompressionSummary{}
 	summary.KeyDecisions.OtherDecisions = []string{}
-	summary.UserIntentSummary, summary.PreservedRequirements = extractUserIntentAnchor(messages)
+	summary.UserRequestSummary, summary.PreservedRequirements = extractUserRequestAnchor(messages)
 
 	// 正则匹配模板名称
 	templateRe := regexp.MustCompile(`(?i)(?:模板|template)[：:\s]*([a-zA-Z0-9_\-]+)`)
@@ -197,7 +197,7 @@ func ExtractKeyDecisions(messages []*schema.Message) *CompressionSummary {
 	return summary
 }
 
-func extractUserIntentAnchor(messages []*schema.Message) (string, []string) {
+func extractUserRequestAnchor(messages []*schema.Message) (string, []string) {
 	var requirements []string
 	for _, msg := range messages {
 		if msg == nil || msg.Role != schema.User {
@@ -284,7 +284,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 
 输出一个 JSON 对象：
 {
-	"user_intent_summary": "一句话重述用户最终要完成的目标",
+	"user_request_summary": "一句话重述用户最终要完成的目标",
 	"preserved_requirements": ["仍然生效的用户要求，保持原意和优先级"],
   "progress_summary": "简要描述 DeckSpec 已确定内容和待补字段（50字以内）",
   "conversation_summary": "用50字以内概括中间轮次的交互过程"
@@ -315,7 +315,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 	}
 
 	result := *base
-	result.UserIntentSummary = base.UserIntentSummary
+	result.UserRequestSummary = base.UserRequestSummary
 	result.PreservedRequirements = boundedStrings(
 		append(append([]string{}, base.PreservedRequirements...), parsed.PreservedRequirements...), 8, 360)
 	result.ProgressSummary = truncateString(strings.TrimSpace(parsed.ProgressSummary), 240)
@@ -412,7 +412,7 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 		"saved_pct", fmt.Sprintf("%.1f%%", saved))
 	if c.runtime != nil {
 		c.runtime.RecordCompressionDetails(len(messages), len(compressed), beforeLen, afterLen,
-			handoff.UserIntentSummary, handoff.PreservedRequirements)
+			handoff.UserRequestSummary, handoff.PreservedRequirements)
 	}
 	c.emitCompressionSuccess(len(messages), len(compressed), beforeLen, afterLen)
 
@@ -448,7 +448,7 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 		"saved_pct", fmt.Sprintf("%.1f%%", saved))
 	if c.runtime != nil {
 		c.runtime.RecordCompressionDetails(len(messages), len(compressed), beforeLen, afterLen,
-			handoff.UserIntentSummary, handoff.PreservedRequirements)
+			handoff.UserRequestSummary, handoff.PreservedRequirements)
 	}
 	c.emitCompressionSuccess(len(messages), len(compressed), beforeLen, afterLen)
 
@@ -627,7 +627,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		handoff.ConversationSummary = "早期规划上下文已压缩，用户目标与明确要求由确定性锚点保留"
 	}
 
-	// 第三步：构建以用户意图为锚点的结构化摘要消息。
+	// 第三步：构建以用户请求为锚点的结构化摘要消息。
 	summaryJSON, _ := json.Marshal(handoff)
 	progressPart := handoff.ProgressSummary
 	if progressPart == "" {

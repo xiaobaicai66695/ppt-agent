@@ -14,24 +14,15 @@ import (
 
 const tasksDraftFileName = "tasks.draft.json"
 
-const defaultManifestTheme = "ocean_soft"
-const defaultManifestTemplate = "generic"
-
 var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
-	"task_id":        {Type: schema.String, Desc: "任务 ID；patch 模式必填"},
-	"page_index":     {Type: schema.Integer, Desc: "页码；initialize 模式必填"},
+	"page_index":     {Type: schema.Integer, Desc: "页码；initialize 和 patch 模式必填"},
 	"section_id":     {Type: schema.String, Desc: "页面所属章节 ID，用于后续定点或整节修复"},
 	"section_title":  {Type: schema.String, Desc: "页面所属章节标题"},
 	"title":          {Type: schema.String, Desc: "页面标题"},
 	"content_type":   {Type: schema.String, Desc: "合法的单页模板英文 ID"},
 	"layout_variant": {Type: schema.String, Desc: "同一 content_type 下的版式变体 ID，可为空"},
-	"description":    {Type: schema.String, Desc: "页面内容描述"},
 	"page_intent":    {Type: schema.String, Desc: "该页在章节中的具体叙事任务"},
 	"evidence_refs":  {Type: schema.Array, Desc: "引用顶层 content_bank 的事实/主题/实体 ID", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
-	"output_file":    {Type: schema.String, Desc: "输出 PPTX 文件名"},
-	"status":         {Type: schema.String, Desc: "pending、generating、done、qa_done、fixed 或 failed"},
-	"qa_report":      {Type: schema.String, Desc: "可选的 QA 报告"},
-	"fix_attempts":   {Type: schema.Integer, Desc: "修复尝试次数"},
 	"content_plan": {
 		Type: schema.Object,
 		Desc: "结构化页面内容规划",
@@ -40,34 +31,6 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 			"slide_intent":   {Type: schema.String, Desc: "本页在整套 PPT 中承担的语义目标"},
 			"section_number": {Type: schema.String, Desc: "章节分隔页的大章节编号，如 01/02；仅 section_divider 使用，不得写页码"},
 			"evidence_refs":  {Type: schema.Array, Desc: "引用顶层 content_bank 的事实/主题/实体 ID", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
-			"capacity_hint": {
-				Type: schema.Object,
-				Desc: "内容容量预估，只能表达密度和溢出风险，不得包含字号坐标",
-				SubParams: map[string]*schema.ParameterInfo{
-					"estimated_density": {Type: schema.String, Desc: "sparse、normal 或 dense"},
-					"overflow_risk":     {Type: schema.String, Desc: "low、medium 或 high"},
-					"component_count":   {Type: schema.Integer, Desc: "组件数量预估"},
-				},
-			},
-			"reviewer_status": {
-				Type: schema.Object,
-				Desc: "规划审查状态，记录轮次和问题；锁定由系统校验后确认",
-				SubParams: map[string]*schema.ParameterInfo{
-					"planner_round": {Type: schema.Integer, Desc: "规划/润色轮次"},
-					"locked":        {Type: schema.String, Desc: "是否已通过质量门，true 或 false"},
-					"locked_at":     {Type: schema.String, Desc: "锁定时间，由系统或规划器填写"},
-					"issues": {
-						Type: schema.Array,
-						ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: map[string]*schema.ParameterInfo{
-							"code":         {Type: schema.String},
-							"severity":     {Type: schema.String},
-							"message":      {Type: schema.String},
-							"page_index":   {Type: schema.Integer},
-							"component_id": {Type: schema.String},
-						}},
-					},
-				},
-			},
 			"visual_intent": {
 				Type: schema.Object,
 				Desc: "页面视觉意图，用于规划图片、图表、地图、卡片等视觉角色",
@@ -80,43 +43,17 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 					"preferred_variant": {Type: schema.String, Desc: "偏好的 layout_variant"},
 					"image_position":    {Type: schema.String, Desc: "background、left、right、strip、inline 等"},
 					"caption":           {Type: schema.String, Desc: "图片说明或替代文本"},
-					"asset_id":          {Type: schema.String, Desc: "已选择的本地素材 ID"},
 					"local_path":        {Type: schema.String, Desc: "search_images(download=true) 返回的本地图片路径，位于当前任务工作目录内"},
-					"image_url":         {Type: schema.String, Desc: "图片 provider 返回的图片 URL，仅用于追踪和预览"},
-					"preview_url":       {Type: schema.String, Desc: "图片 provider 返回的缩略图 URL"},
 					"source_url":        {Type: schema.String, Desc: "图片来源页 URL，用于署名"},
 					"attribution":       {Type: schema.String, Desc: "图片署名，例如 Photo by ... on Unsplash"},
 				},
 			},
 			"components": {
 				Type: schema.Array,
-				Desc: "页内语义组件计划；禁止写坐标、字号、颜色、边距等渲染参数",
+				Desc: "页内语义组件计划；每个组件只填写 component_contracts.json 中对应类型需要的字段，禁止写坐标、字号、颜色、边距等渲染参数",
 				ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: map[string]*schema.ParameterInfo{
-					"id":            {Type: schema.String},
-					"type":          {Type: schema.String},
-					"title":         {Type: schema.String},
-					"text":          {Type: schema.String},
-					"body":          {Type: schema.String},
-					"items":         {Type: schema.Array, ElemInfo: &schema.ParameterInfo{Type: schema.String}},
-					"emphasis":      {Type: schema.String},
-					"role":          {Type: schema.String},
-					"relation":      {Type: schema.String},
-					"target":        {Type: schema.String, Desc: "可选语义目标组件 ID，用于 arrow 等关系组件；不得写坐标"},
-					"icon":          {Type: schema.String, Desc: "可选图标语义或短 glyph，由生成器映射为实际图标"},
-					"source":        {Type: schema.String},
-					"asset_purpose": {Type: schema.String, Desc: "background、scene、evidence 或 decorative"},
-					"asset_subject": {Type: schema.String, Desc: "图片要表现的具体视觉主体或代理意象"},
-					"asset_query":   {Type: schema.String},
-					"composition":   {Type: schema.String, Desc: "图片构图和留白方向，使用语义描述"},
-					"caption":       {Type: schema.String},
-					"asset_id":      {Type: schema.String},
-					"local_path":    {Type: schema.String, Desc: "search_images(download=true) 返回的本地图片路径，位于当前任务工作目录内"},
-					"image_url":     {Type: schema.String, Desc: "图片 provider 返回的图片 URL，仅用于追踪和预览"},
-					"preview_url":   {Type: schema.String, Desc: "图片 provider 返回的缩略图 URL"},
-					"source_url":    {Type: schema.String, Desc: "图片来源页 URL，用于署名"},
-					"attribution":   {Type: schema.String, Desc: "图片署名，例如 Photo by ... on Unsplash"},
-					"description":   {Type: schema.String},
-					"data":          {Type: schema.Object},
+					"id":   {Type: schema.String, Desc: "组件稳定 ID，页内唯一"},
+					"type": {Type: schema.String, Desc: "合法组件类型；其余字段按该类型契约填写"},
 				}},
 			},
 		},
@@ -127,42 +64,32 @@ var plannerManifestToolInfo = &schema.ToolInfo{
 	Name: "update_tasks_manifest",
 	Desc: "一次性初始化完整 DeckSpec 规划草稿。Planner 只能使用 initialize，审查、修订和提交由后续阶段负责。",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"mode":     {Type: schema.String, Required: true, Desc: "固定填写 initialize"},
-		"title":    {Type: schema.String, Desc: "PPT 标题；缺省时系统会从任务上下文推断"},
-		"theme":    {Type: schema.String, Desc: "配色英文 ID"},
-		"template": {Type: schema.String, Desc: "整套模板英文 ID"},
+		"mode":  {Type: schema.String, Required: true, Desc: "固定填写 initialize"},
+		"title": {Type: schema.String, Desc: "PPT 标题；缺省时系统会从任务上下文推断"},
 		"tasks": {
 			Type:     schema.Array,
 			Required: true,
-			Desc:     "完整页面数组",
+			Desc:     "完整页面数组；每页只填 page_index/title/content_type/content_plan 等语义字段，运行字段由后端补齐",
 			ElemInfo: &schema.ParameterInfo{Type: schema.Object, SubParams: manifestTaskPatchSchema},
 		},
 	}),
 }
 
 type manifestTaskPatch struct {
-	TaskID        string       `json:"task_id"`
 	PageIndex     *int         `json:"page_index,omitempty"`
 	SectionID     *string      `json:"section_id,omitempty"`
 	SectionTitle  *string      `json:"section_title,omitempty"`
 	Title         *string      `json:"title,omitempty"`
 	ContentType   *string      `json:"content_type,omitempty"`
 	LayoutVariant *string      `json:"layout_variant,omitempty"`
-	Description   *string      `json:"description,omitempty"`
 	PageIntent    *string      `json:"page_intent,omitempty"`
 	EvidenceRefs  []string     `json:"evidence_refs,omitempty"`
-	OutputFile    *string      `json:"output_file,omitempty"`
-	Status        *string      `json:"status,omitempty"`
-	QAReport      *string      `json:"qa_report,omitempty"`
-	FixAttempts   *int         `json:"fix_attempts,omitempty"`
 	ContentPlan   *ContentPlan `json:"content_plan,omitempty"`
 }
 
 type manifestToolInput struct {
 	Mode        string              `json:"mode"`
 	Title       string              `json:"title,omitempty"`
-	Theme       string              `json:"theme,omitempty"`
-	Template    string              `json:"template,omitempty"`
 	ContentBank map[string]any      `json:"content_bank,omitempty"`
 	Sections    []DeckSection       `json:"sections,omitempty"`
 	Tasks       []manifestTaskPatch `json:"tasks"`
@@ -171,8 +98,6 @@ type manifestToolInput struct {
 type manifestToolRawInput struct {
 	Mode        string          `json:"mode"`
 	Title       string          `json:"title,omitempty"`
-	Theme       string          `json:"theme,omitempty"`
-	Template    string          `json:"template,omitempty"`
 	ContentBank map[string]any  `json:"content_bank,omitempty"`
 	Sections    []DeckSection   `json:"sections,omitempty"`
 	Tasks       json.RawMessage `json:"tasks"`
@@ -272,7 +197,7 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 		target = t.writeTarget()
 	case "patch":
 		if len(input.Tasks) == 0 && !hasManifestHeaderPatch(input) {
-			return manifestToolRecoverableError(input.Mode, t.writeTarget(), fmt.Errorf("tasks must not be empty unless title, theme or template is patched")), nil
+			return manifestToolRecoverableError(input.Mode, t.writeTarget(), fmt.Errorf("tasks must not be empty unless title/content_bank/sections is patched")), nil
 		}
 		manifest, err = t.patchManifest(input)
 		target = t.writeTarget()
@@ -299,8 +224,6 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 
 func hasManifestHeaderPatch(input manifestToolInput) bool {
 	return strings.TrimSpace(input.Title) != "" ||
-		strings.TrimSpace(input.Theme) != "" ||
-		strings.TrimSpace(input.Template) != "" ||
 		input.ContentBank != nil ||
 		input.Sections != nil
 }
@@ -379,12 +302,6 @@ func normalizePlannerInitialManifest(manifest *TasksManifest) {
 	if manifest == nil {
 		return
 	}
-	if strings.TrimSpace(manifest.Theme) == "" {
-		manifest.Theme = defaultManifestTheme
-	}
-	if strings.TrimSpace(manifest.Template) == "" {
-		manifest.Template = defaultManifestTemplate
-	}
 	for _, item := range manifest.Tasks {
 		normalizePlannerInitialTask(item)
 	}
@@ -405,13 +322,10 @@ func normalizePlannerInitialTask(item *TaskItem) {
 	for i := range plan.Components {
 		component := &plan.Components[i]
 		if strings.TrimSpace(component.Type) == "argument_block" &&
-			runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) < argumentBlockTargetMinChars &&
+			runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars &&
 			!contentTypeRequiresLongArgument(item.ContentType) {
 			component.Type = "insight"
 		}
-	}
-	if plan.CapacityHint != nil {
-		plan.CapacityHint.ComponentCount = len(plan.Components)
 	}
 }
 
@@ -495,9 +409,6 @@ func summaryForAutoInsight(item *TaskItem) string {
 			return text
 		}
 	}
-	if text := strings.TrimSpace(item.Description); text != "" {
-		return text
-	}
 	return "本页用于建立阅读顺序和核心判断，帮助观众理解后续内容之间的关系。"
 }
 
@@ -577,6 +488,9 @@ func ensureSectionNumber(item *TaskItem, sectionCount int) {
 }
 
 func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {
+	if err := rejectForbiddenManifestFields([]byte(argumentsInJSON)); err != nil {
+		return manifestToolInput{}, err
+	}
 	var raw manifestToolRawInput
 	if err := json.Unmarshal([]byte(argumentsInJSON), &raw); err != nil {
 		return manifestToolInput{}, err
@@ -589,10 +503,112 @@ func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {
 		return manifestToolInput{}, err
 	}
 	input := manifestToolInput{
-		Mode: raw.Mode, Title: raw.Title, Theme: raw.Theme, Template: raw.Template,
-		ContentBank: raw.ContentBank, Sections: raw.Sections, Tasks: tasks,
+		Mode: raw.Mode, Title: raw.Title, ContentBank: raw.ContentBank,
+		Sections: raw.Sections, Tasks: tasks,
 	}
 	return input, nil
+}
+
+func rejectForbiddenManifestFields(raw []byte) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("tool arguments must be a JSON object")
+	}
+	for _, field := range []string{"theme", "template"} {
+		if _, exists := root[field]; exists {
+			return fmt.Errorf("%s is not part of the DeckSpec contract", field)
+		}
+	}
+	if rawTasks, ok := root["tasks"]; ok {
+		if tasksText, ok := rawTasks.(string); ok {
+			var decoded any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(tasksText)), &decoded); err != nil {
+				return fmt.Errorf("tasks JSON array string is invalid: %w", err)
+			}
+			rawTasks = decoded
+		}
+		tasks, ok := rawTasks.([]any)
+		if !ok && rawTasks != nil {
+			return fmt.Errorf("tasks must be an array")
+		}
+		for index, task := range tasks {
+			if err := rejectForbiddenTaskFields(task, fmt.Sprintf("tasks[%d]", index)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rejectForbiddenTaskFields(value any, path string) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s must be an object", path)
+	}
+	for _, field := range []string{"task_id", "output_file", "status", "description", "qa_report", "fix_attempts"} {
+		if _, exists := object[field]; exists {
+			return fmt.Errorf("%s.%s is not part of the LLM DeckSpec contract", path, field)
+		}
+	}
+	if plan, ok := object["content_plan"]; ok {
+		if err := rejectForbiddenContentPlanFields(plan, path+".content_plan"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectForbiddenContentPlanFields(value any, path string) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s must be an object", path)
+	}
+	for _, field := range []string{"capacity_hint", "reviewer_status", "description"} {
+		if _, exists := object[field]; exists {
+			return fmt.Errorf("%s.%s is not part of the DeckSpec contract", path, field)
+		}
+	}
+	if components, ok := object["components"].([]any); ok {
+		for i, component := range components {
+			if err := rejectForbiddenComponentFields(component, fmt.Sprintf("%s.components[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rejectForbiddenComponentFields(value any, path string) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s must be an object", path)
+	}
+	return rejectForbiddenFieldRecursive(object, "description", path)
+}
+
+func rejectForbiddenFieldRecursive(value any, field, path string) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		if _, exists := typed[field]; exists {
+			return fmt.Errorf("%s.%s is not part of the component contract", path, field)
+		}
+		for key, child := range typed {
+			if err := rejectForbiddenFieldRecursive(child, field, path+"."+key); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for i, child := range typed {
+			if err := rejectForbiddenFieldRecursive(child, field, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func parseManifestTaskPatches(raw json.RawMessage) ([]manifestTaskPatch, error) {
@@ -612,103 +628,9 @@ func parseManifestTaskPatches(raw json.RawMessage) ([]manifestTaskPatch, error) 
 		return nil, fmt.Errorf("tasks JSON array string must not be empty")
 	}
 	if err := json.Unmarshal([]byte(encoded), &tasks); err != nil {
-		if recovered, ok := recoverManifestTasksFromEmbeddedArray(encoded); ok {
-			return recovered, nil
-		}
-		if recovered, ok := recoverManifestTasksFromKnownFieldSpill(encoded); ok {
-			return recovered, nil
-		}
-		if recovered, ok := recoverManifestTasksFromExtraContentPlanClose(encoded); ok {
-			return recovered, nil
-		}
 		return nil, fmt.Errorf("tasks JSON array string is invalid: %w", err)
 	}
 	return tasks, nil
-}
-
-func recoverManifestTasksFromEmbeddedArray(encoded string) ([]manifestTaskPatch, bool) {
-	array, ok := firstBalancedJSONArray(encoded)
-	if !ok || strings.TrimSpace(array) == strings.TrimSpace(encoded) {
-		return nil, false
-	}
-	var tasks []manifestTaskPatch
-	if err := json.Unmarshal([]byte(array), &tasks); err != nil {
-		return nil, false
-	}
-	return tasks, true
-}
-
-func firstBalancedJSONArray(value string) (string, bool) {
-	start := strings.Index(value, "[")
-	if start < 0 {
-		return "", false
-	}
-	depth := 0
-	inString := false
-	escaped := false
-	for i := start; i < len(value); i++ {
-		ch := value[i]
-		if inString {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
-			continue
-		}
-		switch ch {
-		case '"':
-			inString = true
-		case '[':
-			depth++
-		case ']':
-			depth--
-			if depth == 0 {
-				return value[start : i+1], true
-			}
-		}
-	}
-	return "", false
-}
-
-func recoverManifestTasksFromExtraContentPlanClose(encoded string) ([]manifestTaskPatch, bool) {
-	repaired := encoded
-	for _, separator := range []string{`}}}, "page_index"`, `}}},"page_index"`, `}}}, "task_id"`, `}}},"task_id"`} {
-		repaired = strings.ReplaceAll(repaired, separator, strings.Replace(separator, `}}}`, `}}`, 1))
-	}
-	if repaired == encoded {
-		return nil, false
-	}
-	var tasks []manifestTaskPatch
-	if err := json.Unmarshal([]byte(repaired), &tasks); err != nil {
-		return nil, false
-	}
-	return tasks, true
-}
-
-func recoverManifestTasksFromKnownFieldSpill(encoded string) ([]manifestTaskPatch, bool) {
-	decoder := json.NewDecoder(strings.NewReader(encoded))
-	var tasks []manifestTaskPatch
-	if err := decoder.Decode(&tasks); err != nil {
-		return nil, false
-	}
-	tail := strings.TrimSpace(encoded[decoder.InputOffset():])
-	if !strings.HasPrefix(tail, ",") {
-		return nil, false
-	}
-	tail = strings.TrimSpace(strings.TrimPrefix(tail, ","))
-	for _, field := range []string{"title", "theme", "template"} {
-		if strings.HasPrefix(tail, `"`+field) {
-			return tasks, true
-		}
-	}
-	return nil, false
 }
 
 func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManifest, error) {
@@ -719,36 +641,22 @@ func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManife
 	if title == "" {
 		return nil, fmt.Errorf("title is required in initialize mode and could not be inferred from query or tasks")
 	}
-	theme := strings.TrimSpace(input.Theme)
-	if theme == "" {
-		theme = defaultManifestTheme
-	}
-	template := strings.TrimSpace(input.Template)
-	if template == "" {
-		template = defaultManifestTemplate
-	}
-	manifest := &TasksManifest{Title: title, Theme: theme, Template: template, ContentBank: input.ContentBank, Sections: input.Sections}
+	manifest := &TasksManifest{Title: title, ContentBank: input.ContentBank, Sections: input.Sections}
 	seen := make(map[string]bool, len(input.Tasks))
 	for _, patch := range input.Tasks {
-		if patch.PageIndex == nil || patch.Title == nil || patch.ContentType == nil || patch.Description == nil || patch.OutputFile == nil {
-			return nil, fmt.Errorf("initialize task %q is missing required fields", patch.TaskID)
+		if patch.PageIndex == nil || patch.Title == nil || patch.ContentType == nil || patch.ContentPlan == nil {
+			return nil, fmt.Errorf("initialize task is missing required fields")
 		}
-		id := strings.TrimSpace(patch.TaskID)
-		if id == "" {
-			id = fmt.Sprint(*patch.PageIndex)
-		}
+		id := deterministicTaskID(*patch.PageIndex)
 		if seen[id] {
 			return nil, fmt.Errorf("duplicate task_id %q", id)
 		}
 		seen[id] = true
-		status := StatusPending
-		if patch.Status != nil && *patch.Status != "" {
-			status = *patch.Status
-		}
 		item := &TaskItem{
 			TaskID: id, PageIndex: *patch.PageIndex, Title: *patch.Title,
-			ContentType: *patch.ContentType, Description: *patch.Description,
-			OutputFile: *patch.OutputFile, Status: status,
+			ContentType: *patch.ContentType,
+			OutputFile:  deterministicOutputFile(*patch.PageIndex),
+			Status:      StatusPending,
 			ContentPlan: patch.ContentPlan,
 		}
 		if patch.SectionID != nil {
@@ -766,15 +674,23 @@ func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManife
 		if patch.LayoutVariant != nil {
 			item.LayoutVariant = *patch.LayoutVariant
 		}
-		if patch.QAReport != nil {
-			item.QAReport = *patch.QAReport
-		}
-		if patch.FixAttempts != nil {
-			item.FixAttempts = *patch.FixAttempts
-		}
 		manifest.Tasks = append(manifest.Tasks, item)
 	}
 	return manifest, nil
+}
+
+func deterministicTaskID(pageIndex int) string {
+	if pageIndex <= 0 {
+		pageIndex = 1
+	}
+	return fmt.Sprintf("slide-%d", pageIndex)
+}
+
+func deterministicOutputFile(pageIndex int) string {
+	if pageIndex <= 0 {
+		pageIndex = 1
+	}
+	return fmt.Sprintf("slide_%02d.pptx", pageIndex)
 }
 
 func (t *manifestTool) patchManifest(input manifestToolInput) (*TasksManifest, error) {
@@ -836,21 +752,15 @@ func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*Ta
 	if input.Title != "" {
 		manifest.Title = input.Title
 	}
-	if input.Theme != "" {
-		manifest.Theme = input.Theme
-	}
-	if input.Template != "" {
-		manifest.Template = input.Template
-	}
 	if input.ContentBank != nil {
 		manifest.ContentBank = input.ContentBank
 	}
 	if input.Sections != nil {
 		manifest.Sections = input.Sections
 	}
-	for i, patch := range input.Tasks {
-		item := manifest.GetTask(strings.TrimSpace(patch.TaskID))
-		if item == nil && patch.PageIndex != nil {
+	for _, patch := range input.Tasks {
+		var item *TaskItem
+		if patch.PageIndex != nil {
 			for _, existing := range manifest.Tasks {
 				if existing != nil && existing.PageIndex == *patch.PageIndex {
 					item = existing
@@ -858,14 +768,11 @@ func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*Ta
 				}
 			}
 		}
-		if item == nil && strings.TrimSpace(patch.TaskID) == "" && patch.PageIndex == nil && i < len(manifest.Tasks) {
-			item = manifest.Tasks[i]
-		}
 		if item == nil {
-			if strings.TrimSpace(patch.TaskID) == "" {
-				return nil, fmt.Errorf("task_id or page_index is required in patch mode")
+			if patch.PageIndex == nil {
+				return nil, fmt.Errorf("page_index is required in patch mode")
 			}
-			return nil, fmt.Errorf("task %q not found", patch.TaskID)
+			return nil, fmt.Errorf("page_index %d not found", *patch.PageIndex)
 		}
 		applyManifestPatch(item, patch)
 	}
@@ -931,9 +838,6 @@ func CommitReviewedTasksDraftManifestIfPresent(workDir string) (*TasksManifest, 
 }
 
 func applyManifestPatch(item *TaskItem, patch manifestTaskPatch) {
-	if patch.PageIndex != nil {
-		item.PageIndex = *patch.PageIndex
-	}
 	if patch.Title != nil {
 		item.Title = *patch.Title
 	}
@@ -949,26 +853,11 @@ func applyManifestPatch(item *TaskItem, patch manifestTaskPatch) {
 	if patch.LayoutVariant != nil {
 		item.LayoutVariant = *patch.LayoutVariant
 	}
-	if patch.Description != nil {
-		item.Description = *patch.Description
-	}
 	if patch.PageIntent != nil {
 		item.PageIntent = *patch.PageIntent
 	}
 	if len(patch.EvidenceRefs) > 0 {
 		item.EvidenceRefs = append([]string(nil), patch.EvidenceRefs...)
-	}
-	if patch.OutputFile != nil {
-		item.OutputFile = *patch.OutputFile
-	}
-	if patch.Status != nil {
-		item.Status = *patch.Status
-	}
-	if patch.QAReport != nil {
-		item.QAReport = *patch.QAReport
-	}
-	if patch.FixAttempts != nil {
-		item.FixAttempts = *patch.FixAttempts
 	}
 	if patch.ContentPlan != nil {
 		item.ContentPlan = mergeContentPlanPatch(item.ContentPlan, patch.ContentPlan)
@@ -999,12 +888,6 @@ func mergeContentPlanPatch(current, patch *ContentPlan) *ContentPlan {
 	}
 	if len(patch.Components) > 0 {
 		current.Components = patch.Components
-	}
-	if patch.CapacityHint != nil {
-		current.CapacityHint = patch.CapacityHint
-	}
-	if patch.ReviewerStatus != nil {
-		current.ReviewerStatus = patch.ReviewerStatus
 	}
 	return current
 }
@@ -1108,20 +991,6 @@ func validateContentPlanContract(item *TaskItem) error {
 	if len(plan.Components) > maxComponentsForContentType(item.ContentType) {
 		return fmt.Errorf("too many components for %s: %d > %d", item.ContentType, len(plan.Components), maxComponentsForContentType(item.ContentType))
 	}
-	if plan.CapacityHint != nil {
-		if !validDensity(plan.CapacityHint.EstimatedDensity) {
-			return fmt.Errorf("invalid estimated_density %q", plan.CapacityHint.EstimatedDensity)
-		}
-		if !validOverflowRisk(plan.CapacityHint.OverflowRisk) {
-			return fmt.Errorf("invalid overflow_risk %q", plan.CapacityHint.OverflowRisk)
-		}
-		if plan.CapacityHint.ComponentCount > 0 && plan.CapacityHint.ComponentCount != len(plan.Components) {
-			plan.CapacityHint.ComponentCount = len(plan.Components)
-		}
-	}
-	if plan.ReviewerStatus != nil && plan.ReviewerStatus.PlannerRound > 3 {
-		return fmt.Errorf("planner_round exceeds max refinement rounds: %d", plan.ReviewerStatus.PlannerRound)
-	}
 	return nil
 }
 
@@ -1162,23 +1031,5 @@ func maxComponentsForContentType(contentType string) int {
 		return 4
 	default:
 		return 8
-	}
-}
-
-func validDensity(value string) bool {
-	switch strings.TrimSpace(value) {
-	case "", "sparse", "normal", "dense":
-		return true
-	default:
-		return false
-	}
-}
-
-func validOverflowRisk(value string) bool {
-	switch strings.TrimSpace(value) {
-	case "", "low", "medium", "high":
-		return true
-	default:
-		return false
 	}
 }

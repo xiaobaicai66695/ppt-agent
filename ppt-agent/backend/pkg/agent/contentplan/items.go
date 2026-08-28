@@ -9,7 +9,7 @@ import (
 )
 
 var titleKeys = []string{"title", "label", "name", "key", "heading"}
-var bodyKeys = []string{"text", "description", "value", "content", "detail", "body"}
+var bodyKeys = []string{"text", "value", "content", "detail", "body"}
 
 // DecodeItems accepts the common shapes produced by models and normalizes
 // every meaningful value into the string list consumed by slide generators.

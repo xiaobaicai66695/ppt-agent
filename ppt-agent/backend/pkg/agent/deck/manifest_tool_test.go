@@ -23,11 +23,10 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 
 	result, err = planner.InvokableRun(context.Background(), `{
 		"mode":"initialize",
-		"theme":"charcoal_light",
 		"tasks":[{
-			"task_id":"1","page_index":1,"title":"架构演进","content_type":"title_slide",
-			"description":"说明系统架构演进的核心判断","output_file":"1_architecture.pptx","status":"pending",
+			"page_index":1,"title":"架构演进","content_type":"title_slide",
 			"content_plan":{
+				"summary":"说明系统架构演进的核心判断",
 				"slide_intent":"用核心判断建立整套演示的架构演进主线。",
 				"visual_intent":{"asset_purpose":"background","asset_subject":"software architecture blueprint","asset_query":"architecture","composition":"wide landscape, clean negative space on left"},
 				"components":[{"id":"point-1","type":"key_point","body":"架构演进的核心不是堆叠更多模块，而是持续收敛职责边界和交付路径。"}]
@@ -47,6 +46,9 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 	if manifest.Title != "组件化架构演进" || len(manifest.Tasks) != 1 {
 		t.Fatalf("unexpected draft: %#v", manifest)
 	}
+	if got := manifest.Tasks[0]; got.TaskID != "slide-1" || got.OutputFile != "slide_01.pptx" || got.Status != StatusPending {
+		t.Fatalf("runtime fields were not derived: %#v", got)
+	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
 		t.Fatalf("planner must not publish tasks.json: %v", err)
 	}
@@ -55,10 +57,10 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{
-		Title: "初稿", Theme: "simple_gray",
+		Title: "初稿",
 		Tasks: []*TaskItem{{
 			TaskID: "1", PageIndex: 1, Title: "旧标题", ContentType: "content_slide",
-			Description: "旧内容", OutputFile: "1_content.pptx", Status: "pending",
+			OutputFile: "1_content.pptx", Status: "pending",
 		}},
 	}
 	if err := WriteTasksDraftManifest(workDir, manifest); err != nil {
@@ -67,7 +69,7 @@ func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 
 	patcher := newDraftTasksPatchTool(workDir)
 	result, err := patcher.InvokableRun(context.Background(), `{
-		"tasks":[{"task_id":"1","title":"新标题","description":"新的结构化内容"}]
+		"tasks":[{"page_index":1,"title":"新标题"}]
 	}`)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +82,7 @@ func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Tasks[0].Title != "新标题" || updated.Tasks[0].Description != "新的结构化内容" {
+	if updated.Tasks[0].Title != "新标题" {
 		t.Fatalf("patch was not applied: %#v", updated.Tasks[0])
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "tasks.json")); !os.IsNotExist(err) {
@@ -91,10 +93,10 @@ func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 func TestDraftPatchPreservesDownloadedVisualMetadata(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{
-		Title: "初稿", Theme: "ocean_soft",
+		Title: "初稿",
 		Tasks: []*TaskItem{{
 			TaskID: "1", PageIndex: 1, Title: "封面", ContentType: "title_slide",
-			Description: "旧内容", OutputFile: "1_title.pptx", Status: "pending",
+			OutputFile: "1_title.pptx", Status: "pending",
 			ContentPlan: &ContentPlan{
 				SlideIntent: "建立主题",
 				VisualIntent: &VisualIntent{
@@ -114,7 +116,7 @@ func TestDraftPatchPreservesDownloadedVisualMetadata(t *testing.T) {
 
 	patcher := newDraftTasksPatchTool(workDir)
 	result, err := patcher.InvokableRun(context.Background(), `{
-		"tasks":[{"task_id":"1","content_plan":{
+		"tasks":[{"page_index":1,"content_plan":{
 			"slide_intent":"强化主题判断",
 			"visual_intent":{"asset_query":"new query","composition":"wide landscape"},
 			"components":[{"id":"new","type":"insight","body":"新观点"}]
@@ -139,7 +141,7 @@ func TestDraftPatchPreservesDownloadedVisualMetadata(t *testing.T) {
 	}
 }
 
-func TestPlannerManifestToolRecoversTasksArrayFromStringSpill(t *testing.T) {
+func TestPlannerManifestToolRejectsStringSpillAndDeprecatedFields(t *testing.T) {
 	workDir := t.TempDir()
 	planner := newPlannerManifestTool(workDir, nil, "架构清理验证")
 
@@ -152,24 +154,19 @@ func TestPlannerManifestToolRecoversTasksArrayFromStringSpill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, `"ok":true`) {
-		t.Fatalf("unexpected initialize result: %s", result)
-	}
-	manifest, err := ReadTasksDraftManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(manifest.Tasks) != 1 || manifest.Tasks[0].Title != "架构清理验证" {
-		t.Fatalf("embedded tasks array was not recovered: %#v", manifest)
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, "theme is not part of the DeckSpec contract") {
+		t.Fatalf("deprecated fields and string spill should be rejected: %s", result)
 	}
 }
 
-func TestPlannerManifestToolDefaultsMissingHeaderBeforePreflight(t *testing.T) {
+func TestPlannerManifestToolRejectsDeprecatedThemeTemplateAndRuntimeFields(t *testing.T) {
 	workDir := t.TempDir()
 	planner := newPlannerManifestTool(workDir, nil, "AI 产业趋势")
 
 	result, err := planner.InvokableRun(context.Background(), `{
 		"mode":"initialize",
+		"theme":"government_red",
+		"template":"generic",
 		"tasks":[{
 			"task_id":"1","page_index":1,"title":"AI 产业趋势","content_type":"title_slide",
 			"description":"建立整套演示的核心判断和视觉方向。","output_file":"1_title.pptx","status":"pending",
@@ -183,15 +180,8 @@ func TestPlannerManifestToolDefaultsMissingHeaderBeforePreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, `"ok":true`) {
-		t.Fatalf("missing header should use defaults before preflight, got: %s", result)
-	}
-	manifest, err := ReadTasksDraftManifest(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Theme != defaultManifestTheme || manifest.Template != defaultManifestTemplate {
-		t.Fatalf("unexpected defaults: theme=%q template=%q", manifest.Theme, manifest.Template)
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, "theme is not part of the DeckSpec contract") {
+		t.Fatalf("deprecated fields should be rejected, got: %s", result)
 	}
 }
 
@@ -200,14 +190,12 @@ func TestPlannerManifestToolNormalizesAgendaBeforePreflight(t *testing.T) {
 	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
 
 	result, err := planner.InvokableRun(context.Background(), `{
-		"mode":"initialize","title":"国际局势分析","theme":"government_red","template":"generic","tasks":[{
-			"task_id":"task_002","page_index":2,"title":"目录","content_type":"agenda",
-			"description":"用清晰目录建立国际局势分析的阅读路径。","output_file":"2_agenda.pptx","status":"pending",
+		"mode":"initialize","title":"国际局势分析","tasks":[{
+			"page_index":2,"title":"目录","content_type":"agenda",
 			"content_plan":{
 				"summary":"围绕冲突、安全、经济和治理四条主线组织内容。",
 				"slide_intent":"帮助观众先理解整套报告的章节顺序和判断框架。",
 				"visual_intent":{"asset_purpose":"background","asset_query":"diplomacy","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
-				"capacity_hint":{"estimated_density":"dense","overflow_risk":"medium","component_count":9},
 				"components":[
 					{"id":"toc_1","type":"toc_item","title":"冲突热点"},
 					{"id":"toc_2","type":"toc_item","title":"大国关系"},
@@ -239,9 +227,6 @@ func TestPlannerManifestToolNormalizesAgendaBeforePreflight(t *testing.T) {
 	if components[0].Type != "insight" {
 		t.Fatalf("agenda should keep/add a narrative anchor first, got %#v", components[0])
 	}
-	if manifest.Tasks[0].ContentPlan.CapacityHint.ComponentCount != len(components) {
-		t.Fatalf("capacity hint not synced: %#v", manifest.Tasks[0].ContentPlan.CapacityHint)
-	}
 }
 
 func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.T) {
@@ -249,14 +234,12 @@ func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.
 	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
 
 	result, err := planner.InvokableRun(context.Background(), `{
-		"mode":"initialize","title":"国际局势分析","theme":"government_red","template":"generic","tasks":[{
-			"task_id":"task_004","page_index":4,"title":"冲突数量上升","content_type":"stat_slide",
-			"description":"用关键数字说明地区冲突和安全风险仍处高位。","output_file":"4_stat.pptx","status":"pending",
+		"mode":"initialize","title":"国际局势分析","tasks":[{
+			"page_index":4,"title":"冲突数量上升","content_type":"stat_slide",
 			"content_plan":{
 				"summary":"关键数字说明安全风险没有随外交斡旋自然降温。",
 				"slide_intent":"用指标建立后续冲突分析的事实基线。",
 				"visual_intent":{"asset_purpose":"background","asset_query":"diplomacy","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
-				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":2},
 				"components":[
 					{"id":"stat_1","type":"stat","title":"冲突热点","body":"多地延续"},
 					{"id":"stat_2","type":"stat","title":"安全风险","body":"保持高位"}
@@ -284,14 +267,12 @@ func TestPlannerManifestToolNormalizesShortArgumentBlockWhenLongArgumentIsNotReq
 	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
 
 	result, err := planner.InvokableRun(context.Background(), `{
-		"mode":"initialize","title":"国际局势分析","theme":"government_red","template":"generic","tasks":[{
-			"task_id":"task_005","page_index":5,"title":"风险判断","content_type":"content_slide",
-			"description":"用简短观点说明国际局势的主要风险判断。","output_file":"5_content.pptx","status":"pending",
+		"mode":"initialize","title":"国际局势分析","tasks":[{
+			"page_index":5,"title":"风险判断","content_type":"content_slide",
 			"content_plan":{
 				"summary":"风险不是单点爆发，而是多条压力线同时抬升。",
 				"slide_intent":"形成一页可带走的核心判断。",
 				"visual_intent":{"asset_purpose":"background","asset_query":"diplomacy","asset_subject":"global diplomacy","composition":"wide landscape clean negative space"},
-				"capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":1},
 				"components":[{"id":"arg_1","type":"argument_block","body":"多条压力线同时抬升，局势判断需要同时看冲突、能源、供应链和治理机制。"}]
 			}
 		}]
@@ -316,9 +297,8 @@ func TestPlannerManifestToolWritesDraftWhenPreflightFindsQualityIssues(t *testin
 	planner := newPlannerManifestTool(workDir, nil, "AI 产业趋势")
 
 	result, err := planner.InvokableRun(context.Background(), `{
-		"mode":"initialize","title":"AI 产业趋势","theme":"simple_gray","tasks":[{
-			"task_id":"section-1","page_index":1,"title":"产业阶段","content_type":"section_divider",
-			"description":"进入产业阶段分析。","output_file":"1_section.pptx","status":"pending",
+		"mode":"initialize","title":"AI 产业趋势","tasks":[{
+			"page_index":1,"title":"产业阶段","content_type":"section_divider",
 			"content_plan":{"slide_intent":"切换到产业阶段章节。","components":[{"id":"marker-1","type":"section_marker"}]}
 		}]
 	}`)
@@ -334,7 +314,7 @@ func TestPlannerManifestToolWritesDraftWhenPreflightFindsQualityIssues(t *testin
 	if err != nil {
 		t.Fatalf("planner preflight issues should still leave a reviewable draft: %v", err)
 	}
-	if len(manifest.Tasks) != 1 || manifest.Tasks[0].TaskID != "section-1" {
+	if len(manifest.Tasks) != 1 || manifest.Tasks[0].TaskID != "slide-1" {
 		t.Fatalf("unexpected draft after preflight issues: %#v", manifest)
 	}
 }

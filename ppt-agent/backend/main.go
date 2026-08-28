@@ -168,7 +168,7 @@ func runWebMode(pwd, skillsDir, addr string) {
 			}
 			return &aiModelAdapter{model: m}, nil
 		},
-		// 意图分类 / 偏好总结使用轻量级模型，节省成本
+		// 继续对话分类等辅助任务使用轻量级模型，节省成本
 		TextModelFactory: func(ctx context.Context) (interface {
 			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 		}, error) {

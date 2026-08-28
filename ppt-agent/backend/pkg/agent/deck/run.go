@@ -354,8 +354,6 @@ func ensurePlannerDraft(cfg *PPTTaskConfig, userQuery, plannerOutput string, onE
 	if cfg.RuntimeMeta != nil {
 		cfg.RuntimeMeta.RecordEvent("deck_spec_recovered", tasksDraftFileName, "warning", fmt.Sprintf("recovered %d slides from planner output", len(recovered.Tasks)), map[string]any{
 			"slide_count": len(recovered.Tasks),
-			"template":    recovered.Template,
-			"theme":       recovered.Theme,
 		})
 	}
 	return recovered, nil
@@ -395,25 +393,25 @@ func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Ag
 			onEvent(AgentEvent{Type: AgentEventAnswer, Content: fmt.Sprintf("DeckSpec 已通过 Task Reviewer 并提交，共 %d 页，开始进入并发渲染。\n", len(manifest.Tasks))})
 			if cfg.RuntimeMeta != nil {
 				cfg.RuntimeMeta.RecordEvent("deck_spec_committed", tasksDraftFileName, "success", fmt.Sprintf("committed %d slides from reviewed draft", len(manifest.Tasks)), map[string]any{
-					"slide_count": len(manifest.Tasks), "template": manifest.Template, "theme": manifest.Theme,
+					"slide_count": len(manifest.Tasks),
 				})
 			}
 			return manifest, nil
 		}
 
-		input, allowedTaskIDs, err := buildPlanReviewRevisionInput(cfg.WorkDir, round, report)
+		input, allowedPageIndexes, err := buildPlanReviewRevisionInput(cfg.WorkDir, round, report)
 		if err != nil {
 			return nil, fmt.Errorf("构建第 %d 轮 Reviewer 切片输入失败: %w", round, err)
 		}
 		if cfg.RuntimeMeta != nil {
-			cfg.RuntimeMeta.RecordEvent("deck_spec_review_slice", "TaskPlanReviewer", "needs_revision", fmt.Sprintf("scoped review patch for %d tasks", len(allowedTaskIDs)), map[string]any{
-				"round":          round,
-				"allowed_tasks":  allowedTaskIDs,
-				"allowed_count":  len(allowedTaskIDs),
-				"review_summary": report.Summary,
+			cfg.RuntimeMeta.RecordEvent("deck_spec_review_slice", "TaskPlanReviewer", "needs_revision", fmt.Sprintf("scoped review patch for %d pages", len(allowedPageIndexes)), map[string]any{
+				"round":                round,
+				"allowed_page_indexes": allowedPageIndexes,
+				"allowed_count":        len(allowedPageIndexes),
+				"review_summary":       report.Summary,
 			})
 		}
-		reviewer, err := NewTaskPlanReviewerAgent(ctx, cfg, allowedTaskIDs)
+		reviewer, err := NewTaskPlanReviewerAgent(ctx, cfg, allowedPageIndexes)
 		if err != nil {
 			return nil, err
 		}
@@ -485,7 +483,7 @@ func isInternalCompressionSummaryContent(content string) bool {
 	if err := json.Unmarshal([]byte(content), &payload); err != nil {
 		return false
 	}
-	if _, ok := payload["user_intent_summary"]; !ok {
+	if _, ok := payload["user_request_summary"]; !ok {
 		return false
 	}
 	if _, ok := payload["progress_summary"]; ok {

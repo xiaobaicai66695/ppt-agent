@@ -90,7 +90,7 @@ func WithResponseFormatJsonSchema(schema *openai.ChatCompletionResponseFormatJSO
 
 // WithModel 覆盖 NewFallbackToolCallingChatModel 使用的模型名称。
 // 设置后，ARK_MODEL / OPENAI_MODEL 环境变量将被忽略。
-// 适用于轻量级辅助任务（如意图分类、风格提取），应使用比主 agent 更小/更便宜的模型。
+// 适用于继续对话分类、日志分析等轻量级辅助任务，应使用比主 agent 更小/更便宜的模型。
 func WithModel(modelName string) ChatModelOption {
 	return func(c *ChatModelConfig) {
 		c.Model = &modelName

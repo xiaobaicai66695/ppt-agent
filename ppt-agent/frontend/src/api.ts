@@ -172,7 +172,6 @@ export async function deleteTask(id: string): Promise<void> {
 export interface SlideOutline {
   title: string;
   content_type: string;
-  description: string;
   content_plan?: ContentPlan;
 }
 
@@ -182,7 +181,6 @@ export interface PlanComponent {
   title?: string;
   text?: string;
   body?: string;
-  description?: string;
   items?: string[];
   local_path?: string;
   asset_query?: string;
@@ -202,12 +200,9 @@ export interface ContentPlan {
   slide_intent?: string;
   components?: PlanComponent[];
   visual_intent?: VisualIntent;
-  capacity_hint?: Record<string, unknown>;
 }
 
 export interface TaskOutline {
-  template: string;
-  theme: string;
   title: string;
   content_mode?: 'user_outline';
   slides: SlideOutline[];
@@ -218,7 +213,6 @@ export interface AtomicLayout {
   display_name: string;
   type: string;
   description: string;
-  allowed_palettes: string[];
   fields: {
     name: string;
     label: string;
@@ -238,26 +232,10 @@ export interface AtomicLayout {
   };
 }
 
-export interface ThemeInfo {
-  name: string;
-  display_name: string;
-  primary: string;
-  secondary: string;
-  accent: string;
-  background: string;
-  tags: string[];
-}
-
 export async function fetchLayouts(): Promise<AtomicLayout[]> {
 	const res = await checkResponse(await apiFetch('/api/templates/layouts'));
   const data = await res.json();
   return data.layouts || [];
-}
-
-export async function fetchThemes(): Promise<ThemeInfo[]> {
-	const res = await checkResponse(await apiFetch('/api/themes'));
-  const data = await res.json();
-  return data.themes || [];
 }
 
 export async function createTaskWithOutline(query: string, outline: TaskOutline): Promise<TaskInfo> {
@@ -267,42 +245,6 @@ export async function createTaskWithOutline(query: string, outline: TaskOutline)
     body: JSON.stringify({ query, outline }),
   }));
   return res.json();
-}
-
-export async function expandWithAI(title: string, contentType: string, description: string, theme: string): Promise<string> {
-	const res = await checkResponse(await apiFetch('/api/ai/expand', {
-		method: 'POST',
-		headers: authHeaders(),
-		body: JSON.stringify({ title, content_type: contentType, description, theme }),
-	}));
-  const data = await res.json();
-  return data.description || '';
-}
-
-export async function generateOutlineWithAI(query: string, outline: TaskOutline): Promise<SlideOutline[]> {
-  try {
-    const res = await apiFetch('/api/ai/generate-outline', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ query, outline }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      let errMsg = '生成大纲失败';
-      try { const j = JSON.parse(text); errMsg = j.error || errMsg; } catch { if (text) errMsg = text; }
-      throw new Error(errMsg);
-    }
-    const text = await res.text();
-    if (!text.trim()) throw new Error('服务器返回为空，请重试');
-    const body = JSON.parse(text);
-    if (!body || !Array.isArray(body.slides)) throw new Error('服务器返回格式错误: ' + text.slice(0, 100));
-    return body.slides;
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      throw new Error('服务器返回格式错误，请重试');
-    }
-    throw e;
-  }
 }
 
 // ── Continue / Session API ──────────────────────────────────────────────────────
@@ -331,49 +273,6 @@ export async function fetchConversation(taskId: string): Promise<import('./types
 export async function fetchRuntimeEvent(taskId: string, eventId: number): Promise<import('./types').RuntimeEvent> {
 	const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/runtime-events/${eventId}`, { headers: authHeaders() }));
   return res.json();
-}
-
-// ── User profile API ──────────────────────────────────────────────────────────────
-
-export async function fetchUserProfile(): Promise<import('./types').UserStyleProfile> {
-	const res = await checkResponse(await apiFetch('/api/users/me/profile', { headers: authHeaders() }));
-  const data = await res.json();
-  return data.profile;
-}
-
-export async function updateUserProfile(profile: Partial<import('./types').UserStyleProfile>): Promise<void> {
-	await checkResponse(await apiFetch('/api/users/me/profile', {
-		method: 'PUT',
-		headers: authHeaders(),
-		body: JSON.stringify(profile),
-	}));
-}
-
-export async function resetUserProfile(): Promise<void> {
-	await checkResponse(await apiFetch('/api/users/me/profile/reset', {
-		method: 'POST',
-		headers: authHeaders(),
-	}));
-}
-
-export interface PreferenceSummary {
-  preferred_themes: string[];
-  preferred_colors: string[];
-  content_patterns: string[];
-  layout_preferences: string[];
-  language_tone: string;
-  typical_page_count: number;
-  special_notes: string[];
-  user_facts?: import('./types').UserFacts;
-}
-
-export async function summarizeProfile(): Promise<{ summary: PreferenceSummary; task_count: number; updated_at: string }> {
-	const res = await checkResponse(await apiFetch('/api/users/me/profile/summarize', {
-		method: 'POST',
-		headers: authHeaders(),
-	}));
-  const data = await res.json();
-  return data;
 }
 
 // ── Account API key API ───────────────────────────────────────────────────────
@@ -406,23 +305,6 @@ export async function deleteUserApiKey(): Promise<void> {
 		method: 'DELETE',
 		headers: authHeaders(),
 	}));
-}
-
-// ── Recommendations API ──────────────────────────────────────────────────────────────
-
-export interface Recommendation {
-  template: string;
-  theme: string;
-  page_count: number;
-  animation: string;
-  tips: string[];
-}
-
-export async function fetchRecommendations(domain?: string): Promise<Recommendation | null> {
-	const url = domain ? `/api/recommendations?domain=${encodeURIComponent(domain)}` : '/api/recommendations';
-	const res = await checkResponse(await apiFetch(url, { headers: authHeaders() }));
-  const data = await res.json();
-  return data.recommendation;
 }
 
 // ── Admin API ──────────────────────────────────────────────────────────────────
@@ -467,19 +349,6 @@ export interface AdminLogAnalysis {
   created_at: string;
 }
 
-export interface AdminStyleProfile {
-  user_id: number;
-  preferred_themes: string;
-  preferred_colors: string;
-  content_patterns: string;
-  language_tone: string;
-  typical_page_count: number;
-  content_types: string;
-  special_notes: string;
-  task_count: number;
-  updated_at: string;
-}
-
 export async function fetchAdminStats(): Promise<AdminStats> {
   const res = await checkResponse(await apiFetch('/api/admin/stats', { headers: authHeaders() }));
   return res.json();
@@ -501,12 +370,6 @@ export async function fetchAdminLogAnalyses(): Promise<AdminLogAnalysis[]> {
   const res = await checkResponse(await apiFetch('/api/admin/log-analyses', { headers: authHeaders() }));
   const data = await res.json();
   return data.analyses || [];
-}
-
-export async function fetchAdminStyleProfiles(): Promise<AdminStyleProfile[]> {
-  const res = await checkResponse(await apiFetch('/api/admin/style-profiles', { headers: authHeaders() }));
-  const data = await res.json();
-  return data.profiles || [];
 }
 
 export async function deleteAdminLogAnalysis(id: number): Promise<void> {

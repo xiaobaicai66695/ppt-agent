@@ -13,12 +13,9 @@ import (
 func TestRuntimeMetaFreezesPlanAndExposesAlignmentSnapshot(t *testing.T) {
 	workDir := t.TempDir()
 	meta := NewRuntimeMeta("task-1", workDir)
-	meta.RecordIntent(IntentAnchor{
+	meta.RecordTaskInput(TaskInputAnchor{
 		Summary:        "生成一份季度经营复盘",
 		OriginalLength: 1200,
-		Intent:         "create",
-		Domain:         "business",
-		SuggestedPages: 2,
 		Template:       "executive",
 	})
 
@@ -33,8 +30,8 @@ func TestRuntimeMetaFreezesPlanAndExposesAlignmentSnapshot(t *testing.T) {
 	meta.ComparePlan(plan, nil)
 
 	snapshot := meta.Snapshot()
-	if snapshot.IntentAnchor.Summary != "生成一份季度经营复盘" {
-		t.Fatalf("unexpected intent anchor: %#v", snapshot.IntentAnchor)
+	if snapshot.TaskInput.Summary != "生成一份季度经营复盘" {
+		t.Fatalf("unexpected task input: %#v", snapshot.TaskInput)
 	}
 	if len(snapshot.PlanSlides) != 2 || snapshot.PlanSlides[0].Title != "经营概览" {
 		t.Fatalf("plan baseline was not frozen: %#v", snapshot.PlanSlides)
@@ -378,7 +375,7 @@ func TestCompressionEventIncludesDifferenceAndUserAnchor(t *testing.T) {
 		t.Fatalf("compression diff missing: %#v", event)
 	}
 	requirements, ok := event.Metadata["preserved_requirements"].([]string)
-	if !ok || len(requirements) != 2 || event.Metadata["user_intent_summary"] != "生成一套生态报告" {
+	if !ok || len(requirements) != 2 || event.Metadata["user_request_summary"] != "生成一套生态报告" {
 		t.Fatalf("compression user anchor missing: %#v", event.Metadata)
 	}
 }
@@ -391,8 +388,8 @@ func TestCompressionSummaryAnchorsWholeUserMessages(t *testing.T) {
 		schema.UserMessage("<agent_progress>\ngenerated_slides: 3\ntotal_slides: 12\n</agent_progress>"),
 		schema.UserMessage("配色改为 report_green，并保留用户提供的大纲标题"),
 	})
-	if summary.UserIntentSummary != "生成一套 12 页生态保护报告，重点展示真实数据和背景图片" {
-		t.Fatalf("user intent anchor = %q", summary.UserIntentSummary)
+	if summary.UserRequestSummary != "生成一套 12 页生态保护报告，重点展示真实数据和背景图片" {
+		t.Fatalf("user request anchor = %q", summary.UserRequestSummary)
 	}
 	if len(summary.PreservedRequirements) != 2 || summary.PreservedRequirements[1] != "配色改为 report_green，并保留用户提供的大纲标题" {
 		t.Fatalf("preserved requirements = %#v", summary.PreservedRequirements)

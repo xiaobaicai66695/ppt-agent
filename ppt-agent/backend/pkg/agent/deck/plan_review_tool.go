@@ -49,14 +49,10 @@ func ReviewTasksDraftManifest(workDir string, round int) (*PlanReviewReport, err
 		}
 	}
 	if round <= 0 {
-		round = inferNextReviewRound(manifest)
+		round = 1
 	}
 	report := ReviewTasksManifest(manifest, target, round)
 	if target == "tasks.draft.json" {
-		markManifestReviewStatus(manifest, report)
-		if err := WriteTasksDraftManifest(workDir, manifest); err != nil {
-			return nil, fmt.Errorf("write reviewed draft manifest: %w", err)
-		}
 		report.Fingerprint = fingerprintTasksManifest(manifest)
 	}
 	if err := WritePlanReviewReport(workDir, report); err != nil {
@@ -85,9 +81,6 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 	if strings.TrimSpace(manifest.Title) == "" {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "error", Message: "缺少整套 PPT 标题。"})
 	}
-	if strings.TrimSpace(manifest.Theme) == "" {
-		report.Issues = append(report.Issues, PlanReviewIssue{Code: "layout_mismatch", Severity: "error", Message: "缺少整套 theme，生成器无法稳定选择配色。"})
-	}
 	if err := validateManifestForWrite(manifest); err != nil {
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:     "invalid_component_schema",
@@ -109,14 +102,6 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 		return
 	}
 	page := task.PageIndex
-	if (strings.TrimSpace(task.Description) == "" || runeLen(task.Description) < 8) && !isSimpleTitleLikeSlide(task.ContentType) {
-		report.Issues = append(report.Issues, PlanReviewIssue{
-			Code:      "low_information_density",
-			Severity:  "error",
-			PageIndex: page,
-			Message:   "页面 description 过短，不能支撑稳定生成。",
-		})
-	}
 	if task.ContentPlan == nil {
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:      "invalid_component_schema",
@@ -127,7 +112,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 		return
 	}
 	plan := task.ContentPlan
-	if !hasPlanNarrativeSummary(task, plan) {
+	if !hasPlanNarrativeSummary(plan) {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "error", PageIndex: page, Message: "content_plan.summary 为空。"})
 	}
 	if strings.TrimSpace(plan.SlideIntent) == "" && !isSimpleTitleLikeSlide(task.ContentType) {
@@ -161,8 +146,8 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 				Message:     "背景图片组件缺少 local_path 和 asset_query，无法执行后续素材规划。",
 			})
 		}
-		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) < argumentBlockTargetMinChars {
-			currentChars := runeLen(firstNonEmptyString(component.Body, component.Text, component.Description))
+		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars {
+			currentChars := runeLen(firstNonEmptyString(component.Body, component.Text))
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "low_information_density",
 				Severity:    "warning",
@@ -259,36 +244,6 @@ func hasBlockingPlanReviewIssue(issues []PlanReviewIssue) bool {
 	return false
 }
 
-func markManifestReviewStatus(manifest *TasksManifest, report *PlanReviewReport) {
-	if manifest == nil || report == nil {
-		return
-	}
-	issuesByPage := map[int][]PlanReviewIssue{}
-	for _, issue := range report.Issues {
-		if issue.PageIndex > 0 {
-			issuesByPage[issue.PageIndex] = append(issuesByPage[issue.PageIndex], issue)
-		}
-	}
-	for _, task := range manifest.Tasks {
-		if task == nil {
-			continue
-		}
-		if task.ContentPlan == nil {
-			task.ContentPlan = &ContentPlan{}
-		}
-		task.ContentPlan.ReviewerStatus = &PlanReviewerStatus{
-			PlannerRound: report.Round,
-			Locked:       report.Passed,
-			LockedAt:     "",
-			Issues:       issuesByPage[task.PageIndex],
-		}
-		if report.Passed {
-			task.ContentPlan.ReviewerStatus.LockedAt = report.ReviewedAt
-			task.ContentPlan.ReviewerStatus.Issues = nil
-		}
-	}
-}
-
 func summarizePlanReviewActions(issues []PlanReviewIssue) []string {
 	seen := map[string]bool{}
 	var actions []string
@@ -317,7 +272,7 @@ func planReviewActionForCode(code string) string {
 	case "invalid_component_schema":
 		return "按 component_contracts.json 修正 content_type、components 和容量字段"
 	case "layout_mismatch":
-		return "补齐 theme/template/layout_variant，并确保页面类型和组件匹配"
+		return "修正 layout_variant、页面类型和组件匹配关系"
 	default:
 		return "修订草稿后由 Go workflow 重新校验"
 	}
@@ -507,21 +462,6 @@ func fingerprintTasksManifest(manifest *TasksManifest) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func inferNextReviewRound(manifest *TasksManifest) int {
-	maxRound := 0
-	if manifest != nil {
-		for _, task := range manifest.Tasks {
-			if task != nil && task.ContentPlan != nil && task.ContentPlan.ReviewerStatus != nil && task.ContentPlan.ReviewerStatus.PlannerRound > maxRound {
-				maxRound = task.ContentPlan.ReviewerStatus.PlannerRound
-			}
-		}
-	}
-	if maxRound >= 3 {
-		return 3
-	}
-	return maxRound + 1
-}
-
 func isSimpleTitleLikeSlide(contentType string) bool {
 	switch strings.TrimSpace(contentType) {
 	case "title_slide", "section_divider", "quote_slide":
@@ -563,7 +503,7 @@ func imageTextNarrativeChars(components []PlanComponent) int {
 	for _, component := range components {
 		switch strings.TrimSpace(component.Type) {
 		case "argument_block", "paragraph", "text_block":
-			maxChars = max(maxChars, runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)))
+			maxChars = max(maxChars, runeLen(firstNonEmptyString(component.Body, component.Text)))
 		case "list", "numbered_list", "bullet_list", "evidence_list":
 			maxChars = max(maxChars, runeLen(strings.Join(component.Items, "")))
 		}
@@ -594,10 +534,10 @@ func informationNarrativeChars(components []PlanComponent) int {
 				total += runeLen(item)
 			}
 			if len(component.Items) == 0 {
-				total += runeLen(firstNonEmptyString(component.Body, component.Text, component.Description))
+				total += runeLen(firstNonEmptyString(component.Body, component.Text))
 			}
 		default:
-			componentChars := runeLen(firstNonEmptyString(component.Body, component.Text, component.Description))
+			componentChars := runeLen(firstNonEmptyString(component.Body, component.Text))
 			if componentChars == 0 && len(component.Items) > 0 {
 				for _, item := range component.Items {
 					componentChars += runeLen(item)
@@ -617,7 +557,7 @@ func reviewComponentContentQuality(contentType string, page int, component *Plan
 	if isStructuralComponentType(componentType) {
 		return
 	}
-	body := firstNonEmptyString(component.Body, component.Text, component.Description)
+	body := firstNonEmptyString(component.Body, component.Text)
 	if isPlaceholderLikeText(body) {
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:        "low_information_density",
@@ -728,7 +668,7 @@ func isPlaceholderLikeText(text string) bool {
 	}
 }
 
-func hasPlanNarrativeSummary(task *TaskItem, plan *ContentPlan) bool {
+func hasPlanNarrativeSummary(plan *ContentPlan) bool {
 	if plan == nil {
 		return false
 	}
@@ -737,11 +677,8 @@ func hasPlanNarrativeSummary(task *TaskItem, plan *ContentPlan) bool {
 			return true
 		}
 	}
-	if task != nil && runeLen(task.Description) >= 16 {
-		return true
-	}
 	for _, component := range plan.Components {
-		if runeLen(firstNonEmptyString(component.Body, component.Text, component.Description)) >= 16 {
+		if runeLen(firstNonEmptyString(component.Body, component.Text)) >= 16 {
 			return true
 		}
 	}

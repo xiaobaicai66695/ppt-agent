@@ -9,16 +9,10 @@ import (
 const validToolTestManifest = `{
   "mode":"initialize",
   "title":"组件计划",
-  "theme":"ocean_soft",
-  "template":"generic",
   "tasks":[{
-    "task_id":"1",
     "page_index":1,
     "title":"原始标题",
     "content_type":"content_slide",
-    "description":"围绕核心主题说明背景事实、关键判断和可执行建议。",
-    "output_file":"1_slide.pptx",
-    "status":"pending",
     "content_plan":{
       "summary":"用事实和判断解释核心主题。",
       "slide_intent":"建立听众对核心主题的基本认知。",
@@ -26,8 +20,7 @@ const validToolTestManifest = `{
         {"id":"headline_1","type":"headline","text":"核心主题"},
         {"id":"argument_1","type":"argument_block","body":"这是一段用于验证组件计划的完整说明，涵盖背景、事实、判断和建议，确保页面不是只有空泛短句。"},
         {"id":"bg_1","type":"image","asset_purpose":"background","asset_query":"clean wide landscape background"}
-      ],
-      "capacity_hint":{"estimated_density":"normal","overflow_risk":"low","component_count":3}
+      ]
     }
   }]
 }`
@@ -55,12 +48,12 @@ func TestDraftPatchToolCannotInitializeOrCommit(t *testing.T) {
 	}
 
 	patcher := newDraftTasksPatchTool(workDir)
-	result, err := patcher.InvokableRun(context.Background(), `{"mode":"commit","tasks":[{"task_id":"1","title":"审查后标题"}]}`)
+	result, err := patcher.InvokableRun(context.Background(), `{"mode":"commit","tasks":[{"page_index":1,"title":"审查后标题"}]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, `"ok":true`) {
-		t.Fatalf("reviewer patch failed: %s", result)
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, "mode is not accepted") {
+		t.Fatalf("reviewer patch should reject mode: %s", result)
 	}
 	if _, err := ReadTasksManifest(workDir); err == nil {
 		t.Fatal("reviewer tool must not publish tasks.json")
@@ -69,7 +62,7 @@ func TestDraftPatchToolCannotInitializeOrCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.Tasks[0].Title != "审查后标题" {
+	if draft.Tasks[0].Title != "原始标题" {
 		t.Fatalf("draft title = %q", draft.Tasks[0].Title)
 	}
 }
@@ -82,7 +75,7 @@ func TestDraftPatchToolAcceptsTasksJSONArrayString(t *testing.T) {
 	}
 
 	patcher := newDraftTasksPatchTool(workDir)
-	result, err := patcher.InvokableRun(context.Background(), `{"tasks":"[{\"task_id\":\"1\",\"title\":\"字符串修订标题\"}]"}`)
+	result, err := patcher.InvokableRun(context.Background(), `{"tasks":"[{\"page_index\":1,\"title\":\"字符串修订标题\"}]"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +110,8 @@ func TestSelectedTasksPatchToolRejectsUnauthorizedPage(t *testing.T) {
 	workDir := t.TempDir()
 	writeValidFinalManifest(t, workDir)
 
-	fixer := newSelectedTasksPatchTool(workDir, []string{"1"})
-	result, err := fixer.InvokableRun(context.Background(), `{"tasks":[{"task_id":"2","title":"越权修改"}]}`)
+	fixer := newSelectedTasksPatchTool(workDir, []int{1})
+	result, err := fixer.InvokableRun(context.Background(), `{"tasks":[{"page_index":2,"title":"越权修改"}]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,12 +131,12 @@ func TestSelectedTasksPatchToolPreservesRuntimeIdentity(t *testing.T) {
 	workDir := t.TempDir()
 	writeValidFinalManifest(t, workDir)
 
-	fixer := newSelectedTasksPatchTool(workDir, []string{"1"})
-	result, err := fixer.InvokableRun(context.Background(), `{"tasks":[{"task_id":"1","page_index":2,"title":"新标题"}]}`)
+	fixer := newSelectedTasksPatchTool(workDir, []int{1})
+	result, err := fixer.InvokableRun(context.Background(), `{"tasks":[{"page_index":1,"task_id":"slide-1","title":"新标题"}]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, "cannot change") {
+	if !strings.Contains(result, `"ok":false`) || !strings.Contains(result, "task_id is not part") {
 		t.Fatalf("unexpected fixer result: %s", result)
 	}
 }
@@ -152,8 +145,8 @@ func TestSelectedTasksPatchToolAcceptsTasksJSONArrayString(t *testing.T) {
 	workDir := t.TempDir()
 	writeValidFinalManifest(t, workDir)
 
-	fixer := newSelectedTasksPatchTool(workDir, []string{"1"})
-	result, err := fixer.InvokableRun(context.Background(), `{"tasks":"[{\"task_id\":\"1\",\"title\":\"字符串定点修复\"}]"}`)
+	fixer := newSelectedTasksPatchTool(workDir, []int{1})
+	result, err := fixer.InvokableRun(context.Background(), `{"tasks":"[{\"page_index\":1,\"title\":\"字符串定点修复\"}]"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

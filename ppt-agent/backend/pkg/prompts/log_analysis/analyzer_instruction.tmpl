@@ -7,7 +7,7 @@
 ## 项目背景
 
 ppt-agent 是一个 AI PPT 生成系统：
-- Go 后端使用“意图分类 → Planner LLM → DeckSpec/tasks.json → Eino workflow → renderer worker pool”的生成链路
+- Go 后端使用“Planner LLM → DeckSpec/tasks.json → Plan Reviewer → Eino workflow → renderer worker pool”的生成链路
 - Python PPT 生成使用 python-pptx 库，代码位于 skills/ppt-deck-planner/generators/ 目录
 - Planner 只调用 read_file、update_tasks_manifest、search 准备 DeckSpec；页面渲染由 render_task.py 按 task_id 确定性完成
 

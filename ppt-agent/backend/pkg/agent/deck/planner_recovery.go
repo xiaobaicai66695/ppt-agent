@@ -29,19 +29,9 @@ func recoverMissingPlannerManifest(cfg *PPTTaskConfig, userQuery, plannerOutput 
 		title = "演示文稿"
 	}
 
-	template := "generic"
-	theme := "ocean_soft"
 	pageCount := 0
 	if cfg.Outline != nil {
-		template = fallbackString(cfg.Outline.Template, template)
-		theme = fallbackString(cfg.Outline.Theme, theme)
-		pageCount = cfg.Outline.SuggestedPageCount
-	}
-	if cfg.IntentResult != nil {
-		theme = fallbackString(cfg.IntentResult.SuggestedTheme, theme)
-		if cfg.IntentResult.SuggestedPageCount > 0 && pageCount <= 0 {
-			pageCount = cfg.IntentResult.SuggestedPageCount
-		}
+		pageCount = len(cfg.Outline.Slides)
 	}
 	if pageCount <= 0 {
 		pageCount = 8
@@ -64,17 +54,16 @@ func recoverMissingPlannerManifest(cfg *PPTTaskConfig, userQuery, plannerOutput 
 		})
 	}
 
-	manifest := &TasksManifest{Title: title, Theme: theme, Template: template}
+	manifest := &TasksManifest{Title: title}
 	for i, spec := range slideSpecs {
 		page := i + 1
 		contentType := normalizeRecoveredContentType(spec.ContentType)
 		task := &TaskItem{
-			TaskID:      strconv.Itoa(page),
+			TaskID:      deterministicTaskID(page),
 			PageIndex:   page,
 			Title:       fallbackString(spec.Title, fmt.Sprintf("第%d页", page)),
 			ContentType: contentType,
-			Description: recoveredDescription(title, spec.Title, contentType),
-			OutputFile:  fmt.Sprintf("%02d_%s.pptx", page, safeOutputStem(spec.Title)),
+			OutputFile:  deterministicOutputFile(page),
 			Status:      StatusPending,
 			ContentPlan: recoveredContentPlan(title, spec.Title, contentType),
 		}
@@ -183,7 +172,7 @@ func defaultRecoveredSlideSpecs(topic string, pageCount int) []recoveredSlideSpe
 }
 
 func recoveredContentPlan(topic, title, contentType string) *ContentPlan {
-	summary := recoveredDescription(topic, title, contentType)
+	summary := recoveredSummary(topic, title, contentType)
 	role := "cards"
 	position := "inline"
 	switch contentType {
@@ -206,10 +195,6 @@ func recoveredContentPlan(topic, title, contentType string) *ContentPlan {
 			Caption:       title,
 		},
 		Components: recoveredComponents(topic, title, contentType),
-		CapacityHint: &CapacityHint{
-			EstimatedDensity: "normal",
-			OverflowRisk:     "low",
-		},
 	}
 }
 
@@ -279,7 +264,7 @@ func recoveredComponents(topic, title, contentType string) []PlanComponent {
 	}
 }
 
-func recoveredDescription(topic, title, contentType string) string {
+func recoveredSummary(topic, title, contentType string) string {
 	switch contentType {
 	case "title_slide":
 		return fmt.Sprintf("以“%s”为主题的开场页，点明演示对象、整体调性和核心看点。", topic)
@@ -315,28 +300,4 @@ func fallbackString(value, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func safeOutputStem(title string) string {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return "slide"
-	}
-	var b strings.Builder
-	for _, r := range title {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r >= '\u4e00' && r <= '\u9fff':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-		if b.Len() >= 48 {
-			break
-		}
-	}
-	stem := strings.Trim(b.String(), "_")
-	if stem == "" {
-		return "slide"
-	}
-	return stem
 }

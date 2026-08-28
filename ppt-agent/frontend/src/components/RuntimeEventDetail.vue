@@ -91,7 +91,7 @@ const compressionRows = computed(() => [
   },
 ]);
 
-const compressionIntent = computed(() => String(metadata.value.user_intent_summary || '').trim());
+const compressionRequest = computed(() => String(metadata.value.user_request_summary || '').trim());
 const preservedRequirements = computed(() => (
   Array.isArray(metadata.value.preserved_requirements)
     ? metadata.value.preserved_requirements.map(item => String(item).trim()).filter(Boolean)
@@ -375,9 +375,9 @@ function filterThoughtMetadata(record: RuntimeRecord): RuntimeRecord {
           <strong>{{ row.label }}</strong><span>{{ row.before }}</span><span>{{ row.after }}</span><small>{{ row.delta }}</small>
         </div>
       </div>
-      <div v-if="compressionIntent" class="intent-anchor">
+      <div v-if="compressionRequest" class="intent-anchor">
         <strong>用户目标锚点</strong>
-        <p>{{ compressionIntent }}</p>
+        <p>{{ compressionRequest }}</p>
       </div>
       <div v-if="preservedRequirements.length" class="preserved-requirements">
         <strong>保留要求</strong>

@@ -7,12 +7,10 @@ import {
   fetchAdminUsers,
   fetchAdminTasks,
   fetchAdminLogAnalyses,
-  fetchAdminStyleProfiles,
   type AdminStats,
   type AdminUser,
   type AdminTaskRecord,
   type AdminLogAnalysis,
-  type AdminStyleProfile,
 } from '../api';
 import { authState } from '../stores/auth';
 import AppShell from '../components/AppShell.vue';
@@ -24,9 +22,8 @@ const stats = ref<AdminStats>({ user_count: 0, task_count: 0, running_count: 0 }
 const users = ref<AdminUser[]>([]);
 const tasks = ref<AdminTaskRecord[]>([]);
 const logAnalyses = ref<AdminLogAnalysis[]>([]);
-const profiles = ref<AdminStyleProfile[]>([]);
 const loading = ref(true);
-const activeTab = ref<'users' | 'tasks' | 'logs' | 'profiles'>('users');
+const activeTab = ref<'users' | 'tasks' | 'logs'>('users');
 const error = ref('');
 const filterQuery = ref('');
 
@@ -43,7 +40,6 @@ function matchesFilter(...values: unknown[]) {
 const filteredUsers = computed(() => users.value.filter(item => matchesFilter(item.id, item.email, item.is_admin ? '管理员' : '用户')));
 const filteredTasks = computed(() => tasks.value.filter(item => matchesFilter(item.id, item.user_id, item.user_email, item.query, item.status)));
 const filteredLogs = computed(() => logAnalyses.value.filter(item => matchesFilter(item.id, item.task_id, item.trigger_type, item.root_cause, item.suggestion, item.model_used)));
-const filteredProfiles = computed(() => profiles.value.filter(item => matchesFilter(item.user_id, item.language_tone, item.preferred_themes, item.preferred_colors, item.content_types)));
 
 onMounted(async () => {
   await reload();
@@ -53,18 +49,16 @@ async function reload() {
   loading.value = true;
   error.value = '';
   try {
-    const [s, u, t, l, p] = await Promise.all([
+    const [s, u, t, l] = await Promise.all([
       fetchAdminStats(),
       fetchAdminUsers(),
       fetchAdminTasks(),
       fetchAdminLogAnalyses(),
-      fetchAdminStyleProfiles(),
     ]);
     stats.value = s;
     users.value = Array.isArray(u) ? u : [];
     tasks.value = Array.isArray(t) ? t : [];
     logAnalyses.value = Array.isArray(l) ? l : [];
-    profiles.value = Array.isArray(p) ? p : [];
   } catch (e: any) {
     if (e.message?.includes('需要管理员')) {
       router.push('/dashboard');
@@ -89,11 +83,6 @@ function statusClass(s: string): string {
     case 'cancelled': return 'status-cancelled';
     default: return '';
   }
-}
-
-function safeParseJson(s: unknown): unknown[] {
-  if (!s) return [];
-  try { const r = JSON.parse(String(s)); return Array.isArray(r) ? r : []; } catch { return []; }
 }
 
 function truncate(s: unknown, n = 60): string {
@@ -148,10 +137,6 @@ function detailFieldLabel(key: string): string {
     analysis: '分析详情', root_cause: '根本原因',
     suggestion: '修复建议', tokens_used: 'Token用量',
     model_used: '模型',
-    preferred_themes: '偏好主题', preferred_colors: '配色偏好',
-    content_patterns: '内容模式', content_types: '内容类型',
-    language_tone: '语言风格', typical_page_count: '典型页数',
-    special_notes: '特殊备注', task_count: '任务数',
   };
   return map[key] ?? key;
 }
@@ -172,9 +157,7 @@ function detailFieldValue(key: string, val: unknown): string {
 }
 
 function isDetailLong(key: string): boolean {
-  return ['query', 'analysis', 'log_snippet', 'root_cause', 'suggestion', 'conversation_content',
-    'preferred_themes', 'preferred_colors', 'content_patterns', 'content_types',
-    'special_notes'].includes(key);
+  return ['query', 'analysis', 'log_snippet', 'root_cause', 'suggestion', 'conversation_content'].includes(key);
 }
 
 function copyAll() {
@@ -268,9 +251,6 @@ async function deleteLog(id: number) {
         </button>
         <button :class="['tab', { active: activeTab === 'logs' }]" @click="activeTab = 'logs'">
           日志分析 ({{ logAnalyses.length }})
-        </button>
-        <button :class="['tab', { active: activeTab === 'profiles' }]" @click="activeTab = 'profiles'">
-          风格偏好 ({{ profiles.length }})
         </button>
       </div>
 
@@ -396,40 +376,6 @@ async function deleteLog(id: number) {
         <div v-else class="empty-state">暂无日志分析数据</div>
       </div>
 
-      <!-- Style profiles table -->
-      <div v-if="activeTab === 'profiles'" class="table-container">
-        <table class="data-table" v-if="filteredProfiles.length">
-          <thead>
-            <tr>
-              <th>用户</th>
-              <th>任务数</th>
-              <th>偏好主题</th>
-              <th>配色</th>
-              <th>内容类型</th>
-              <th>语言风格</th>
-              <th>更新</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in filteredProfiles" :key="p.user_id" @dblclick="openDetail(p, '风格偏好详情')">
-              <td class="mono">{{ p.user_id }}</td>
-              <td>{{ p.task_count }}</td>
-              <td class="tag-cell">
-                <span v-for="t in (safeParseJson(p.preferred_themes) as string[]).slice(0, 3)" :key="t" class="tag">{{ t }}</span>
-              </td>
-              <td class="tag-cell">
-                <span v-for="c in (safeParseJson(p.preferred_colors) as string[]).slice(0, 3)" :key="c" class="tag color-tag" :style="{ background: c + '22', color: c }">{{ c }}</span>
-              </td>
-              <td class="tag-cell">
-                <span v-for="ct in (safeParseJson(p.content_types) as string[]).slice(0, 2)" :key="ct" class="tag">{{ ct }}</span>
-              </td>
-              <td>{{ p.language_tone || '-' }}</td>
-              <td>{{ fmtTime(p.updated_at) }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="empty-state">暂无风格偏好数据</div>
-      </div>
     </template>
 
     <!-- Detail Modal -->
@@ -485,7 +431,6 @@ async function deleteLog(id: number) {
 .badge { display: inline-flex; align-items: center; white-space: nowrap; }
 .badge-admin { color: var(--action-ink); background: var(--action-soft); }.badge-user, .badge-idle { color: var(--text-secondary); background: var(--surface-pressed); }
 .status-running { color: var(--info); background: var(--info-soft); }.status-completed { color: var(--success); background: var(--success-soft); }.status-failed, .badge-failed { color: var(--danger); background: var(--danger-soft); }.status-cancelled { color: var(--warning); background: var(--warning-soft); }
-.tag-cell { min-width: 150px; }.tag { margin: 2px 3px 2px 0; padding: 3px 6px; display: inline-flex; align-items: center; color: var(--text-secondary); }
 .modal-overlay { position: fixed; inset: 0; z-index: var(--z-modal); display: grid; place-items: center; }
 .modal { display: flex; flex-direction: column; overflow: hidden; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; border-bottom: 1px solid var(--border); }
@@ -565,7 +510,6 @@ async function deleteLog(id: number) {
 .data-table tbody tr:hover { background: #f7f9f9; }
 .data-table tbody tr:last-child td { border-bottom: 0; }
 .badge { padding: 3px 7px; border-radius: 4px; font-size: 9px; font-weight: 750; }
-.tag { border-radius: 4px; background: var(--surface-pressed); font-size: 9px; }
 .copy-btn,
 .delete-btn { width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: 4px; color: var(--text-muted); background: transparent; }
 .copy-btn:hover { color: var(--info); background: var(--info-soft); }

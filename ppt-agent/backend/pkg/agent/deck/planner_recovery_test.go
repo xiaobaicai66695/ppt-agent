@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	agentintent "github.com/cloudwego/ppt-agent/pkg/agent/intent"
 )
 
 func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
@@ -14,19 +12,15 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	skillsDir := t.TempDir()
 
 	output := `{
-"thought": "规划 8 页桂林介绍 PPT：\n1. 封面页 (title_slide)\n2. 目录页 (agenda)\n3. 章节1：山水桂林 (section_divider)\n4. 桂林概况 (image_text)\n5. 核心景点 (card_grid)\n6. 章节2：文化美食 (section_divider)\n7. 文化与美食 (two_column)\n8. 旅行贴士与总结 (summary_slide)\n\n背景主题：eco_nature（4张图轮换）\n配色：ocean_soft\n模板：product-intro"
+"thought": "规划 8 页桂林介绍 PPT：\n1. 封面页 (title_slide)\n2. 目录页 (agenda)\n3. 章节1：山水桂林 (section_divider)\n4. 桂林概况 (image_text)\n5. 核心景点 (card_grid)\n6. 章节2：文化美食 (section_divider)\n7. 文化与美食 (two_column)\n8. 旅行贴士与总结 (summary_slide)\n\n背景素材：landscape（同类型页面复用）"
 }`
 	cfg := &PPTTaskConfig{
 		WorkDir:   workDir,
 		SkillsDir: skillsDir,
 		Query:     "介绍桂林",
 		Outline: &TaskOutline{
-			Template:           "product-intro",
-			Theme:              "sage_calm",
-			ContentMode:        OutlineContentModeUserOutline,
-			SuggestedPageCount: 8,
+			ContentMode: OutlineContentModeUserOutline,
 		},
-		IntentResult: &agentintent.ClassificationResult{SuggestedPageCount: 8},
 	}
 
 	manifest, err := recoverMissingPlannerManifest(cfg, "介绍桂林", output)
@@ -35,9 +29,6 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	}
 	if len(manifest.Tasks) != 8 {
 		t.Fatalf("slide count = %d", len(manifest.Tasks))
-	}
-	if manifest.Template != "product-intro" || manifest.Theme != "sage_calm" {
-		t.Fatalf("unexpected manifest header: %#v", manifest)
 	}
 	if manifest.Tasks[2].ContentType != "section_divider" || manifest.Tasks[5].ContentType != "section_divider" {
 		t.Fatalf("section pages not recovered: %#v %#v", manifest.Tasks[2], manifest.Tasks[5])
@@ -66,11 +57,11 @@ func TestPlannerScratchThoughtFormatsForUser(t *testing.T) {
 	if isPlannerScratchThought(`{"message":"用户可见内容"}`) {
 		t.Fatal("ordinary JSON should remain visible")
 	}
-	visible := plannerVisibleThought(`{"thought":"规划 3 页延安介绍 PPT：\n1. 封面页 (title_slide)\n2. 革命历史 (image_text)\n3. 总结 (summary_slide)\n\n背景主题：party_government\n配色：red_gold"}`)
+	visible := plannerVisibleThought(`{"thought":"规划 3 页延安介绍 PPT：\n1. 封面页 (title_slide)\n2. 革命历史 (image_text)\n3. 总结 (summary_slide)\n\n背景素材：historical site"}`)
 	if visible == "" || visible == `{"thought":"内部规划"}` {
 		t.Fatalf("thought should be formatted for the user, got %q", visible)
 	}
-	for _, want := range []string{"规划草案", "1. 封面页 (title_slide)", "- 背景主题：party_government", "正在写入 DeckSpec"} {
+	for _, want := range []string{"规划草案", "1. 封面页 (title_slide)", "- 背景素材：historical site", "正在写入 DeckSpec"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("visible thought missing %q: %s", want, visible)
 		}

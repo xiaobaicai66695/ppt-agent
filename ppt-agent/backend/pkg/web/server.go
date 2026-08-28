@@ -23,7 +23,6 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/metrics"
 	"github.com/cloudwego/ppt-agent/pkg/session"
-	"github.com/cloudwego/ppt-agent/pkg/style"
 	"github.com/cloudwego/ppt-agent/pkg/task"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
@@ -32,7 +31,6 @@ import (
 type Server struct {
 	tasks           *task.TaskManager
 	sessionManager  *session.SessionManager
-	styleStore      *style.ProfileStore
 	agentFactory    task.AgentFactory
 	makeTaskConfig  func(taskID string) *deck.PPTTaskConfig
 	taskIDGen       func() string
@@ -46,7 +44,7 @@ type Server struct {
 	aiModelFactory  func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
-	// textModelFactory 创建轻量级模型，用于意图分类等辅助任务。
+	// textModelFactory 创建轻量级模型，用于继续请求分类等辅助任务。
 	// 使用 ARK_TEXT_MODEL 环境变量以降低成本。如果为 nil，则回退到 AIModelFactory。
 	textModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
@@ -65,7 +63,7 @@ type ServerConfig struct {
 	AIModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
-	// TextModelFactory 创建轻量级文本模型，用于意图分类等辅助任务。
+	// TextModelFactory 创建轻量级文本模型，用于继续请求分类等辅助任务。
 	// 使用 ARK_TEXT_MODEL 环境变量（成本更低）。如果为 nil，则回退到 AIModelFactory。
 	TextModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
@@ -117,7 +115,6 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	s := &Server{
 		sessionManager:   session.NewSessionManager(),
-		styleStore:       style.NewProfileStore(cfg.BaseDir),
 		agentFactory:     cfg.AgentFactory,
 		makeTaskConfig:   cfg.MakeTaskConfig,
 		taskIDGen:        func() string { return uuid.New().String() },
@@ -129,10 +126,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		operator:         cfg.Operator,
 	}
 
-	// 初始化意图识别与只读偏好推荐引擎。用户画像只通过显式资料/偏好更新。
-	deck.InitLearningEngine(cfg.AIModelFactory, cfg.TextModelFactory)
-
-	// 创建任务管理器。任务完成不会自动回写风格偏好，避免把系统生成结果当作用户记忆。
+	// 创建任务管理器。风格要求由当前任务提示词显式携带。
 	s.tasks = task.NewTaskManager(cfg.BaseDir,
 		nil,
 		func(taskID string) {
@@ -203,33 +197,12 @@ func NewServer(cfg *ServerConfig) *Server {
 		users.GET("/me/api-key", s.handleGetUserAPIKey)
 		users.PUT("/me/api-key", s.handleUpdateUserAPIKey)
 		users.DELETE("/me/api-key", s.handleDeleteUserAPIKey)
-		users.GET("/me/profile", s.handleGetUserProfile)
-		users.PUT("/me/profile", s.handleUpdateUserProfile)
-		users.POST("/me/profile/reset", s.handleResetUserProfile)
-		users.POST("/me/profile/summarize", s.handleSummarizeProfile)
-	}
-
-	// 推荐路由（需要认证）
-	recommendations := engine.Group("/api/recommendations")
-	recommendations.Use(s.authMiddleware())
-	{
-		recommendations.GET("", s.handleGetRecommendations)
 	}
 
 	// 组件布局路由（公开）
 	tpls := engine.Group("/api/templates")
 	{
 		tpls.GET("/layouts", s.handleListLayouts)
-	}
-
-	// 主题路由（公开）
-	engine.GET("/api/themes", s.handleListThemes)
-
-	// AI 路由（公开）
-	ai := engine.Group("/api/ai")
-	{
-		ai.POST("/expand", s.handleAIExpand)
-		ai.POST("/generate-outline", s.handleAIGenerateOutline)
 	}
 
 	// 日志分析路由（需要认证）
@@ -249,7 +222,6 @@ func NewServer(cfg *ServerConfig) *Server {
 		admin.GET("/tasks", s.handleAdminTasks)
 		admin.GET("/log-analyses", s.handleAdminLogAnalyses)
 		admin.DELETE("/log-analyses/:id", s.handleAdminDeleteLogAnalysis)
-		admin.GET("/style-profiles", s.handleAdminStyleProfiles)
 	}
 
 	// 指标

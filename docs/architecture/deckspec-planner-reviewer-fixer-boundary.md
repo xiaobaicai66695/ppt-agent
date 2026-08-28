@@ -8,7 +8,7 @@
 
 ```text
 用户输入
-  -> 意图分类 / 画像门控
+  -> 创建入口意图分类
   -> PPTPlanner
   -> TaskPlanReviewer
   -> Go Validator / Commit
@@ -46,7 +46,7 @@
 
 ## 非 Prompt 策略
 
-- 配色不维护独立优先级 prompt。当前用户明确要求和当前主题优先，历史偏好仅作为弱参考。
+- 配色不维护独立优先级 prompt。当前用户明确要求和当前主题优先。
 - 背景图片、图片检索、内容密度、组件容量和 `visual_intent` 规则统一维护在 `skills/ppt-deck-planner/SKILL.md`，Planner 与 Reviewer 共用。
 - 缺失草稿恢复、审查轮次、硬校验、指纹一致性、原子 commit、渲染重试和 Fixer 失败兜底全部由 Go 代码控制。
 - `tasks.draft.json` 是内部暂存草稿；只有通过 Reviewer 与硬校验后才发布正式 `tasks.json`，渲染器只读取正式文件。
