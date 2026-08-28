@@ -1,0 +1,25 @@
+{
+  "id": "reviewer_validation_narrative_001",
+  "name": "修复缺少叙事意图的投资测算页",
+  "input": {
+    "user_request": "制作一份城市公交效率提升方案 PPT，供交通委决策。",
+    "draft_tasks": {
+      "title": "城市公交效率提升方案",
+      "visual_policy": {"mode": "none", "reason": "本 case 只验证叙事字段修复。"},
+      "tasks": [
+        {"task_id": "slide-1", "page_index": 1, "title": "城市公交效率提升方案", "content_type": "title_slide", "output_file": "slide_1.pptx", "status": "pending", "content_plan": {"summary": "说明评审主题。", "slide_intent": "建立议题与决策场景。", "components": [{"id": "headline", "type": "headline", "text": "城市公交效率提升方案"}]}},
+        {"task_id": "slide-2", "page_index": 2, "title": "投资与年度收益", "content_type": "two_column", "output_file": "slide_2.pptx", "status": "pending", "content_plan": {"summary": "首期投资 860 万元，预计每年节省 230 万元调度与燃油成本。", "components": [{"id": "insight", "type": "insight", "text": "项目需要先获得首期改造预算，收益主要来自调度和燃油效率。"}, {"id": "investment", "type": "feature_card", "title": "首期投入", "body": "系统和 18 个站点改造共 860 万元。"}, {"id": "benefit", "type": "feature_card", "title": "年度收益", "body": "每年节省调度与燃油成本 230 万元。"}]}}
+      ]
+    },
+    "review_issues": [
+      {"severity": "error", "page_index": 2, "code": "weak_narrative", "message": "缺少 slide_intent，无法说明投资测算页在决策链路中的作用。"}
+    ]
+  },
+  "expected": {
+    "must_fix_issue_codes": ["weak_narrative"],
+    "must_not_change_pages": [1],
+    "allowed_change_pages": [2],
+    "must_pass_deterministic_review": true
+  },
+  "judge_focus": ["是否只补第 2 页叙事意图", "叙事意图是否连接投资、年度收益和决策", "是否不改封面或重写页面组件"]
+}

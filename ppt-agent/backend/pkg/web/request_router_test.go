@@ -68,6 +68,24 @@ func TestRouteCreateRequestUsesLLMClassification(t *testing.T) {
 	}
 }
 
+func TestRouteCreateRequestDoesNotClarifyOptionalCreateFields(t *testing.T) {
+	server := &Server{
+		textModelFactory: func(context.Context) (interface {
+			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
+		}, error) {
+			return fakeCreateRouteModel{response: `{"intent":"create","mode":"pptagent","reason":"主题已明确","action":"prepare_create","confidence":0.95,"missing_fields":["page_count","audience","style"]}`}, nil
+		},
+	}
+
+	got := server.routeCreateRequest(context.Background(), "帮我做一份新能源汽车出海趋势分析报告", false)
+	if got.Intent != createIntentDeck {
+		t.Fatalf("intent = %q, want %q; route=%#v", got.Intent, createIntentDeck, got)
+	}
+	if got.ClarificationQuestion != "" {
+		t.Fatalf("successful create must not carry a clarification question: %#v", got)
+	}
+}
+
 func TestRouteMessageRequestRuleFallback(t *testing.T) {
 	server := &Server{}
 	cases := []struct {

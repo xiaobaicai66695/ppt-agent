@@ -1,0 +1,21 @@
+{
+  "id": "planner_validation_public_transport_001",
+  "name": "城市公交效率提升方案",
+  "input": {
+    "user_request": "制作一份 6 页城市公交效率提升方案 PPT，给市交通委评审，说明运营瓶颈、优化方案、试点成效、投资测算和决策请求。",
+    "audience": "市交通委",
+    "page_count": 6,
+    "language": "zh-CN",
+    "style": "公共决策、清晰、克制",
+    "source_materials": [
+      {"type": "text", "title": "运营数据", "content": "早高峰 3 条主干线平均满载率 118%，晚高峰准点率 76%；拟在 18 个站点上线动态发车，试点后平均候车时间从 9.5 分钟降至 7.1 分钟；首期系统和站点改造投资 860 万元，预计每年节省调度与燃油成本 230 万元。"}
+    ],
+    "requirements": ["必须包含现状瓶颈页", "必须包含试点前后成效对比", "必须有投资与年度收益测算", "结尾必须明确交通委的决策请求", "保留满载率、准点率、候车时间、投资和节省成本等事实"]
+  },
+  "expected": {
+    "must_have_slide_roles": ["封面", "现状瓶颈", "优化方案", "试点成效", "投资测算", "决策请求"],
+    "must_use_content_types": ["title_slide", "content_slide", "chart_slide", "two_column", "kpi_dashboard"],
+    "must_include_data_points": ["118%", "76%", "9.5 分钟", "7.1 分钟", "860 万元", "230 万元"]
+  },
+  "judge_focus": ["是否把公共决策材料组织为问题—方案—证据—投资—决策链路", "数据是否进入对应页面", "图表和 KPI 是否结构化", "DeckSpec 是否合法且有视觉计划"]
+}

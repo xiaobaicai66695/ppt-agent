@@ -80,10 +80,13 @@ func (s *Server) routeCreateRequest(ctx context.Context, query string, hasOutlin
 		route = normalizeMessageRoute(route, query, "")
 		switch route.Intent {
 		case messageIntentCreate:
-			if route.NeedsConfirmation || route.Action == messageActionAskClarification || len(route.MissingFields) > 0 {
+			// 页数、受众和风格属于 Planner 可以在后续阶段补齐的可选信息。
+			// 已经明确主题和新建意图时，不能仅因为模型列出了这些字段就
+			// 把请求降级为澄清，否则会阻断正常的创建入口。
+			if route.NeedsConfirmation || route.Action == messageActionAskClarification {
 				return createRequestRoute{Intent: createIntentClarifyTopic, Reason: route.Reason, ClarificationQuestion: firstCreateRouteText(route.Reply, "请补充 PPT 主题、受众、页数或你想讲清楚的核心结论。"), Confidence: route.Confidence}
 			}
-			return createRequestRoute{Intent: createIntentDeck, Reason: route.Reason, ClarificationQuestion: strings.Join(route.MissingFields, "、"), Confidence: route.Confidence}
+			return createRequestRoute{Intent: createIntentDeck, Reason: route.Reason, Confidence: route.Confidence}
 		case messageIntentFix:
 			return createRequestRoute{Intent: createIntentFixExisting, Reason: route.Reason, ClarificationQuestion: "请先选择要修改的任务，再继续发送这条修复要求。", Confidence: route.Confidence}
 		case messageIntentPlan:

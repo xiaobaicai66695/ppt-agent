@@ -1,0 +1,28 @@
+{
+  "id": "fixer_title_only_001",
+  "name": "只改第 3 页标题",
+  "input": {
+    "user_request": "只把第 3 页标题改成“增长驱动因素”，其它页面和内容不要动。",
+    "allowed_page_indexes": [3],
+    "base_tasks": {
+      "title": "产品增长复盘",
+      "tasks": [
+        {"task_id": "slide-1", "page_index": 1, "title": "产品增长复盘", "content_type": "title_slide", "output_file": "slide_1.pptx", "status": "done", "content_plan": {"summary": "封面页。", "slide_intent": "建立主题。", "components": [{"id": "headline", "type": "headline", "text": "产品增长复盘"}]}},
+        {"task_id": "slide-2", "page_index": 2, "title": "核心指标总览", "content_type": "kpi_dashboard", "output_file": "slide_2.pptx", "status": "done", "content_plan": {"summary": "展示 DAU、留存、转化等核心指标。", "slide_intent": "给出增长结果概览。", "components": [{"id": "insight", "type": "insight", "text": "DAU 和转化率同步提升。"}, {"id": "dau_kpi", "type": "kpi_metric", "title": "DAU", "text": "128 万"}]}},
+        {"task_id": "slide-3", "page_index": 3, "title": "增长来源拆解", "content_type": "card_grid", "output_file": "slide_3.pptx", "status": "done", "content_plan": {"summary": "拆解自然流量、投放、老用户召回等增长来源。", "slide_intent": "解释增长来自哪些驱动因素。", "components": [{"id": "insight", "type": "insight", "text": "自然流量是最大增量，投放效率改善贡献第二增长曲线。"}, {"id": "organic_card", "type": "feature_card", "title": "自然流量", "body": "SEO 与内容分发带来稳定新增。"}]}},
+        {"task_id": "slide-4", "page_index": 4, "title": "下月行动计划", "content_type": "content_slide", "output_file": "slide_4.pptx", "status": "done", "content_plan": {"summary": "列出下月优化动作。", "slide_intent": "明确后续行动。", "components": [{"id": "recommendation", "type": "recommendation", "text": "聚焦高转化渠道和老用户召回。"}]}}
+      ]
+    }
+  },
+  "expected": {
+    "must_change": [{"page_index": 3, "field": "title", "equals": "增长驱动因素"}],
+    "must_not_change_pages": [1, 2, 4],
+    "must_not_change_fields_on_page": [{"page_index": 3, "fields": ["content_type", "content_plan"]}]
+  },
+  "judge_focus": [
+    "是否只修改第 3 页 title",
+    "是否不动其它页",
+    "是否不改第 3 页内容结构",
+    "是否保持 DeckSpec 合法"
+  ]
+}

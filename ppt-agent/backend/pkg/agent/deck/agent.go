@@ -43,9 +43,11 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 	searchTool := tools.NewSearchTool()
 	var imageSearchClient *unsplash.Client
 	imageSearchAvailable := false
-	if client, err := unsplash.NewClientFromEnv(); err == nil {
-		imageSearchClient = client
-		imageSearchAvailable = true
+	if !cfg.DisableImageSearch {
+		if client, err := unsplash.NewClientFromEnv(); err == nil {
+			imageSearchClient = client
+			imageSearchAvailable = true
+		}
 	}
 	manifestTool := newPlannerManifestTool(cfg.WorkDir, cfg.Outline, cfg.Query)
 	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}

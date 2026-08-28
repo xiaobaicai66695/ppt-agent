@@ -1,0 +1,123 @@
+[
+  {
+    "id": "router_validation_create_001",
+    "name": "从零创建公益项目复盘 PPT",
+    "input": {
+      "user_message": "请做一份 5 页的社区助餐项目半年复盘 PPT，给基金会理事会汇报，要讲覆盖人群、资金使用、成效和下半年计划。",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "must_extract": {"topic": "社区助餐项目半年复盘", "audience": "基金会理事会", "page_count": 5}
+    },
+    "judge_focus": ["识别为新建任务", "保留主题、受众和页数", "不误判为闲聊或修改"]
+  },
+  {
+    "id": "router_validation_create_tourism_intro_001",
+    "name": "明确主题的旅游项目介绍直接创建",
+    "input": {
+      "user_message": "我想做个青甘大环线的旅游项目介绍",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "must_extract": {"topic": "青甘大环线旅游项目介绍"}
+    },
+    "judge_focus": ["识别为新建 PPT 生成任务", "不要因为缺少页数、受众或风格而要求先确认主题", "不误判为闲聊、主题收敛或已有任务修改"]
+  },
+  {
+    "id": "router_validation_create_topic_complete_002",
+    "name": "明确行业报告主题直接创建",
+    "input": {
+      "user_message": "帮我做一份新能源汽车出海趋势分析报告",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "must_extract": {"topic": "新能源汽车出海趋势分析报告"}
+    },
+    "judge_focus": ["主题和交付物已明确时直接进入创建", "页数、受众和风格缺失不应触发主题确认", "不误判为闲聊"]
+  },
+  {
+    "id": "router_validation_create_topic_complete_003",
+    "name": "明确产品发布演示主题直接创建",
+    "input": {
+      "user_message": "制作一个智能家居新品发布会演示文稿",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "must_extract": {"topic": "智能家居新品发布会演示文稿"}
+    },
+    "judge_focus": ["识别创建动词与明确主题/产物", "不因可选生成参数缺失而停留在澄清", "不误判为规划请求"]
+  },
+  {
+    "id": "router_validation_create_topic_complete_004",
+    "name": "明确项目介绍主题直接创建",
+    "input": {
+      "user_message": "我想做个乡村民宿招商项目介绍",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "must_extract": {"topic": "乡村民宿招商项目介绍"}
+    },
+    "judge_focus": ["项目介绍属于明确的 PPT 交付意图", "不要把缺少页数、受众、风格视为必须确认主题", "不误判为已有任务修改"]
+  },
+  {
+    "id": "router_validation_fix_existing_001",
+    "name": "创建入口收到已完成汇报的页面改稿请求",
+    "input": {
+      "user_message": "我已经做完社区助餐半年复盘了，把资金使用那一页的照片换成志愿者在厨房配餐的场景，页面标题也精简一些。",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "fix_existing",
+      "target_agent": "PPTFixer after selecting an existing task",
+      "must_extract": {"target_page": "资金使用", "change": "替换为志愿者厨房配餐照片并精简标题"}
+    },
+    "judge_focus": ["阻止创建入口错误新建 PPT", "识别为需要先选择既有任务的修改请求", "保留图片和标题两项追改意图"]
+  },
+  {
+    "id": "router_validation_continue_fix_001",
+    "name": "已有任务替换单页图表表达",
+    "input": {
+      "user_message": "第 5 页不要折线图，换成按城市对比的柱状图；其它页和第 5 页数据都保持不变。",
+      "has_existing_task": true,
+      "tasks_summary": "当前 PPT 共 6 页：第1页项目背景，第2页服务覆盖，第3页资金使用，第4页阶段成效，第5页城市服务量趋势，第6页下半年计划。"
+    },
+    "expected": {
+      "intent": "fix",
+      "target_agent": "PPTFixer",
+      "target_pages": [5],
+      "scope_guard": "仅替换第 5 页图表类型，保留数据和其它页面"
+    },
+    "judge_focus": ["识别为局部 fix", "提取第 5 页", "保留数据和其它页面不变的边界"]
+  },
+  {
+    "id": "router_validation_continue_regenerate_001",
+    "name": "已有任务整体改为董事会叙事",
+    "input": {
+      "user_message": "保留社区助餐这个主题，但现有整套材料不适合董事会，请从叙事和视觉上全部重做成董事会决策材料。",
+      "has_existing_task": true,
+      "tasks_summary": "当前 PPT 共 6 页，主题为社区助餐项目，所有页面均已完成。"
+    },
+    "expected": {
+      "intent": "regenerate_all",
+      "target_agent": "workflow regenerate all",
+      "scope_guard": "保留主题、整套重做"
+    },
+    "judge_focus": ["识别为全量重做", "不误判为单页修订", "保留主题与新受众方向"]
+  }
+]

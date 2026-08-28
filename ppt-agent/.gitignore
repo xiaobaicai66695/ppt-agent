@@ -57,6 +57,10 @@ test/*
 !test/plan_benchmark/
 !test/plan_benchmark/**
 test/plan_benchmark/results/
+
+# Local benchmark artifacts can contain model traces and are never committed.
+benchmark/runs/*
+!benchmark/runs/.gitkeep
 !test/gold_decks/
 !test/gold_decks/**
 test/gold_decks/generated_*/

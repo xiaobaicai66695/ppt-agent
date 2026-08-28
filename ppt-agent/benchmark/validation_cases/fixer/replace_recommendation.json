@@ -1,0 +1,22 @@
+{
+  "id": "fixer_validation_recommendation_001",
+  "name": "只替换第 3 页行动建议",
+  "input": {
+    "user_request": "只把第 3 页的行动建议改成“先上线支付重试，再在高流失人群中灰度新手引导”，不要改标题、其它内容或其它页面。",
+    "allowed_page_indexes": [3],
+    "base_tasks": {
+      "title": "订阅业务客户留存专项",
+      "tasks": [
+        {"task_id": "slide-1", "page_index": 1, "title": "客户留存专项", "content_type": "title_slide", "output_file": "slide_1.pptx", "status": "done", "content_plan": {"summary": "封面页。", "slide_intent": "建立 CEO 决策议题。", "components": [{"id": "headline", "type": "headline", "text": "订阅业务客户留存专项"}]}},
+        {"task_id": "slide-2", "page_index": 2, "title": "流失诊断", "content_type": "chart_slide", "output_file": "slide_2.pptx", "status": "done", "content_plan": {"summary": "呈现月度流失率上升。", "slide_intent": "说明需要采取行动的紧迫性。", "components": [{"id": "chart", "type": "chart", "title": "月度流失率", "data": {"chart_type": "line", "labels": ["上季度", "本季度"], "datasets": [{"name": "流失率", "values": [3.1, 4.6]}]}}]}},
+        {"task_id": "slide-3", "page_index": 3, "title": "行动优先级", "content_type": "content_slide", "output_file": "slide_3.pptx", "status": "done", "content_plan": {"summary": "列出留存提升动作。", "slide_intent": "明确下一步行动。", "components": [{"id": "recommendation", "type": "recommendation", "text": "优化新手引导并定期复盘流失客户。"}]}}
+      ]
+    }
+  },
+  "expected": {
+    "must_change": [{"page_index": 3, "field": "content_plan.components[id=recommendation].text", "equals": "先上线支付重试，再在高流失人群中灰度新手引导"}],
+    "must_not_change_pages": [1, 2],
+    "must_not_change_fields_on_page": [{"page_index": 3, "fields": ["title", "content_type", "content_plan.summary", "content_plan.slide_intent"]}]
+  },
+  "judge_focus": ["是否精确替换 recommendation 文本", "是否保持第 3 页其他字段不变", "是否不影响其它页面"]
+}

@@ -1,0 +1,58 @@
+{
+  "id": "reviewer_repair_visual_policy_001",
+  "name": "修复缺少视觉图片策略",
+  "input": {
+    "user_request": "制作一份 4 页新能源汽车出海趋势 PPT，需要有真实场景图片。",
+    "draft_tasks": {
+      "title": "新能源汽车出海趋势",
+      "tasks": [
+        {
+          "task_id": "slide-1",
+          "page_index": 1,
+          "title": "新能源汽车出海趋势",
+          "content_type": "title_slide",
+          "output_file": "slide_1.pptx",
+          "status": "pending",
+          "content_plan": {
+            "summary": "封面页建立新能源汽车出海主题。",
+            "slide_intent": "开场并建立国际化视觉语境。",
+            "components": [
+              {"id": "headline", "type": "headline", "text": "新能源汽车出海趋势"},
+              {"id": "subtitle", "type": "subheadline", "text": "从需求、渠道到本地化运营"}
+            ]
+          }
+        },
+        {
+          "task_id": "slide-2",
+          "page_index": 2,
+          "title": "市场机会",
+          "content_type": "content_slide",
+          "output_file": "slide_2.pptx",
+          "status": "pending",
+          "content_plan": {
+            "summary": "说明欧洲和东南亚市场对新能源车的增长机会。",
+            "slide_intent": "解释出海机会来自政策、油价和基础设施变化。",
+            "components": [
+              {"id": "insight", "type": "insight", "text": "欧洲政策拉动高端需求，东南亚更依赖性价比和渠道覆盖。"},
+              {"id": "points", "type": "bullet_list", "items": ["欧洲补贴和碳排政策继续推动换购", "东南亚城市配送和网约车场景增长", "本地售后网络决定品牌信任"]}
+            ]
+          }
+        }
+      ]
+    },
+    "review_issues": [
+      {"severity": "error", "page_index": 1, "code": "missing_background_image", "message": "真实场景主题缺少 visual_intent 或 image 组件的 asset_query/local_path。"}
+    ]
+  },
+  "expected": {
+    "must_fix_issue_codes": ["missing_background_image"],
+    "must_not_change_pages": [2],
+    "allowed_change_pages": [1],
+    "must_add_visual_intent_or_image_query": true
+  },
+  "judge_focus": [
+    "是否只给需要图片的页面补视觉计划",
+    "是否使用 asset_query 或 local_path 这类独立 skill 可消费字段",
+    "是否没有重新写整套 deck"
+  ]
+}

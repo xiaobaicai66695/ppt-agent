@@ -1,0 +1,47 @@
+[
+  {
+    "id": "router_create_001",
+    "name": "新建管理层趋势分析 PPT",
+    "input": {
+      "user_message": "帮我做一份 8 页的新能源汽车出海趋势分析 PPT，面向管理层汇报",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "must_extract": {
+        "topic": "新能源汽车出海趋势",
+        "audience": "管理层",
+        "page_count": 8
+      }
+    },
+    "judge_focus": [
+      "是否正确识别为新建 PPT",
+      "是否避免误判为修改已有任务或闲聊",
+      "理由中是否保留主题、受众、页数这些关键信号"
+    ]
+  },
+  {
+    "id": "router_create_002",
+    "name": "创建入口误发已有页面修改请求",
+    "input": {
+      "user_message": "第 2 页颜色改成蓝色，标题也短一点",
+      "has_existing_task": false,
+      "conversation_context": []
+    },
+    "expected": {
+      "intent": "fix_existing",
+      "target_agent": "PPTFixer after selecting an existing task",
+      "must_extract": {
+        "page": 2,
+        "change": "颜色改成蓝色，标题变短"
+      }
+    },
+    "judge_focus": [
+      "是否阻止在创建入口直接新建 PPT",
+      "是否识别这是已有 PPT 修改请求",
+      "是否给出选择已有任务后再继续修改的澄清方向"
+    ]
+  }
+]

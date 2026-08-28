@@ -1,0 +1,12 @@
+{
+  "suite": "all",
+  "dataset": "test",
+  "cases": "benchmark/cases",
+  "out": "benchmark/runs/YYYYMMDD-HHMMSS-test-all",
+  "judge": {
+    "provider": "from project env",
+    "model": "MODEL_QA_NAME or ARK_QA_MODEL",
+    "score_range": [1, 5],
+    "pass_threshold": 4
+  }
+}

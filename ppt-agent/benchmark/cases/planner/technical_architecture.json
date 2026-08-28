@@ -1,0 +1,36 @@
+{
+  "id": "planner_technical_architecture_001",
+  "name": "技术架构升级方案",
+  "input": {
+    "user_request": "做一份 7 页技术架构升级方案 PPT，给研发负责人评审，说明现状问题、目标架构、迁移路径、风险和里程碑。",
+    "audience": "研发负责人",
+    "page_count": 7,
+    "language": "zh-CN",
+    "style": "清晰、工程化、可决策",
+    "source_materials": [
+      {
+        "type": "text",
+        "title": "系统现状",
+        "content": "当前单体服务发布窗口长，平均一次发布 45 分钟；核心接口 P95 为 820ms；近 30 天发生 3 次数据库连接池耗尽；目标是拆分为 API Gateway、任务编排服务、渲染 worker 和素材服务。"
+      }
+    ],
+    "requirements": [
+      "必须有现状痛点页",
+      "必须有目标架构页",
+      "必须有分阶段迁移路线",
+      "必须有风险与缓解措施",
+      "必须保留 P95、发布耗时、连接池耗尽等事实"
+    ]
+  },
+  "expected": {
+    "must_have_slide_roles": ["封面", "现状痛点", "目标架构", "模块职责", "迁移路线", "风险缓解", "决策请求"],
+    "must_use_content_types": ["title_slide", "content_slide", "two_column", "timeline", "card_grid"],
+    "must_include_data_points": ["45 分钟", "P95 820ms", "3 次数据库连接池耗尽", "API Gateway", "渲染 worker"]
+  },
+  "judge_focus": [
+    "是否把技术内容规划成可评审的叙事",
+    "目标架构是否结构化而不是泛泛描述",
+    "迁移和风险页面是否有可执行粒度",
+    "是否保持 DeckSpec 合法和字段完整"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "planner_validation_customer_retention_001",
+  "name": "订阅业务客户留存专项",
+  "input": {
+    "user_request": "为 CEO 准备一份 5 页订阅业务客户留存专项 PPT，重点判断流失原因、挽回机会和未来两个季度的行动优先级。",
+    "audience": "CEO",
+    "page_count": 5,
+    "language": "zh-CN",
+    "style": "高管决策、简洁、有结论",
+    "source_materials": [
+      {"type": "text", "title": "留存分析", "content": "近一季度月度流失率从 3.1% 升至 4.6%，新客第 30 天留存率为 42%，付费失败导致的可挽回流失占 28%，低使用频率客户占主动取消的 41%。预计优化支付重试和新手引导后，两个季度可将月流失率降至 3.8%。"}
+    ],
+    "requirements": ["第一页后必须给出管理层结论", "必须区分可挽回和主动流失", "必须包含两季度路线图", "行动页要有优先级和预期影响", "不得丢失流失率、30 天留存率和两个流失原因占比"]
+  },
+  "expected": {
+    "must_have_slide_roles": ["封面", "结论摘要", "流失诊断", "挽回机会", "两季度行动优先级"],
+    "must_use_content_types": ["title_slide", "content_slide", "chart_slide", "two_column", "timeline"],
+    "must_include_data_points": ["3.1%", "4.6%", "42%", "28%", "41%", "3.8%"]
+  },
+  "judge_focus": ["是否先给 CEO 可决策结论", "诊断和行动之间是否有因果链路", "是否区分两类流失", "路线图与优先级是否可执行"]
+}

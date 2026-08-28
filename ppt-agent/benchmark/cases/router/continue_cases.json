@@ -1,0 +1,41 @@
+[
+  {
+    "id": "router_continue_001",
+    "name": "已有任务局部标题修改",
+    "input": {
+      "user_message": "只把第 3 页标题改成增长驱动因素，其它页不要动",
+      "has_existing_task": true,
+      "tasks_summary": "当前 PPT 共 4 页：\n  第1页: 产品增长复盘 (content_type=title_slide, status=done)\n  第2页: 核心指标总览 (content_type=kpi_dashboard, status=done)\n  第3页: 增长来源拆解 (content_type=card_grid, status=done)\n  第4页: 下月行动计划 (content_type=content_slide, status=done)"
+    },
+    "expected": {
+      "intent": "fix",
+      "target_agent": "PPTFixer",
+      "target_pages": [3],
+      "scope_guard": "其它页面不要动"
+    },
+    "judge_focus": [
+      "是否识别为 fix 而不是 regenerate",
+      "是否提取第 3 页为唯一目标页",
+      "是否保留只改标题、不动其它页的范围约束"
+    ]
+  },
+  {
+    "id": "router_continue_002",
+    "name": "整体重做请求",
+    "input": {
+      "user_message": "这版整体方向不对，全部重新做，风格更像投委会材料",
+      "has_existing_task": true,
+      "tasks_summary": "当前 PPT 共 6 页，主题为市场进入策略，所有页面 status=done。"
+    },
+    "expected": {
+      "intent": "regenerate_all",
+      "target_agent": "workflow regenerate all",
+      "scope_guard": "整套重新生成"
+    },
+    "judge_focus": [
+      "是否识别为 regenerate_all",
+      "是否避免误判成局部 fix",
+      "是否保留新的风格方向"
+    ]
+  }
+]

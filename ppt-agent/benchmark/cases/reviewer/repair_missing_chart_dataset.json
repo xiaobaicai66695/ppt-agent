@@ -1,0 +1,63 @@
+{
+  "id": "reviewer_repair_chart_001",
+  "name": "修复缺少 dataset 的 chart_slide",
+  "input": {
+    "user_request": "制作一份业务 KPI 复盘 PPT",
+    "draft_tasks": {
+      "title": "业务 KPI 复盘",
+      "visual_policy": {
+        "mode": "none",
+        "reason": "该 reviewer case 只测试 chart dataset 修复，不测试图片策略。"
+      },
+      "tasks": [
+        {
+          "task_id": "slide-1",
+          "page_index": 1,
+          "title": "业务 KPI 复盘",
+          "content_type": "title_slide",
+          "output_file": "slide_1.pptx",
+          "status": "pending",
+          "content_plan": {
+            "summary": "封面页说明本月业务 KPI 复盘主题。",
+            "slide_intent": "建立汇报主题和受众预期。",
+            "components": [
+              {"id": "headline", "type": "headline", "text": "业务 KPI 复盘"},
+              {"id": "subtitle", "type": "subheadline", "text": "增长、问题与下月行动"}
+            ]
+          }
+        },
+        {
+          "task_id": "slide-2",
+          "page_index": 2,
+          "title": "区域完成率对比",
+          "content_type": "chart_slide",
+          "output_file": "slide_2.pptx",
+          "status": "pending",
+          "content_plan": {
+            "summary": "对比华东、华南、华北区域目标完成率差异。",
+            "slide_intent": "定位区域增长不均衡问题。",
+            "components": [
+              {"id": "insight", "type": "insight", "text": "华东超额完成，华南明显落后，是下月修复重点。"},
+              {"id": "chart", "type": "chart", "title": "区域完成率", "data": {"chart_type": "bar", "labels": ["华东", "华南", "华北"]}}
+            ]
+          }
+        }
+      ]
+    },
+    "review_issues": [
+      {"severity": "error", "page_index": 2, "code": "invalid_component_schema", "component_id": "chart", "message": "chart 组件缺少 datasets 或 values。"}
+    ]
+  },
+  "expected": {
+    "must_fix_issue_codes": ["invalid_component_schema"],
+    "must_not_change_pages": [1],
+    "allowed_change_pages": [2],
+    "must_pass_deterministic_review": true
+  },
+  "judge_focus": [
+    "是否给第 2 页 chart 组件补齐可渲染数据",
+    "是否没有改第 1 页",
+    "是否没有引入新问题",
+    "patch 是否足够小"
+  ]
+}
