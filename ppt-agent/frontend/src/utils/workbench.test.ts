@@ -655,6 +655,18 @@ describe('workbench utilities', () => {
     expect(items[1].type === 'tool_group' ? items[1].group.tools[0].name : '').toBe('search');
   });
 
+  it('keeps user message before assistant reply when timestamps are equal', () => {
+    const timestamp = '2026-08-05T00:00:01Z';
+    const messages: ConversationMessage[] = [
+      { role: 'user', content: '你好', timestamp },
+      { role: 'assistant', content: '你好，我在。', timestamp },
+    ];
+
+    const items = deriveInlineConversationItems(messages, []);
+
+    expect(items.map(item => item.type === 'message' ? item.message.role : item.type)).toEqual(['user', 'assistant']);
+  });
+
   it('groups adjacent tool previews into one visible tool round', () => {
     const events: RuntimeEvent[] = [
       {

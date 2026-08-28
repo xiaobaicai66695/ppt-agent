@@ -207,20 +207,22 @@ async function submitComposer() {
 
   if (!selectedTask.value) {
     composerLoading.value = true;
+    const userTimestamp = new Date().toISOString();
     try {
       composerInput.value = '';
       const routed = await routeMessage(message);
+      const assistantTimestamp = new Date().toISOString();
       if (routed.intent === 'chat' || routed.action === 'reply') {
         conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
-          { role: 'user', content: message, timestamp: new Date().toISOString() },
-          { role: 'assistant', content: routed.reply || '这是普通对话，不会创建 PPT 任务。', timestamp: new Date().toISOString() },
+          { role: 'user', content: message, timestamp: userTimestamp },
+          { role: 'assistant', content: routed.reply || '这是普通对话，不会创建 PPT 任务。', timestamp: assistantTimestamp },
         ]);
         return;
       }
       if (routed.intent === 'plan' || routed.action === 'save_plan') {
         conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
-          { role: 'user', content: message, timestamp: new Date().toISOString() },
-          { role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: new Date().toISOString() },
+          { role: 'user', content: message, timestamp: userTimestamp },
+          { role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: assistantTimestamp },
         ]);
         composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，未创建任务。` : '已识别为规划请求，未创建任务。可打开高级编排继续完善 DeckSpec。';
         return;
@@ -231,8 +233,8 @@ async function submitComposer() {
       }
       if (routed.needs_confirmation || routed.action === 'ask_clarification') {
         conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
-          { role: 'user', content: message, timestamp: new Date().toISOString() },
-          { role: 'assistant', content: routed.reply || '已识别为 PPT 意图，但还需要补充信息。', timestamp: new Date().toISOString() },
+          { role: 'user', content: message, timestamp: userTimestamp },
+          { role: 'assistant', content: routed.reply || '已识别为 PPT 意图，但还需要补充信息。', timestamp: assistantTimestamp },
         ]);
         return;
       }
@@ -249,9 +251,9 @@ async function submitComposer() {
 
   const taskId = selectedTask.value.id;
   composerLoading.value = true;
-  const now = new Date().toISOString();
+  const userTimestamp = new Date().toISOString();
   conversationMessages.value = [...conversationMessages.value, {
-    role: 'user', content: message, timestamp: new Date().toISOString(),
+    role: 'user', content: message, timestamp: userTimestamp,
   }];
   composerInput.value = '';
   streamingAssistant.value = '';
@@ -259,29 +261,30 @@ async function submitComposer() {
   streamingAssistantSegments.value = [];
   try {
     const routed = await routeMessage(message, taskId, manualAgentMode.value);
+    const assistantTimestamp = new Date().toISOString();
     manualAgentMode.value = routed.mode;
     if (routed.intent === 'chat' || routed.action === 'reply') {
       conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: routed.reply || '这是普通对话，不会进入修复流程。', timestamp: now,
+        role: 'assistant', content: routed.reply || '这是普通对话，不会进入修复流程。', timestamp: assistantTimestamp,
       }]);
       return;
     }
     if (routed.intent === 'plan' || routed.action === 'save_plan') {
       conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: now,
+        role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: assistantTimestamp,
       }]);
       composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，未修改当前任务。` : '已识别为规划请求，未修改当前任务。';
       return;
     }
     if (routed.intent === 'create') {
       conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: '这像是新建 PPT 请求。为避免覆盖当前任务，请回到新建入口创建新的演示。', timestamp: now,
+        role: 'assistant', content: '这像是新建 PPT 请求。为避免覆盖当前任务，请回到新建入口创建新的演示。', timestamp: assistantTimestamp,
       }]);
       return;
     }
     if (routed.needs_confirmation || routed.action === 'ask_clarification') {
       conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: routed.reply || '请说明要修复的任务、页码或具体问题。', timestamp: now,
+        role: 'assistant', content: routed.reply || '请说明要修复的任务、页码或具体问题。', timestamp: assistantTimestamp,
       }]);
       return;
     }

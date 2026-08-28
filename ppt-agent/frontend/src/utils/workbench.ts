@@ -412,8 +412,8 @@ export interface ToolPreviewField {
 }
 
 export type InlineConversationItem =
-  | { type: 'message'; key: string; timestamp: string; message: ConversationMessage }
-  | { type: 'tool_group'; key: string; timestamp: string; group: InlineToolGroupPreview };
+  | { type: 'message'; key: string; timestamp: string; message: ConversationMessage; sequence: number }
+  | { type: 'tool_group'; key: string; timestamp: string; group: InlineToolGroupPreview; sequence: number };
 
 function inlineItemOrder(item: InlineConversationItem): number {
   if (item.type === 'message' && item.message.timeline_order && item.message.timeline_order > 0) {
@@ -439,9 +439,10 @@ export function deriveInlineConversationItems(
   messages.forEach((message, index) => {
     items.push({
       type: 'message',
-      key: `message:${message.timestamp || index}:${message.role}:${index}`,
+      key: `message:${message.timestamp || index}:${index}:${message.role}`,
       timestamp: message.timestamp || new Date(0).toISOString(),
       message,
+      sequence: index,
     });
   });
   const toolItems = deriveInlineToolPreviews(events).map(tool => ({
@@ -455,6 +456,7 @@ export function deriveInlineConversationItems(
       type: 'tool_group',
       key: `pending:${tool.key}`,
       timestamp: tool.timestamp,
+      sequence: messages.length + items.length,
       group: {
         key: `pending:${tool.key}`,
         timestamp: tool.timestamp,
@@ -472,6 +474,7 @@ export function deriveInlineConversationItems(
     const timeDelta = Date.parse(a.timestamp || '') - Date.parse(b.timestamp || '');
     if (timeDelta !== 0) return timeDelta;
     if (a.type !== b.type) return a.type === 'tool_group' ? -1 : 1;
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
     return a.key.localeCompare(b.key);
   });
   return groupAdjacentInlineTools(sorted);
@@ -688,6 +691,7 @@ function groupAdjacentInlineTools(items: InlineConversationItem[]): InlineConver
       key: group.key,
       timestamp: group.timestamp,
       group,
+      sequence: grouped.length,
     });
     pending = [];
     pendingTimestamp = '';
