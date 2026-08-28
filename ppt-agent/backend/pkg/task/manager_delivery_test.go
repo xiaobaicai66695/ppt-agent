@@ -263,6 +263,34 @@ func TestTaskStateSubscribeFromReplaysOnlyNewerEvents(t *testing.T) {
 	}
 }
 
+func TestTaskStateDisconnectsSlowListenerAndPreservesReplay(t *testing.T) {
+	ts := &TaskState{
+		Info:      TaskInfo{Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+	}
+	slow := make(chan SSERichEvent, 1)
+	ts.AddListener("slow", slow)
+
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "first"})
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: "second"})
+
+	if _, ok := ts.listeners["slow"]; ok {
+		t.Fatal("slow listener should be disconnected instead of silently dropping events")
+	}
+	if first := <-slow; first.ID != 1 {
+		t.Fatalf("first event ID = %d, want 1", first.ID)
+	}
+	if _, ok := <-slow; ok {
+		t.Fatal("slow listener channel should be closed to trigger EventSource reconnect")
+	}
+
+	reconnected := make(chan SSERichEvent, 1)
+	events, done := ts.SubscribeFrom("reconnected", reconnected, 1)
+	if done || len(events) != 1 || events[0].ID != 2 || strings.TrimSpace(events[0].Content) != "second" {
+		t.Fatalf("replay after slow listener disconnect = %#v, done=%v", events, done)
+	}
+}
+
 func TestTaskStateSubscribeFromDoesNotRegisterCompletedTask(t *testing.T) {
 	ts := &TaskState{
 		Info:      TaskInfo{Status: TaskStatusCompleted},

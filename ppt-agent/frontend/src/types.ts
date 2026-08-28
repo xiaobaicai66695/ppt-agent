@@ -13,7 +13,7 @@ export type SSEEventType =
   | 'thumbnail_ready'
   | 'thumbnail_error'
   | 'token_usage'
-  | 'runtime_meta'
+  | 'runtime_event'
   | 'error'
   | 'complete'
   | 'continue_complete'
@@ -192,7 +192,7 @@ export interface SSEEvent {
   total_tokens?: number;
   phase?: string;       // 当前阶段: preparing/planning/generating/complete
   phase_detail?: string; // 阶段详情
-  runtime_meta?: RuntimeMeta;
+  runtime_event?: RuntimeEvent;
 }
 
 // ── Batch tracking ──────────────────────────────────────────────────────────

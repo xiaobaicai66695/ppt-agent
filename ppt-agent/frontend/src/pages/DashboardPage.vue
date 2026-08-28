@@ -610,38 +610,104 @@ function addLog(kind: import('../types').LogKind, text: string) {
 
 // ── SSE ────────────────────────────────────────────────────────────────
 let sseCompleted = false;
-
 let lastSeenEventID = 0;
+let sseConnectionGeneration = 0;
+let terminalSSEFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+const TERMINAL_SSE_GRACE_MS = 3000;
+
+function clearTerminalSSEFallback() {
+  if (terminalSSEFallbackTimer) clearTimeout(terminalSSEFallbackTimer);
+  terminalSSEFallbackTimer = null;
+}
+
+function appendRuntimeEvent(event: RuntimeEvent) {
+  const current = runtimeMeta.value;
+  const kind = (event.kind || '').toLowerCase();
+  const isToolEvent = kind.startsWith('tool_') || kind.startsWith('slide_render_');
+  runtimeMeta.value = {
+    ...(current || { elapsed_ms: 0 }),
+    task_id: event.task_id || current?.task_id,
+    elapsed_ms: event.elapsed_ms || current?.elapsed_ms || 0,
+    phase: event.phase || current?.phase,
+    phase_detail: kind === 'phase_changed' ? event.detail || current?.phase_detail : current?.phase_detail,
+    last_tool: isToolEvent ? event.name || current?.last_tool : current?.last_tool,
+    last_error: event.status === 'error' || event.status === 'failed'
+      ? event.detail || current?.last_error
+      : current?.last_error,
+    recent_events: mergeRuntimeEvents(current?.recent_events || [], [event]),
+  };
+}
+
+function scheduleTerminalSSEFallback(taskId: string) {
+  if (terminalSSEFallbackTimer || sseCompleted || selectedId.value !== taskId) return;
+  terminalSSEFallbackTimer = setTimeout(async () => {
+    terminalSSEFallbackTimer = null;
+    if (sseCompleted || selectedId.value !== taskId) return;
+    const latest = await fetchTask(taskId).catch(() => null);
+    if (latest?.status === 'running') {
+      sseCompleted = false;
+      connectSSE(taskId, lastSeenEventID);
+      startPolling(taskId);
+      return;
+    }
+    sseCompleted = true;
+    finalizeAssistantTurn();
+    if (es) { es.close(); es = null; }
+    void refreshTask(taskId);
+    void loadConversation(taskId, true);
+  }, TERMINAL_SSE_GRACE_MS);
+}
 
 function connectSSE(taskId: string, afterEventID = 0) {
   if (!taskId) return;
   if (sseCompleted) return; // already received complete, don't reconnect
+  clearTerminalSSEFallback();
+  const connectionGeneration = ++sseConnectionGeneration;
   if (es) es.close();
   lastSeenEventID = afterEventID;
   const streamURL = afterEventID > 0
     ? `/api/tasks/${taskId}/stream?after_id=${encodeURIComponent(afterEventID)}`
     : `/api/tasks/${taskId}/stream`;
-  es = new EventSource(streamURL);
+  const source = new EventSource(streamURL);
+  es = source;
   activeWorkers.value = 0;
 
-  es.onopen = () => {
+
+  source.onopen = () => {
+	if (connectionGeneration !== sseConnectionGeneration || es !== source || selectedId.value !== taskId) return;
 	if (sseConnectionInterrupted.value) {
 	  addLog('worker', '实时连接已恢复');
 	}
 	sseConnectionInterrupted.value = false;
   };
 
-  es.onerror = () => {
+
+  source.onerror = (event) => {
+	// Server-side `event: error` carries MessageEvent.data and is handled below.
+	// Only transport failures should put the connection into reconnecting state.
+	if ('data' in event) return;
+	if (connectionGeneration !== sseConnectionGeneration || es !== source || selectedId.value !== taskId) return;
 	if (sseCompleted || sseConnectionInterrupted.value) return;
 	sseConnectionInterrupted.value = true;
 	addLog('error', '实时连接暂时中断，浏览器正在自动重连；任务状态仍会通过轮询同步');
   };
 
   const handler = (e: MessageEvent) => {
+	if (connectionGeneration !== sseConnectionGeneration || es !== source || selectedId.value !== taskId) return;
     let evt: SSEEvent;
     try { evt = JSON.parse(e.data); } catch { return; }
     const eventID = e.lastEventId ? Number.parseInt(e.lastEventId, 10) : (evt.id || 0);
     if (eventID > 0 && eventID <= lastSeenEventID) return;
+    if (eventID > 0 && lastSeenEventID > 0 && eventID > lastSeenEventID + 1) {
+      sseConnectionInterrupted.value = true;
+      addLog('error', '实时事件出现缺口，正在从最后确认的位置恢复');
+      source.close();
+      if (es === source) es = null;
+      window.setTimeout(() => {
+        if (selectedId.value === taskId && !sseCompleted) connectSSE(taskId, lastSeenEventID);
+      }, 0);
+      return;
+    }
     if (eventID > 0) lastSeenEventID = eventID;
 
     switch (evt.type) {
@@ -741,10 +807,8 @@ function connectSSE(taskId: string, afterEventID = 0) {
         }
         break;
 
-      case 'runtime_meta':
-        if (evt.runtime_meta) {
-          runtimeMeta.value = mergeRuntimeMeta(runtimeMeta.value, evt.runtime_meta);
-        }
+      case 'runtime_event':
+        if (evt.runtime_event) appendRuntimeEvent(evt.runtime_event);
         break;
 
       case 'error':
@@ -756,6 +820,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
         break;
 
       case 'continue_complete':
+        clearTerminalSSEFallback();
         finalizeAssistantTurn();
         continuationQueued.value = false;
         sseCompleted = true;
@@ -768,6 +833,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
         break;
 
       case 'complete':
+        clearTerminalSSEFallback();
         sseCompleted = !continuationQueued.value;
         finalizeAssistantTurn();
         doneCount.value = evt.done || 0;
@@ -780,7 +846,6 @@ function connectSSE(taskId: string, afterEventID = 0) {
         if (evt.message) finalMessage.value = evt.message;
         if (evt.duration) duration.value = evt.duration;
         if (evt.tasks) taskItems.value = evt.tasks;
-        if (evt.runtime_meta) runtimeMeta.value = mergeRuntimeMeta(runtimeMeta.value, evt.runtime_meta);
         if (evt.total_tokens) {
           const t = tasks.value.find(x => x.id === taskId);
           if (t) {
@@ -808,23 +873,25 @@ function connectSSE(taskId: string, afterEventID = 0) {
     }
   };
 
-  es.addEventListener('answer', handler);
-  es.addEventListener('answer_end', handler);
-  es.addEventListener('system_step', handler);
-  es.addEventListener('tool_call', handler);
-  es.addEventListener('progress', handler);
-  es.addEventListener('file_ready', handler);
-  es.addEventListener('thumbnail_ready', handler);
-  es.addEventListener('thumbnail_error', handler);
-  es.addEventListener('token_usage', handler);
-  es.addEventListener('runtime_meta', handler);
-  es.addEventListener('error', handler);
-  es.addEventListener('continue_queued', handler);
-  es.addEventListener('continue_complete', handler);
-  es.addEventListener('complete', handler);
+  source.addEventListener('answer', handler);
+  source.addEventListener('answer_end', handler);
+  source.addEventListener('system_step', handler);
+  source.addEventListener('tool_call', handler);
+  source.addEventListener('progress', handler);
+  source.addEventListener('file_ready', handler);
+  source.addEventListener('thumbnail_ready', handler);
+  source.addEventListener('thumbnail_error', handler);
+  source.addEventListener('token_usage', handler);
+  source.addEventListener('runtime_event', handler);
+  source.addEventListener('error', handler);
+  source.addEventListener('continue_queued', handler);
+  source.addEventListener('continue_complete', handler);
+  source.addEventListener('complete', handler);
 }
 
 function disconnectSSE() {
+	++sseConnectionGeneration;
+  clearTerminalSSEFallback();
   if (es) { es.close(); es = null; }
   stopPolling();
   clearPendingAssistantDeltas();
@@ -892,11 +959,10 @@ function startPolling(taskId: string) {
 	  totalCount.value = info.total_count;
 	  // Stop polling when task finishes
 	  if (info.status !== 'running') {
-		sseCompleted = true;
-		if (es) { es.close(); es = null; }
 		duration.value = info.duration || duration.value;
 		currentPhase.value = info.status === 'completed' ? 'complete' : info.status;
 		stopPolling();
+		scheduleTerminalSSEFallback(taskId);
 	  }
     } catch { /* ignore fetch errors during polling */ }
   }, 3000);

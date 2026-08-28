@@ -35,26 +35,28 @@ const (
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
-	ID               uint64                     `json:"id,omitempty"`
-	Type             string                     `json:"type"`
-	Content          string                     `json:"content,omitempty"`
-	ToolName         string                     `json:"tool_name,omitempty"`
-	ToolArgs         string                     `json:"tool_args,omitempty"`
-	Error            string                     `json:"error,omitempty"`
-	Tasks            []*deck.TaskItem           `json:"tasks,omitempty"`
-	Done             int                        `json:"done,omitempty"`
-	Total            int                        `json:"total,omitempty"`
-	Files            []string                   `json:"files,omitempty"`
-	Message          string                     `json:"message,omitempty"`
-	Duration         string                     `json:"duration,omitempty"`
-	Status           TaskStatus                 `json:"status,omitempty"`
-	PromptTokens     int64                      `json:"prompt_tokens,omitempty"`
-	CompletionTokens int64                      `json:"completion_tokens,omitempty"`
-	TotalTokens      int64                      `json:"total_tokens,omitempty"`
-	Phase            string                     `json:"phase,omitempty"`
-	PhaseDetail      string                     `json:"phase_detail,omitempty"`
-	RuntimeMeta      *utils.RuntimeMetaSnapshot `json:"runtime_meta,omitempty"`
+	ID               uint64              `json:"id,omitempty"`
+	Type             string              `json:"type"`
+	Content          string              `json:"content,omitempty"`
+	ToolName         string              `json:"tool_name,omitempty"`
+	ToolArgs         string              `json:"tool_args,omitempty"`
+	Error            string              `json:"error,omitempty"`
+	Tasks            []*deck.TaskItem    `json:"tasks,omitempty"`
+	Done             int                 `json:"done,omitempty"`
+	Total            int                 `json:"total,omitempty"`
+	Files            []string            `json:"files,omitempty"`
+	Message          string              `json:"message,omitempty"`
+	Duration         string              `json:"duration,omitempty"`
+	Status           TaskStatus          `json:"status,omitempty"`
+	PromptTokens     int64               `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64               `json:"completion_tokens,omitempty"`
+	TotalTokens      int64               `json:"total_tokens,omitempty"`
+	Phase            string              `json:"phase,omitempty"`
+	PhaseDetail      string              `json:"phase_detail,omitempty"`
+	RuntimeEvent     *utils.RuntimeEvent `json:"runtime_event,omitempty"`
 }
+
+const sseReplayEventLimit = 1024
 
 // TaskInfo 是任务的公开可见摘要。
 type TaskInfo struct {
@@ -234,8 +236,8 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		}
 	}
 	ts.Events = append(ts.Events, event)
-	if len(ts.Events) > 500 {
-		ts.Events = ts.Events[len(ts.Events)-300:]
+	if len(ts.Events) > sseReplayEventLimit {
+		ts.Events = ts.Events[len(ts.Events)-sseReplayEventLimit:]
 	}
 	var completedTurn string
 	isTurnBoundary := event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete"
@@ -243,10 +245,15 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		completedTurn = strings.TrimSpace(ts.answerTurn.String())
 		ts.answerTurn.Reset()
 	}
-	for _, ch := range ts.listeners {
+	for listenerID, ch := range ts.listeners {
 		select {
 		case ch <- event:
 		default:
+			// A slow SSE response must reconnect from its last received event ID.
+			// Silently dropping a message would make the client accept a corrupted
+			// transcript with no way to recover the missing answer chunk.
+			delete(ts.listeners, listenerID)
+			close(ch)
 		}
 	}
 	turnCallback := ts.assistantTurnFn
@@ -685,27 +692,31 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	}
 	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
 		persistRuntimeEvent(event)
-		go func() {
-			if event.Kind == "phase_changed" && event.Phase != "" {
-				ts.Broadcast(SSERichEvent{
-					Type:        "progress",
-					Phase:       event.Phase,
-					PhaseDetail: event.Detail,
-				})
-			}
-			if event.Kind == "planner_context_compressing" {
-				ts.Broadcast(SSERichEvent{
-					Type:        "progress",
-					Phase:       "compressing_context",
-					PhaseDetail: firstRuntimeDetail(event.Detail, "正在压缩较早对话，保留你的最新要求"),
-				})
-			}
-			snap := runtimeMeta.Snapshot()
+		// Assistant output is already delivered as answer SSE. Re-broadcasting an
+		// 80-event runtime snapshot for every text fragment amplifies traffic and
+		// can overflow slow clients. Keep it persisted, but do not mirror it.
+		if event.Kind == "assistant_output" {
+			return
+		}
+		summary := utils.RuntimeEventSummary(event)
+		if summary.Kind == "phase_changed" && summary.Phase != "" {
 			ts.Broadcast(SSERichEvent{
-				Type:        "runtime_meta",
-				RuntimeMeta: &snap,
+				Type:        "progress",
+				Phase:       summary.Phase,
+				PhaseDetail: summary.Detail,
 			})
-		}()
+		}
+		if summary.Kind == "planner_context_compressing" {
+			ts.Broadcast(SSERichEvent{
+				Type:        "progress",
+				Phase:       "compressing_context",
+				PhaseDetail: firstRuntimeDetail(summary.Detail, "正在压缩较早对话，保留你的最新要求"),
+			})
+		}
+		ts.Broadcast(SSERichEvent{
+			Type:         "runtime_event",
+			RuntimeEvent: &summary,
+		})
 	})
 	type workDirSetter interface {
 		SetWorkDir(context.Context, string) context.Context
@@ -978,8 +989,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		if err := ts.runtimeMeta.WriteReport(string(ts.Info.Status)); err != nil {
 			logger.Warn("runtime_report_write_failed", "task_id", ts.Info.ID, "error", err.Error())
 		}
-		snap := ts.runtimeMeta.Snapshot()
-		finalEvent.RuntimeMeta = &snap
 	}
 	ts.Broadcast(finalEvent)
 
@@ -1145,14 +1154,6 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 				})
 			}
 		}
-		if ts.runtimeMeta != nil {
-			snap := ts.runtimeMeta.Snapshot()
-			ts.Broadcast(SSERichEvent{
-				Type:        "runtime_meta",
-				RuntimeMeta: &snap,
-			})
-		}
-
 		entries, err := os.ReadDir(workDir)
 		if err == nil {
 			for _, entry := range entries {
