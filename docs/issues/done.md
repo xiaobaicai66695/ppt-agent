@@ -5,7 +5,7 @@
 
 | ID | 事项 | Size | Route | Status | 完成时间 | 产出/链接 |
 | --- | --- | --- | --- | --- | --- | --- |
-| PPT-RELEASE-001 | 汇总工作树中的上下文任务、意图路由 benchmark、Planner/Reviewer/Fixer 质量门、图片素材校验与前端工作台改动，作为统一大版本发布 | large | opsx | done | 2026-08-29 | Change：`openspec/changes/persistent-precreation-conversations/`；记录：`docs/迭代记录/2026-08-29-persistent-task-conversations-and-skill-release.md`；上线：`remote-dev:/ppt/ppt-agent`，PID `338057`，Skill 已同步至 `/ppt/skills` 与项目目录 |
+| PPT-RELEASE-001 | 汇总工作树中的上下文任务、意图路由 benchmark、Planner/Reviewer/Fixer 质量门、图片素材校验与前端工作台改动，作为统一大版本发布 | large | opsx | done | 2026-08-29 | Change：`openspec/changes/archive/2026-08-29-persistent-precreation-conversations/`；记录：`docs/迭代记录/2026-08-29-persistent-task-conversations-and-skill-release.md`；上线：`remote-dev:/ppt/ppt-agent`，PID `338057`，Skill 已同步至 `/ppt/skills` 与项目目录 |
 | PPT-HARNESS-001 | 建立 PPT Agent runtime harness：RuntimeMeta、预算意识、结构化 handoff、工具轨迹、结果验证与 Dashboard 状态栏 | large | opsx | done | 2026-07-31 | Change：`openspec/changes/archive/2026-07-31-ppt-agent-harness-runtime/`；覆盖运行阶段、耗时、工具计数、重试、QA、token、文件进度和执行轨迹 |
 | PPT-EVAL-001 | 建立 PPT 质量评估集与 eval harness，覆盖用户需求、布局约束、事实要求、视觉 rubric、Pass^k/Best@k 统计 | large | opsx | done | 2026-07-31 | 产出：`docs/eval/ppt_quality_cases.json`、`ppt-agent/scripts/eval_ppt_quality.py` |
 | PPT-ARCH-001 | 沉淀 PPT Agent 架构边界与变更活动范围，明确 Web、TaskManager、Planner、Renderer、前端和 PPT Deck Planner 的职责 | medium | direct | done | 2026-08-03 | 文档：`docs/architecture/ppt-agent-architecture-scope.md` |
