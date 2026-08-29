@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestPlanReviewAllowsTextOnlySlideWithoutBackground(t *testing.T) {
+func TestPlanReviewRejectsTextOnlySlideWithoutExplicitPolicy(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{
 		Title: "架构清理验证",
@@ -44,23 +44,34 @@ func TestPlanReviewAllowsTextOnlySlideWithoutBackground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.Passed {
-		t.Fatalf("text-only slide should pass with non-blocking background warning: %#v", report)
+	if report.Passed {
+		t.Fatalf("page without a background plan must not pass review: %#v", report)
 	}
-	foundBackgroundWarning := false
+	foundBackgroundError := false
 	for _, issue := range report.Issues {
-		if issue.Code == "missing_background_image" && issue.Severity == "warning" {
-			foundBackgroundWarning = true
-		}
-		if issue.Severity != "warning" {
-			t.Fatalf("expected only non-blocking warnings, got %#v", report.Issues)
+		if issue.Code == "missing_background_image" && issue.Severity == "error" {
+			foundBackgroundError = true
 		}
 	}
-	if !foundBackgroundWarning {
-		t.Fatalf("expected background warning, got %#v", report.Issues)
+	if !foundBackgroundError {
+		t.Fatalf("expected blocking background error, got %#v", report.Issues)
 	}
-	if _, ok, err := CommitReviewedTasksDraftManifestIfPresent(workDir); err != nil || !ok {
-		t.Fatalf("reviewed text-only draft was not committed: ok=%v err=%v", ok, err)
+}
+
+func TestPlanReviewHonorsVisualPolicyNone(t *testing.T) {
+	manifest := &TasksManifest{
+		VisualPolicy: &VisualPolicy{Mode: "none", Reason: "仅验证叙事修复"},
+		Tasks: []*TaskItem{{
+			TaskID: "slide-1", PageIndex: 1, Title: "纯文字", ContentType: "content_slide",
+			OutputFile: "1.pptx", Status: StatusPending,
+			ContentPlan: &ContentPlan{Summary: "仅验证文字内容。", SlideIntent: "以纯文字呈现结论。", Components: []PlanComponent{{ID: "point", Type: "key_point", Body: "这里包含足够完整的纯文字结论，且该测试明确关闭视觉素材要求。"}}},
+		}},
+	}
+	report := ReviewTasksManifest(manifest, "tasks.draft.json", 1)
+	for _, issue := range report.Issues {
+		if issue.Code == "missing_background_image" {
+			t.Fatalf("visual_policy=none must suppress background issue: %#v", report.Issues)
+		}
 	}
 }
 

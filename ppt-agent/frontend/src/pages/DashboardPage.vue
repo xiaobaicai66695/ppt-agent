@@ -17,7 +17,7 @@ import {
 import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta, RuntimeEvent } from '../types';
 import { STATUS_LABELS } from '../types';
 import {
-  fetchTasks, createTask, fetchTask, cancelTask, deleteTask,
+  fetchTasks, fetchTask, startTask, cancelTask, deleteTask,
   isLoggedIn, continueTask, fetchConversation, fetchRuntimeEvent, routeMessage,
 } from '../api';
 import { authState } from '../stores/auth';
@@ -100,6 +100,7 @@ let streamingRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
 const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
   if (!selectedTask.value) return 'create';
+  if (selectedTask.value.status === 'conversation') return 'create';
   return selectedTask.value.status === 'running' ? 'queue' : 'continue';
 });
 async function loadConversation(taskId: string, replace = false) {
@@ -234,40 +235,17 @@ async function submitComposer() {
 
   if (!selectedTask.value) {
     composerLoading.value = true;
-    const userTimestamp = new Date().toISOString();
     try {
       composerInput.value = '';
       const routed = await routeMessage(message);
-      const assistantTimestamp = new Date().toISOString();
-      if (routed.intent === 'chat' || routed.action === 'reply') {
-        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
-          { role: 'user', content: message, timestamp: userTimestamp },
-          { role: 'assistant', content: routed.reply || '这是普通对话，不会创建 PPT 任务。', timestamp: assistantTimestamp },
-        ]);
-        return;
+      await adoptConversationTask(routed.task_id);
+      if (routed.intent === 'create' && !routed.needs_confirmation && routed.action !== 'ask_clarification') {
+        await promoteConversationTask(routed.task_id);
+      } else if (routed.intent === 'plan' || routed.action === 'save_plan') {
+        composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，任务会话会继续保留。` : '已进入规划对话，可继续补充 DeckSpec。';
+      } else if (routed.intent === 'fix') {
+        composerError.value = withTaskCandidates(routed.reply || '请先说明要修改的已有演示。', routed.task_candidates || []);
       }
-      if (routed.intent === 'plan' || routed.action === 'save_plan') {
-        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
-          { role: 'user', content: message, timestamp: userTimestamp },
-          { role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: assistantTimestamp },
-        ]);
-        composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，未创建任务。` : '已识别为规划请求，未创建任务。可打开高级编排继续完善 DeckSpec。';
-        return;
-      }
-      if (routed.intent === 'fix') {
-        composerError.value = withTaskCandidates(routed.reply || '这是修复请求，请先选择要修改的任务。', routed.task_candidates || []);
-        return;
-      }
-      if (routed.needs_confirmation || routed.action === 'ask_clarification') {
-        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [
-          { role: 'user', content: message, timestamp: userTimestamp },
-          { role: 'assistant', content: routed.reply || '已识别为 PPT 意图，但还需要补充信息。', timestamp: assistantTimestamp },
-        ]);
-        return;
-      }
-      const info = await createTask(routed.normalized_request || message);
-      tasks.value = [info, ...tasks.value.filter(task => task.id !== info.id)];
-      selectTask(info.id);
     } catch (error) {
       composerError.value = error instanceof Error ? error.message : '创建任务失败，请重试';
     } finally {
@@ -278,10 +256,6 @@ async function submitComposer() {
 
   const taskId = selectedTask.value.id;
   composerLoading.value = true;
-  const userTimestamp = new Date().toISOString();
-  conversationMessages.value = [...conversationMessages.value, {
-    role: 'user', content: message, timestamp: userTimestamp,
-  }];
   composerInput.value = '';
   clearPendingAssistantDeltas();
   streamingAssistant.value = '';
@@ -289,33 +263,23 @@ async function submitComposer() {
   streamingAssistantSegments.value = [];
   try {
     const routed = await routeMessage(message, taskId, manualAgentMode.value);
-    const assistantTimestamp = new Date().toISOString();
     manualAgentMode.value = routed.mode;
+    await loadConversation(taskId, true);
+    if (routed.intent === 'create' && !routed.needs_confirmation && routed.action !== 'ask_clarification') {
+      await promoteConversationTask(taskId);
+      return;
+    }
     if (routed.intent === 'chat' || routed.action === 'reply') {
-      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: routed.reply || '这是普通对话，不会进入修复流程。', timestamp: assistantTimestamp,
-      }]);
       return;
     }
     if (routed.intent === 'plan' || routed.action === 'save_plan') {
-      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: withDraftNote(routed.reply || '已进入 PPT Agent 规划状态，不会生成 PPT 文件。', routed.draft_id), timestamp: assistantTimestamp,
-      }]);
-      composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，未修改当前任务。` : '已识别为规划请求，未修改当前任务。';
-      return;
-    }
-    if (routed.intent === 'create') {
-      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: '这像是新建 PPT 请求。为避免覆盖当前任务，请回到新建入口创建新的演示。', timestamp: assistantTimestamp,
-      }]);
+      composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，任务会话会继续保留。` : '已识别为规划请求，可继续补充当前任务。';
       return;
     }
     if (routed.needs_confirmation || routed.action === 'ask_clarification') {
-      conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
-        role: 'assistant', content: routed.reply || '请说明要修复的任务、页码或具体问题。', timestamp: assistantTimestamp,
-      }]);
       return;
     }
+    if (selectedTask.value?.status === 'conversation') return;
     const accepted = await continueTask(taskId, message);
     composerNotice.value = accepted.message;
     continuationQueued.value = accepted.status === 'queued';
@@ -327,6 +291,24 @@ async function submitComposer() {
     composerError.value = error instanceof Error ? error.message : '发送失败，请重试';
     composerLoading.value = false;
   }
+}
+
+async function adoptConversationTask(taskId: string) {
+  if (!taskId) throw new Error('服务未返回任务 ID');
+  const info = await fetchTask(taskId);
+  tasks.value = [info, ...tasks.value.filter(task => task.id !== info.id)];
+  await selectTask(info.id);
+  return info;
+}
+
+async function promoteConversationTask(taskId: string) {
+  const info = await startTask(taskId);
+  const index = tasks.value.findIndex(task => task.id === info.id);
+  if (index >= 0) tasks.value[index] = info;
+  else tasks.value = [info, ...tasks.value];
+  sseCompleted = false;
+  connectSSE(info.id, 0);
+  startPolling(info.id);
 }
 
 function withDraftNote(content: string, draftId?: string): string {
@@ -1162,13 +1144,12 @@ async function handleCreateTask(query: string) {
   loadError.value = '';
   try {
     const routed = await routeMessage(query);
+    await adoptConversationTask(routed.task_id);
     if (routed.intent !== 'create' || routed.needs_confirmation || routed.action === 'ask_clarification') {
-      loadError.value = routed.reply || '当前输入还不能直接创建 PPT。';
+      loadError.value = routed.reply || '已创建任务会话，可继续补充需求。';
       return;
     }
-    const info = await createTask(routed.normalized_request || query);
-    tasks.value = [info, ...tasks.value];
-    selectTask(info.id);
+    await promoteConversationTask(routed.task_id);
   } catch (e: any) {
     loadError.value = e?.message || '创建任务失败，请重试';
   } finally {
@@ -1256,7 +1237,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
     <template #actions>
       <span v-if="selectedTask" class="top-task-state" :class="selectedTask.status">
         <i aria-hidden="true"></i>
-        {{ selectedTask.status === 'running' ? '运行中' : selectedTask.status === 'completed' ? '已完成' : selectedTask.status === 'cancelled' ? '已中断' : '失败' }}
+        {{ selectedTask.status === 'conversation' ? '对话中' : selectedTask.status === 'running' ? '运行中' : selectedTask.status === 'completed' ? '已完成' : selectedTask.status === 'cancelled' ? '已中断' : '失败' }}
       </span>
       <button
         class="topbar-tool task-list-trigger"

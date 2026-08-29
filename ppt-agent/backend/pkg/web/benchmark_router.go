@@ -23,6 +23,19 @@ type BenchmarkCreateRouteResult struct {
 	Confidence            float64 `json:"confidence,omitempty"`
 }
 
+// BenchmarkMessageRouteResult records the route selected for a persistent
+// workbench conversation. Every first message receives a task ID before its
+// intent is resolved, so this result keeps that identity observable.
+type BenchmarkMessageRouteResult struct {
+	Intent            string  `json:"intent"`
+	TargetAgent       string  `json:"target_agent,omitempty"`
+	TaskID            string  `json:"task_id"`
+	NormalizedRequest string  `json:"normalized_request,omitempty"`
+	Action            string  `json:"action,omitempty"`
+	Reason            string  `json:"reason"`
+	Confidence        float64 `json:"confidence,omitempty"`
+}
+
 // ClassifyCreateRequestForBenchmark runs the same create-entry router used by
 // the HTTP task creation path. The API key is benchmark-only configuration and
 // is never read by the production handler.
@@ -30,6 +43,33 @@ func ClassifyCreateRequestForBenchmark(ctx context.Context, query string, hasOut
 	server := &Server{}
 	credential := modelCredential{Provider: "deepseek", APIKey: strings.TrimSpace(apiKey)}
 	return benchmarkCreateRoute(server.routeCreateRequest(ctx, query, hasOutline, credential), query)
+}
+
+// ClassifyTaskMessageForBenchmark runs the production message router with the
+// bounded task context used by the Dashboard. It verifies that a follow-up is
+// prepared on the existing task rather than treated as a stateless request.
+func ClassifyTaskMessageForBenchmark(ctx context.Context, message, taskID, conversationContext, apiKey string) BenchmarkMessageRouteResult {
+	server := &Server{}
+	credential := modelCredential{Provider: "deepseek", APIKey: strings.TrimSpace(apiKey)}
+	route := server.routeTaskMessageRequest(ctx, message, taskID, conversationContext, credential)
+	result := BenchmarkMessageRouteResult{
+		Intent:            route.Intent,
+		TaskID:            taskID,
+		NormalizedRequest: route.NormalizedRequest,
+		Action:            route.Action,
+		Reason:            route.Reason,
+		Confidence:        route.Confidence,
+	}
+	switch route.Intent {
+	case messageIntentCreate:
+		result.Intent = "create_deck"
+		result.TargetAgent = "PPTPlanner"
+	case messageIntentPlan:
+		result.TargetAgent = "PPTPlanner (planning only)"
+	case messageIntentFix:
+		result.TargetAgent = "PPTFixer"
+	}
+	return result
 }
 
 // ClassifyContinueIntentForBenchmark runs the same continuation router prompt

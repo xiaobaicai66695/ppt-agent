@@ -76,6 +76,9 @@ func (t *draftTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJSON 
 			if !t.allowed[*patch.PageIndex] {
 				return fixerToolError(fmt.Errorf("page_index %d is not authorized for this review slice", *patch.PageIndex)), nil
 			}
+			if patch.PageIntent != nil {
+				return fixerToolError(fmt.Errorf("review patch must use content_plan.slide_intent instead of top-level page_intent")), nil
+			}
 		}
 	}
 	input.Mode = "patch"
@@ -88,14 +91,14 @@ func (t *draftTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJSON 
 
 type selectedTasksPatchTool struct {
 	workDir string
-	allowed map[int]bool
+	allowed map[string]bool
 }
 
-func newSelectedTasksPatchTool(workDir string, allowedPageIndexes []int) tool.InvokableTool {
-	allowed := make(map[int]bool, len(allowedPageIndexes))
-	for _, pageIndex := range allowedPageIndexes {
-		if pageIndex > 0 {
-			allowed[pageIndex] = true
+func newSelectedTasksPatchTool(workDir string, allowedTaskIDs []string) tool.InvokableTool {
+	allowed := make(map[string]bool, len(allowedTaskIDs))
+	for _, taskID := range allowedTaskIDs {
+		if taskID != "" {
+			allowed[taskID] = true
 		}
 	}
 	return &selectedTasksPatchTool{workDir: workDir, allowed: allowed}
@@ -113,11 +116,16 @@ func (t *selectedTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJS
 	if len(input.Tasks) == 0 {
 		return fixerToolError(fmt.Errorf("tasks must not be empty")), nil
 	}
+	manifest, err := ReadTasksManifest(t.workDir)
+	if err != nil {
+		return fixerToolError(fmt.Errorf("读取正式 DeckSpec 失败: %w", err)), nil
+	}
 	for _, patch := range input.Tasks {
 		if patch.PageIndex == nil || *patch.PageIndex <= 0 {
 			return fixerToolError(fmt.Errorf("selected task patch requires page_index")), nil
 		}
-		if !t.allowed[*patch.PageIndex] {
+		task := findTaskByPageIndex(manifest, *patch.PageIndex)
+		if task == nil || !t.allowed[task.TaskID] {
 			return fixerToolError(fmt.Errorf("page_index %d is not authorized for this fix", *patch.PageIndex)), nil
 		}
 	}
@@ -126,6 +134,18 @@ func (t *selectedTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJS
 		return "", err
 	}
 	return (&manifestTool{workDir: t.workDir}).InvokableRun(ctx, string(payload), opts...)
+}
+
+func findTaskByPageIndex(manifest *TasksManifest, pageIndex int) *TaskItem {
+	if manifest == nil {
+		return nil
+	}
+	for _, task := range manifest.Tasks {
+		if task != nil && task.PageIndex == pageIndex {
+			return task
+		}
+	}
+	return nil
 }
 
 func parseManifestPatchToolInput(argumentsInJSON string) (manifestToolInput, error) {

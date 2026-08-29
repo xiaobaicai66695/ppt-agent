@@ -18,6 +18,7 @@ package deck
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -101,22 +102,36 @@ func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedPa
 	return reviewer, nil
 }
 
-// NewPPTFixerAgent 创建生成后定点修复 Agent。allowedPageIndexes 是唯一允许修改的页面集合。
+// NewPPTFixerAgent 创建生成后定点修复 Agent。页码只用于旧调用方定位，
+// 在进入 Fixer 前会解析成 manifest 中稳定的 task_id。
 func NewPPTFixerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedPageIndexes []int) (adk.Agent, error) {
+	allowedTaskIDs, err := taskIDsForPageIndexes(cfg.WorkDir, allowedPageIndexes)
+	if err != nil {
+		return nil, err
+	}
+	return NewPPTFixerAgentForTasks(ctx, cfg, allowedTaskIDs)
+}
+
+// NewPPTFixerAgentForTasks 创建按 task_id 限权的生成后定点修复 Agent。
+// task_id 由服务端根据当前正式 manifest 解析，既是上下文切片也是 patch 授权边界。
+func NewPPTFixerAgentForTasks(ctx context.Context, cfg *PPTTaskConfig, allowedTaskIDs []string) (adk.Agent, error) {
 	chatModel, err := newPlanningChatModel(ctx, cfg, 16384)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Fixer 模型失败: %w", err)
+	}
+	taskSnapshot, _, err := buildFixerTaskSnapshot(cfg.WorkDir, allowedTaskIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	fixer, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "PPTFixer",
 		Description: "PPT 生成后定点修复代理，只修改用户指定页面的 DeckSpec 语义计划。",
 		Model:       chatModel,
-		Instruction: buildFixerInstruction(cfg),
+		Instruction: buildFixerInstruction(cfg, taskSnapshot),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{
-				newSelectedTasksPatchTool(cfg.WorkDir, allowedPageIndexes),
-				tools.NewReadFileTool(cfg.Operator),
+				newSelectedTasksPatchTool(cfg.WorkDir, allowedTaskIDs),
 			}},
 		},
 		MaxIterations: agentutils.EnvInt("PPT_FIXER_MAX_ITERATIONS", 8),
@@ -125,6 +140,77 @@ func NewPPTFixerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedPageIndexe
 		return nil, fmt.Errorf("创建 PPTFixer Agent 失败: %w", err)
 	}
 	return fixer, nil
+}
+
+func taskIDsForPageIndexes(workDir string, pageIndexes []int) ([]string, error) {
+	manifest, err := ReadTasksManifest(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("读取正式 DeckSpec 失败: %w", err)
+	}
+	pageSet := make(map[int]struct{}, len(pageIndexes))
+	for _, pageIndex := range pageIndexes {
+		if pageIndex > 0 {
+			pageSet[pageIndex] = struct{}{}
+		}
+	}
+	if len(pageSet) == 0 {
+		return nil, fmt.Errorf("Fixer 至少需要一个有效页面")
+	}
+
+	taskIDs := make([]string, 0, len(pageSet))
+	for _, task := range manifest.Tasks {
+		if task == nil {
+			continue
+		}
+		if _, ok := pageSet[task.PageIndex]; ok {
+			taskIDs = append(taskIDs, task.TaskID)
+			delete(pageSet, task.PageIndex)
+		}
+	}
+	if len(pageSet) > 0 {
+		return nil, fmt.Errorf("Fixer 目标页不存在于 tasks.json")
+	}
+	return taskIDs, nil
+}
+
+// buildFixerTaskSnapshot 只导出本轮授权 task_id 对应的原始任务 JSON，
+// 不向 Fixer 暴露整份 tasks.json。
+func buildFixerTaskSnapshot(workDir string, allowedTaskIDs []string) (string, []int, error) {
+	manifest, err := ReadTasksManifest(workDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("读取正式 DeckSpec 失败: %w", err)
+	}
+	allowed := make(map[string]struct{}, len(allowedTaskIDs))
+	for _, taskID := range allowedTaskIDs {
+		if taskID = strings.TrimSpace(taskID); taskID != "" {
+			allowed[taskID] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return "", nil, fmt.Errorf("Fixer 至少需要一个有效 task_id")
+	}
+
+	selected := make([]*TaskItem, 0, len(allowed))
+	pageIndexes := make([]int, 0, len(allowed))
+	for _, task := range manifest.Tasks {
+		if task == nil {
+			continue
+		}
+		if _, ok := allowed[task.TaskID]; ok {
+			selected = append(selected, task)
+			pageIndexes = append(pageIndexes, task.PageIndex)
+			delete(allowed, task.TaskID)
+		}
+	}
+	if len(allowed) > 0 {
+		return "", nil, fmt.Errorf("Fixer task_id 不存在于 tasks.json")
+	}
+
+	payload, err := json.Marshal(selected)
+	if err != nil {
+		return "", nil, fmt.Errorf("序列化 Fixer 任务快照失败: %w", err)
+	}
+	return string(payload), pageIndexes, nil
 }
 
 func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int) (model.ToolCallingChatModel, error) {
@@ -202,11 +288,11 @@ func buildReviewerInstruction(cfg *PPTTaskConfig) string {
 	return instruction
 }
 
-func buildFixerInstruction(cfg *PPTTaskConfig) string {
+func buildFixerInstruction(cfg *PPTTaskConfig, taskSnapshot string) string {
 	data := &prompts.TemplateData{
-		TasksJSON:    filepath.Join(cfg.WorkDir, "tasks.json"),
-		OutlineQuery: cfg.Query,
-		SkillsDir:    cfg.SkillsDir,
+		FixerTaskSnapshot: taskSnapshot,
+		OutlineQuery:      cfg.Query,
+		SkillsDir:         cfg.SkillsDir,
 	}
 	instruction, err := prompts.RenderFixer("master_instruction", data)
 	if err != nil {

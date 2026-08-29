@@ -114,6 +114,31 @@ func TestRouteMessageRequestRuleFallback(t *testing.T) {
 	}
 }
 
+func TestRouteTaskMessageRequestUsesConversationForDelegatedCreation(t *testing.T) {
+	server := &Server{}
+	got := server.routeTaskMessageRequest(
+		context.Background(),
+		"你决定主题和风格吧",
+		"task-qinggan",
+		"用户：我想做个青甘大环线的旅游项目介绍\n助手：我可以先帮你收敛主题、受众和呈现风格。",
+	)
+	if got.Intent != messageIntentCreate || got.Action != messageActionPrepareCreate || got.TaskID != "task-qinggan" {
+		t.Fatalf("route = %#v, want contextual create on the current task", got)
+	}
+}
+
+func TestFinalizeContextualDelegatedCreateRemovesClarificationGate(t *testing.T) {
+	got := finalizeContextualDelegatedCreate(MessageRouteResult{
+		Intent:            messageIntentCreate,
+		Action:            messageActionAskClarification,
+		NeedsConfirmation: true,
+		MissingFields:     []string{"topic", "style"},
+	}, "你决定主题和风格吧", "用户：我想做个青甘大环线的旅游项目介绍")
+	if got.Action != messageActionPrepareCreate || got.NeedsConfirmation || len(got.MissingFields) != 0 {
+		t.Fatalf("delegated create should start without clarification: %#v", got)
+	}
+}
+
 func TestNormalizeMessageRouteRequiresTaskForFix(t *testing.T) {
 	got := normalizeMessageRoute(MessageRouteResult{
 		Intent:     messageIntentFix,

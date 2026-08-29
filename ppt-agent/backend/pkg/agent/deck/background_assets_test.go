@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -219,6 +220,17 @@ func TestMaterializePlannedDeckAssetsCollapsesExistingBackgroundsWithoutClient(t
 	}
 	if manifest.Tasks[2].ContentPlan.VisualIntent.LocalPath != firstPath {
 		t.Fatalf("same content_type should reuse first background, got %q", manifest.Tasks[2].ContentPlan.VisualIntent.LocalPath)
+	}
+}
+
+func TestMissingMaterializedBackgroundPagesRejectsQueryOnlyPlan(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &TasksManifest{Tasks: []*TaskItem{
+		{TaskID: "page-1", PageIndex: 1, ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "industry"}}},
+		{TaskID: "page-2", PageIndex: 2, ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{Role: "clean_text_only"}}},
+	}}
+	if got := missingMaterializedBackgroundPages(workDir, manifest); !reflect.DeepEqual(got, []int{1}) {
+		t.Fatalf("missing background pages = %#v, want [1]", got)
 	}
 }
 

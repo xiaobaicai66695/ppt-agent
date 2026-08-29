@@ -1,7 +1,7 @@
 // ── Status types ────────────────────────────────────────────────────────────
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
-export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'conversation' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type SSEEventType =
   | 'answer'
   | 'answer_end'
@@ -215,6 +215,7 @@ export interface LogLine {
 // ── Status helpers ──────────────────────────────────────────────────────────
 
 export const STATUS_LABELS: Record<string, string> = {
+  conversation: '对话中',
   pending: '待生成',
   generating: '生成中',
   done: '已完成',

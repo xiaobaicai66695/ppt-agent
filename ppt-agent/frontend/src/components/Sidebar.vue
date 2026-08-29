@@ -36,7 +36,7 @@ function fmtTokens(value: number): string {
 }
 
 function statusLabel(status: string): string {
-  return ({ running: '运行中', completed: '已完成', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status] || status;
+  return ({ conversation: '对话中', running: '运行中', completed: '已完成', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status] || status;
 }
 
 </script>
@@ -126,6 +126,7 @@ function statusLabel(status: string): string {
 .task-meta { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); font-size: 10px; }
 .task-meta > span { display: inline-flex; align-items: center; gap: 4px; }
 .task-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
+.task-state.conversation { color: var(--text-secondary); }.task-state.conversation i { background: var(--text-secondary); }
 .task-state.running { color: var(--info); }.task-state.running i { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
 .task-state.completed { color: var(--success); }.task-state.completed i { background: var(--success); }
 .task-state.failed { color: var(--danger); }.task-state.failed i { background: var(--danger); }

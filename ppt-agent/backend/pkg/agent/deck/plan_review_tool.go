@@ -88,15 +88,16 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 			Message:  err.Error(),
 		})
 	}
+	backgroundMode := manifestBackgroundMode(manifest)
 	for _, task := range manifest.Tasks {
-		reviewTaskPlan(task, report)
+		reviewTaskPlan(task, report, backgroundMode)
 	}
 	reviewDeckBackgroundVariety(manifest, report)
 	reviewDeckVisualMix(manifest, report)
 	return finalizePlanReviewReport(report, manifest)
 }
 
-func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
+func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode string) {
 	if task == nil {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "invalid_component_schema", Severity: "error", Message: "存在空页面任务。"})
 		return
@@ -124,12 +125,16 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 	if len(plan.Components) > 0 && !hasNarrativeAnchor(plan.Components) {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "warning", PageIndex: page, Message: "组件缺少 headline、insight、recommendation 或 argument_block 等观点锚点，容易退化为罗列。"})
 	}
-	if !hasUsableBackgroundPlan(task) {
+	if !hasUsableBackgroundPlan(task) && backgroundMode != "none" {
+		severity := "error"
+		if backgroundMode == "optional" {
+			severity = "warning"
+		}
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:      "missing_background_image",
-			Severity:  "warning",
+			Severity:  severity,
 			PageIndex: page,
-			Message:   "页面缺少可执行背景图片计划；如当前任务需要视觉背景，应在 visual_intent 或 image 组件中使用 asset_purpose=background，并填写 asset_query 或已下载 local_path。",
+			Message:   "页面缺少可执行背景图片计划；必须在 visual_intent 或 image 组件中使用 asset_purpose=background，并填写 asset_query 或已下载 local_path。仅显式 clean_text_only 页面可豁免。",
 		})
 	} else {
 		report.BackgroundPages++
@@ -186,6 +191,19 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport) {
 				Message:   fmt.Sprintf("%s 页面正文组件总量当前约 %d 字，少于 %d 字；需要补足背景、事实、影响和结论，避免大面积文本面板空洞。", task.ContentType, narrativeChars, informationPageNarrativeMinChars),
 			})
 		}
+	}
+}
+
+func manifestBackgroundMode(manifest *TasksManifest) string {
+	if manifest == nil || manifest.VisualPolicy == nil {
+		return "required"
+	}
+	mode := strings.ToLower(strings.TrimSpace(manifest.VisualPolicy.Mode))
+	switch mode {
+	case "none", "optional", "required":
+		return mode
+	default:
+		return "required"
 	}
 }
 

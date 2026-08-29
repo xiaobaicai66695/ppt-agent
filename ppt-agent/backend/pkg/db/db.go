@@ -135,6 +135,19 @@ func CreateTaskRecord(r *TaskRecord) error {
 	return DB.Create(r).Error
 }
 
+// UpsertTaskRecord persists a task that may already have been created as a
+// conversation.  A conversation task is promoted in-place when the user later
+// decides to generate a deck, so inserting a second row with the same task ID
+// would otherwise fail and leave the durable task state stale.
+func UpsertTaskRecord(r *TaskRecord) error {
+	if DB == nil {
+		return nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	return DB.WithContext(ctx).Save(r).Error
+}
+
 // UpdateTaskRecord 向可更新字段添加 conversation_content。
 func UpdateTaskRecord(id string, updates map[string]any) error {
 	return DB.Model(&TaskRecord{}).Where("id = ?", id).Updates(updates).Error

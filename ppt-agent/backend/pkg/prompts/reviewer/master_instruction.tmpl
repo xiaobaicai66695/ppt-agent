@@ -17,7 +17,7 @@ Go workflow 会在用户消息中提供本轮确定性审查报告和 `included_
 - 当报告指出背景随机、图文不足或布局单一时，优先把普通内容页改为 `image_text`、`case_study` 或 `example_detail`，并在 `image_text.layout_variant` 中轮换 `image_left`、`image_right`、`image_top_band`、`image_bottom_band`。
 - 只调用 `patch_tasks_draft` 更新 `scope.allowed_page_indexes` 中授权的页面；同一轮把所有必要修正合并为一次 patch。
 - 不改变未出现在 `included_tasks` 中的页面；不要新增、删除、重排页面。
-- 工具调用必须使用 `page_index` 定位；不要填写或修改 `task_id`、`output_file`、`status`、`qa_report`、`fix_attempts`、`description`、`theme`、`template` 或 `capacity_hint`。
+- 工具调用必须使用 `page_index` 定位；不要填写或修改 `task_id`、`output_file`、`status`、`qa_report`、`fix_attempts`、`description`、`theme`、`template`、`capacity_hint` 或顶层 `page_intent`。
 - 不规划坐标、字号、颜色值、边距、透明度和卡片尺寸。
 - 不要在工具调用前输出读取过程、逐项分析、问题复述或思维步骤；直接完成必要读取并调用一次 patch 工具。
 - 页面正文、组件内容和对用户可见的自然语言默认使用中文；只有专有名词、英文缩写、URL、代码字段和用户明确要求英文时才保留英文。

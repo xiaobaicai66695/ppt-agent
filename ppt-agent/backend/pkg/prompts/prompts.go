@@ -58,6 +58,7 @@ func parseWithFuncs(pattern string) (*template.Template, error) {
 type TemplateData struct {
 	SkillsDir            string
 	TasksJSON            string
+	FixerTaskSnapshot    string
 	OutlineQuery         string
 	ImageSearchAvailable bool
 }

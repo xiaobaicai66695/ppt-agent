@@ -55,13 +55,13 @@ func TestReviewerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
 		t.Fatal("reviewer prompt should not include generated-deck fixer")
 	}
 
-	fixer := buildFixerInstruction(cfg)
-	for _, want := range []string{"PPTFixer", "PPT 已生成后", "patch_selected_tasks", "不修改未授权页面"} {
+	fixer := buildFixerInstruction(cfg, `[{"task_id":"slide-2","page_index":2,"title":"目标页"}]`)
+	for _, want := range []string{"PPTFixer", "PPT 已生成后", "patch_selected_tasks", "不修改未授权页面", "slide-2", "不得读取完整 tasks.json"} {
 		if !strings.Contains(fixer, want) {
 			t.Fatalf("fixer prompt missing %q", want)
 		}
 	}
-	if strings.Contains(fixer, "tasks.draft.json") {
-		t.Fatal("fixer must only consume the committed tasks.json")
+	if strings.Contains(fixer, "/tmp/work/tasks.json") || strings.Contains(fixer, "tasks.draft.json") {
+		t.Fatal("fixer must only consume its selected task snapshot")
 	}
 }

@@ -219,6 +219,52 @@ func collectDeckBackgroundTargets(workDir string, manifest *TasksManifest) ([]pl
 	return targets, nil
 }
 
+// missingMaterializedBackgroundPages returns every non-text-only page whose
+// planned background is still unavailable locally after asset materialization.
+// Rendering must not silently turn those pages into plain backgrounds.
+func missingMaterializedBackgroundPages(workDir string, manifest *TasksManifest) []int {
+	if manifest == nil || manifestBackgroundMode(manifest) != "required" {
+		return nil
+	}
+	absWorkDir, err := filepath.Abs(strings.TrimSpace(workDir))
+	if err != nil {
+		return nil
+	}
+	missing := make([]int, 0)
+	for _, task := range manifest.Tasks {
+		if task == nil || task.ContentPlan == nil || isExplicitCleanTextOnly(task) {
+			continue
+		}
+		if !hasMaterializedBackgroundAsset(absWorkDir, task) {
+			missing = append(missing, task.PageIndex)
+		}
+	}
+	return missing
+}
+
+func isExplicitCleanTextOnly(task *TaskItem) bool {
+	return task != nil && task.ContentPlan != nil && task.ContentPlan.VisualIntent != nil &&
+		strings.EqualFold(strings.TrimSpace(task.ContentPlan.VisualIntent.Role), "clean_text_only")
+}
+
+func hasMaterializedBackgroundAsset(absWorkDir string, task *TaskItem) bool {
+	if task == nil || task.ContentPlan == nil {
+		return false
+	}
+	if visual := task.ContentPlan.VisualIntent; visual != nil && isBackgroundPlan(visual.AssetPurpose, visual.ImagePosition, visual.Role) &&
+		taskLocalAssetExists(absWorkDir, visual.LocalPath) {
+		return true
+	}
+	for index := range task.ContentPlan.Components {
+		component := &task.ContentPlan.Components[index]
+		if component.Type == "image" && isBackgroundPlan(component.AssetPurpose, "", component.Role) &&
+			taskLocalAssetExists(absWorkDir, component.LocalPath) {
+			return true
+		}
+	}
+	return false
+}
+
 func materializePlannedBackgroundsWithClient(ctx context.Context, workDir string, targets []plannedBackgroundTarget, client backgroundAssetClient) (int, error) {
 	if len(targets) == 0 {
 		return 0, nil

@@ -73,16 +73,16 @@ func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContex
 	}
 	// Only hydrate pages selected for this render pass. The task pointers are shared
 	// with deck.Manifest, so successful metadata is still persisted to tasks.json.
-	pendingManifest := &TasksManifest{Tasks: deck.Tasks}
+	pendingManifest := &TasksManifest{Tasks: deck.Tasks, VisualPolicy: deck.Manifest.VisualPolicy}
 	counts, err := MaterializePlannedDeckAssets(ctx, deck.Config.WorkDir, pendingManifest)
 	if errors.Is(err, unsplash.ErrMissingAccessKey) {
-		if deck.Config.RuntimeMeta != nil {
-			deck.Config.RuntimeMeta.RecordPhase("compiling", "图片搜索未配置，保留可执行图片查询词并继续渲染")
-		}
-		return deck, nil
+		return nil, fmt.Errorf("图片素材服务未配置，无法交付带背景图片的 PPT: %w", err)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("materialize planned deck assets: %w", err)
+	}
+	if missingPages := missingMaterializedBackgroundPages(deck.Config.WorkDir, pendingManifest); len(missingPages) > 0 {
+		return nil, fmt.Errorf("背景图片未物化到本地，拒绝交付无背景 PPT：第 %s 页", formatPageIndexes(missingPages))
 	}
 	if counts.Backgrounds == 0 && counts.Images == 0 {
 		return deck, nil
@@ -97,6 +97,14 @@ func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContex
 		)
 	}
 	return deck, nil
+}
+
+func formatPageIndexes(pageIndexes []int) string {
+	values := make([]string, 0, len(pageIndexes))
+	for _, pageIndex := range pageIndexes {
+		values = append(values, strconv.Itoa(pageIndex))
+	}
+	return strings.Join(values, ",")
 }
 
 func validateDeckRenderInput(ctx context.Context, input *deckRenderInput) (*deckRenderContext, error) {

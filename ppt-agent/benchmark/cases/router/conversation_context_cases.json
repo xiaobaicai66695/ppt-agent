@@ -1,0 +1,26 @@
+[
+  {
+    "id": "router_contextual_create_001",
+    "name": "同一会话中授权 Agent 决定青甘大环线演示主题和风格",
+    "input": {
+      "user_message": "你决定主题和风格吧",
+      "has_existing_task": false,
+      "conversation_context": [
+        "用户：我想做个青甘大环线的旅游项目介绍",
+        "助手：可以先补充受众、主题和风格，也可以授权我来决定。"
+      ]
+    },
+    "expected": {
+      "intent": "create_deck",
+      "target_agent": "PPTPlanner",
+      "task_id": "benchmark-conversation-task",
+      "action": "prepare_create",
+      "must_preserve": ["青甘大环线", "同一任务 ID"]
+    },
+    "judge_focus": [
+      "是否将授权决定主题和风格识别为基于历史主题的创建请求",
+      "是否保留当前会话任务 ID，而非按第二句话创建无关演示",
+      "是否进入 PPTPlanner 创建准备链路"
+    ]
+  }
+]

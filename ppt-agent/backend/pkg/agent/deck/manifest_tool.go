@@ -64,8 +64,9 @@ var plannerManifestToolInfo = &schema.ToolInfo{
 	Name: "update_tasks_manifest",
 	Desc: "一次性初始化完整 DeckSpec 规划草稿。Planner 只能使用 initialize，审查、修订和提交由后续阶段负责。",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-		"mode":  {Type: schema.String, Required: true, Desc: "固定填写 initialize"},
-		"title": {Type: schema.String, Desc: "PPT 标题；缺省时系统会从任务上下文推断"},
+		"mode":          {Type: schema.String, Required: true, Desc: "固定填写 initialize"},
+		"title":         {Type: schema.String, Desc: "PPT 标题；缺省时系统会从任务上下文推断"},
+		"visual_policy": {Type: schema.Object, Desc: "整套视觉素材策略；mode 为 required/optional/none，常规生成保持 required"},
 		"tasks": {
 			Type:     schema.Array,
 			Required: true,
@@ -88,19 +89,21 @@ type manifestTaskPatch struct {
 }
 
 type manifestToolInput struct {
-	Mode        string              `json:"mode"`
-	Title       string              `json:"title,omitempty"`
-	ContentBank map[string]any      `json:"content_bank,omitempty"`
-	Sections    []DeckSection       `json:"sections,omitempty"`
-	Tasks       []manifestTaskPatch `json:"tasks"`
+	Mode         string              `json:"mode"`
+	Title        string              `json:"title,omitempty"`
+	ContentBank  map[string]any      `json:"content_bank,omitempty"`
+	Sections     []DeckSection       `json:"sections,omitempty"`
+	VisualPolicy *VisualPolicy       `json:"visual_policy,omitempty"`
+	Tasks        []manifestTaskPatch `json:"tasks"`
 }
 
 type manifestToolRawInput struct {
-	Mode        string          `json:"mode"`
-	Title       string          `json:"title,omitempty"`
-	ContentBank map[string]any  `json:"content_bank,omitempty"`
-	Sections    []DeckSection   `json:"sections,omitempty"`
-	Tasks       json.RawMessage `json:"tasks"`
+	Mode         string          `json:"mode"`
+	Title        string          `json:"title,omitempty"`
+	ContentBank  map[string]any  `json:"content_bank,omitempty"`
+	Sections     []DeckSection   `json:"sections,omitempty"`
+	VisualPolicy *VisualPolicy   `json:"visual_policy,omitempty"`
+	Tasks        json.RawMessage `json:"tasks"`
 }
 
 type manifestTool struct {
@@ -225,7 +228,8 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 func hasManifestHeaderPatch(input manifestToolInput) bool {
 	return strings.TrimSpace(input.Title) != "" ||
 		input.ContentBank != nil ||
-		input.Sections != nil
+		input.Sections != nil ||
+		input.VisualPolicy != nil
 }
 
 func manifestToolRecoverableError(mode, target string, err error) string {
@@ -504,7 +508,7 @@ func parseManifestToolInput(argumentsInJSON string) (manifestToolInput, error) {
 	}
 	input := manifestToolInput{
 		Mode: raw.Mode, Title: raw.Title, ContentBank: raw.ContentBank,
-		Sections: raw.Sections, Tasks: tasks,
+		Sections: raw.Sections, VisualPolicy: raw.VisualPolicy, Tasks: tasks,
 	}
 	return input, nil
 }
@@ -641,7 +645,7 @@ func (t *manifestTool) initializeManifest(input manifestToolInput) (*TasksManife
 	if title == "" {
 		return nil, fmt.Errorf("title is required in initialize mode and could not be inferred from query or tasks")
 	}
-	manifest := &TasksManifest{Title: title, ContentBank: input.ContentBank, Sections: input.Sections}
+	manifest := &TasksManifest{Title: title, ContentBank: input.ContentBank, Sections: input.Sections, VisualPolicy: input.VisualPolicy}
 	seen := make(map[string]bool, len(input.Tasks))
 	for _, patch := range input.Tasks {
 		if patch.PageIndex == nil || patch.Title == nil || patch.ContentType == nil || patch.ContentPlan == nil {
@@ -757,6 +761,9 @@ func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*Ta
 	}
 	if input.Sections != nil {
 		manifest.Sections = input.Sections
+	}
+	if input.VisualPolicy != nil {
+		manifest.VisualPolicy = input.VisualPolicy
 	}
 	for _, patch := range input.Tasks {
 		var item *TaskItem

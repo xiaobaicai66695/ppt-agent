@@ -192,6 +192,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	tasks.Use(s.authMiddleware())
 	{
 		tasks.POST("", s.handleCreateTask)
+		tasks.POST("/:id/start", s.taskOwnershipMiddleware(), s.handleStartConversationTask)
 		tasks.GET("", s.handleListTasks)
 		tasks.GET("/:id", s.taskOwnershipMiddleware(), s.handleGetTask)
 		tasks.GET("/:id/stream", s.taskOwnershipMiddleware(), s.handleStreamTask)

@@ -71,10 +71,21 @@ type CompressorConfig = agentutils.CompressorConfig
 
 // TasksManifest PPT 任务清单
 type TasksManifest struct {
-	Title       string         `json:"title"`
-	ContentBank map[string]any `json:"content_bank,omitempty"`
-	Sections    []DeckSection  `json:"sections,omitempty"`
-	Tasks       []*TaskItem    `json:"tasks"`
+	Title        string         `json:"title"`
+	ContentBank  map[string]any `json:"content_bank,omitempty"`
+	Sections     []DeckSection  `json:"sections,omitempty"`
+	VisualPolicy *VisualPolicy  `json:"visual_policy,omitempty"`
+	Tasks        []*TaskItem    `json:"tasks"`
+}
+
+// VisualPolicy declares whether this deck requires external visual assets.
+// Missing policy defaults to required so regular decks cannot silently lose
+// their backgrounds; mode=none is an explicit benchmark/test exemption.
+type VisualPolicy struct {
+	Mode          string   `json:"mode,omitempty"` // required | optional | none
+	MinImagePages int      `json:"min_image_pages,omitempty"`
+	RequiredRoles []string `json:"required_roles,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
 }
 
 type TaskItem struct {

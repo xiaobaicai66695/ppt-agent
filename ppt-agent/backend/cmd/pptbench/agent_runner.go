@@ -37,6 +37,10 @@ func executeAgent(ctx context.Context, suite string, c benchCase, opt options, c
 
 func runRouterCase(ctx context.Context, out *agentOutput, input caseInput) {
 	message := firstNonEmpty(input.UserMessage, input.UserRequest)
+	if len(input.ConversationContext) > 0 {
+		out.Output = web.ClassifyTaskMessageForBenchmark(ctx, message, "benchmark-conversation-task", strings.Join(input.ConversationContext, "\n"), benchmarkAPIKey())
+		return
+	}
 	if input.HasExistingTask {
 		out.Output = web.ClassifyContinueIntentForBenchmark(ctx, message, input.TasksSummary, benchmarkAPIKey())
 		return

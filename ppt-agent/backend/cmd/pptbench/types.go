@@ -28,17 +28,18 @@ type benchCase struct {
 }
 
 type caseInput struct {
-	UserRequest        string                 `json:"user_request"`
-	UserMessage        string                 `json:"user_message"`
-	HasOutline         bool                   `json:"has_outline"`
-	HasExistingTask    bool                   `json:"has_existing_task"`
-	TasksSummary       string                 `json:"tasks_summary"`
-	DraftTasks         *deck.TasksManifest    `json:"draft_tasks"`
-	BaseTasks          *deck.TasksManifest    `json:"base_tasks"`
-	ReviewIssues       []deck.PlanReviewIssue `json:"review_issues"`
-	AllowedPageIndexes []int                  `json:"allowed_page_indexes"`
-	SourceMaterials    []any                  `json:"source_materials"`
-	Requirements       []string               `json:"requirements"`
+	UserRequest         string                 `json:"user_request"`
+	UserMessage         string                 `json:"user_message"`
+	HasOutline          bool                   `json:"has_outline"`
+	HasExistingTask     bool                   `json:"has_existing_task"`
+	TasksSummary        string                 `json:"tasks_summary"`
+	ConversationContext []string               `json:"conversation_context"`
+	DraftTasks          *deck.TasksManifest    `json:"draft_tasks"`
+	BaseTasks           *deck.TasksManifest    `json:"base_tasks"`
+	ReviewIssues        []deck.PlanReviewIssue `json:"review_issues"`
+	AllowedPageIndexes  []int                  `json:"allowed_page_indexes"`
+	SourceMaterials     []any                  `json:"source_materials"`
+	Requirements        []string               `json:"requirements"`
 }
 
 type agentOutput struct {

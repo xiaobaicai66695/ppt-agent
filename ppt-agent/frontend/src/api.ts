@@ -146,6 +146,16 @@ export async function createTask(query: string): Promise<TaskInfo> {
   return res.json();
 }
 
+// Promote an existing workbench conversation into a PPT generation task while
+// retaining its task ID and persisted conversation history.
+export async function startTask(id: string): Promise<TaskInfo> {
+  const res = await checkResponse(await apiFetch(`/api/tasks/${id}/start`, {
+    method: 'POST',
+    headers: authHeaders(),
+  }));
+  return res.json();
+}
+
 export async function fetchTask(id: string): Promise<TaskInfo> {
   const res = await checkResponse(await apiFetch(`/api/tasks/${id}`, { headers: authHeaders() }));
   return res.json();

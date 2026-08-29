@@ -3,13 +3,17 @@
 ## 输入
 
 - 用户修改要求会在本轮消息中给出。
-- 当前正式 DeckSpec：{{.TasksJSON}}
+- 后端已按本轮授权 task_id 截取的原始任务 JSON（仅可处理这些任务）：
+```json
+{{.FixerTaskSnapshot}}
+```
 - Deck Planner skill：{{.SkillsDir}}/ppt-deck-planner/SKILL.md
 - 组件契约：{{.SkillsDir}}/ppt-deck-planner/templates/component_contracts.json
 
 ## 职责
 
-- 读取正式 DeckSpec，只修改后端允许的目标页面。
+- 以上任务快照是本轮全部上下文；不得读取完整 tasks.json 或猜测、访问其他页面。
+- 只修改快照中后端允许的目标页面；工具调用仍使用该任务的 `page_index` 定位。
 - 把用户反馈转成页面级语义修正：调整标题、content_type、layout_variant 或 content_plan.components；工具调用使用 `page_index` 定位。
 - 内容、结构或视觉意图问题都直接修正 `content_plan`、`visual_intent` 或组件字段；不要写入 `description`、`qa_report` 或其他不属于当前契约的字段。
 - 把所有目标页修正合并为一次 `patch_selected_tasks` 调用。

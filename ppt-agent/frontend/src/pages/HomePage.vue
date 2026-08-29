@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowRight, Clock3, LayoutPanelTop, LoaderCircle, Sparkles, WandSparkles } from 'lucide-vue-next';
 import AppShell from '../components/AppShell.vue';
-import { createTask, isLoggedIn, routeMessage } from '../api';
+import { isLoggedIn, routeMessage, startTask } from '../api';
 import { authState } from '../stores/auth';
 
 type CreationMode = 'planned' | 'custom';
@@ -40,23 +40,22 @@ async function startCreation() {
     const routed = await routeMessage(query, '', activeMode.value);
     activeMode.value = routed.mode;
     if (routed.intent === 'chat' || routed.action === 'reply') {
-      intentNotice.value = routed.reply || '这是普通对话，不会创建 PPT 任务。';
+      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
       return;
     }
     if (routed.intent === 'plan' || routed.action === 'save_plan') {
-      await router.push({ path: '/compose', query: { brief: routed.normalized_request || query, mode: 'plan', draft: routed.draft_id || undefined } });
+      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
       return;
     }
     if (routed.intent === 'fix') {
-      const candidates = (routed.task_candidates || []).map(item => `- ${item.title || item.id} (${item.id})`).join('\n');
-      intentNotice.value = (routed.reply || '这是修复请求，请先在任务记录中选择要修改的 PPT。') + (candidates ? `\n\n最近可选任务：\n${candidates}` : '');
+      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
       return;
     }
     if (routed.needs_confirmation || routed.action === 'ask_clarification') {
-      intentNotice.value = routed.reply || '已识别为 PPT 意图，但还需要补充信息。';
+      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
       return;
     }
-    const task = await createTask(routed.normalized_request || query);
+    const task = await startTask(routed.task_id);
     await router.push({ path: '/dashboard', query: { select: task.id } });
   } catch (error) {
     createError.value = error instanceof Error ? error.message : '任务创建失败，请重试';

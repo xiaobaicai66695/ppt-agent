@@ -26,10 +26,11 @@ import (
 type TaskStatus string
 
 const (
-	TaskStatusRunning   TaskStatus = "running"
-	TaskStatusCompleted TaskStatus = "completed"
-	TaskStatusFailed    TaskStatus = "failed"
-	TaskStatusCancelled TaskStatus = "cancelled"
+	TaskStatusConversation TaskStatus = "conversation"
+	TaskStatusRunning      TaskStatus = "running"
+	TaskStatusCompleted    TaskStatus = "completed"
+	TaskStatusFailed       TaskStatus = "failed"
+	TaskStatusCancelled    TaskStatus = "cancelled"
 )
 
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
@@ -513,6 +514,7 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		ConversationID:      mysqlSafeText(info.ConversationID),
 		SourceMessageID:     mysqlSafeText(info.SourceMessageID),
 		ParentTaskID:        mysqlSafeText(info.ParentTaskID),
+		CreatedAt:           info.CreatedAt,
 	}
 }
 
@@ -672,6 +674,10 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		return nil, err
 	}
 
+	createdAt := time.Now()
+	if existing := tm.GetTask(cfg.TaskID); existing != nil && !existing.CreatedAt.IsZero() {
+		createdAt = existing.CreatedAt
+	}
 	ts := &TaskState{
 		Info: TaskInfo{
 			ID:              cfg.TaskID,
@@ -679,7 +685,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 			Query:           query,
 			Status:          TaskStatusRunning,
 			WorkDir:         workDir,
-			CreatedAt:       time.Now(),
+			CreatedAt:       createdAt,
 			Intent:          cfg.Intent,
 			ConversationID:  cfg.ConversationID,
 			SourceMessageID: cfg.SourceMessageID,
@@ -733,7 +739,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	metrics.RecordTaskCreated()
 
 	if db.DB != nil {
-		if err := db.CreateTaskRecord(taskInfoToRecord(&ts.Info)); err != nil {
+		if err := db.UpsertTaskRecord(taskInfoToRecord(&ts.Info)); err != nil {
 			logger.Error("task_create_persist_failed", "error", err.Error())
 		}
 	}
@@ -741,6 +747,52 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	go tm.runAgent(agentCtx, ts, agent, cfg, query)
 
 	return &ts.Info, nil
+}
+
+// CreateConversationTask allocates the durable task identity used by the
+// workbench before a user has committed to PPT generation.
+func (tm *TaskManager) CreateConversationTask(taskID, query string, userID int) (*TaskInfo, error) {
+	workDir := filepath.Join(tm.baseDir, fmt.Sprintf("%d-%s", userID, taskID))
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return nil, err
+	}
+	ts := &TaskState{Info: TaskInfo{
+		ID: taskID, UserID: userID, Query: query, Status: TaskStatusConversation,
+		WorkDir: workDir, CreatedAt: time.Now(), Intent: "conversation", ConversationID: taskID,
+	}, listeners: make(map[string]chan SSERichEvent), reportedFiles: make(map[string]bool), assistantTurnFn: tm.onAssistantTurn}
+	tm.mu.Lock()
+	tm.tasks[taskID] = ts
+	tm.mu.Unlock()
+	if db.DB != nil {
+		if err := db.CreateTaskRecord(taskInfoToRecord(&ts.Info)); err != nil {
+			return nil, err
+		}
+	}
+	info := ts.SnapshotInfo()
+	return &info, nil
+}
+
+// StartConversationTask promotes a durable workbench conversation into a PPT
+// generation task without changing its identity.  The conversation messages
+// remain associated with taskID and are used by the caller to build the planner
+// input.
+func (tm *TaskManager) StartConversationTask(ctx context.Context, taskID, query string, userID int,
+	factory AgentFactory, cfg *deck.PPTTaskConfig) (*TaskInfo, error) {
+	current := tm.GetTask(taskID)
+	if current == nil || current.UserID != userID {
+		return nil, os.ErrNotExist
+	}
+	if current.Status == TaskStatusRunning {
+		return nil, ErrTaskAlreadyRunning
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("任务配置不能为空")
+	}
+	cfg.TaskID = taskID
+	if strings.TrimSpace(cfg.ConversationID) == "" {
+		cfg.ConversationID = taskID
+	}
+	return tm.CreateTask(ctx, query, userID, factory, cfg)
 }
 
 func firstRuntimeDetail(values ...string) string {
