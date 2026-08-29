@@ -23,6 +23,7 @@
 - 健康检查 `/api/health` 返回 200，启动日志包含 `mysql_connected`、`deck_planner_skill_ready dir=/ppt/skills`。
 - Skill 同步到 `/ppt/skills/ppt-deck-planner` 与 `/ppt/ppt-agent/skills/ppt-deck-planner`，避免 Planner 的运行时 Skill 根目录与生成器目录脱节。
 - 受保护 API 冒烟：首条青甘大环线描述获得任务 ID；“你决定主题和风格吧”返回同一 ID、`intent=create`、`action=prepare_create`；会话记录存在多条 turn，`/api/tasks/:id/start` 返回 202。冒烟任务随后取消并删除，远端发布临时包已清理。
+- 发布后修正：初次重启的工作目录为项目根，导致 `FrontendDir` 解析错误，`/` 和 `/dashboard` 返回 404；已于 2026-08-29 16:06（Asia/Shanghai）从 `/ppt/ppt-agent/backend` 重启。现 PID 为 `340796`，`/`、`/dashboard`、`/api/health` 均返回 200，启动日志确认 `mysql_connected` 和 `deck_planner_skill_ready`。
 
 ## 已知边界
 
