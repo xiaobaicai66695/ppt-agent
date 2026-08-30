@@ -18,6 +18,7 @@ description: 规划可执行的 PPT DeckSpec/tasks.json，并用组件化 Python
 - 规划页面时读取 `templates/component_contracts.json` 和 `references/slide_types.md`。
 - 调用生成器或排查渲染问题时读取 `references/generators.md`。
 - 验证独立 skill 可用性时读取 `references/standalone-validation.md`。
+- 独立 Agent 需要使用 Unsplash 图片 CLI 时读取 `references/unsplash-cli.md`。
 - 需要可执行示例时读取 `examples/README.md`，再按需查看对应示例目录。
 - 只有在接入本仓库 `ppt-agent` Go 后端时，才读取 `references/ppt-agent-integration.md`。
 
@@ -59,16 +60,25 @@ Planner 应尽力一次性填写完整 DeckSpec 内容字段，包括：
 
 ## 图片与素材策略
 
-本 skill 不捆绑 `assets/` 目录，也不维护 `assets/manifest.json`。通用 Agent 可以使用自身联网能力搜索并下载网络图片；skill 不规定下载工具、图片来源或保存目录，只要求渲染前把真实可读的本地路径写入 DeckSpec。
+视觉策略由 DeckSpec 顶层 `visual_policy` 显式声明，是 Planner、素材解析器和渲染器共享的唯一契约。除非用户明确要求纯文字/无图片，新 deck 必须设置 `mode="required"`、`min_image_pages`（至少 1）和 `required_roles`，并为每个非豁免视觉页规划背景 `content_plan.visual_intent`；纯文字 deck 必须设置 `mode="none"` 并说明 `reason`，对应页面使用 `visual_intent.role="clean_text_only"`。不要用缺失字段暗示“无图”。
 
-- 要让图片进入 PPT，传入 `visual_intent.local_path`、`image.local_path`、`image_path` 或等价字段。
-- 图片保存在哪里由调用方或宿主 Agent 决定；skill 文档不规定任务目录结构。
-- 可以保留 `asset_query`、`asset_subject` 等语义字段供外部素材流程使用，但 Python generators 不直接联网搜索，也不从离线 manifest 解析 `asset:` id。
-- 不需要图片的页面应直接规划为文本、卡片、图表或浅色面板；一旦写入 `local_path`、`image_path`、`asset_path` 或旧 `asset:` id，就必须指向真实可读的本地文件，否则渲染应失败并暴露问题。
+Planner 只负责可执行的图片语义：背景图写入 `content_plan.visual_intent`；页内实景或证据图写成 `content_plan.components` 中的 `type="image"`。两种声明都应包含 `asset_purpose`、英文 `asset_query`、`asset_subject`、`composition` 和 `orientation`。一旦规划图片，则 `local_path`、`image_path`、`asset_path` 必须在渲染前指向真实可读的本地文件，禁止虚构路径或旧 `asset:` id。
+
+`scripts/` 下的 Unsplash CLI 只供 **ppt-agent 项目外的独立 Agent** 使用。项目内 Agent 必须使用后端既有素材搜索与下载链路，不能读取 skill 根目录的 `auth.txt` 或调用该 CLI。
+
+独立 Agent 首次使用时，在 skill 根目录以 Node.js 22+ 执行一次 `npm link`，即可注册本机 `unsplash` 命令。解析器会处理背景 `visual_intent` 和前景 `image` 组件；先完成完整 DeckSpec，再运行：
+
+```bash
+npm link
+unsplash auth
+unsplash fetch --work-dir <work-dir>
+```
+
+`unsplash auth` 会显示 `accessToken（输入后不会回显）:`；粘贴或输入 Access Key 后按 Enter，输入字符不可见是正常的保护行为。认证信息保存到 skill 根目录、已被 Git 忽略的 `auth.txt`。Access Key 在 Unsplash Developers 控制台创建应用后可获得；不要写入 `tasks.json`、日志、prompt、命令参数或仓库文件。下载成功后脚本会回写 `local_path`、`source_url`、`attribution` 和图片元数据。
 
 ## 校验与渲染入口
 
-渲染前先运行确定性预检：
+渲染前运行确定性预检：
 
 ```bash
 python generators/validate_deck.py --work-dir <work-dir> --skills-dir <skills-dir>
@@ -79,6 +89,8 @@ python generators/validate_deck.py --work-dir <work-dir> --skills-dir <skills-di
 ```bash
 python generators/render_deck.py --work-dir <work-dir> --skills-dir <skills-dir> --output deck.pptx
 ```
+
+独立 Agent 的固定顺序为：`视觉规划（含 visual_policy） → unsplash auth（首次） → unsplash fetch → validate_deck.py → render_deck.py → PDF/PNG 视觉验收`。`required` 策略下，遗漏下载或只写 query 会被预检和整套渲染入口拒绝；`none` 策略才可跳过素材解析。
 
 需要调试单页时使用 `generators/render_task.py`：
 

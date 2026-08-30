@@ -32,7 +32,7 @@ const auth = authState;
 
 const navItems = computed(() => {
   const items = [
-    { to: '/', label: '开始', icon: Home },
+    { to: '/', label: '对话', icon: Home },
     { to: '/compose', label: '编排', icon: PanelsTopLeft },
     { to: '/dashboard', label: '任务', icon: Presentation },
   ];
@@ -75,14 +75,14 @@ async function handleAuthAction() {
           <Sparkles :size="18" :stroke-width="2" />
         </span>
         <span class="brand-copy">
-          <strong>PPT Agent</strong>
-          <small>Presentation studio</small>
+          <strong>工作助手</strong>
+          <small>对话 · PPT</small>
         </span>
       </button>
 
       <button class="new-deck-button" type="button" @click="go('/compose')">
         <Plus :size="18" />
-        <span>新建演示</span>
+        <span>制作 PPT</span>
       </button>
 
       <nav class="rail-nav">

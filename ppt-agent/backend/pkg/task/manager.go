@@ -101,6 +101,10 @@ type TaskState struct {
 	pendingContinueMsg string
 	// pendingContinueQueued 已通知前端排队（避免重复通知）
 	pendingContinueQueued bool
+	// conversationStreamActive keeps a lightweight chat turn subscribable over
+	// SSE without changing the durable task status from "conversation" to
+	// "running". PPT generation still owns the running status.
+	conversationStreamActive bool
 
 	// fullAnswer 累积全部 LLM answer SSE 输出，任务结束时一次性存入 DB
 	fullAnswer      strings.Builder
@@ -126,6 +130,31 @@ func (ts *TaskState) LatestEventID() uint64 {
 	ts.Mu.Lock()
 	defer ts.Mu.Unlock()
 	return ts.nextEventID
+}
+
+// BeginConversationStream reserves this conversation for one streamed chat
+// turn and returns the replay cursor immediately before that turn.
+func (ts *TaskState) BeginConversationStream() (uint64, bool) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	if ts.Info.Status != TaskStatusConversation || ts.conversationStreamActive {
+		return ts.nextEventID, false
+	}
+	ts.conversationStreamActive = true
+	return ts.nextEventID, true
+}
+
+// FinishConversationStream marks the current lightweight chat turn terminal.
+func (ts *TaskState) FinishConversationStream() {
+	ts.Mu.Lock()
+	ts.conversationStreamActive = false
+	ts.Mu.Unlock()
+}
+
+func (ts *TaskState) IsConversationStreamActive() bool {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	return ts.conversationStreamActive
 }
 
 // ReplayAfterEventID returns the last event that closed a persisted assistant
@@ -398,7 +427,7 @@ func (ts *TaskState) SubscribeFrom(listenerID string, listenerCh chan SSERichEve
 		}
 	}
 
-	done := ts.Info.Status != TaskStatusRunning
+	done := ts.Info.Status != TaskStatusRunning && !ts.conversationStreamActive
 	if !done {
 		if ts.listeners == nil {
 			ts.listeners = make(map[string]chan SSERichEvent)

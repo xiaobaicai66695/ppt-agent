@@ -43,7 +43,7 @@ from generators import (
 | `prs` | `Optional[Presentation]` | `None` | 已有的 Presentation 对象，为 None 时自动创建 |
 | `palette` | `str` | `"ocean_soft"` | 基础配色名。新任务不由 Planner 写顶层 `theme`；带背景图页面由生成器从背景图提取弱化色系 token，用于面板、色块、分割线和强调装饰，正文文字仍使用可读文本 token |
 | `source` | `str` | `""` | **数据来源/参考资料**。传入非空字符串时，幻灯片底部渲染灰色小字来源行；长 URL 会自动缩写为链接数量提示。格式示例：`"来源: 国家统计局 2025年数据 | https://www.stats.gov.cn"` |
-| `background` | `str` | `""` | 显式本地图片路径；默认按 `cover` 等比铺满并允许边缘适度裁剪，所有背景自动模糊；为空时不使用背景图，非空但无效时直接失败 |
+| `background` | `str` | `""` | 可选的显式本地图片路径；为空时使用干净的无图布局。传入时生成器默认按 `cover` 等比铺满并允许边缘适度裁剪，所有背景自动模糊。 |
 
 > **强制要求**：使用 search 工具获取数据后，必须在 `source` 参数中列出信息来源 URL 和机构名称。
 
@@ -62,7 +62,7 @@ from generators import (
 | `contract.best_for` | string[] | 最适合的内容场景 |
 | `contract.avoid_for` | string[] | 应避免使用的内容场景 |
 | `contract.overflow_strategy` | string | 内容超量时的推荐动作，例如 `split_slide`、`reduce_series` |
-| `contract.background_policy` | string | 背景策略：`image_recommended`、`image_optional`、`clean_default` |
+| `contract.background_policy` | string | 页面视觉策略；整套 deck 仍以顶层 `visual_policy` 为准，常规 deck 必须物化背景或前景图，纯文字 deck 显式使用 `mode="none"`。 |
 | `contract.visual_primitives` | string[] | 首选视觉 primitives，例如 `local_icons`、`shapes`、`charts`、`cards` |
 | `variants` | object[] | 已有 generator 明确支持的 `layout_variant`。空数组表示 Planner 保持 `layout_variant` 为空，由组件布局引擎自适应。 |
 
@@ -88,11 +88,10 @@ from generators import (
 
 ## 图片与动态排版
 
-- 新规划通过 `image` 组件或 `visual_intent` 传入图片语义；真正进入 PPT 的图片必须带有效本地路径，例如 `local_path`、`image_path` 或等价字段。
-- 图片下载、保存位置、去重和路径写回由调用方或宿主 Agent 决定；生成器本身只消费本地文件，不直接访问图片 provider，也不读取离线 `assets/manifest.json`。
-- 只留下 `asset_query` / `asset_subject` 时，生成器不会联网搜索；这些字段仅供外部素材流程在渲染前解析并写回本地路径。若页面明确声明了 `image` 组件却没有有效本地路径，渲染应失败而不是生成占位图。
-- 生成器可以使用文字 glyph、几何形状、卡片、图表、分隔线和浅色块作为视觉元素；不依赖离线素材 manifest。
-- 图片署名写入 `caption`、`attribution` 或 `source`，保留 `source_url` 便于追溯。
+- 常规 deck 在每页 `visual_intent` 和需要前景图的 `image` 组件中声明图片语义，并在渲染前解析为有效的本地路径；只有显式 `visual_policy.mode="none"` 的页面可使用无图布局。
+- 图片搜索、下载、保存、来源和署名由调用方或宿主系统负责；生成器只消费本地文件，不直接访问图片 provider，也不读取离线 `assets/manifest.json`。
+- 若组件本身需要图片（如 `image_text`、`image_hero`），`asset_query` / `asset_subject` 必须在渲染前解析为真实 `local_path`；来源与署名应一并保留。
+- 文字 glyph、几何形状、卡片、图表和分隔线可作为无图页面的完整视觉表达；它们也可补充有图页面的信息层级。
 
 生成器辅助模块：
 
@@ -188,7 +187,7 @@ from generators import (
 | title | str | `"GPT-4多模态能力"` |
 | layout | str | `"right-image"` 或 `"left-image"` |
 | layout_variant | str | `"image_left"` / `"image_right"` / `"image_top_band"` / `"image_bottom_band"`；为空时 `render_task.py` / `render_deck.py` 或调用适配层按页序轮换 |
-| image_path | str | 显式本地图片路径；为空表示无图设计，非空但无效时直接失败 |
+| image_path | str | 显式本地图片路径；图文页必填，必须由调用方提前解析为真实文件 |
 | header | str | `"核心技术突破"` |
 | paragraph | str | `"300-450字的自然语言段落..."` **（强制，禁止拆分为 bullets）** |
 | bullets | `List[str]` | ~~（已废弃，勿用 paragraph 拆分后的 bullets）~~ |
@@ -197,7 +196,7 @@ from generators import (
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
-> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片时必须传真实本地路径；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
+> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片的页面必须传入真实本地文件；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
 > `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；正文过短时生成器会压缩文本面板高度并垂直居中，避免空白大框。
 
 ### 对比与并列类

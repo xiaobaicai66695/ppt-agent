@@ -21,7 +21,6 @@ def main() -> int:
     parser.add_argument("--work-dir", required=True)
     parser.add_argument("--skills-dir", required=True)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
-    parser.add_argument("--skip-validation", action="store_true")
     args = parser.parse_args()
 
     work_dir = Path(args.work_dir).resolve()
@@ -31,11 +30,10 @@ def main() -> int:
 
     manifest_path = work_dir / "tasks.json"
     contract_path = deck_planner_dir / "templates" / "component_contracts.json"
-    if not args.skip_validation:
-        validation = validate_deck.validate_manifest_file(manifest_path, contract_path, work_dir)
-        if not validation["ok"]:
-            print(json.dumps(validation, ensure_ascii=False, indent=2), file=sys.stderr)
-            return 1
+    validation = validate_deck.validate_manifest_file(manifest_path, contract_path, work_dir)
+    if not validation["ok"]:
+        print(json.dumps(validation, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
 
     from generators import (  # pylint: disable=import-error,import-outside-toplevel
         new_presentation,

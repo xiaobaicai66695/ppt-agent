@@ -216,6 +216,23 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("Photo by Demo on Unsplash", slide_xml)
+        self.assertRegex(slide_xml, r'<a:defRPr sz="1500"[^>]*>.*?<a:t>城市低空配送需要同时满足')
+
+    def test_card_grid_uses_larger_component_body_font(self):
+        cards = [
+            {"type": "feature_card", "title": "会发光的路线", "body": "不发纸质地图，而以微弱路标和短句提示引导方向，让参与者在步行中持续发现城市细节。"},
+            {"type": "feature_card", "title": "城市收音台", "body": "在巷口设置可短暂停留的耳机点，播放街头环境声和远处列车声，形成可带走的夜间声景。"},
+            {"type": "feature_card", "title": "慢闪灯箱", "body": "灯箱不播放广告，只显示参与者留下的匿名短句，并以缓慢节奏更新，让陌生人之间产生回应。"},
+            {"type": "feature_card", "title": "延迟邮筒", "body": "写好的明信片由工作人员统一收集并加盖日期邮戳，在参与者选择的未来日期重新投递。"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "card-grid.pptx"
+            prs = render_component_slide(palette="ocean_soft", title="夜晚共创组件", content_type="card_grid", components=cards)
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertRegex(slide_xml, r'<a:defRPr sz="1320"[^>]*>.*?<a:t>不发纸质地图')
 
     def test_image_text_rejects_legacy_asset_id(self):
         with self.assertRaisesRegex(ValueError, "legacy asset id is unsupported"):

@@ -13,7 +13,9 @@ Go workflow 会在用户消息中提供本轮确定性审查报告和 `included_
 ## 修正要求
 
 - 修正用户需求偏差、叙事断裂、信息密度过低或过载、非法组件、缺少事实/来源、布局与内容不匹配等问题。
-- 背景图片与 visual_intent 策略完全遵循 skill；Reviewer 不搜索、不下载素材。同一 `content_type` 只保留一个背景 `asset_query`，不同 `content_type` 可以有不同背景；背景 `asset_query` 尽量只写一个英文关键词，不写 `wide landscape`、`clean negative space` 或长构图描述。其余真实图片改为 `image` 组件的 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，用于图文混排。报告指出素材缺失时，只保留或修正可执行的短关键词，由 Planner/工具链或后续确定性流程处理。
+- 信息密度是阻断性质量门：`image_text` 的主正文至少 240 个中文字符；`content_slide`、`card_grid`、`two_column`、`three_column`、`case_study`、`example_detail`、`deep_dive`、`summary_slide`、`comparison_table`、`swot_analysis` 的正文组件合计至少 220 个中文字符；确有完整论述需求的 `argument_block` 必须为 440–840 个中文字符。标题、图片 caption、来源行不计入正文。报告出现 `low_information_density` error 时，必须在授权页面补充具体场景、事实、影响和结论，而不是仅换组件名、缩小文字或写泛化短句。
+- 即使报告本轮只点名 `weak_narrative`、素材或字段缺失，也要在每个授权信息页先检查上述正文密度硬门槛；若该页未达标，必须在同一次最小 patch 中一并补足原有正文，避免补完目标字段后仍留下会阻断提交的 `low_information_density` error。只扩充授权页中已有的正文组件，除非原组件无法承载事实与结论，不能借此重写页面结构。
+- 背景图片与 visual_intent 策略完全遵循 skill；Reviewer 不搜索、不下载素材。同一 `content_type` 只保留一个背景 `asset_query`，不同 `content_type` 可以有不同背景；背景 `asset_query` 必须恰好是一个英文单词（例如 `dashboard`、`logistics`、`nightscape`），不得写两个或更多单词，也不写 `wide landscape`、`clean negative space` 或长构图描述。具体对象写在 `asset_subject`，构图写在 `composition`。其余真实图片改为 `image` 组件的 `asset_purpose="scene"` 或 `asset_purpose="evidence"`，用于图文混排。报告指出素材缺失时，只保留或修正可执行的短关键词，由 Planner/工具链或后续确定性流程处理。
 - 当报告指出背景随机、图文不足或布局单一时，优先把普通内容页改为 `image_text`、`case_study` 或 `example_detail`，并在 `image_text.layout_variant` 中轮换 `image_left`、`image_right`、`image_top_band`、`image_bottom_band`。
 - 只调用 `patch_tasks_draft` 更新 `scope.allowed_page_indexes` 中授权的页面；同一轮把所有必要修正合并为一次 patch。
 - 不改变未出现在 `included_tasks` 中的页面；不要新增、删除、重排页面。

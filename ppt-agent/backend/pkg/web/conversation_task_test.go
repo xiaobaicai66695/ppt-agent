@@ -2,12 +2,15 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/session"
@@ -32,6 +35,106 @@ func TestTaskGenerationQueryRetainsInitialTopicAndFollowup(t *testing.T) {
 		if !strings.Contains(query, want) {
 			t.Fatalf("generation query %q does not retain %q", query, want)
 		}
+	}
+}
+
+func TestHandleMessageManualPPTModeOverridesGenericChatRoute(t *testing.T) {
+	previousDB := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = previousDB })
+
+	server := &Server{
+		tasks:          task.NewTaskManager(t.TempDir(), nil, nil, nil),
+		sessionManager: session.NewSessionManager(),
+		taskIDGen:      func() string { return "manual-ppt" },
+		textModelFactory: func(context.Context) (interface {
+			Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
+		}, error) {
+			return fakeCreateRouteModel{response: `{"intent":"chat","mode":"chat","action":"reply","confidence":0.95,"reply":"普通回答"}`}, nil
+		},
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/api/messages", bytes.NewBufferString(`{"message":"人工智能发展趋势","manual_mode":"pptagent"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req.WithContext(auth.WithUser(req.Context(), &db.User{ID: 7}))
+
+	server.handleMessage(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var route MessageRouteResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &route); err != nil {
+		t.Fatal(err)
+	}
+	if route.Intent != messageIntentCreate || route.Mode != messageModePPTAgent || route.Action != messageActionPrepareCreate {
+		t.Fatalf("manual PPT route = %#v, want create/pptagent/prepare_create", route)
+	}
+}
+
+func TestHandleMessageStreamsChatTurnOverTaskTimeline(t *testing.T) {
+	previousDB := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = previousDB })
+
+	manager := task.NewTaskManager(t.TempDir(), nil, nil, nil)
+	sessions := session.NewSessionManager()
+	manager.SetAssistantTurnCallback(func(taskID, workDir, content string) {
+		if err := sessions.GetOrCreate(taskID, workDir).AddAssistantMessage(content); err != nil {
+			t.Errorf("persist assistant turn: %v", err)
+		}
+	})
+	server := &Server{
+		tasks:          manager,
+		sessionManager: sessions,
+		taskIDGen:      func() string { return "chat-stream" },
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/api/messages", bytes.NewBufferString(`{"message":"你好"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req.WithContext(auth.WithUser(req.Context(), &db.User{ID: 7}))
+
+	server.handleMessage(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var route MessageRouteResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &route); err != nil {
+		t.Fatal(err)
+	}
+	if !route.Streaming || route.TaskID != "chat-stream" {
+		t.Fatalf("route = %#v, want streamed chat task", route)
+	}
+
+	ts := manager.GetTaskState(route.TaskID)
+	if ts == nil {
+		t.Fatal("chat task state was not created")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		events, done := ts.SubscribeFrom("test", make(chan task.SSERichEvent, 8), 0)
+		types := make(map[string]bool, len(events))
+		for _, event := range events {
+			types[event.Type] = true
+		}
+		if done && types["answer"] && types["answer_end"] && types["conversation_complete"] {
+			messages := sessions.Get(route.TaskID).GetRecentMessages(0)
+			assistantCount := 0
+			for _, message := range messages {
+				if message.Role == "assistant" {
+					assistantCount++
+				}
+			}
+			if assistantCount != 1 {
+				t.Fatalf("assistant messages = %d, want one durable streamed reply: %#v", assistantCount, messages)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("chat timeline did not close through SSE, events=%#v done=%v", events, done)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -79,7 +182,12 @@ func TestHandleMessageCreatesAndReusesConversationTask(t *testing.T) {
 		t.Fatalf("conversation task = %#v", info)
 	}
 	messages := server.sessionManager.Get(first.TaskID).GetRecentMessages(0)
-	if len(messages) < 2 || messages[0].Content != "我想做个青甘大环线的旅游项目介绍" || messages[len(messages)-1].Content != "你决定主题和风格吧" {
+	hasInitial, hasFollowup := false, false
+	for _, message := range messages {
+		hasInitial = hasInitial || message.Content == "我想做个青甘大环线的旅游项目介绍"
+		hasFollowup = hasFollowup || message.Content == "你决定主题和风格吧"
+	}
+	if !hasInitial || !hasFollowup {
 		t.Fatalf("messages = %#v", messages)
 	}
 	if _, code = call(`{"message":"越权访问","selected_task_id":"task-qinggan"}`, 8); code != http.StatusNotFound {

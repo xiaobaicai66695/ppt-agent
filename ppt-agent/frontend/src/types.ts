@@ -17,7 +17,8 @@ export type SSEEventType =
   | 'error'
   | 'complete'
   | 'continue_complete'
-  | 'continue_queued';
+  | 'continue_queued'
+  | 'conversation_complete';
 export type LogKind = 'answer' | 'tool' | 'worker' | 'file' | 'error' | 'divider';
 
 // ── Session types ────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ export interface ConversationSession {
   task_id: string;
   latest_event_id?: number;
   replay_after_event_id?: number;
+  conversation_streaming?: boolean;
   messages: ConversationMessage[];
   // 冷启动时从 task_records 重建的完整拼接内容。
   conversation_content?: string;

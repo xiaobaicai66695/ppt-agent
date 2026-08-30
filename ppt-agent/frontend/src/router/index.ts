@@ -8,7 +8,9 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: () => import('../pages/HomePage.vue'),
+      // The workbench starts in normal chat mode and exposes PPT generation
+      // as an explicit capability instead of making it the default action.
+      component: () => import('../pages/DashboardPage.vue'),
     },
     {
       path: '/auth',

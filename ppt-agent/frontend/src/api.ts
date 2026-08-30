@@ -276,6 +276,8 @@ export interface MessageRouteResult {
   reason?: string;
   reply?: string;
   task_candidates?: TaskCandidate[];
+  streaming?: boolean;
+  after_event_id?: number;
 }
 
 export interface TaskCandidate {
@@ -298,11 +300,17 @@ export interface PlanDraft {
   updated_at: string;
 }
 
-export async function routeMessage(message: string, selectedTaskId = '', manualMode: AgentMode = 'chat'): Promise<MessageRouteResult> {
+export async function routeMessage(
+  message: string,
+  selectedTaskId = '',
+  manualMode: AgentMode = 'chat',
+  webSearch = false,
+  imageSearch = false,
+): Promise<MessageRouteResult> {
 	const res = await checkResponse(await apiFetch('/api/messages', {
 		method: 'POST',
 		headers: authHeaders(),
-		body: JSON.stringify({ message, selected_task_id: selectedTaskId, manual_mode: manualMode }),
+		body: JSON.stringify({ message, selected_task_id: selectedTaskId, manual_mode: manualMode, web_search: webSearch, image_search: imageSearch }),
 	}));
   return res.json();
 }

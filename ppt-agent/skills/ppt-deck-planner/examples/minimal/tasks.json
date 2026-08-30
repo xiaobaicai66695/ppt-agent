@@ -1,6 +1,7 @@
 {
   "title": "独立 Skill 最小示例",
   "audience": "需要快速验证 PPT skill 的通用 Agent",
+  "visual_policy": {"mode": "none", "reason": "最小示例只验证文字与卡片渲染"},
   "tasks": [
     {
       "task_id": "slide_01",

@@ -407,9 +407,32 @@ def _render_workbench(
                 add_text(slide, clamp_text(caption, text_limit(caption_w - 0.28, caption_h - 0.25, 9.0, 0.95)), caption_left + 0.14, caption_top + 0.14, caption_w - 0.28, caption_h - 0.25, 9.0, color="secondary", palette=palette, colors=colors, min_font_size=7, max_font_size=False)
         text_side = [c for c in body_components if c.get("type") not in MEDIA_TYPES]
         if has_narrative_components(text_side):
-            _render_narrative_panel(slide, colors, palette, text_side, text_left, text_top, text_w, text_h, compact_short=content_type == "image_text")
+            _render_narrative_panel(
+                slide,
+                colors,
+                palette,
+                text_side,
+                text_left,
+                text_top,
+                text_w,
+                text_h,
+                compact_short=content_type == "image_text",
+                emphasize_body=content_type == "image_text",
+            )
         else:
-            _render_cards(slide, colors, palette, text_side, text_left, text_top, text_w, text_h, compact=True, align_y="middle")
+            _render_cards(
+                slide,
+                colors,
+                palette,
+                text_side,
+                text_left,
+                text_top,
+                text_w,
+                text_h,
+                compact=True,
+                align_y="middle",
+                emphasize_body=content_type == "image_text",
+            )
     elif content_type in {"content_slide", "summary_slide"} and has_narrative_components(body_components):
         _render_narrative_panel(slide, colors, palette, body_components, 0.65, top, 11.95, height)
     else:
@@ -421,7 +444,18 @@ def _render_workbench(
                 continue
             seen.add(marker)
             ordered.append(item)
-        _render_cards(slide, colors, palette, ordered, 0.65, top, 11.95, height, align_y="middle")
+        _render_cards(
+            slide,
+            colors,
+            palette,
+            ordered,
+            0.65,
+            top,
+            11.95,
+            height,
+            align_y="middle",
+            emphasize_body=content_type == "card_grid",
+        )
 
 
 def is_background_media(item: dict[str, Any]) -> bool:
@@ -478,6 +512,7 @@ def _render_cards(
     height: float,
     compact: bool = False,
     align_y: str = "top",
+    emphasize_body: bool = False,
 ):
     components = [c for c in components if component_text(c) or clean(c.get("title")) or clean(c.get("body"))][:8]
     if not components:
@@ -508,12 +543,12 @@ def _render_cards(
         add_rect(slide, x, y, 0.06, card_h, component_accent(item), palette=palette)
         label_raw = component_label(item, i + 1)
         body_raw = component_body(item)
-        label_font = 14 if compact else 16
-        body_font = 10.5 if compact else 11.5
+        label_font = 15.5 if emphasize_body and compact else (17 if emphasize_body else (14 if compact else 16))
+        body_font = 12.0 if emphasize_body and compact else (13.2 if emphasize_body else (10.5 if compact else 11.5))
         label = clamp_text(label_raw, text_limit(card_w - 0.35, 0.34, label_font, 0.98))
         body = clamp_text(body_raw, text_limit(card_w - 0.35, card_h - 0.66, body_font, 0.88))
         add_text(slide, label, x + 0.18, y + 0.13, card_w - 0.35, 0.34, label_font, True, "text", palette=palette, colors=colors, min_font_size=10, max_font_size=False)
-        add_text(slide, body, x + 0.18, y + 0.54, card_w - 0.35, card_h - 0.65, body_font, color="secondary", palette=palette, colors=colors, min_font_size=8.5, max_font_size=False, line_spacing=0.92)
+        add_text(slide, body, x + 0.18, y + 0.54, card_w - 0.35, card_h - 0.65, body_font, color="secondary", palette=palette, colors=colors, min_font_size=10 if emphasize_body else 8.5, max_font_size=False, line_spacing=0.96 if emphasize_body else 0.92)
 
 
 def has_narrative_components(components: list[dict[str, Any]]) -> bool:
@@ -577,6 +612,7 @@ def _render_narrative_panel(
     width: float,
     height: float,
     compact_short: bool = False,
+    emphasize_body: bool = False,
 ):
     narrative = first_component(components, "argument_block") or first_component(components, "paragraph") or first_component(components, "text_block")
     lists = [c for c in components if c.get("type") in {"list", "numbered_list", "bullet_list", "evidence_list"} or c.get("items")]
@@ -620,14 +656,15 @@ def _render_narrative_panel(
     if narrative:
         heading = clean(narrative.get("title") or narrative.get("label"))
         if heading:
-            add_text(slide, clamp_text(heading, text_limit(inner_w, 0.34, 15.5, 0.96)), inner_left, y, inner_w, 0.34, 15.5, True, "primary", palette=palette, colors=colors, min_font_size=10, max_font_size=False)
+            heading_font = 16.5 if emphasize_body else 15.5
+            add_text(slide, clamp_text(heading, text_limit(inner_w, 0.34, heading_font, 0.96)), inner_left, y, inner_w, 0.34, heading_font, True, "primary", palette=palette, colors=colors, min_font_size=10, max_font_size=False)
             y += 0.46
         list_count = min(2, len(lists))
         reserved_for_lists = min(2.05, max(1.12, list_count * 0.92)) if list_count else 0
         body_h = max(1.4, bottom - y - reserved_for_lists - (0.24 if list_count else 0))
         body = narrative_text
         is_argument = narrative.get("type") == "argument_block"
-        body_font = 14.4 if compact_panel else (12.2 if is_argument else 12.8)
+        body_font = 15.0 if compact_panel and emphasize_body else (14.4 if compact_panel else (13.8 if emphasize_body and is_argument else (14.0 if emphasize_body else (12.2 if is_argument else 12.8))))
         body_ratio = 1.54 if compact_panel else (2.05 if is_argument else 1.72)
         body_anchor = "middle" if compact_panel else "top"
         add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=0.98)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,7 +53,6 @@ func runPlannerCase(ctx context.Context, out *agentOutput, c benchCase, input ca
 	query := plannerQuery(input)
 	events := []deck.AgentEvent{}
 	cfg := taskConfig(caseDir, c.ID, query, opt)
-	cfg.DisableImageSearch = true
 	agent, err := deck.NewPPTPlannerAgent(ctx, cfg)
 	if err != nil {
 		out.Error = err.Error()
@@ -85,10 +85,10 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 	before := cloneManifest(input.DraftTasks)
 	report := deck.ReviewTasksManifest(input.DraftTasks, "case_draft", 1)
 	if len(input.ReviewIssues) > 0 {
-		report.Issues = input.ReviewIssues
-		report.IssueCount = len(input.ReviewIssues)
+		report.Issues = mergeReviewerIssues(input.ReviewIssues, report.Issues)
+		report.IssueCount = len(report.Issues)
 		report.Passed = false
-		report.Summary = "benchmark case supplied review issues"
+		report.Summary = "benchmark case supplied review issues merged with deterministic quality gates"
 	}
 	inputText, allowed, err := deck.BuildPlanReviewRevisionInput(caseDir, 1, report)
 	if err != nil {
@@ -118,6 +118,30 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 	if after != nil {
 		out.DeterministicReview = deck.ReviewTasksManifest(after, "reviewer_after", 2)
 	}
+}
+
+// mergeReviewerIssues keeps a benchmark case's explicitly targeted issue while
+// retaining any current deterministic hard gate on the same draft. Production
+// Reviewer runs always receive the deterministic review report; replacing it in
+// the benchmark would let a case hide an additional blocker from the agent.
+func mergeReviewerIssues(targeted, detected []deck.PlanReviewIssue) []deck.PlanReviewIssue {
+	merged := make([]deck.PlanReviewIssue, 0, len(targeted)+len(detected))
+	seen := make(map[string]struct{}, len(targeted)+len(detected))
+	appendUnique := func(issue deck.PlanReviewIssue) {
+		key := strings.ToLower(strings.TrimSpace(issue.Code)) + ":" + strconv.Itoa(issue.PageIndex) + ":" + strings.TrimSpace(issue.ComponentID)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, issue)
+	}
+	for _, issue := range targeted {
+		appendUnique(issue)
+	}
+	for _, issue := range detected {
+		appendUnique(issue)
+	}
+	return merged
 }
 
 func runFixerCase(ctx context.Context, out *agentOutput, c benchCase, input caseInput, opt options, caseDir string) {

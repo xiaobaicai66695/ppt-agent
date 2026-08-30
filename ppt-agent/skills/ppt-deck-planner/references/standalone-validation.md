@@ -4,6 +4,8 @@
 
 ## 1. 语法检查
 
+外部 Agent 使用图片 CLI 时需要 Node.js 22 或更高版本。
+
 先安装 Python 依赖：
 
 ```bash
@@ -43,6 +45,8 @@ python -m unittest discover -s skills/ppt-deck-planner/tests -v
 ```
 
 ## 3. DeckSpec 预检
+
+纯文字 deck 必须显式设置 `visual_policy.mode="none"`，随后可直接预检：
 
 ```bash
 python generators/validate_deck.py --work-dir examples/minimal --skills-dir ..
@@ -90,7 +94,7 @@ python skills/ppt-deck-planner/generators/render_deck.py --work-dir skills/ppt-d
       "content_type": "content_slide",
       "content_plan": {
         "summary": "用一页内容验证 DeckSpec 可以被 render_task.py 消费。",
-        "slide_intent": "说明 skill 在没有后端 workflow 和离线素材库时仍能渲染语义内容。",
+        "slide_intent": "说明 skill 在没有后端 workflow 时仍能渲染语义内容。",
         "components": [
           {
             "type": "headline",
@@ -124,7 +128,21 @@ python generators/render_task.py --work-dir <work-dir> --skills-dir <skill-paren
 
 预期结果：工作目录中生成该页 PPTX，且没有依赖 `assets/manifest.json`。若 `tasks.json` 显式写入图片路径或旧 `asset:` id，该路径必须真实可读，否则渲染应失败。
 
-## 6. 可选视觉验收
+## 6. 外部 Agent 的 Unsplash 图片 CLI
+
+该 CLI 只供 `ppt-agent` 项目外的 Agent 使用；项目内使用后端已有的图片搜索能力。先在 Unsplash Developers 控制台创建应用，在应用的 **Keys** 页面复制 **Access Key**。不要使用 Secret Key。
+
+在 skill 根目录运行下列命令，随后按提示输入 Key；输入不会回显，也不会出现在命令参数中：
+
+```bash
+npm link
+unsplash auth
+unsplash fetch --work-dir <work-dir>
+```
+
+认证信息保存到 skill 根目录的 `auth.txt`，该文件已被 Git 忽略。需要清除认证时删除该文件。除显式 `visual_policy.mode="none"` 外，素材解析是固定步骤；背景 `visual_intent` 和前景 `image` 组件都必须声明查询、主体、构图和方向。`validate_deck.py` 与 `render_deck.py` 会拒绝 query-only 素材。
+
+## 7. 视觉验收
 
 如果环境安装了 LibreOffice 和 Poppler，可以把 PPTX 转成 PDF/PNG 进行人工或自动检查：
 
@@ -138,16 +156,16 @@ pdftoppm -png -r 144 <slide.pdf> <out-prefix>
 - 页面能打开，页数正确。
 - 标题、正文、来源栏不重叠。
 - 没有 `[图片占位]`、`主题视觉` 或虚构素材文案。
-- 无图片设计不应声明虚构图片路径；声明图片但路径无效时应失败暴露。
+- 有图片的页面应有真实本地路径与来源信息；无图片页面不应声明虚构图片路径。
 
-## 7. 依赖说明
+## 8. 依赖说明
 
 核心依赖：
 
 - `python-pptx`
 - `Pillow`
 
-可选视觉验收依赖：
+视觉验收依赖：
 
 - LibreOffice
 - Poppler

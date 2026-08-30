@@ -16,6 +16,11 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+try:
+    from . import validate_deck
+except ImportError:
+    import validate_deck
+
 
 DEFAULT_PALETTE = "ocean_soft"
 
@@ -63,6 +68,14 @@ def main() -> int:
     )
 
     manifest = read_json(work_dir / "tasks.json")
+    validation = validate_deck.validate_manifest_file(
+        work_dir / "tasks.json",
+        deck_planner_dir / "templates" / "component_contracts.json",
+        work_dir,
+    )
+    if not validation["ok"]:
+        print(json.dumps(validation, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
     task = find_task(manifest, args.task_id)
     if not task:
         raise SystemExit(f"task_id {args.task_id} not found")

@@ -225,6 +225,8 @@ func (s *Server) handleMessage(c *gin.Context) {
 		Message        string `json:"message"`
 		SelectedTaskID string `json:"selected_task_id,omitempty"`
 		ManualMode     string `json:"manual_mode,omitempty"`
+		WebSearch      bool   `json:"web_search,omitempty"`
+		ImageSearch    bool   `json:"image_search,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Message) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "message is required"})
@@ -259,7 +261,11 @@ func (s *Server) handleMessage(c *gin.Context) {
 		c.Request.Context(), req.Message, taskID, taskConversationContext(sess, 12), credential,
 	)
 	route.TaskID = taskID
-	if strings.EqualFold(strings.TrimSpace(req.ManualMode), messageModePPTAgent) && route.Intent == messageIntentChat && mentionsDeck(strings.ToLower(req.Message)) {
+	// The composer exposes PPT generation as a lightweight, one-shot tool. Once
+	// selected, it is an explicit user instruction to prepare the next message
+	// as a new deck even when the natural-language classifier sees a generic
+	// topic rather than the word “PPT”.
+	if strings.EqualFold(strings.TrimSpace(req.ManualMode), messageModePPTAgent) && route.Intent == messageIntentChat {
 		route.Mode = messageModePPTAgent
 		route.Intent = messageIntentCreate
 		route.Action = messageActionPrepareCreate
@@ -285,12 +291,36 @@ func (s *Server) handleMessage(c *gin.Context) {
 		}
 	}
 	if route.Intent == messageIntentChat && route.Action == messageActionReply {
-		route.Reply = s.buildChatReply(c.Request.Context(), req.Message, route.Reply)
-	}
-	if strings.TrimSpace(route.Reply) != "" {
+		ts := s.tasks.GetTaskState(taskID)
+		afterEventID, started := uint64(0), false
+		if ts != nil {
+			afterEventID, started = ts.BeginConversationStream()
+		}
+		if !started {
+			c.JSON(http.StatusConflict, gin.H{"error": "上一条对话仍在生成，请等待回复完成后再发送。"})
+			return
+		}
+		route.Streaming = true
+		route.AfterEventID = afterEventID
+		fallback := route.Reply
+		route.Reply = ""
+		go s.startConversationChat(taskID, uid, req.Message, fallback, taskConversationContext(sess, 12), req.WebSearch, req.ImageSearch, ts)
+	} else if strings.TrimSpace(route.Reply) != "" {
 		_ = sess.AddAssistantMessage(route.Reply)
 	}
 	c.JSON(http.StatusOK, route)
+}
+
+func (s *Server) startConversationChat(taskID string, uid int, message, fallback, conversationContext string, forceWebSearch, forceImageSearch bool, ts *task.TaskState) {
+	defer func() {
+		ts.Broadcast(task.SSERichEvent{Type: "answer_end"})
+		ts.FinishConversationStream()
+		ts.Broadcast(task.SSERichEvent{Type: "conversation_complete"})
+	}()
+	ctx := auth.WithUser(context.Background(), &db.User{ID: uint(uid)})
+	s.streamChatReply(ctx, message, fallback, conversationContext, forceWebSearch, forceImageSearch, func(content string) {
+		ts.Broadcast(task.SSERichEvent{Type: "answer", Content: content})
+	})
 }
 
 // handleStartConversationTask promotes a workbench conversation into the PPT
@@ -1254,36 +1284,37 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 
 	// 只有运行中的任务需要读取内存态实时会话。终态任务即使仍暂存在内存
 	// map 中，也走持久化快照，避免被收尾 goroutine 的 TaskState.Mu 牵住。
-	if ts != nil && ts.Info.Status == task.TaskStatusRunning {
+	if ts != nil && (ts.Info.Status == task.TaskStatusRunning || (ts.Info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive())) {
 		fullAnswer := ts.FullAnswer()
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 		snapshot := sess.Snapshot()
 		info := ts.SnapshotInfo()
 		runtimeMeta := conversationRuntimeMeta(taskID, info.WorkDir)
 		messages := conversationMessagesWithFallback(snapshot.Messages, fullAnswer, info.ConversationContent, snapshot.UpdatedAt)
-		if info.Status == task.TaskStatusRunning {
+		if info.Status == task.TaskStatusRunning || (info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive()) {
 			// The unfinished turn is replayed from replay_after_event_id via SSE.
 			messages = conversationMessagesWithFallback(snapshot.Messages, "", "", snapshot.UpdatedAt)
 		}
 		latestEventID, replayAfterEventID := ts.EventBoundaries()
 		c.JSON(http.StatusOK, gin.H{
-			"task_id":               taskID,
-			"latest_event_id":       latestEventID,
-			"replay_after_event_id": replayAfterEventID,
-			"messages":              messages,
-			"full_answer":           fullAnswer,
-			"conversation_content":  info.ConversationContent,
-			"status":                info.Status,
-			"done_count":            info.DoneCount,
-			"total_count":           info.TotalCount,
-			"files":                 task.DeduplicateOutputFiles(info.Files),
-			"duration":              info.Duration,
-			"prompt_tokens":         info.PromptTokens,
-			"completion_tokens":     info.CompletionTokens,
-			"total_tokens":          info.TotalTokens,
-			"runtime_meta":          runtimeMeta,
-			"created_at":            snapshot.CreatedAt,
-			"updated_at":            snapshot.UpdatedAt,
+			"task_id":                taskID,
+			"latest_event_id":        latestEventID,
+			"replay_after_event_id":  replayAfterEventID,
+			"conversation_streaming": info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive(),
+			"messages":               messages,
+			"full_answer":            fullAnswer,
+			"conversation_content":   info.ConversationContent,
+			"status":                 info.Status,
+			"done_count":             info.DoneCount,
+			"total_count":            info.TotalCount,
+			"files":                  task.DeduplicateOutputFiles(info.Files),
+			"duration":               info.Duration,
+			"prompt_tokens":          info.PromptTokens,
+			"completion_tokens":      info.CompletionTokens,
+			"total_tokens":           info.TotalTokens,
+			"runtime_meta":           runtimeMeta,
+			"created_at":             snapshot.CreatedAt,
+			"updated_at":             snapshot.UpdatedAt,
 		})
 		return
 	}

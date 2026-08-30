@@ -1258,7 +1258,32 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function safeExternalUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : '';
+  } catch {
+    return '';
+  }
+}
+
 function renderInline(value: string): string {
+  const richTokens: string[] = [];
+  const token = (markup: string): string => {
+    const index = richTokens.push(markup) - 1;
+    return `@@RICH_${index}@@`;
+  };
+  value = value.replace(/!\[([^\]]*)\]\(([^\s)]+)\)/g, (_match, alt: string, src: string) => {
+    const url = safeExternalUrl(src);
+    if (!url) return _match;
+    const label = alt.trim() || '图片参考';
+    return token(`<figure class="chat-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy"><figcaption>${escapeHtml(label)}</figcaption></figure>`);
+  });
+  value = value.replace(/(?<!!)\[([^\]]+)\]\(([^\s)]+)\)/g, (_match, label: string, href: string) => {
+    const url = safeExternalUrl(href);
+    if (!url) return _match;
+    return token(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`);
+  });
   const code: string[] = [];
   let safe = escapeHtml(value).replace(/`([^`]+)`/g, (_match, body: string) => {
     const index = code.push(`<code>${body}</code>`) - 1;
@@ -1268,7 +1293,8 @@ function renderInline(value: string): string {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_]+)__/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  return safe.replace(/@@CODE_(\d+)@@/g, (_match, index: string) => code[Number(index)] || '');
+  safe = safe.replace(/@@CODE_(\d+)@@/g, (_match, index: string) => code[Number(index)] || '');
+  return safe.replace(/@@RICH_(\d+)@@/g, (_match, index: string) => richTokens[Number(index)] || '');
 }
 
 function isTableDivider(line: string): boolean {

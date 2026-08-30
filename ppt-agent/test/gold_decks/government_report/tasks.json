@@ -179,6 +179,12 @@
             "id": "source",
             "type": "source_note",
             "text": "来源: 区智慧社区建设专班月报 2026 年 7 月"
+          },
+          {
+            "id": "insight",
+            "type": "insight",
+            "title": "阶段判断",
+            "body": "试点已形成平台、设备、数据和服务四类基础能力，但跨部门数据更新、基层操作熟练度和设备运维闭环仍决定后续扩面能否从项目建设转入稳定运营。"
           }
         ],
         "capacity_hint": {
@@ -210,9 +216,10 @@
         "slide_intent": "用关键指标展示阶段成效。",
         "components": [
           {
-            "id": "headline_auto",
-            "type": "headline",
-            "text": "平台联动让基层事件处置时长下降 50%，居民线上办事满意度保持在 90% 以上。"
+            "id": "insight",
+            "type": "insight",
+            "title": "指标判断",
+            "body": "平台联动让基层事件处置时长下降 50%，居民线上办事满意度保持在 90% 以上。来源：区智慧社区平台运行日志（2026-01 至 2026-07）及 12345 工单回访记录。"
           },
           {
             "id": "stat_1",
@@ -243,17 +250,12 @@
               "value": "-50%",
               "label": "平均处置时长"
             }
-          },
-          {
-            "id": "source",
-            "type": "source_note",
-            "text": "来源: 区智慧社区平台运行日志 2026-01 至 2026-07；12345 工单回访记录"
           }
         ],
         "capacity_hint": {
           "estimated_density": "normal",
           "overflow_risk": "low",
-          "component_count": 5
+          "component_count": 4
         },
         "visual_intent": {
           "role": "supporting_photo",
@@ -365,6 +367,12 @@
             "type": "recommendation",
             "title": "下一步",
             "body": "8 月完成数据接口清单和培训手册，9 月启动第二批 20 个社区扩面，10 月纳入第三方运维考核。"
+          },
+          {
+            "id": "insight",
+            "type": "insight",
+            "title": "请示事项",
+            "body": "建议以数据接口目录、网格员培训达标率和第三方维修响应 SLA 作为扩面前置条件，并按月向建设专班通报整改闭环情况；只有把责任、时限和验收口径写入常态机制，试点成果才能稳定复制。"
           }
         ],
         "capacity_hint": {

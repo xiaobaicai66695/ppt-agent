@@ -221,6 +221,31 @@ go run ./cmd/pptbench --dataset test -s reviewer -p judge -o ../benchmark/runs/2
 
 ## 修复后的最低验证
 
+## 测试集通过后必须使用验证集复验
+
+`test` 只用于定位问题和迭代修复，不能作为上线依据。任何 prompt、Agent 工具、质量门、rubric 或 benchmark case 修复完成后，必须遵循下面的发布门禁：
+
+```text
+test 集定位与修复
+  -> test 集全量通过
+  -> 使用 validation 集跑同一 suite 的全量 model + judge
+  -> 所有 validation case 达标、无 critical failure
+  -> 才能构建、提交和上线
+```
+
+- 不允许拿 test 集分数替代 validation 分数，也不要只挑 validation 中的一两个 case。
+- validation run 必须使用新的独立目录，保留 `model_output.json`、`score.json` 与 `summary.md` 作为发布证据；`benchmark/runs/` 仍是本地产物，不提交到 Git。
+- 任一 validation case 低于当前 suite 的达标线、出现 `critical_failures`、模型/环境错误或无法完成评分时，均视为未达标：回到 test 集定位并修复，随后重新跑一轮完整 validation；不得带着失败 validation 上线。
+- 只修改 rubric 或 Judge 时，可以复用同一批 model 输出执行 judge；修改 prompt、Agent、工具或工作流时，validation 必须重新执行 model 和 judge，不能复用旧输出。
+
+示例（Planner 全量验证）：
+
+```powershell
+go run ./cmd/pptbench --dataset validation -s planner -p all -o ../benchmark/runs/20260831-153000-validation-planner
+```
+
+完成验证后，在迭代记录中写明 test 与 validation 的 run 路径、各 case 分数、是否存在 critical failure，以及该证据对应的发布版本。
+
 修改 Go benchmark 或 Agent 入口后，至少运行：
 
 ```powershell

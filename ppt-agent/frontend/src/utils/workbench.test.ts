@@ -854,6 +854,14 @@ describe('workbench utilities', () => {
     expect(html).not.toContain('<script>');
   });
 
+  it('renders only safe external markdown images and links', () => {
+    const html = renderSafeMarkdown('![青海湖](https://images.example/qinghai.jpg)\n[来源](https://example.com/source)\n![坏图](javascript:alert(1))');
+    expect(html).toContain('<figure class="chat-image">');
+    expect(html).toContain('src="https://images.example/qinghai.jpg"');
+    expect(html).toContain('href="https://example.com/source"');
+    expect(html).not.toContain('src="javascript:');
+  });
+
   it('normalizes compact assistant markdown into readable sections', () => {
     const html = renderSafeMarkdown('规划完成说明页数：12页叙事主线：观点。 ##规划完成说明页面结构：1.封面（title_slide）2.目录（agenda）3.章节一（section_divider）');
     expect(html).toContain('<h2>规划完成说明</h2>');

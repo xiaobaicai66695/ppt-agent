@@ -40,6 +40,18 @@ func TestPlanReviewRevisionPayloadIncludesFailedSectionOnly(t *testing.T) {
 	if len(payload.Issues) != 1 || payload.Issues[0].PageIndex != 2 {
 		t.Fatalf("issues = %#v, want only issues for included pages/deck", payload.Issues)
 	}
+	if !strings.Contains(strings.Join(payload.Instructions, "\n"), "第 2 页必须在同一次 patch 中补足现有正文组件") {
+		t.Fatalf("revision instructions must make density repair explicit: %#v", payload.Instructions)
+	}
+}
+
+func TestPlanReviewRevisionPayloadMakesNarrativeFieldExplicit(t *testing.T) {
+	manifest := &TasksManifest{Tasks: []*TaskItem{{TaskID: "slide-2", PageIndex: 2, Title: "目标页", ContentType: "two_column", OutputFile: "2.pptx", Status: StatusPending}}}
+	report := &PlanReviewReport{Issues: []PlanReviewIssue{{Code: "weak_narrative", Severity: "error", PageIndex: 2}}}
+	payload := buildPlanReviewRevisionPayload(manifest, 1, report)
+	if !strings.Contains(strings.Join(payload.Instructions, "\n"), "第 2 页必须在同一次 patch 的 content_plan 内填写非空 slide_intent") {
+		t.Fatalf("revision instructions must make slide_intent repair explicit: %#v", payload.Instructions)
+	}
 }
 
 func TestBuildPlanReviewRevisionInputSerializesOnlyIncludedTasks(t *testing.T) {

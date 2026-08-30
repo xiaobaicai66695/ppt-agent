@@ -8,6 +8,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import validate_visual_assets
+except ImportError:
+    import validate_visual_assets
+
 
 PATH_FIELDS = {"local_path", "asset_path", "image_path", "path"}
 IMAGE_HINT_FIELDS = PATH_FIELDS | {"asset_id", "asset_query", "asset_subject", "image_url", "preview_url"}
@@ -76,6 +81,9 @@ def validate_manifest_file(manifest_path: Path, contract_path: Path, work_dir: P
             seen_page_indexes.add(page_index)
 
     find_legacy_asset_ids(manifest, "manifest", errors)
+    visual_result = validate_visual_assets.validate_visual_manifest_file(manifest_path, work_dir)
+    errors.extend(visual_result["errors"])
+    warnings.extend(visual_result["warnings"])
     return result(errors, warnings)
 
 

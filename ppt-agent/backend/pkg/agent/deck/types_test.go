@@ -60,7 +60,8 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 					"asset_purpose":"background",
 					"asset_subject":"aerial city skyline at blue hour",
 					"asset_query":"aerial city skyline at blue hour, wide landscape, clean negative space",
-					"composition":"wide landscape, clean negative space on left"
+					"composition":"wide landscape, clean negative space on left",
+					"orientation":"landscape"
 				},
 				"components":[{
 					"id":"image_1",
@@ -69,6 +70,7 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 					"asset_subject":"delivery drone above urban neighborhood",
 					"asset_query":"delivery drone flying above urban neighborhood",
 					"composition":"subject on right",
+					"orientation":"portrait",
 					"caption":"城市末端配送无人机",
 					"local_path":"assets/images/unsplash_drone.jpg",
 					"image_url":"https://images.unsplash.com/photo.jpg",
@@ -90,7 +92,8 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 	if plan.VisualIntent.AssetPurpose != "background" ||
 		plan.VisualIntent.AssetSubject != "aerial city skyline at blue hour" ||
 		plan.VisualIntent.AssetQuery == "" ||
-		plan.VisualIntent.Composition != "wide landscape, clean negative space on left" {
+		plan.VisualIntent.Composition != "wide landscape, clean negative space on left" ||
+		plan.VisualIntent.Orientation != "landscape" {
 		t.Fatalf("visual intent image contract lost: %#v", plan.VisualIntent)
 	}
 	if len(plan.Components) != 1 {
@@ -101,6 +104,7 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 		component.AssetSubject != "delivery drone above urban neighborhood" ||
 		component.AssetQuery != "delivery drone flying above urban neighborhood" ||
 		component.Composition != "subject on right" ||
+		component.Orientation != "portrait" ||
 		component.LocalPath != "assets/images/unsplash_drone.jpg" ||
 		component.SourceURL != "https://unsplash.com/photos/drone" ||
 		component.Attribution != "Photo by Demo on Unsplash" ||

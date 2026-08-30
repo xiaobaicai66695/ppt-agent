@@ -105,6 +105,50 @@ func TestPlanReviewUsesContractArgumentBlockMinimum(t *testing.T) {
 	}
 }
 
+func TestPlanReviewBlocksSparseImageTextAndCardGrid(t *testing.T) {
+	manifest := &TasksManifest{
+		Title:        "内容密度质量门",
+		VisualPolicy: &VisualPolicy{Mode: "none", Reason: "仅验证正文密度门。"},
+		Tasks: []*TaskItem{
+			{
+				TaskID: "slide-1", PageIndex: 1, Title: "夜晚共创材料", ContentType: "image_text", OutputFile: "1_image_text.pptx", Status: StatusPending,
+				ContentPlan: &ContentPlan{SlideIntent: "用图文解释参与机制如何把夜晚经验转成可投递内容。", Components: []PlanComponent{
+					{ID: "narrative", Type: "paragraph", Title: "把感受变成可投递的语言", Body: strings.Repeat("参与者记录城市光线、声音和片段记忆，再把它们写成能被陌生人阅读的内容。", 3)},
+				}},
+			},
+			{
+				TaskID: "slide-2", PageIndex: 2, Title: "共创组件", ContentType: "card_grid", OutputFile: "2_card_grid.pptx", Status: StatusPending,
+				ContentPlan: &ContentPlan{SlideIntent: "用四个组件说明夜间共创活动的参与方式。", Components: []PlanComponent{
+					{ID: "card-1", Type: "feature_card", Title: "路线", Body: "微弱路标引导参与者在街区里发现新的观察角度。"},
+					{ID: "card-2", Type: "feature_card", Title: "收音", Body: "耳机点播放街头环境声，让停留者感知城市的夜间节奏。"},
+					{ID: "card-3", Type: "feature_card", Title: "灯箱", Body: "匿名短句在灯箱中慢速更新，邀请陌生人留下回应。"},
+					{ID: "card-4", Type: "feature_card", Title: "邮筒", Body: "参与者把明信片投递到未来日期，再收到当晚的记忆。"},
+				}},
+			},
+		},
+	}
+
+	report := ReviewTasksManifest(manifest, "tasks.draft.json", 1)
+	blockedPages := map[int]bool{}
+	for _, issue := range report.Issues {
+		if issue.Code == "low_information_density" && issue.Severity == "error" {
+			blockedPages[issue.PageIndex] = true
+		}
+	}
+	if !blockedPages[1] || !blockedPages[2] {
+		t.Fatalf("sparse image_text and card_grid must be blocking density errors: %#v", report.Issues)
+	}
+
+	for _, issue := range plannerPreflightIssues(manifest) {
+		if issue.Code == "low_information_density" && issue.Severity == "error" {
+			delete(blockedPages, issue.PageIndex)
+		}
+	}
+	if len(blockedPages) != 0 {
+		t.Fatalf("planner preflight must retain density errors: %#v", plannerPreflightIssues(manifest))
+	}
+}
+
 func TestPlannerPreflightBlocksOutlinePlaceholders(t *testing.T) {
 	manifest := &TasksManifest{
 		Title: "制造强国复盘",

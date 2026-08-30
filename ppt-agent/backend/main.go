@@ -313,6 +313,10 @@ func (a *aiModelAdapter) Generate(ctx context.Context, messages []*schema.Messag
 	return a.model.Generate(ctx, messages)
 }
 
+func (a *aiModelAdapter) Stream(ctx context.Context, messages []*schema.Message, opts ...interface{}) (*schema.StreamReader[*schema.Message], error) {
+	return a.model.Stream(ctx, messages)
+}
+
 // ---------------------------------------------------------------------------
 
 func setupCozeLoop() cozeloop.Client {

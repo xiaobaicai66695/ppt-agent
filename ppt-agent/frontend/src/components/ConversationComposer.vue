@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
-import { CircleCheck, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
+import { CircleCheck, FileText, LoaderCircle, MessageSquareText, Send, TriangleAlert } from 'lucide-vue-next';
 import type { ConversationMessage, LiveActivity, RuntimeEvent } from '../types';
 import {
   deriveInlineConversationItems, formatToolPreviewFields, mergeConversationMessages, renderSafeMarkdown,
@@ -11,6 +11,9 @@ const props = defineProps<{
   taskId?: string;
   modelValue: string;
   mode: 'create' | 'queue' | 'continue';
+  agentMode?: 'chat' | 'pptagent';
+  webSearch?: boolean;
+  imageSearch?: boolean;
   taskTitle?: string;
   messages: ConversationMessage[];
   streamingMessages?: ConversationMessage[];
@@ -26,6 +29,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
+  'update:agentMode': [value: 'chat' | 'pptagent'];
+  'update:webSearch': [value: boolean];
+  'update:imageSearch': [value: boolean];
   submit: [];
   'load-tool-detail': [eventId: number];
 }>();
@@ -35,28 +41,37 @@ const showHistory = ref(props.messages.length > 0);
 const autoFollowThread = ref(true);
 const requestedToolEvents = ref(new Set<number>());
 
+const selectedAgentMode = computed(() => props.agentMode || 'chat');
 const modeLabel = computed(() => ({
-  create: '创建演示',
+  create: '新对话',
   queue: '排队反馈',
   continue: '继续修改',
 })[props.mode]);
 const helper = computed(() => ({
-  create: '描述主题、受众、页数和希望强调的内容',
+  create: selectedAgentMode.value === 'pptagent'
+    ? '描述主题、受众、页数和希望强调的内容'
+    : '直接提问；需要做演示时选择下方 PPT 生成',
   queue: '反馈会在当前生成结束后自动处理',
   continue: '说明要修改的页面、内容或视觉方向',
 })[props.mode]);
 const placeholder = computed(() => props.mode === 'create'
-  ? '例如：为产品评审制作 10 页演示，面向研发负责人，重点说明架构与风险'
+  ? selectedAgentMode.value === 'pptagent'
+    ? '例如：为产品评审制作 10 页演示，面向研发负责人，重点说明架构与风险'
+    : '问我任何问题，或选择下方「PPT 生成」开始创作…'
   : '描述希望如何改进这套演示');
 
 const hasLiveAssistantStream = computed(() => Boolean(
   props.streamingContent?.trim() || props.streamingMessages?.some(message => message.content?.trim()),
 ));
+const hasDurableAssistantMessage = computed(() => props.messages.some(
+  message => message.role === 'assistant' && Boolean(message.content?.trim()),
+));
 const displayMessages = computed(() => mergeConversationMessages(
   // While a turn is in flight, the runtime snapshot contains the same chunks
-  // as streamingContent. Reconstructing both produces duplicated prose and
-  // makes every snapshot re-render the full transcript.
-  hasLiveAssistantStream.value ? [] : runtimeAssistantOutputMessages(props.runtimeEvents || []),
+  // as streamingContent. After the answer is persisted, the runtime snapshot
+  // is only an observability copy; rendering it alongside durable history
+  // produces a second, visually identical assistant turn.
+  hasLiveAssistantStream.value || hasDurableAssistantMessage.value ? [] : runtimeAssistantOutputMessages(props.runtimeEvents || []),
   props.messages,
 ));
 const streamingAlreadyShown = computed(() => {
@@ -345,6 +360,26 @@ function handleToolToggle(
         <Send v-else :size="19" />
       </button>
     </div>
+    <div v-if="mode === 'create'" class="capability-bar" aria-label="可用能力">
+      <button
+        type="button"
+        :class="{ active: selectedAgentMode === 'pptagent' }"
+        @click="emit('update:agentMode', 'pptagent')"
+      >
+        <FileText :size="15" /> PPT 生成
+      </button>
+      <button
+        v-if="selectedAgentMode === 'pptagent'"
+        class="clear-tool"
+        type="button"
+        @click="emit('update:agentMode', 'chat')"
+      >取消</button>
+      <template v-if="selectedAgentMode !== 'pptagent'">
+        <button type="button" :class="{ active: webSearch }" @click="emit('update:webSearch', !webSearch)">联网资料</button>
+        <button type="button" :class="{ active: imageSearch }" @click="emit('update:imageSearch', !imageSearch)">图片参考</button>
+      </template>
+      <small>{{ selectedAgentMode === 'pptagent' ? '已选择 PPT 生成，发送后会直接开始创建' : '可按需开启资料或图片搜索；提到“补充材料”等也会自动检索' }}</small>
+    </div>
     <p v-if="notice" class="composer-notice">{{ notice }}</p>
     <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
   </section>
@@ -585,6 +620,9 @@ function handleToolToggle(
 .markdown-body :deep(code) { padding: 1px 4px; border-radius: 3px; background: var(--surface-pressed); font-family: ui-monospace, monospace; font-size: .9em; }
 .markdown-body :deep(pre code) { padding: 0; background: transparent; }
 .markdown-body :deep(blockquote) { margin: 7px 0; padding-left: 10px; border-left: 3px solid var(--border-strong); color: var(--text-secondary); }
+.markdown-body :deep(.chat-image) { width: min(360px, 100%); margin: 9px 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); }
+.markdown-body :deep(.chat-image img) { width: 100%; max-height: 240px; display: block; object-fit: cover; }
+.markdown-body :deep(.chat-image figcaption) { padding: 5px 7px; color: var(--text-muted); font-size: 11px; }
 .markdown-body :deep(.md-table-wrap) { max-width: 100%; overflow: auto; }.markdown-body :deep(table) { width: 100%; border-collapse: collapse; font-size: 11px; }.markdown-body :deep(th), .markdown-body :deep(td) { padding: 6px 7px; border: 1px solid var(--border); text-align: left; }.markdown-body :deep(th) { background: var(--surface-muted); }
 .history-state, .history-refresh { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--text-muted); font-size: 11px; }
 .history-refresh { min-height: 28px; }
@@ -594,6 +632,12 @@ function handleToolToggle(
 .input-shell textarea { width: 100%; min-height: 66px; max-height: 180px; padding: 7px 0; resize: vertical; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: 14px; line-height: 1.55; }
 .submit-button { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--action-ink); border-radius: 6px; color: #fff; background: var(--action-ink); cursor: pointer; }
 .submit-button:disabled { border-color: var(--border-strong); color: var(--text-disabled); background: var(--surface-pressed); cursor: not-allowed; }
+.capability-bar { min-height: 42px; padding: 0 12px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border-top: 1px solid var(--divider); }
+.capability-bar button { min-height: 29px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid transparent; border-radius: 5px; color: var(--text-secondary); background: transparent; font-size: 11px; font-weight: 650; cursor: pointer; }
+.capability-bar button:hover { background: var(--surface-muted); }
+.capability-bar button.active { border-color: #b5d4df; color: var(--action-ink); background: var(--action-soft); }
+.capability-bar .clear-tool { min-height: 26px; padding: 0 5px; color: var(--text-muted); font-weight: 500; }
+.capability-bar small { margin-left: 4px; color: var(--text-muted); font-size: 10px; }
 .composer-notice, .composer-error { margin: -3px 12px 10px; font-size: 11px; }.composer-notice { color: var(--info); }.composer-error { color: var(--danger); }
 .spin { animation: spin .9s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
 

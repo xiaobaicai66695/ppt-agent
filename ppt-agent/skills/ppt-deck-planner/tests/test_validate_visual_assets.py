@@ -8,6 +8,7 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT))
 
 from generators.validate_visual_assets import validate_visual_manifest_file
+from generators.validate_deck import validate_manifest_file
 
 
 PNG_1X1 = bytes.fromhex(
@@ -26,7 +27,7 @@ class ValidateVisualAssetsTest(unittest.TestCase):
                 "visual_policy": {
                     "mode": "required",
                     "min_image_pages": 1,
-                    "required_roles": ["scene_evidence"],
+                    "required_roles": ["scene"]
                 },
                 "tasks": [
                     {
@@ -34,14 +35,15 @@ class ValidateVisualAssetsTest(unittest.TestCase):
                         "title": "智能工厂现场",
                         "content_type": "image_text",
                         "content_plan": {
-                            "components": [
-                                {
-                                    "type": "image",
-                                    "asset_purpose": "scene",
-                                    "asset_query": "smart factory robotic arm",
-                                    "search_status": "planned",
-                                }
-                            ]
+                            "visual_intent": {
+                                "asset_purpose": "scene",
+                                "asset_query": "smart factory robotic arm",
+                                "asset_subject": "robotic arm on factory line",
+                                "composition": "wide landscape with copy space on left",
+                                "orientation": "landscape",
+                                "provider": "unsplash",
+                                "search_status": "planned"
+                            }
                         },
                     }
                 ],
@@ -65,7 +67,7 @@ class ValidateVisualAssetsTest(unittest.TestCase):
                 "visual_policy": {
                     "mode": "required",
                     "min_image_pages": 1,
-                    "required_roles": ["scene_evidence"],
+                    "required_roles": ["scene"]
                 },
                 "tasks": [
                     {
@@ -73,16 +75,18 @@ class ValidateVisualAssetsTest(unittest.TestCase):
                         "title": "智能工厂现场",
                         "content_type": "image_text",
                         "content_plan": {
-                            "components": [
-                                {
-                                    "type": "image",
-                                    "asset_purpose": "scene",
-                                    "asset_query": "smart factory robotic arm",
-                                    "local_path": "assets/images/factory.png",
-                                    "source_url": "https://example.com/factory",
-                                    "search_status": "downloaded",
-                                }
-                            ]
+                            "visual_intent": {
+                                "asset_purpose": "scene",
+                                "asset_query": "smart factory robotic arm",
+                                "asset_subject": "robotic arm on factory line",
+                                "composition": "wide landscape with copy space on left",
+                                "orientation": "landscape",
+                                "local_path": "assets/images/factory.png",
+                                "source_url": "https://unsplash.com/photos/factory",
+                                "attribution": "Photo by Test Photographer on Unsplash",
+                                "provider": "unsplash",
+                                "search_status": "resolved"
+                            }
                         },
                     }
                 ],
@@ -92,6 +96,63 @@ class ValidateVisualAssetsTest(unittest.TestCase):
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["image_page_count"], 1)
+
+    def test_deck_preflight_accepts_deck_without_background_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            manifest_path = work_dir / "tasks.json"
+            manifest_path.write_text(json.dumps({
+                "title": "智能制造",
+                "tasks": [{
+                    "task_id": "slide_01",
+                    "page_index": 1,
+                    "title": "智能工厂现场",
+                    "content_type": "content_slide",
+                    "content_plan": {
+                        "summary": "无背景图片时仍可验证并渲染结构化语义页面。",
+                        "components": [{
+                            "type": "headline",
+                            "text": "背景图片是可选视觉增强，不是渲染前置条件"
+                        }]
+                    }
+                }]
+            }, ensure_ascii=False), encoding="utf-8")
+            result = validate_manifest_file(manifest_path, SKILL_ROOT / "templates" / "component_contracts.json", work_dir)
+
+            self.assertTrue(result["ok"], result)
+
+    def test_deck_preflight_rejects_query_only_required_visual_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            manifest_path = work_dir / "tasks.json"
+            manifest_path.write_text(json.dumps({
+                "title": "智能制造",
+                "visual_policy": {
+                    "mode": "required",
+                    "min_image_pages": 1,
+                    "required_roles": ["background"]
+                },
+                "tasks": [{
+                    "task_id": "slide_01",
+                    "page_index": 1,
+                    "title": "智能工厂",
+                    "content_type": "content_slide",
+                    "content_plan": {
+                        "visual_intent": {
+                            "asset_purpose": "background",
+                            "asset_query": "smart factory",
+                            "asset_subject": "robotic production line",
+                            "composition": "wide landscape with text space on left",
+                            "orientation": "landscape"
+                        },
+                        "components": [{"type": "headline", "text": "智能工厂的生产协同"}]
+                    }
+                }]
+            }, ensure_ascii=False), encoding="utf-8")
+            result = validate_manifest_file(manifest_path, SKILL_ROOT / "templates" / "component_contracts.json", work_dir)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("unmaterialized_visual_asset", {error["code"] for error in result["errors"]})
 
 
 if __name__ == "__main__":

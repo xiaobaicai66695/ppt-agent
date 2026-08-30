@@ -916,6 +916,7 @@ func mergeVisualIntentPatch(current, patch *VisualIntent) *VisualIntent {
 	mergeString(&current.AssetSubject, patch.AssetSubject)
 	mergeString(&current.AssetQuery, patch.AssetQuery)
 	mergeString(&current.Composition, patch.Composition)
+	mergeString(&current.Orientation, patch.Orientation)
 	mergeString(&current.PreferredVariant, patch.PreferredVariant)
 	mergeString(&current.ImagePosition, patch.ImagePosition)
 	mergeString(&current.Caption, patch.Caption)

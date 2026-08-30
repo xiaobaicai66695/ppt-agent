@@ -57,6 +57,8 @@ type MessageRouteResult struct {
 	Reason            string          `json:"reason,omitempty"`
 	Reply             string          `json:"reply,omitempty"`
 	TaskCandidates    []TaskCandidate `json:"task_candidates,omitempty"`
+	Streaming         bool            `json:"streaming,omitempty"`
+	AfterEventID      uint64          `json:"after_event_id,omitempty"`
 }
 
 type TaskCandidate struct {

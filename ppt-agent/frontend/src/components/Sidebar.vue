@@ -36,7 +36,7 @@ function fmtTokens(value: number): string {
 }
 
 function statusLabel(status: string): string {
-  return ({ conversation: '对话中', running: '运行中', completed: '已完成', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status] || status;
+  return ({ running: '正在处理', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status] || '';
 }
 
 </script>
@@ -46,7 +46,7 @@ function statusLabel(status: string): string {
     <header class="task-sidebar-head">
       <span class="head-copy">
         <History :size="17" />
-        <strong>任务</strong>
+        <strong>会话</strong>
         <small>{{ taskCount }}</small>
       </span>
       <span class="head-actions">
@@ -59,8 +59,8 @@ function statusLabel(status: string): string {
     <div class="task-list" role="list">
       <div v-if="tasks.length === 0" class="task-empty">
         <History :size="22" />
-        <strong>还没有生成记录</strong>
-        <span>使用工作台底部输入框创建演示</span>
+        <strong>还没有会话</strong>
+        <span>直接在工作台底部开始提问或创建演示</span>
       </div>
 
       <article
@@ -78,13 +78,10 @@ function statusLabel(status: string): string {
         >
           <strong :title="task.query || ''">{{ summarizeTaskTitle(task.query) }}</strong>
           <span class="task-meta">
-            <span class="task-state" :class="task.status">
+            <span v-if="statusLabel(task.status)" class="task-state" :class="task.status">
               <i aria-hidden="true"></i>{{ statusLabel(task.status) }}
             </span>
             <span><Clock3 :size="12" />{{ fmtTime(task.created_at) }}</span>
-          </span>
-          <span v-if="task.total_count > 0" class="mini-progress">
-            <i :style="{ width: `${Math.round((task.done_count / task.total_count) * 100)}%` }"></i>
           </span>
           <small v-if="(task.total_tokens || 0) > 0">{{ fmtTokens(task.total_tokens || 0) }} tokens</small>
         </button>
@@ -130,8 +127,6 @@ function statusLabel(status: string): string {
 .task-state.running { color: var(--info); }.task-state.running i { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
 .task-state.completed { color: var(--success); }.task-state.completed i { background: var(--success); }
 .task-state.failed { color: var(--danger); }.task-state.failed i { background: var(--danger); }
-.mini-progress { height: 3px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: var(--surface-pressed); }
-.mini-progress i { display: block; height: 100%; background: var(--action-ink); }
 .task-select > small { margin-top: 5px; color: var(--text-muted); font-size: 9px; }
 .task-delete { position: absolute; top: 6px; right: 4px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 4px; color: var(--text-muted); background: transparent; opacity: 0; cursor: pointer; }
 .task-item:hover .task-delete, .task-delete:focus-visible { opacity: 1; }

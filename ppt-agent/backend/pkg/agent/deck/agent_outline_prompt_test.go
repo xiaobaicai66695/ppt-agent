@@ -6,7 +6,7 @@ import (
 )
 
 func TestPlannerPromptAlwaysInitializesCompleteDraft(t *testing.T) {
-	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "用户主题", false)
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "用户主题")
 	for _, want := range []string{
 		"update_tasks_manifest(mode=\"initialize\")",
 		"一次性提交完整页面数组",
@@ -25,20 +25,15 @@ func TestPlannerPromptAlwaysInitializesCompleteDraft(t *testing.T) {
 }
 
 func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
-	withoutTool := buildPlannerInstruction("/tmp/work", "/tmp/skills", "生态报告", false)
-	for _, want := range []string{"背景图片策略", "以 skill 为准", "visual_intent.asset_query"} {
-		if !strings.Contains(withoutTool, want) {
+	prompt := buildPlannerInstruction("/tmp/work", "/tmp/skills", "生态报告")
+	for _, want := range []string{"背景图片策略", "以 skill 为准", "visual_policy", "materialize_background_assets"} {
+		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing skill boundary %q", want)
 		}
 	}
-	if strings.Contains(withoutTool, "search_images(download=true)") {
-		t.Fatal("planner should not advertise unavailable image search")
-	}
-
-	withTool := buildPlannerInstruction("/tmp/work", "/tmp/skills", "生态报告", true)
-	for _, want := range []string{"search_images(download=true)", "来源页和摄影师署名"} {
-		if !strings.Contains(withTool, want) {
-			t.Fatalf("configured planner prompt missing %q", want)
+	for _, forbidden := range []string{"search_images", "download=true", "回填 `local_path/source_url/attribution`"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("planner must delegate materialization, found %q", forbidden)
 		}
 	}
 }
@@ -46,7 +41,7 @@ func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
 func TestReviewerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
 	cfg := &PPTTaskConfig{WorkDir: "/tmp/work", SkillsDir: "/tmp/skills", Query: "用户主题"}
 	reviewer := buildReviewerInstruction(cfg)
-	for _, want := range []string{"TaskPlanReviewer", "tasks.draft.json", "patch_tasks_draft", "所有必要修正合并为一次 patch"} {
+	for _, want := range []string{"TaskPlanReviewer", "tasks.draft.json", "patch_tasks_draft", "所有必要修正合并为一次 patch", "仍留下会阻断提交的 `low_information_density` error"} {
 		if !strings.Contains(reviewer, want) {
 			t.Fatalf("reviewer prompt missing %q", want)
 		}

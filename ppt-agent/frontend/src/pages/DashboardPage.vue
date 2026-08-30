@@ -8,7 +8,6 @@ import {
   Clock3,
   Coins,
   Download,
-  LayoutPanelTop,
   ListFilter,
   Presentation,
   Square,
@@ -57,7 +56,6 @@ const selectedRuntimeEventError = ref('');
 const thumbnailVersions = ref<Record<string, number>>({});
 const thumbnailFailures = ref<Record<string, string>>({});
 const cancelling = ref(false);
-const creating = ref(false);
 const loadError = ref('');
 const sidebarOpen = ref(false);
 const sseConnectionInterrupted = ref(false);
@@ -93,7 +91,10 @@ const streamingAssistant = ref('');
 const streamingAssistantStartedAt = ref('');
 const streamingAssistantSegments = ref<import('../types').ConversationMessage[]>([]);
 const continuationQueued = ref(false);
+const conversationStreaming = ref(false);
 const manualAgentMode = ref<'chat' | 'pptagent'>('chat');
+const chatWebSearch = ref(false);
+const chatImageSearch = ref(false);
 const STREAMING_RENDER_INTERVAL_MS = 100;
 let pendingAssistantDeltas: { content: string; timelineOrder: number }[] = [];
 let streamingRenderTimer: ReturnType<typeof setTimeout> | null = null;
@@ -237,8 +238,16 @@ async function submitComposer() {
     composerLoading.value = true;
     try {
       composerInput.value = '';
-      const routed = await routeMessage(message);
+      const routed = await routeMessage(message, '', manualAgentMode.value, chatWebSearch.value, chatImageSearch.value);
+      manualAgentMode.value = routed.mode;
+      chatWebSearch.value = false;
+      chatImageSearch.value = false;
       await adoptConversationTask(routed.task_id);
+      if (routed.streaming) {
+        conversationStreaming.value = true;
+        sseCompleted = false;
+        connectSSE(routed.task_id, routed.after_event_id || 0);
+      }
       if (routed.intent === 'create' && !routed.needs_confirmation && routed.action !== 'ask_clarification') {
         await promoteConversationTask(routed.task_id);
       } else if (routed.intent === 'plan' || routed.action === 'save_plan') {
@@ -262,14 +271,28 @@ async function submitComposer() {
   streamingAssistantStartedAt.value = '';
   streamingAssistantSegments.value = [];
   try {
-    const routed = await routeMessage(message, taskId, manualAgentMode.value);
+    const routed = await routeMessage(message, taskId, manualAgentMode.value, chatWebSearch.value, chatImageSearch.value);
     manualAgentMode.value = routed.mode;
+    chatWebSearch.value = false;
+    chatImageSearch.value = false;
     await loadConversation(taskId, true);
     if (routed.intent === 'create' && !routed.needs_confirmation && routed.action !== 'ask_clarification') {
       await promoteConversationTask(taskId);
       return;
     }
     if (routed.intent === 'chat' || routed.action === 'reply') {
+      if (routed.streaming) {
+        conversationStreaming.value = true;
+        sseCompleted = false;
+        connectSSE(taskId, routed.after_event_id || 0);
+        return;
+      }
+      if (routed.reply) {
+        conversationMessages.value = mergeConversationMessages(conversationMessages.value, [{
+          role: 'assistant', content: routed.reply, timestamp: new Date().toISOString(),
+        }]);
+      }
+      composerLoading.value = false;
       return;
     }
     if (routed.intent === 'plan' || routed.action === 'save_plan') {
@@ -421,16 +444,24 @@ const runtimeCategoryOptions = computed(() => {
     ['other', '其他'],
   ] as Array<[RuntimeCategory, string]>).map(([key, label]) => ({ key, label, count: counts[key] }));
 });
-const liveActivity = computed(() => deriveLiveActivity({
-  status: selectedTask.value?.status,
-  phase: currentPhase.value,
-  phaseDetail: phaseDetail.value,
-  lastTool: runtimeMeta.value?.last_tool,
-  connectionInterrupted: sseConnectionInterrupted.value,
-  done: doneCount.value,
-  total: totalCount.value,
-  error: selectedTask.value?.error,
-}));
+const liveActivity = computed(() => {
+  if (conversationStreaming.value) {
+    return { label: '正在生成回复', detail: '实时输出中', state: 'running' as const };
+  }
+  // A durable conversation remains in the `conversation` status between
+  // turns. It is idle, not a task that is still running.
+  if (selectedTask.value?.status === 'conversation') return undefined;
+  return deriveLiveActivity({
+    status: selectedTask.value?.status,
+    phase: currentPhase.value,
+    phaseDetail: phaseDetail.value,
+    lastTool: runtimeMeta.value?.last_tool,
+    connectionInterrupted: sseConnectionInterrupted.value,
+    done: doneCount.value,
+    total: totalCount.value,
+    error: selectedTask.value?.error,
+  });
+});
 
 function runtimeEventCategory(evt: RuntimeEvent): RuntimeCategory {
   const kind = (evt.kind || '').toLowerCase();
@@ -525,11 +556,10 @@ async function loadInlineRuntimeEvent(eventId: number) {
   }
 }
 
-const sampleQueries = [
-  '做一个关于新能源汽车的行业分析报告',
-  '制作一个产品发布会演示文稿',
-  '做一个 AI 大模型技术分享的 PPT',
-  '制作一个公司季度总结汇报',
+const chatSuggestions = [
+  '帮我梳理一个产品需求的关键风险',
+  '解释一下 RAG 和 Agent 的区别',
+  '把这段想法整理成可执行的待办清单',
 ];
 
 const orderedSlides = computed(() => mergeSlideDeliveries(taskItems.value, finalFiles.value));
@@ -664,12 +694,31 @@ function connectSSE(taskId: string, afterEventID = 0) {
   };
 
 
-  source.onerror = (event) => {
+  source.onerror = async (event) => {
 	// Server-side `event: error` carries MessageEvent.data and is handled below.
 	// Only transport failures should put the connection into reconnecting state.
 	if ('data' in event) return;
 	if (connectionGeneration !== sseConnectionGeneration || es !== source || selectedId.value !== taskId) return;
 	if (sseCompleted || sseConnectionInterrupted.value) return;
+	if (conversationStreaming.value) {
+	  // A short chat reply can finish before EventSource dispatches the final
+	  // named event. Its assistant message is already durable at answer_end, so
+	  // reconcile from the conversation snapshot instead of looping forever on
+	  // a closed stream.
+	  source.close();
+	  if (es === source) es = null;
+	  const session = await loadConversation(taskId, true);
+	  if (connectionGeneration !== sseConnectionGeneration || selectedId.value !== taskId) return;
+	  if (!session?.conversation_streaming) {
+		conversationStreaming.value = false;
+		sseCompleted = true;
+		finalizeAssistantTurn();
+		return;
+	  }
+	  lastSeenEventID = nextReplayCursor(lastSeenEventID, session.replay_after_event_id || 0);
+	  connectSSE(taskId, lastSeenEventID);
+	  return;
+	}
 	sseConnectionInterrupted.value = true;
 	addLog('error', '实时连接暂时中断，浏览器正在自动重连；任务状态仍会通过轮询同步');
   };
@@ -814,6 +863,15 @@ function connectSSE(taskId: string, afterEventID = 0) {
         window.setTimeout(() => void loadConversation(taskId, true), 200);
         break;
 
+      case 'conversation_complete':
+        clearTerminalSSEFallback();
+        conversationStreaming.value = false;
+        sseCompleted = true;
+        finalizeAssistantTurn();
+        if (es === source) { source.close(); es = null; }
+        window.setTimeout(() => void loadConversation(taskId, true), 200);
+        break;
+
       case 'complete':
         clearTerminalSSEFallback();
         sseCompleted = !continuationQueued.value;
@@ -868,6 +926,7 @@ function connectSSE(taskId: string, afterEventID = 0) {
   source.addEventListener('error', handler);
   source.addEventListener('continue_queued', handler);
   source.addEventListener('continue_complete', handler);
+  source.addEventListener('conversation_complete', handler);
   source.addEventListener('complete', handler);
 }
 
@@ -882,6 +941,7 @@ function disconnectSSE() {
   streamingAssistantSegments.value = [];
   composerLoading.value = false;
   continuationQueued.value = false;
+  conversationStreaming.value = false;
   currentPhase.value = '';
   phaseDetail.value = '';
   runtimeMeta.value = null;
@@ -1100,7 +1160,13 @@ async function selectTask(id: string) {
 	  connectSSE(id, lastSeenEventID);
 	  startPolling(id);
     } else {
-      await loadConversation(id, true);
+      const session = await loadConversation(id, true);
+      if (session?.conversation_streaming) {
+        conversationStreaming.value = true;
+        sseCompleted = false;
+        lastSeenEventID = nextReplayCursor(lastSeenEventID, session.replay_after_event_id || 0);
+        connectSSE(id, lastSeenEventID);
+      }
     }
     return;
   }
@@ -1134,26 +1200,13 @@ async function selectTask(id: string) {
     connectSSE(id, lastSeenEventID);
     startPolling(id);
   } else {
-    await loadConversation(id, true);
-  }
-}
-
-async function handleCreateTask(query: string) {
-  if (creating.value) return;
-  creating.value = true;
-  loadError.value = '';
-  try {
-    const routed = await routeMessage(query);
-    await adoptConversationTask(routed.task_id);
-    if (routed.intent !== 'create' || routed.needs_confirmation || routed.action === 'ask_clarification') {
-      loadError.value = routed.reply || '已创建任务会话，可继续补充需求。';
-      return;
+    const session = await loadConversation(id, true);
+    if (session?.conversation_streaming) {
+      conversationStreaming.value = true;
+      sseCompleted = false;
+      lastSeenEventID = nextReplayCursor(0, session.replay_after_event_id || 0);
+      connectSSE(id, lastSeenEventID);
     }
-    await promoteConversationTask(routed.task_id);
-  } catch (e: any) {
-    loadError.value = e?.message || '创建任务失败，请重试';
-  } finally {
-    creating.value = false;
   }
 }
 
@@ -1230,14 +1283,14 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 
 <template>
   <AppShell
-    :title="selectedTaskTitle"
-    eyebrow="生成与交付"
+    :title="selectedTask ? selectedTaskTitle : '工作助手'"
+    :eyebrow="selectedTask ? '任务工作区' : '多意图 Agent'"
     content-class="dashboard-shell-content"
   >
     <template #actions>
-      <span v-if="selectedTask" class="top-task-state" :class="selectedTask.status">
+      <span v-if="selectedTask && selectedTask.status !== 'conversation'" class="top-task-state" :class="selectedTask.status">
         <i aria-hidden="true"></i>
-        {{ selectedTask.status === 'conversation' ? '对话中' : selectedTask.status === 'running' ? '运行中' : selectedTask.status === 'completed' ? '已完成' : selectedTask.status === 'cancelled' ? '已中断' : '失败' }}
+        {{ selectedTask.status === 'running' ? '正在处理' : selectedTask.status === 'completed' ? '演示已交付' : selectedTask.status === 'cancelled' ? '已中断' : '失败' }}
       </span>
       <button
         class="topbar-tool task-list-trigger"
@@ -1248,7 +1301,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
         @click="sidebarOpen = true"
       >
         <ListFilter :size="18" />
-        <span>任务</span>
+        <span>会话</span>
       </button>
       <button
         v-if="selectedTask?.status === 'running'"
@@ -1293,29 +1346,16 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
           <div class="welcome-icon">
             <Presentation :size="30" :stroke-width="1.7" />
           </div>
-          <span class="welcome-kicker">生成与交付</span>
-          <h2>选择一个任务，或开始新的演示</h2>
-          <p>页面生成后会在这里逐张出现，可随时预览、选择和下载。</p>
+          <span class="welcome-kicker">多意图 Agent</span>
+          <h2>有什么我可以帮你的？</h2>
+          <p>直接告诉我你的需求；需要演示文稿时，系统会自动识别并开始创建。</p>
         </div>
 
-        <!-- Quick start examples -->
         <div class="welcome-examples">
-          <h3>常用起点</h3>
-          <div class="examples-grid">
-            <button v-for="ex in sampleQueries" :key="ex" class="example-chip" @click="handleCreateTask(ex)">{{ ex }}</button>
+          <h3>可以这样开始</h3>
+          <div class="examples-grid chat-examples">
+            <button v-for="suggestion in chatSuggestions" :key="suggestion" class="example-chip" @click="composerInput = suggestion">{{ suggestion }}</button>
           </div>
-        </div>
-
-        <!-- Template Compose -->
-        <div class="compose-entry">
-          <span>
-            <h3>需要先确定结构？</h3>
-            <p>进入编排工作区，自行调整每一页的布局和内容约束。</p>
-          </span>
-          <button class="compose-btn" @click="router.push({ name: 'compose' })">
-            <LayoutPanelTop :size="17" />
-            打开编排
-          </button>
         </div>
 
       </div>
@@ -1348,9 +1388,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
               <span class="pulse-dot"></span>{{ activeWorkers }} 并行执行中
             </span>
             <span v-if="selectedTask?.status === 'running'" class="stat-badge running">
-              <span class="pulse-dot"></span>运行中
+              <span class="pulse-dot"></span>正在处理
             </span>
-            <span v-if="selectedTask?.status === 'completed'" class="stat-badge done"> 已完成</span>
+            <span v-if="selectedTask?.status === 'completed'" class="stat-badge done"> 演示已交付</span>
             <span v-if="selectedTask?.status === 'cancelled'" class="stat-badge cancelled"> 已中断</span>
             <span v-if="selectedTask?.status === 'failed'" class="stat-badge failed"> 失败</span>
             <button
@@ -1649,18 +1689,24 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
           class="workspace-composer"
           :task-id="selectedTask ? selectedTask.id : undefined"
           :mode="composerMode"
+          :agent-mode="manualAgentMode"
+          :web-search="chatWebSearch"
+          :image-search="chatImageSearch"
           :task-title="selectedTask ? selectedTaskTitle : undefined"
         :messages="conversationMessages"
         :streaming-messages="streamingAssistantSegments"
         :streaming-content="streamingAssistant"
         :streaming-timestamp="streamingAssistantStartedAt"
         :history-loading="conversationLoading"
-        :submitting="composerLoading || creating"
+        :submitting="composerLoading"
         :error="composerError || (!selectedTask ? loadError : '')"
         :notice="composerNotice"
         :activity="selectedTask ? liveActivity : undefined"
         :runtime-events="runtimeTimelineAll"
         @load-tool-detail="loadInlineRuntimeEvent"
+        @update:agent-mode="manualAgentMode = $event"
+        @update:web-search="chatWebSearch = $event"
+        @update:image-search="chatImageSearch = $event"
         @submit="submitComposer"
       />
     </main>
@@ -2094,12 +2140,9 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .welcome-examples { width: 100%; margin-top: 34px; }
 .welcome-examples h3 { margin-bottom: 9px; color: var(--text-secondary); font-size: 11px; }
 .examples-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.chat-examples { grid-template-columns: 1fr; }
 .example-chip { min-height: 48px; padding: 0 13px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--surface); text-align: left; box-shadow: none; cursor: pointer; }
 .example-chip:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-muted); transform: none; }
-.compose-entry { width: 100%; margin-top: 28px; padding: 16px 0; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
-.compose-entry h3 { margin: 0; color: var(--text); font-size: 13px; }
-.compose-entry p { margin-top: 3px; font-size: 11px; }
-.compose-entry .compose-btn { min-height: 40px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); background: var(--surface); cursor: pointer; }
 
 .preview-modal-overlay { background: rgba(15, 17, 18, 0.62); }
 .preview-modal { width: min(1100px, 96vw); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-lg); }
@@ -2162,6 +2205,5 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
   .welcome-hero { grid-template-columns: 40px minmax(0, 1fr); }
   .welcome-icon { width: 40px; height: 40px; }
   .welcome h2 { font-size: 18px; }
-  .compose-entry { align-items: flex-start; flex-direction: column; }
 }
 </style>

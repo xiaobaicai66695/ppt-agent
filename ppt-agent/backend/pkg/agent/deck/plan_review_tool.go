@@ -175,7 +175,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode str
 		if narrativeChars > 0 && narrativeChars < imageTextNarrativeMinChars {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:      "low_information_density",
-				Severity:  "warning",
+				Severity:  "error",
 				PageIndex: page,
 				Message:   fmt.Sprintf("image_text 正文当前约 %d 字，少于 %d 字；图文页需要完整解释场景、事实、影响和结论，避免大面积文字面板空洞。", narrativeChars, imageTextNarrativeMinChars),
 			})
@@ -186,7 +186,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode str
 		if narrativeChars > 0 && narrativeChars < informationPageNarrativeMinChars {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:      "low_information_density",
-				Severity:  "warning",
+				Severity:  "error",
 				PageIndex: page,
 				Message:   fmt.Sprintf("%s 页面正文组件总量当前约 %d 字，少于 %d 字；需要补足背景、事实、影响和结论，避免大面积文本面板空洞。", task.ContentType, narrativeChars, informationPageNarrativeMinChars),
 			})
@@ -307,7 +307,7 @@ func reviewDeckBackgroundVariety(manifest *TasksManifest, report *PlanReviewRepo
 			continue
 		}
 		typeKey := backgroundContentTypeKey(task.ContentType)
-		addQuery := func(subject, query string) {
+		addQuery := func(subject, query string, hasLocalAsset bool) {
 			sourceQuery := strings.TrimSpace(query)
 			query = firstNonEmptyString(subject, query)
 			query = strings.TrimSpace(query)
@@ -322,17 +322,17 @@ func reviewDeckBackgroundVariety(manifest *TasksManifest, report *PlanReviewRepo
 				queriesByType[typeKey] = map[string]bool{}
 			}
 			queriesByType[typeKey][compact] = true
-			if isVerboseBackgroundQuery(sourceQuery, compact) {
+			if !hasLocalAsset && isVerboseBackgroundQuery(sourceQuery, compact) {
 				verbosePages[task.PageIndex] = true
 			}
 		}
 		if visual := task.ContentPlan.VisualIntent; visual != nil && isExternalBackgroundIntent(visual) {
-			addQuery(visual.AssetSubject, visual.AssetQuery)
+			addQuery(visual.AssetSubject, visual.AssetQuery, strings.TrimSpace(visual.LocalPath) != "")
 		}
 		for i := range task.ContentPlan.Components {
 			component := &task.ContentPlan.Components[i]
 			if isExternalBackgroundComponent(component) {
-				addQuery(component.AssetSubject, component.AssetQuery)
+				addQuery(component.AssetSubject, component.AssetQuery, strings.TrimSpace(component.LocalPath) != "")
 			}
 		}
 	}

@@ -54,7 +54,7 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 	}
 
 	if done {
-		if len(events) == 0 || events[len(events)-1].Type != "complete" {
+		if len(events) == 0 || (events[len(events)-1].Type != "complete" && events[len(events)-1].Type != "conversation_complete") {
 			completeEvt := task.SSERichEvent{
 				Type:   "complete",
 				Status: ts.Info.Status,
@@ -88,7 +88,7 @@ func (s *Server) handleStreamTask(c *gin.Context) {
 				return false
 			}
 			writeSSEToWriter(w, flusher, evt)
-			if evt.Type == "complete" {
+			if evt.Type == "complete" || evt.Type == "conversation_complete" {
 				c.Writer.Write([]byte(": close\n\n"))
 				c.Writer.Flush()
 				c.Abort()

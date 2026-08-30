@@ -1,0 +1,70 @@
+{
+  "id": "reviewer_repair_low_information_density_001",
+  "name": "修复 card_grid 正文密度不足",
+  "input": {
+    "user_request": "制作一份夜间城市共创活动介绍 PPT，说明四个参与组件。",
+    "draft_tasks": {
+      "title": "夜间城市共创活动",
+      "visual_policy": {
+        "mode": "none",
+        "reason": "该 reviewer case 只测试正文密度修复，不测试图片策略。"
+      },
+      "tasks": [
+        {
+          "task_id": "slide-1",
+          "page_index": 1,
+          "title": "夜间城市共创活动",
+          "content_type": "title_slide",
+          "output_file": "slide_1.pptx",
+          "status": "pending",
+          "content_plan": {
+            "summary": "封面页建立夜间城市共创活动主题。",
+            "slide_intent": "说明活动围绕夜间观察、记录和投递展开。",
+            "components": [
+              {"id": "headline", "type": "headline", "text": "夜间城市共创活动"},
+              {"id": "subtitle", "type": "subheadline", "text": "把夜晚感受转成可以被分享的材料"}
+            ]
+          }
+        },
+        {
+          "task_id": "slide-2",
+          "page_index": 2,
+          "title": "四个共创组件",
+          "content_type": "card_grid",
+          "output_file": "slide_2.pptx",
+          "status": "pending",
+          "content_plan": {
+            "summary": "用四个组件组织夜间共创活动。",
+            "slide_intent": "让参与者理解从观察、聆听到投递的连续体验。",
+            "components": [
+              {"id": "route", "type": "feature_card", "title": "会发光的路线", "body": "用微弱路标提示方向。"},
+              {"id": "radio", "type": "feature_card", "title": "城市收音台", "body": "在巷口播放环境声音。"},
+              {"id": "lightbox", "type": "feature_card", "title": "慢闪灯箱", "body": "展示匿名短句和回应。"},
+              {"id": "mailbox", "type": "feature_card", "title": "延迟邮筒", "body": "把明信片寄给未来自己。"}
+            ]
+          }
+        }
+      ]
+    },
+    "review_issues": [
+      {"severity": "error", "page_index": 2, "code": "low_information_density", "message": "card_grid 页面正文组件总量不足 220 字；需要补足具体场景、参与动作、体验影响和活动结果。"}
+    ]
+  },
+  "expected": {
+    "must_fix_issue_codes": ["low_information_density"],
+    "must_not_change_pages": [1],
+    "allowed_change_pages": [2],
+    "must_pass_deterministic_review": true,
+    "minimum_content_characters": {
+      "page_index": 2,
+      "information_page_total": 220,
+      "per_component": 18
+    }
+  },
+  "judge_focus": [
+    "是否只补充第 2 页四个卡片的正文，而没有改第 1 页",
+    "四个卡片正文合计是否至少 220 字，并包含具体场景、参与动作、体验影响或结果",
+    "是否真正消除 low_information_density error，而不是仅替换组件类型或重复泛化短句",
+    "是否保持 DeckSpec 合法、页面数和顺序不变"
+  ]
+}

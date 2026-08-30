@@ -5,6 +5,12 @@
     "user_request": "制作一份 4 页新能源汽车出海趋势 PPT，需要有真实场景图片。",
     "draft_tasks": {
       "title": "新能源汽车出海趋势",
+      "visual_policy": {
+        "mode": "required",
+        "min_image_pages": 1,
+        "required_roles": ["background"],
+        "reason": "用户明确要求使用真实场景图片，除被报告指出的封面外，其余页面已具备可执行图片计划。"
+      },
       "tasks": [
         {
           "task_id": "slide-1",
@@ -32,9 +38,18 @@
           "content_plan": {
             "summary": "说明欧洲和东南亚市场对新能源车的增长机会。",
             "slide_intent": "解释出海机会来自政策、油价和基础设施变化。",
+            "visual_intent": {
+              "role": "supporting_photo",
+              "asset_purpose": "background",
+              "asset_subject": "欧洲港口等待出口的新能源汽车与滚装船",
+              "asset_query": "logistics",
+              "composition": "subject on right with readable space on left",
+              "orientation": "landscape",
+              "image_position": "background"
+            },
             "components": [
-              {"id": "insight", "type": "insight", "text": "欧洲政策拉动高端需求，东南亚更依赖性价比和渠道覆盖。"},
-              {"id": "points", "type": "bullet_list", "items": ["欧洲补贴和碳排政策继续推动换购", "东南亚城市配送和网约车场景增长", "本地售后网络决定品牌信任"]}
+              {"id": "insight", "type": "insight", "text": "欧洲的补贴退出节奏与碳排监管仍推动企业和家庭更换低排放车型；东南亚市场则更关注总拥有成本、城市配送效率和稳定的本地服务网络，机会来自产品、渠道与售后协同。"},
+              {"id": "points", "type": "bullet_list", "items": ["欧洲经销商需要围绕法规认证、充电兼容和残值管理建立透明的交付方案，才能把政策窗口转化为稳定订单。", "东南亚城市配送、网约车与短途通勤场景增长较快，车型定价、金融方案和换电服务必须适配当地使用强度。", "售后零件仓、技术培训和道路救援覆盖决定首批车主口碑；品牌若只完成出口而缺少服务网络，复购和转介绍难以持续。"]}
             ]
           }
         }
