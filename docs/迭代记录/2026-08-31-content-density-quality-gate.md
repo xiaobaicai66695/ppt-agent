@@ -37,3 +37,4 @@
 - 2026-08-31 启动新进程 PID `809752`，cwd `/ppt/ppt-agent/backend`，监听 `:8080`；日志确认 `deck_planner_skill_ready` 与 `mysql_connected`。
 - `GET /api/health`、`/`、`/dashboard`、`/api/templates/layouts` 均返回 200，公网 `http://124.220.22.162:8080/` 同样通过。
 - `/api/templates` 返回 404 是当前路由契约（旧接口已移除），不是本次发布故障；模板布局接口为 `/api/templates/layouts`。
+- 已清理本次 `/tmp/ppt-agent-release-20260831-density-release-014244` 传输包和 `.deploy-staging/20260831-density-release-014244`；回退备份与当前运行文件保留。
