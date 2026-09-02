@@ -15,4 +15,4 @@
 ## 4. Verification and delivery
 
 - [x] 4.1 Run focused Go tests, `go build ./...`, frontend build and OpenSpec strict validation.
-- [ ] 4.2 Build Linux deliverables, deploy, restart, run the smallest feedback smoke test, clean test data and record deployment evidence.
+- [x] 4.2 Build Linux deliverables, deploy, restart, run the smallest feedback smoke test, clean test data and record deployment evidence.
