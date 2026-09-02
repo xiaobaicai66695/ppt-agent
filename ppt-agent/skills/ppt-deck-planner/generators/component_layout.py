@@ -431,6 +431,7 @@ def _render_workbench(
                 text_h,
                 compact_short=content_type == "image_text",
                 emphasize_body=content_type == "image_text",
+                panel_padding=(0.50, 0.46) if content_type == "image_text" else None,
             )
         else:
             _render_cards(
@@ -648,6 +649,7 @@ def _render_narrative_panel(
     height: float,
     compact_short: bool = False,
     emphasize_body: bool = False,
+    panel_padding: tuple[float, float] | None = None,
 ):
     narrative = first_component(components, "argument_block") or first_component(components, "paragraph") or first_component(components, "text_block")
     lists = [c for c in components if c.get("type") in {"list", "numbered_list", "bullet_list", "evidence_list"} or c.get("items")]
@@ -683,10 +685,11 @@ def _render_narrative_panel(
         side_w = width
 
     add_glass_panel(slide, left, top, main_w, height, palette=palette, fill_color="light_bg", alpha=214)
-    inner_left = left + 0.35
-    inner_w = main_w - 0.7
-    y = top + 0.34
-    bottom = top + height - 0.34
+    padding_x, padding_y = panel_padding or (0.35, 0.34)
+    inner_left = left + padding_x
+    inner_w = max(1.0, main_w - padding_x * 2)
+    y = top + padding_y
+    bottom = top + height - padding_y
 
     if narrative:
         heading = clean(narrative.get("title") or narrative.get("label"))
@@ -701,8 +704,11 @@ def _render_narrative_panel(
         is_argument = narrative.get("type") == "argument_block"
         body_font = 18.0 if compact_panel and emphasize_body else (16.5 if emphasize_body else (12.2 if is_argument else 12.8))
         body_ratio = 1.54 if compact_panel else (2.05 if is_argument else 1.72)
-        body_anchor = "middle" if compact_panel else "top"
-        add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=15.5 if emphasize_body else 9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=0.98)
+        # Image-text pages need a visible breathing zone around a short-to-mid
+        # narrative. Center only that range; long copy still starts at the top
+        # so it can use the full reading area without forced clipping.
+        body_anchor = "middle" if compact_panel or (emphasize_body and not lists and len(body) <= 280) else "top"
+        add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=15.5 if emphasize_body else 9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=1.06 if emphasize_body else 0.98, char_spacing=0.25 if emphasize_body else None)
         y += body_h + 0.24
 
     list_only = not narrative and list_limit > 0

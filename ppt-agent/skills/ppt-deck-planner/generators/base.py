@@ -872,6 +872,7 @@ def add_text(
     max_font_size: float = None,
     vertical_alignment: Literal["top", "middle", "bottom", "center", "auto"] = "auto",
     line_spacing: float = 1.0,
+    char_spacing: float | None = None,
     margin: float = 0.03,
 ) -> "pptx.shapes.shapetree.Shape":
     """Add a text box to the slide with consistent styling."""
@@ -899,6 +900,10 @@ def add_text(
     p.font.bold = bold
     p.font.italic = italic
     p.line_spacing = line_spacing
+    if char_spacing is not None:
+        # DrawingML stores tracking in hundredths of a point on defRPr.
+        # Keep it opt-in so body-copy refinements do not alter global text.
+        p.font._element.set("spc", str(int(round(char_spacing * 100))))
 
     if colors is not None:
         p.font.color.rgb = rgb(colors.get(color, color))

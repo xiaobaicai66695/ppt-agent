@@ -198,7 +198,7 @@ from generators import (
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 > **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets；也禁止把正文截取后充当标题区副标题。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片的页面必须传入真实本地文件；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
-> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；正文过短时生成器会压缩文本面板高度并垂直居中，避免空白大框。
+> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；图文正文面板使用更宽的内边距、轻微字间距、略放松的行距和短至中等篇幅的垂直居中，避免文字贴边或视觉重心偏向面板上沿。不要在 `tasks.json` 写坐标、padding、字间距或行间距字段。
 
 ### 对比与并列类
 

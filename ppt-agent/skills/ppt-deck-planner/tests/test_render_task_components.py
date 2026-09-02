@@ -217,6 +217,30 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("Photo by Demo on Unsplash", slide_xml)
         self.assertRegex(slide_xml, r'<a:defRPr sz="1800"[^>]*>.*?<a:t>城市低空配送需要同时满足')
+        self.assertRegex(slide_xml, r'<a:defRPr(?=[^>]*spc="25")[^>]*>.*?<a:t>城市低空配送需要同时满足')
+        self.assertIn('<a:spcPct val="106000"/>', slide_xml)
+
+    def test_image_text_narrative_panel_has_comfortable_inset_padding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            image_path = tmp_path / "scene.jpg"
+            Image.new("RGB", (640, 360), color=(40, 120, 180)).save(image_path)
+            body = "用适中的正文长度验证图文页文字不会贴近面板边缘，同时维持轻微居中的阅读重心。"
+            prs = render_component_slide(
+                palette="ocean_soft",
+                title="图文页留白",
+                content_type="image_text",
+                layout_variant="image_right",
+                components=[
+                    {"type": "image", "local_path": str(image_path)},
+                    {"type": "paragraph", "body": body},
+                ],
+            )
+
+        body_shape = next(shape for shape in prs.slides[0].shapes if getattr(shape, "text", "") == body)
+        _, text_box, _ = image_text_regions("image_right", 0.65, 1.72, 11.95, 5.25)
+        self.assertAlmostEqual(body_shape.left.inches, text_box[0] + 0.50, places=2)
+        self.assertAlmostEqual(body_shape.width.inches, text_box[2] - 1.0, places=2)
 
     def test_card_grid_uses_larger_component_body_font(self):
         cards = [
