@@ -1,7 +1,7 @@
 // ── Status types ────────────────────────────────────────────────────────────
 
 export type TaskItemStatus = 'pending' | 'generating' | 'done' | 'qa_done' | 'fixed' | 'failed';
-export type TaskStatus = 'conversation' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'conversation' | 'running' | 'waiting_approval' | 'waiting_confirmation' | 'recovering' | 'completed' | 'failed' | 'cancelled';
 export type SSEEventType =
   | 'answer'
   | 'answer_end'
@@ -14,6 +14,9 @@ export type SSEEventType =
   | 'thumbnail_error'
   | 'token_usage'
   | 'runtime_event'
+  | 'approval_required'
+  | 'approval_updated'
+  | 'approval_decision'
   | 'error'
   | 'complete'
   | 'continue_complete'
@@ -86,6 +89,26 @@ export interface TaskInfo {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+	approval_mode?: 'auto' | 'sensitive' | 'manual';
+	pending_approval?: ApprovalRequest;
+	feedback?: DeliveryFeedback;
+}
+
+export interface DeliveryFeedback {
+  rating: number;
+  suggestion?: string;
+  updated_at: string;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  reason_code: string;
+  reason: string;
+  action_summary: string;
+  affected_pages?: number[];
+  consequence_if_rejected: string;
+  status: string;
+  created_at: string;
 }
 
 export interface RuntimeBudgets {

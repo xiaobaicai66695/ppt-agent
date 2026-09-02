@@ -72,8 +72,22 @@ type TaskRecord struct {
 	ConversationID      string    `gorm:"size:64;index" json:"conversation_id"`
 	SourceMessageID     string    `gorm:"size:64;index" json:"source_message_id"`
 	ParentTaskID        string    `gorm:"size:64;index" json:"parent_task_id"`
+	ApprovalMode        string    `gorm:"size:16;not null;default:'auto'" json:"approval_mode"`
+	PendingApproval     string    `gorm:"type:longtext" json:"pending_approval"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// TaskFeedback is a task owner's structured evaluation of a delivered deck.
+// One owner can revise their feedback without creating duplicate analytics rows.
+type TaskFeedback struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	TaskID     string    `gorm:"size:64;uniqueIndex:idx_task_feedback_task_user;index;not null" json:"task_id"`
+	UserID     uint      `gorm:"uniqueIndex:idx_task_feedback_task_user;index;not null" json:"user_id"`
+	Rating     int       `gorm:"not null" json:"rating"`
+	Suggestion string    `gorm:"type:text" json:"suggestion"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // PlanDraftRecord stores PPT Agent planning results that must not trigger PPT rendering.
@@ -170,6 +184,42 @@ func ListTaskRecordsByUser(userID uint) ([]TaskRecord, error) {
 
 func DeleteTaskRecord(id string) error {
 	return DB.Where("id = ?", id).Delete(&TaskRecord{}).Error
+}
+
+func UpsertTaskFeedback(taskID string, userID uint, rating int, suggestion string) (*TaskFeedback, error) {
+	if DB == nil {
+		return nil, fmt.Errorf("database unavailable")
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	now := time.Now()
+	record := TaskFeedback{TaskID: taskID, UserID: userID, Rating: rating, Suggestion: suggestion, CreatedAt: now, UpdatedAt: now}
+	if err := DB.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "task_id"}, {Name: "user_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"rating": rating, "suggestion": suggestion, "updated_at": now,
+		}),
+	}).Create(&record).Error; err != nil {
+		return nil, err
+	}
+	return GetTaskFeedback(taskID, userID)
+}
+
+func GetTaskFeedback(taskID string, userID uint) (*TaskFeedback, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	ctx, cancel := withOperationTimeout()
+	defer cancel()
+	var feedback TaskFeedback
+	err := DB.WithContext(ctx).Where("task_id = ? AND user_id = ?", taskID, userID).First(&feedback).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &feedback, nil
 }
 
 // ── PlanDraftRecord CRUD ──────────────────────────────────────────────────
@@ -371,7 +421,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &PlanDraftRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &TaskFeedback{}, &PlanDraftRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 

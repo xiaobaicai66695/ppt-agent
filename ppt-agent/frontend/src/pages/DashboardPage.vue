@@ -11,13 +11,14 @@ import {
   ListFilter,
   Presentation,
   Square,
+	Star,
   X,
 } from 'lucide-vue-next';
 import type { TaskInfo, TaskItem, SSEEvent, RuntimeMeta, RuntimeEvent } from '../types';
 import { STATUS_LABELS } from '../types';
 import {
   fetchTasks, fetchTask, startTask, cancelTask, deleteTask,
-  isLoggedIn, continueTask, fetchConversation, fetchRuntimeEvent, routeMessage,
+  isLoggedIn, continueTask, fetchConversation, fetchRuntimeEvent, routeMessage, setTaskApprovalMode, decideTaskApproval, saveTaskFeedback,
 } from '../api';
 import { authState } from '../stores/auth';
 import AppShell from '../components/AppShell.vue';
@@ -29,7 +30,7 @@ import ConversationComposer from '../components/ConversationComposer.vue';
 import RuntimeEventDetail from '../components/RuntimeEventDetail.vue';
 import {
   appendAssistantStreamContent, compactRuntimeEvents, deriveLiveActivity, deriveObservableSteps, mergeConversationMessages, mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries,
-  nextReplayCursor, recoverConversationMessages, runtimeEventDetailLabel, runtimeEventKindLabel,
+  nextReplayCursor, recoverConversationMessages, resyncSSEGap, runtimeEventDetailLabel, runtimeEventKindLabel,
   runtimeEventNameLabel, runtimeEventStatusLabel, summarizeTaskTitle,
 } from '../utils/workbench';
 
@@ -59,6 +60,13 @@ const cancelling = ref(false);
 const loadError = ref('');
 const sidebarOpen = ref(false);
 const sseConnectionInterrupted = ref(false);
+const approvalAdjustMessage = ref('');
+const approvalSubmitting = ref(false);
+const feedbackRating = ref(0);
+const feedbackSuggestion = ref('');
+const feedbackSubmitting = ref(false);
+const feedbackNotice = ref('');
+const feedbackError = ref(false);
 
 function closeSidebar() {
   sidebarOpen.value = false;
@@ -102,8 +110,62 @@ let streamingRenderTimer: ReturnType<typeof setTimeout> | null = null;
 const composerMode = computed<'create' | 'queue' | 'continue'>(() => {
   if (!selectedTask.value) return 'create';
   if (selectedTask.value.status === 'conversation') return 'create';
-  return selectedTask.value.status === 'running' ? 'queue' : 'continue';
+  return selectedTask.value.status === 'running' || selectedTask.value.status === 'recovering' ? 'queue' : 'continue';
 });
+
+function statusLabel(status?: string) {
+  return ({ running: '正在处理', waiting_approval: '等待你的审批', waiting_confirmation: '等待确认修改', recovering: '正在恢复', completed: '演示已交付', cancelled: '已中断', failed: '失败' } as Record<string, string>)[status || ''] || '会话中';
+}
+
+async function updateApprovalMode(mode: 'auto' | 'sensitive' | 'manual') {
+  if (!selectedTask.value) return;
+  try {
+    const info = await setTaskApprovalMode(selectedTask.value.id, mode);
+    const idx = tasks.value.findIndex(t => t.id === info.id);
+    if (idx >= 0) tasks.value[idx] = info;
+  } catch (error) { composerError.value = error instanceof Error ? error.message : '审批模式更新失败'; }
+}
+
+async function decideApproval(decision: 'approve' | 'adjust_scope' | 'reject') {
+  if (!selectedTask.value || approvalSubmitting.value) return;
+  approvalSubmitting.value = true;
+  try {
+    const info = await decideTaskApproval(selectedTask.value.id, decision, approvalAdjustMessage.value);
+    const idx = tasks.value.findIndex(t => t.id === info.id);
+    if (idx >= 0) tasks.value[idx] = info;
+    if (decision !== 'adjust_scope') approvalAdjustMessage.value = '';
+    if (decision === 'approve') { connectSSE(info.id, 0); startPolling(info.id); }
+  } catch (error) { composerError.value = error instanceof Error ? error.message : '审批操作失败'; }
+  finally { approvalSubmitting.value = false; }
+}
+
+const canRateDelivery = computed(() => selectedTask.value?.status === 'completed');
+
+function restoreDeliveryFeedback(info: TaskInfo | undefined) {
+  feedbackRating.value = info?.feedback?.rating || 0;
+  feedbackSuggestion.value = info?.feedback?.suggestion || '';
+  feedbackNotice.value = info?.feedback ? '已记录，你可以随时更新。' : '';
+  feedbackError.value = false;
+}
+
+async function submitDeliveryFeedback() {
+  if (!selectedTask.value || !feedbackRating.value || feedbackSubmitting.value) return;
+  feedbackSubmitting.value = true;
+  feedbackNotice.value = '';
+  feedbackError.value = false;
+  try {
+    const info = await saveTaskFeedback(selectedTask.value.id, feedbackRating.value, feedbackSuggestion.value);
+    const idx = tasks.value.findIndex(task => task.id === info.id);
+    if (idx >= 0) tasks.value[idx] = info;
+    feedbackSuggestion.value = info.feedback?.suggestion || '';
+    feedbackNotice.value = '感谢反馈，已记录。';
+  } catch (error) {
+    feedbackNotice.value = error instanceof Error ? error.message : '反馈提交失败，请稍后重试';
+    feedbackError.value = true;
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+}
 async function loadConversation(taskId: string, replace = false) {
   conversationLoading.value = true;
   try {
@@ -306,6 +368,11 @@ async function submitComposer() {
     const accepted = await continueTask(taskId, message);
     composerNotice.value = accepted.message;
     continuationQueued.value = accepted.status === 'queued';
+	if (accepted.status === 'waiting_approval') {
+		await refreshTask(taskId);
+		composerLoading.value = false;
+		return;
+	}
     sseCompleted = false;
     connectSSE(taskId, accepted.after_event_id || 0);
     startPolling(taskId);
@@ -731,7 +798,12 @@ function connectSSE(taskId: string, afterEventID = 0) {
     if (eventID > 0 && eventID <= lastSeenEventID) return;
     if (eventID > 0 && lastSeenEventID > 0 && eventID > lastSeenEventID + 1) {
       sseConnectionInterrupted.value = true;
-      addLog('error', '实时事件出现缺口，正在从最后确认的位置恢复');
+      // The server's replay window may have expired while this tab was slow or
+      // disconnected. Retrying with the old cursor would see this same event
+      // again forever, so resume from the oldest event we can still receive.
+      lastSeenEventID = resyncSSEGap(lastSeenEventID, eventID);
+      addLog('error', '部分实时事件已超出回放窗口，已从当前可恢复位置继续同步');
+      void loadConversation(taskId, true);
       source.close();
       if (es === source) es = null;
       window.setTimeout(() => {
@@ -841,6 +913,16 @@ function connectSSE(taskId: string, afterEventID = 0) {
       case 'runtime_event':
         if (evt.runtime_event) appendRuntimeEvent(evt.runtime_event);
         break;
+
+	  case 'approval_required':
+		addLog('worker', evt.message || '任务正在等待你的审批');
+		void refreshTask(taskId);
+		stopPolling();
+		break;
+
+	  case 'approval_decision':
+		void refreshTask(taskId);
+		break;
 
       case 'error':
         addLog('error', evt.error || evt.content || '');
@@ -1151,6 +1233,7 @@ async function selectTask(id: string) {
   composerNotice.value = '';
   const t = tasks.value.find(x => x.id === id);
   if (!t) return;
+	restoreDeliveryFeedback(t);
 
   // Restore cached state if switching back to a previously viewed task
   if (restoreCache(id)) {
@@ -1290,7 +1373,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
     <template #actions>
       <span v-if="selectedTask && selectedTask.status !== 'conversation'" class="top-task-state" :class="selectedTask.status">
         <i aria-hidden="true"></i>
-        {{ selectedTask.status === 'running' ? '正在处理' : selectedTask.status === 'completed' ? '演示已交付' : selectedTask.status === 'cancelled' ? '已中断' : '失败' }}
+        {{ statusLabel(selectedTask.status) }}
       </span>
       <button
         class="topbar-tool task-list-trigger"
@@ -1390,6 +1473,8 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
             <span v-if="selectedTask?.status === 'running'" class="stat-badge running">
               <span class="pulse-dot"></span>正在处理
             </span>
+			<span v-if="selectedTask?.status === 'waiting_approval'" class="stat-badge waiting">等待审批</span>
+			<span v-if="selectedTask?.status === 'recovering'" class="stat-badge waiting">正在恢复</span>
             <span v-if="selectedTask?.status === 'completed'" class="stat-badge done"> 演示已交付</span>
             <span v-if="selectedTask?.status === 'cancelled'" class="stat-badge cancelled"> 已中断</span>
             <span v-if="selectedTask?.status === 'failed'" class="stat-badge failed"> 失败</span>
@@ -1413,6 +1498,34 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 		  :task-id="selectedTask?.id"
 		  :created-at="selectedTask?.created_at"
 		/>
+
+        <section v-if="selectedTask?.pending_approval" class="approval-panel" aria-live="polite">
+          <div class="approval-panel-head">
+            <div>
+              <span class="approval-kicker">需要你的确认</span>
+              <h3>{{ selectedTask.pending_approval.action_summary }}</h3>
+            </div>
+            <span class="approval-mode">{{ selectedTask.approval_mode === 'manual' ? '逐步审批' : '关键操作审批' }}</span>
+          </div>
+          <dl>
+            <div><dt>为什么中断</dt><dd>{{ selectedTask.pending_approval.reason }}</dd></div>
+            <div v-if="selectedTask.pending_approval.affected_pages?.length"><dt>影响范围</dt><dd>第 {{ selectedTask.pending_approval.affected_pages.join('、') }} 页</dd></div>
+            <div><dt>拒绝后</dt><dd>{{ selectedTask.pending_approval.consequence_if_rejected }}</dd></div>
+          </dl>
+          <textarea v-model="approvalAdjustMessage" placeholder="可选：调整修改范围后再次审批" rows="2"></textarea>
+          <div class="approval-actions">
+            <button type="button" class="tool-btn primary" :disabled="approvalSubmitting" @click="decideApproval('approve')">本次允许</button>
+            <button type="button" class="tool-btn" :disabled="approvalSubmitting || !approvalAdjustMessage.trim()" @click="decideApproval('adjust_scope')">调整范围</button>
+            <button type="button" class="tool-btn danger" :disabled="approvalSubmitting" @click="decideApproval('reject')">拒绝</button>
+          </div>
+        </section>
+
+        <section v-if="selectedTask && selectedTask.status !== 'running' && selectedTask.status !== 'conversation'" class="approval-settings">
+          <span>执行控制</span>
+          <button type="button" :class="{ active: selectedTask.approval_mode === 'auto' }" @click="updateApprovalMode('auto')">自动执行</button>
+          <button type="button" :class="{ active: selectedTask.approval_mode === 'sensitive' }" @click="updateApprovalMode('sensitive')">关键操作审批</button>
+          <button type="button" :class="{ active: selectedTask.approval_mode === 'manual' }" @click="updateApprovalMode('manual')">逐步审批</button>
+        </section>
 
         <section v-if="observableSteps.length > 0" class="execution-watch" aria-label="执行观察">
           <div class="watch-head">
@@ -1672,6 +1785,41 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
           </div>
         </div>
 
+        <section v-if="canRateDelivery" class="delivery-feedback" aria-label="交付反馈">
+          <div class="delivery-feedback-head">
+            <div>
+              <strong>这份 PPT 对你有帮助吗？</strong>
+              <small>评分会帮助我们改进，建议可选，不会修改本次文件。</small>
+            </div>
+            <span v-if="selectedTask?.feedback" class="feedback-saved">已评分</span>
+          </div>
+          <div class="feedback-stars" role="radiogroup" aria-label="PPT 评分">
+            <button
+              v-for="score in 5"
+              :key="score"
+              type="button"
+              :class="{ active: score <= feedbackRating }"
+              :aria-label="`${score} 分`"
+              :aria-checked="score === feedbackRating"
+              role="radio"
+              @click="feedbackRating = score"
+            ><Star :size="17" :fill="score <= feedbackRating ? 'currentColor' : 'none'" /></button>
+            <span>{{ feedbackRating ? `${feedbackRating} 分` : '请选择评分' }}</span>
+          </div>
+          <textarea
+            v-model="feedbackSuggestion"
+            :maxlength="1000"
+            rows="2"
+            placeholder="可选：告诉我们哪里还可以做得更好"
+          ></textarea>
+          <div class="delivery-feedback-actions">
+            <small :class="{ error: feedbackError }">{{ feedbackNotice }}</small>
+            <button type="button" class="tool-btn primary" :disabled="!feedbackRating || feedbackSubmitting" @click="submitDeliveryFeedback">
+              {{ feedbackSubmitting ? '提交中…' : selectedTask?.feedback ? '更新反馈' : '提交反馈' }}
+            </button>
+          </div>
+        </section>
+
         <!-- Final message -->
         <div v-if="finalMessage && selectedTask?.status !== 'running'" class="final-message">
           <div class="final-header">
@@ -1813,6 +1961,12 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .final-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; color: var(--success); background: #fff; }
 .final-message p { margin: 7px 0 0 32px; color: var(--text-secondary); font-size: 11px; }
 
+.delivery-feedback { position: fixed; z-index: 4; left: 292px; bottom: 18px; width: min(350px, calc(100vw - 320px)); padding: 12px; display: grid; gap: 9px; border: 1px solid var(--border-strong); border-radius: 8px; background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: var(--shadow-md); backdrop-filter: blur(12px); }
+.delivery-feedback-head { display: flex; justify-content: space-between; gap: 10px; }.delivery-feedback-head strong { display: block; color: var(--text); font-size: 12px; }.delivery-feedback-head small { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10px; line-height: 1.45; }.feedback-saved { flex: 0 0 auto; color: var(--success); font-size: 10px; font-weight: 750; }
+.feedback-stars { display: flex; align-items: center; gap: 3px; }.feedback-stars button { width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 4px; color: var(--text-disabled); background: transparent; cursor: pointer; }.feedback-stars button:hover, .feedback-stars button.active { color: var(--warning); background: var(--warning-soft); }.feedback-stars span { margin-left: 5px; color: var(--text-muted); font-size: 10px; }
+.delivery-feedback textarea { width: 100%; padding: 7px 8px; resize: vertical; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface); font: inherit; font-size: 11px; line-height: 1.45; }.delivery-feedback textarea:focus { outline: 2px solid color-mix(in srgb, var(--action) 45%, transparent); outline-offset: 1px; }
+.delivery-feedback-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.delivery-feedback-actions small { min-height: 14px; color: var(--success); font-size: 10px; }.delivery-feedback-actions small.error { color: var(--danger); }
+
 .preview-modal-overlay { position: fixed; inset: 0; z-index: var(--z-modal); padding: 18px; display: grid; place-items: center; }
 .preview-modal { max-height: calc(100dvh - 36px); overflow: hidden; display: flex; flex-direction: column; }
 .preview-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.preview-modal-header h3 { min-width: 0; margin: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1848,7 +2002,12 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
 .top-task-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-disabled); }
 .top-task-state.running { color: var(--info); }.top-task-state.running i { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
 .top-task-state.completed { color: var(--success); }.top-task-state.completed i { background: var(--success); }
+.top-task-state.waiting_approval, .top-task-state.recovering { color: var(--warning); }.top-task-state.waiting_approval i, .top-task-state.recovering i { background: var(--warning); }
 .top-task-state.failed { color: var(--danger); }.top-task-state.failed i { background: var(--danger); }
+.stat-badge.waiting { color: var(--warning); background: var(--warning-soft); }
+.approval-panel { margin: 14px 0; padding: 16px; border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border)); border-radius: 10px; background: var(--warning-soft); display: grid; gap: 12px; }
+.approval-panel-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }.approval-panel h3 { margin: 4px 0 0; font-size: 14px; line-height: 1.5; }.approval-kicker { color: var(--warning); font-size: 11px; font-weight: 800; letter-spacing: .08em; }.approval-mode { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.approval-panel dl { display: grid; gap: 8px; margin: 0; }.approval-panel dl > div { display: grid; grid-template-columns: 76px 1fr; gap: 10px; }.approval-panel dt { color: var(--text-muted); font-size: 12px; }.approval-panel dd { margin: 0; font-size: 12px; line-height: 1.6; }.approval-panel textarea { width: 100%; resize: vertical; padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }.approval-actions, .approval-settings { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }.approval-settings { margin: 10px 0 14px; color: var(--text-muted); font-size: 12px; }.approval-settings button { border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; background: var(--surface); color: var(--text-muted); cursor: pointer; font-size: 11px; }.approval-settings button.active { border-color: var(--action); color: var(--action); background: var(--action-soft); }
 
 .layout {
   width: 100%;
@@ -2168,6 +2327,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
   .sidebar-scrim { position: fixed; inset: 0; z-index: var(--z-modal); display: block; border: 0; background: rgba(15, 17, 18, 0.55); }
   .sidebar-close-btn { position: fixed; top: 6px; left: min(calc(88vw - 50px), 270px); z-index: calc(var(--z-modal) + 2); width: 42px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--text-secondary); background: var(--surface); cursor: pointer; }
   .main { height: 100%; padding: 20px 22px 26px; }
+  .delivery-feedback { left: 22px; width: min(350px, calc(100vw - 44px)); }
 }
 
 @media (max-width: 720px) {
@@ -2190,6 +2350,7 @@ onUnmounted(() => { disconnectSSE(); stopPolling(); });
   .intent-stat { grid-column: 1 / -1; }
   .alignment-warnings article { grid-template-columns: 1fr; }
   .workspace-composer { margin-top: 16px; }
+  .delivery-feedback { position: static; width: 100%; margin: 14px 0 0; box-sizing: border-box; }
   .preview-modal-overlay { padding: 0; }
   .preview-modal { width: 100vw; height: 100dvh; border-radius: 0; }
   .preview-modal-body { height: calc(100dvh - 58px); }
