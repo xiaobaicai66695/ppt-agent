@@ -1,0 +1,43 @@
+{
+  "id": "planner_validation_agenda_navigation_001",
+  "name": "园区低碳改造决策的目录叙事",
+  "input": {
+    "user_request": "为园区管理委员会准备一份 6 页低碳改造决策 PPT。目录要带章节副标题，帮助委员快速理解每一部分将回答的决策问题，不能只给宽大的章节名称卡片。最终需要明确本年度先批哪两项改造。",
+    "audience": "园区管理委员会",
+    "page_count": 6,
+    "language": "zh-CN",
+    "style": "决策汇报、简洁、证据导向",
+    "source_materials": [
+      {
+        "type": "text",
+        "title": "能耗与改造信息",
+        "content": "园区年用电量 1820 万千瓦时，其中空调与照明占 63%。分项计量显示 A 楼夜间空调空转造成约 11% 的可避免能耗；停车场照明替换为智能调光后预计年节电 96 万千瓦时。两项改造合计投资 380 万元，预计 3.2 年回收。"
+      }
+    ],
+    "requirements": [
+      "必须包含封面、目录、能耗诊断、方案比较、年度优先级和决策结论",
+      "目录至少有 3 个章节，并为每个 toc_item 提供非重复副标题",
+      "必须保留 1820 万千瓦时、63%、11%、96 万千瓦时、380 万元和 3.2 年",
+      "给出先批两项改造的明确结论"
+    ]
+  },
+  "expected": {
+    "must_have_slide_roles": ["封面", "目录", "能耗诊断", "方案比较", "年度优先级", "决策结论"],
+    "must_use_content_types": ["title_slide", "agenda", "chart_slide", "comparison_table", "summary_slide"],
+    "must_include_data_points": ["1820 万千瓦时", "63%", "11%", "96 万千瓦时", "380 万元", "3.2 年"],
+    "content_quality": {
+      "deck_thesis": "优先批准空调空转治理和停车场智能调光，能以可量化节能和 3.2 年回收周期形成年度改造抓手。",
+      "required_narrative_chain": ["能耗问题", "可避免损耗", "方案比较", "年度优先级", "审批结论"],
+      "max_consecutive_same_layout": 2,
+      "agenda_subtitles": {
+        "required": true,
+        "minimum_complete_items": 3
+      }
+    }
+  },
+  "judge_focus": [
+    "目录是否通过 toc_item.title 与 toc_item.body 同时表达章节和阅读引导",
+    "目录副标题是否服务委员的决策路径，而不是重复标题",
+    "是否从能耗证据推进到两项改造的审批结论"
+  ]
+}

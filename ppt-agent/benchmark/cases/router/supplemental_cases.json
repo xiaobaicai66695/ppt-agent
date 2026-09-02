@@ -1,0 +1,7 @@
+[
+  {"id":"router_create_003","name":"创建校园招聘复盘","input":{"user_message":"做一份 7 页校园招聘复盘 PPT，给 HR 总监汇报","has_existing_task":false,"conversation_context":[]},"expected":{"intent":"create_deck","target_agent":"PPTPlanner","must_extract":{"topic":"校园招聘复盘","audience":"HR 总监","page_count":7}},"judge_focus":["识别新建演示","提取受众和页数"]},
+  {"id":"router_create_004","name":"创建公益项目路演","input":{"user_message":"请生成 5 页乡村阅读公益项目路演，面向基金会评审","has_existing_task":false,"conversation_context":[]},"expected":{"intent":"create_deck","target_agent":"PPTPlanner","must_extract":{"topic":"乡村阅读公益项目","audience":"基金会评审","page_count":5}},"judge_focus":["识别创建意图","保留项目主题"]},
+  {"id":"router_fix_existing_003","name":"已有任务的单页修订","input":{"user_message":"把第 4 页的风险矩阵换成热力图","has_existing_task":true,"conversation_context":["当前任务是供应链风险报告，共 6 页。"]},"expected":{"intent":"fix","target_agent":"PPTFixer","must_extract":{"page":4,"change":"风险矩阵换成热力图"}},"judge_focus":["不新建任务","定位已有页面修改"]},
+  {"id":"router_continue_003","name":"上下文补充继续生成","input":{"user_message":"受众改成一线门店经理，例子更贴近日常排班","has_existing_task":true,"conversation_context":["用户正在制作门店运营培训 PPT，已有 8 页草稿。"]},"expected":{"intent":"fix","target_agent":"PPTFixer","must_extract":{"audience":"一线门店经理"}},"judge_focus":["利用上下文","识别为已有演示调整"]},
+  {"id":"router_chat_001","name":"非演示知识问答","input":{"user_message":"什么是 OKR 的对齐机制？","has_existing_task":false,"conversation_context":[]},"expected":{"intent":"chat","target_agent":"Chat","must_extract":{"topic":"OKR 对齐机制"}},"judge_focus":["不误创建 PPT","返回聊天意图"]}
+]

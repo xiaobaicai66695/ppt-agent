@@ -64,6 +64,7 @@ func runPlannerCase(ctx context.Context, out *agentOutput, c benchCase, input ca
 	out.Output = manifest
 	if manifest != nil {
 		out.DeterministicReview = deck.ReviewTasksManifest(manifest, "planner_draft", 1)
+		out.ContentQuality = assessContentQuality(manifest)
 	}
 	if result != nil && out.DurationMS == 0 {
 		out.DurationMS = result.Duration.Milliseconds()
@@ -117,6 +118,7 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 	out.Events = events
 	if after != nil {
 		out.DeterministicReview = deck.ReviewTasksManifest(after, "reviewer_after", 2)
+		out.ContentQuality = assessContentQuality(after)
 	}
 }
 

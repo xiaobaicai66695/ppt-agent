@@ -32,6 +32,11 @@
       "image_text_narrative": 240,
       "argument_block": 440,
       "exclude_content_types": ["title_slide", "agenda", "section_divider", "stat_slide", "kpi_dashboard", "chart_slide"]
+    },
+    "content_quality": {
+      "deck_thesis": "增长基本盘仍在，但转化和华南执行短板决定下月必须优先修复执行链路。",
+      "required_narrative_chain": ["增长与风险总览", "区域差异证据", "执行根因", "下月行动", "管理层跟进结论"],
+      "max_consecutive_same_layout": 2
     }
   },
   "judge_focus": [
@@ -40,6 +45,7 @@
     "tasks.draft.json 字段是否尽力完整",
     "图表/KPI 是否结构化",
     "是否没有把生成器/skill 才该处理的坐标字号颜色写进 Planner",
-    "适用的信息页正文组件总量是否至少 220 字，图文页正文是否至少 240 字，完整论述是否达到 440 字"
+    "适用的信息页正文组件总量是否至少 220 字，图文页正文是否至少 240 字，完整论述是否达到 440 字",
+    "是否有贯穿整套的管理层判断，并依次完成增长与风险、区域证据、执行根因、行动和跟进的论证链"
   ]
 }

@@ -31,6 +31,11 @@
       "image_text_narrative": 240,
       "argument_block": 440,
       "exclude_content_types": ["title_slide", "agenda", "section_divider", "timeline", "chart_slide"]
+    },
+    "content_quality": {
+      "deck_thesis": "服务化拆分是解决单体发布、性能和稳定性瓶颈的结构性方案，应以可回滚的分阶段迁移推进。",
+      "required_narrative_chain": ["量化现状瓶颈", "目标架构与职责边界", "分阶段迁移", "风险与缓解", "决策请求与里程碑"],
+      "max_consecutive_same_layout": 2
     }
   },
   "judge_focus": [
@@ -38,6 +43,7 @@
     "目标架构是否结构化而不是泛泛描述",
     "迁移和风险页面是否有可执行粒度",
     "是否保持 DeckSpec 合法和字段完整",
-    "适用的信息页正文组件总量是否至少 220 字，图文页正文是否至少 240 字，完整论述是否达到 440 字"
+    "适用的信息页正文组件总量是否至少 220 字，图文页正文是否至少 240 字，完整论述是否达到 440 字",
+    "是否用一个可评审的架构决策贯穿现状、目标、迁移、风险和里程碑，而非并列的技术说明"
   ]
 }

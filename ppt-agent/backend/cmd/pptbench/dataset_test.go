@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +20,60 @@ func TestDefaultCasesPathSeparatesTestAndValidation(t *testing.T) {
 	if !strings.HasSuffix(validation, filepath.Join("benchmark", "validation_cases", "planner")) {
 		t.Fatalf("unexpected validation path: %s", validation)
 	}
+}
+
+func TestBenchmarkDatasetCoverage(t *testing.T) {
+	const minimumCasesPerSuite = 10
+	suites := []string{"router", "planner", "reviewer", "fixer"}
+	datasets := []string{"test", "validation"}
+	seenIDs := make(map[string]string)
+	seenRequests := make(map[string]string)
+
+	for _, dataset := range datasets {
+		for _, suite := range suites {
+			casesRoot := filepath.Join("..", "..", "..", "benchmark", "cases", suite)
+			if dataset == "validation" {
+				casesRoot = filepath.Join("..", "..", "..", "benchmark", "validation_cases", suite)
+			}
+			cases, err := loadCases(suite, options{dataset: dataset, suite: suite, casesPath: casesRoot})
+			if err != nil {
+				t.Fatalf("load %s/%s cases: %v", dataset, suite, err)
+			}
+			if len(cases) < minimumCasesPerSuite {
+				t.Fatalf("%s/%s has %d cases, want at least %d", dataset, suite, len(cases), minimumCasesPerSuite)
+			}
+			for _, c := range cases {
+				if strings.TrimSpace(c.ID) == "" {
+					t.Fatalf("%s/%s contains an empty case id", dataset, suite)
+				}
+				if previous, exists := seenIDs[c.ID]; exists {
+					t.Fatalf("duplicate case id %q in %s and %s/%s", c.ID, previous, dataset, suite)
+				}
+				seenIDs[c.ID] = dataset + "/" + suite
+
+				request := benchmarkCaseRequest(c.Input)
+				if request == "" {
+					t.Fatalf("%s/%s case %q has no user request/message", dataset, suite, c.ID)
+				}
+				key := suite + "\x00" + request
+				if previous, exists := seenRequests[key]; exists && previous != dataset {
+					t.Fatalf("%s/%s reuses an exact request across test and validation: %q", suite, dataset, request)
+				}
+				seenRequests[key] = dataset
+			}
+		}
+	}
+}
+
+func benchmarkCaseRequest(raw json.RawMessage) string {
+	var input struct {
+		UserRequest string `json:"user_request"`
+		UserMessage string `json:"user_message"`
+	}
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(firstNonEmpty(input.UserRequest, input.UserMessage))
 }
 
 func TestDefaultOutPathIncludesDatasetAndSuite(t *testing.T) {

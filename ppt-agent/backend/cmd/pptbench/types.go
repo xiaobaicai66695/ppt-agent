@@ -52,6 +52,7 @@ type agentOutput struct {
 	After               any                    `json:"after,omitempty"`
 	Events              []deck.AgentEvent      `json:"events,omitempty"`
 	DeterministicReview *deck.PlanReviewReport `json:"deterministic_review,omitempty"`
+	ContentQuality      *contentQualityReport  `json:"content_quality,omitempty"`
 	Error               string                 `json:"error,omitempty"`
 }
 
@@ -62,7 +63,39 @@ type modelOutput struct {
 	Before              any                    `json:"before,omitempty"`
 	After               any                    `json:"after,omitempty"`
 	DeterministicReview *deck.PlanReviewReport `json:"deterministic_review,omitempty"`
+	ContentQuality      *contentQualityReport  `json:"content_quality,omitempty"`
 	Error               string                 `json:"error,omitempty"`
+}
+
+// contentQualityReport provides evidence for the Judge rather than pretending
+// that a word-count gate can decide whether a deck says something coherent.
+// Semantic alignment remains an LLM judgment against each case's expectations.
+type contentQualityReport struct {
+	DeckClaim                     string                `json:"deck_claim,omitempty"`
+	PageClaims                    []contentPageClaim    `json:"page_claims,omitempty"`
+	MissingClaimPages             []int                 `json:"missing_claim_pages,omitempty"`
+	DuplicateClaimGroups          [][]int               `json:"duplicate_claim_groups,omitempty"`
+	LongestRepeatedLayoutRun      int                   `json:"longest_repeated_layout_run,omitempty"`
+	RepeatedLayoutRunContentTypes []string              `json:"repeated_layout_run_content_types,omitempty"`
+	AgendaTOCItems                int                   `json:"agenda_toc_items,omitempty"`
+	AgendaTOCSubtitles            int                   `json:"agenda_toc_subtitles,omitempty"`
+	AgendaSubtitleIssues          []agendaSubtitleIssue `json:"agenda_subtitle_issues,omitempty"`
+}
+
+type contentPageClaim struct {
+	PageIndex   int    `json:"page_index"`
+	Title       string `json:"title"`
+	ContentType string `json:"content_type"`
+	Claim       string `json:"claim,omitempty"`
+}
+
+// agendaSubtitleIssue captures whether tasks.json keeps the agenda's
+// audience-facing subtitle as a distinct toc_item.body field.
+type agendaSubtitleIssue struct {
+	PageIndex   int    `json:"page_index"`
+	ComponentID string `json:"component_id,omitempty"`
+	Code        string `json:"code"`
+	Title       string `json:"title,omitempty"`
 }
 
 type judgeInput struct {

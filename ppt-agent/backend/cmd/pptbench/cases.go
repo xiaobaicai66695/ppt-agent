@@ -76,6 +76,7 @@ func compactModelOutput(output agentOutput) modelOutput {
 		Before:              output.Before,
 		After:               output.After,
 		DeterministicReview: output.DeterministicReview,
+		ContentQuality:      output.ContentQuality,
 		Error:               output.Error,
 	}
 }
