@@ -203,10 +203,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         }
     if content_type == "agenda":
         agenda_items = agenda_items_from_manifest(manifest, task) or items
-        agenda_components = [
-            {"type": "toc_item", "title": agenda_item_title(item), "body": item}
-            for item in agenda_items[:8]
-        ]
+        agenda_components = agenda_components_from_manifest(manifest, task)
         return {"title": title, "items": agenda_items[:8], "kicker": "目录", "source": source, "components": agenda_components or components}
     if content_type == "summary_slide":
         return {
@@ -275,6 +272,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "layout_variant": layout_variant,
             "kicker": plan.get("kicker", "图文解读"),
             "sub_header": plan.get("sub_header", ""),
+            "lede": plan.get("lede", ""),
             "source": source,
             "components": components,
         }
@@ -371,6 +369,33 @@ def agenda_items_from_manifest(manifest: dict[str, Any], current_task: dict[str,
         # index. This keeps the TOC stable when cover, notes, or divider pages
         # are inserted before a section.
         result.append(f"{index:02d}  {title}")
+    return result
+
+
+def agenda_components_from_manifest(manifest: dict[str, Any], current_task: dict[str, Any]) -> list[dict[str, str]]:
+    tasks = sorted(
+        [t for t in manifest.get("tasks", []) if isinstance(t, dict)],
+        key=lambda item: safe_int(item.get("page_index"), 9999),
+    )
+    current_id = str(current_task.get("task_id"))
+
+    def usable(task: dict[str, Any]) -> bool:
+        return (
+            str(task.get("task_id")) != current_id
+            and bool(clean_text(task.get("title")))
+            and normalize_content_type(task.get("content_type", "")) not in {"title_slide", "agenda"}
+        )
+
+    sections = [task for task in tasks if usable(task) and normalize_content_type(task.get("content_type", "")) == "section_divider"]
+    candidates = sections if len(sections) >= 2 else [task for task in tasks if usable(task)]
+    result: list[dict[str, str]] = []
+    for task in candidates[:8]:
+        title = clean_text(task.get("title"))
+        plan = task.get("content_plan") if isinstance(task.get("content_plan"), dict) else {}
+        subtitle = clean_text(plan.get("summary") or plan.get("slide_intent"))
+        if subtitle == title:
+            subtitle = ""
+        result.append({"type": "toc_item", "title": title, "body": subtitle})
     return result
 
 

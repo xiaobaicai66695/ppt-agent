@@ -61,6 +61,7 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
         return result(errors, warnings, image_page_count=0)
 
     image_page_count = 0
+    required_visual_page_count = 0
     planned_but_unmaterialized = 0
     for index, task in enumerate(tasks):
         if not isinstance(task, dict):
@@ -90,6 +91,17 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
                 add_error(errors, item_path, "unmaterialized_visual_asset", "planned visual asset must be materialized to a local path or marked skipped before rendering")
         if task_has_materialized_image:
             image_page_count += 1
+        clean_text_exception = is_explicit_clean_text_exception(task)
+        if mode == "required" and not clean_text_exception:
+            required_visual_page_count += 1
+            if not task_has_materialized_image:
+                add_error(
+                    errors,
+                    task_path,
+                    "missing_required_visual",
+                    "required visual_policy needs a materialized local image on every non-exempt page; "
+                    "use visual_intent.role=clean_text_only with search_status=skipped and skip_reason only for an explicit text-only exception",
+                )
         if content_type in IMAGE_REQUIRED_CONTENT_TYPES and not task_has_materialized_image:
             add_error(errors, task_path, "missing_required_slide_image", f"{content_type} requires a materialized local image")
 
@@ -98,6 +110,13 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
         required_min = policy.get("min_image_pages")
     if mode == "required" and (not isinstance(required_min, int) or required_min < 1):
         add_error(errors, "manifest.visual_policy.min_image_pages", "missing_min_image_pages", "required visual_policy requires min_image_pages >= 1")
+    elif mode == "required" and required_min < required_visual_page_count:
+        add_error(
+            errors,
+            "manifest.visual_policy.min_image_pages",
+            "insufficient_required_visual_coverage",
+            f"required visual_policy has {required_visual_page_count} non-exempt pages, so min_image_pages must be at least {required_visual_page_count}, got {required_min}",
+        )
     elif isinstance(required_min, int) and image_page_count < required_min:
         add_error(errors, "manifest.visual_policy.min_image_pages", "too_few_image_pages", f"visual_policy requires at least {required_min} image pages, got {image_page_count}")
     elif mode == "optional" and image_page_count == 0 and planned_but_unmaterialized == 0:
@@ -115,6 +134,16 @@ def collect_visual_items(task: dict[str, Any], task_path: str) -> list[tuple[str
         if isinstance(component, dict) and is_visual_component(component):
             items.append((f"{task_path}.content_plan.components[{index}]", component))
     return items
+
+
+def is_explicit_clean_text_exception(task: dict[str, Any]) -> bool:
+    plan = task.get("content_plan") if isinstance(task.get("content_plan"), dict) else {}
+    visual_intent = plan.get("visual_intent") if isinstance(plan.get("visual_intent"), dict) else {}
+    return (
+        clean(visual_intent.get("role")) == "clean_text_only"
+        and clean(visual_intent.get("search_status")) == "skipped"
+        and bool(clean(visual_intent.get("skip_reason")))
+    )
 
 
 def is_visual_component(component: dict[str, Any]) -> bool:

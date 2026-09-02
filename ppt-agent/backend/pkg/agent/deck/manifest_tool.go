@@ -112,7 +112,10 @@ type manifestTool struct {
 	draftFirst    bool
 }
 
-type plannerManifestTool struct{ inner *manifestTool }
+type plannerManifestTool struct {
+	inner              *manifestTool
+	initializeAttempts int
+}
 
 func newPlannerManifestTool(workDir string, outline *TaskOutline, query string) tool.InvokableTool {
 	return &plannerManifestTool{inner: newDraftManifestTool(workDir, outline, query)}
@@ -149,15 +152,30 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 		})
 		return string(payload), nil
 	}
+	if t.initializeAttempts >= 2 {
+		payload, _ := json.Marshal(map[string]any{
+			"ok":          false,
+			"mode":        "initialize",
+			"target":      "draft",
+			"error":       "PPTPlanner 已用尽一次初稿和一次质量门重提的 initialize 额度",
+			"next_action": "停止重试并结束；后续质量修复由 Task Reviewer 按失败页处理。",
+		})
+		return string(payload), nil
+	}
 	manifest, err := t.inner.initializeManifest(input)
 	if err != nil {
 		return manifestToolRecoverableError(input.Mode, "draft", err), nil
 	}
 	normalizeManifestLayoutVariants(manifest)
 	normalizePlannerInitialManifest(manifest)
+	t.initializeAttempts++
 	if issues := plannerPreflightIssues(manifest); len(issues) > 0 {
 		if err := t.inner.writeManifest(manifest); err != nil {
 			return "", err
+		}
+		nextAction := "保留页数、顺序和未报错页面，只修复 issues 指向的页面或字段后，必须再执行一次完整 initialize。"
+		if t.initializeAttempts >= 2 {
+			nextAction = "已使用一次质量门重提；停止重试并结束，后续质量修复由 Task Reviewer 按失败页处理。"
 		}
 		payload, _ := json.Marshal(map[string]any{
 			"ok":                  true,
@@ -166,7 +184,7 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 			"quality_gate_passed": false,
 			"issue_count":         len(issues),
 			"issues":              issues,
-			"next_action":         "草稿已写入 tasks.draft.json；停止全量重写，等待 Task Reviewer 按失败页/章节切片 patch。",
+			"next_action":         nextAction,
 		})
 		return string(payload), nil
 	}
@@ -316,6 +334,10 @@ func normalizePlannerInitialTask(item *TaskItem) {
 		return
 	}
 	plan := item.ContentPlan
+	argumentBlockMinChars := 0
+	if rules, err := loadContentDensityRules(); err == nil {
+		argumentBlockMinChars = rules.ArgumentBlockMinChars
+	}
 	limit := maxComponentsForContentType(item.ContentType)
 	if strings.TrimSpace(item.ContentType) == "agenda" {
 		plan.Components = compactAgendaComponents(item, plan.Components, limit)
@@ -325,10 +347,36 @@ func normalizePlannerInitialTask(item *TaskItem) {
 	}
 	for i := range plan.Components {
 		component := &plan.Components[i]
+		if strings.TrimSpace(component.ID) == "" {
+			component.ID = generatedPlannerComponentID(component.Type, i+1, plan.Components)
+		}
 		if strings.TrimSpace(component.Type) == "argument_block" &&
-			runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars &&
-			!contentTypeRequiresLongArgument(item.ContentType) {
-			component.Type = "insight"
+			argumentBlockMinChars > 0 &&
+			runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockMinChars {
+			// argument_block is reserved by the skill for a complete reasoning
+			// unit. Preserve substantive but shorter copy as paragraph instead
+			// of labelling it a long-form argument or discarding its detail.
+			component.Type = "paragraph"
+		}
+	}
+}
+
+func generatedPlannerComponentID(componentType string, position int, components []PlanComponent) string {
+	base := strings.TrimSpace(componentType)
+	if base == "" {
+		base = "component"
+	}
+	for suffix := position; ; suffix++ {
+		candidate := fmt.Sprintf("%s_%d", base, suffix)
+		used := false
+		for _, component := range components {
+			if strings.TrimSpace(component.ID) == candidate {
+				used = true
+				break
+			}
+		}
+		if !used {
+			return candidate
 		}
 	}
 }
@@ -414,15 +462,6 @@ func summaryForAutoInsight(item *TaskItem) string {
 		}
 	}
 	return "本页用于建立阅读顺序和核心判断，帮助观众理解后续内容之间的关系。"
-}
-
-func contentTypeRequiresLongArgument(contentType string) bool {
-	switch strings.TrimSpace(contentType) {
-	case "deep_dive", "case_study", "example_detail":
-		return true
-	default:
-		return false
-	}
 }
 
 func preferredSectionDividerVariant(manifest *TasksManifest) string {

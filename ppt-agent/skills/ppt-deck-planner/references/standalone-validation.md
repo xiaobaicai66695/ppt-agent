@@ -140,7 +140,7 @@ unsplash auth
 unsplash fetch --work-dir <work-dir>
 ```
 
-认证信息保存到 skill 根目录的 `auth.txt`，该文件已被 Git 忽略。需要清除认证时删除该文件。除显式 `visual_policy.mode="none"` 外，素材解析是固定步骤；背景 `visual_intent` 和前景 `image` 组件都必须声明查询、主体、构图和方向。`validate_deck.py` 与 `render_deck.py` 会拒绝 query-only 素材。
+认证信息保存到 skill 根目录的 `auth.txt`，该文件已被 Git 忽略。需要清除认证时删除该文件。除显式 `visual_policy.mode="none"` 外，素材解析是固定步骤；在 `mode="required"` 下，每个非豁免页面都必须有物化后的背景 `visual_intent` 或前景 `image` 组件，且 `min_image_pages` 不能低于非豁免页数。纯文字例外必须显式写入 `visual_intent.role="clean_text_only"`、`search_status="skipped"` 和非空 `skip_reason`。背景 `visual_intent` 和前景 `image` 组件都必须声明查询、主体、构图和方向。`validate_deck.py` 与 `render_deck.py` 会拒绝 query-only、缺图和用过低覆盖数掩盖的素材计划。
 
 ## 7. 视觉验收
 

@@ -179,7 +179,7 @@ def render_component_slide(
         if content_type == "title_slide":
             _render_title(slide, colors, render_palette, title, subtitle, kicker, components, has_background)
         elif content_type == "section_divider":
-            _render_section(slide, colors, render_palette, title, subtitle, kicker, components)
+            _render_section(slide, colors, render_palette, title, subtitle, kicker, components, has_background)
         elif content_type == "quote_slide":
             _render_quote(slide, colors, render_palette, title, subtitle, components)
         else:
@@ -294,14 +294,27 @@ def _render_title(
         _render_cards(slide, colors, palette, callouts, 0.86, 5.08, 11.5, 1.52, align_y="middle")
 
 
-def _render_section(slide, colors: dict, palette: str, title: str, subtitle: str, kicker: str, components: list[dict[str, Any]]):
-    number = clean(first_value(components, "section_marker")) or "01"
-    add_rect(slide, 0, 0, 5.0, SLIDE_H, "primary", palette=palette)
-    add_text(slide, kicker or "SECTION", 0.55, 0.82, 3.8, 0.35, 13, color="background", palette=palette, colors=colors)
-    add_text(slide, number, 0.48, 2.45, 4.25, 1.45, 102, True, "background", palette=palette, colors=colors)
-    add_text(slide, title, 5.75, 2.34, 6.7, 0.95, 42, True, "text", palette=palette, colors=colors)
-    add_rect(slide, 5.78, 3.45, 1.18, 0.07, "accent", palette=palette)
-    add_text(slide, subtitle, 5.78, 3.82, 6.55, 0.68, 17, color="secondary", palette=palette, colors=colors)
+def _render_section(
+    slide,
+    colors: dict,
+    palette: str,
+    title: str,
+    subtitle: str,
+    kicker: str,
+    components: list[dict[str, Any]],
+    has_background: bool,
+):
+    # Section transitions should reset attention around the new chapter rather
+    # than compete with it.  The legacy number sidebar deliberately does not
+    # render here; section_marker remains accepted as metadata for ordering.
+    if not has_background:
+        set_slide_background(slide, palette)
+    title_text = title or component_text(first_component(components, "headline"))
+    subtitle_text = subtitle or component_text(first_component(components, "subheadline"))
+    title_top = 2.34
+    add_text(slide, title_text, 0.9, title_top, 10.7, 1.05, 44, True, "text", palette=palette, colors=colors, min_font_size=30, max_font_size=False)
+    if subtitle_text:
+        add_text(slide, subtitle_text, 0.94, title_top + 1.25, 9.45, 0.72, 20, color="secondary", palette=palette, colors=colors, min_font_size=14, max_font_size=False)
 
 
 def _render_quote(slide, colors: dict, palette: str, title: str, subtitle: str, components: list[dict[str, Any]]):
@@ -556,40 +569,62 @@ def has_narrative_components(components: list[dict[str, Any]]) -> bool:
 
 
 def _render_agenda(slide, colors: dict, palette: str, components: list[dict[str, Any]], left: float, top: float, width: float, height: float):
-    items: list[tuple[str, str]] = []
+    items: list[tuple[str, str, str]] = []
     for component_item in components:
         if component_item.get("type") not in {"toc_item", "feature_card", "key_point", "paragraph", "text_block"}:
             continue
+        explicit_title = clean(component_item.get("title") or component_item.get("label"))
+        explicit_body = clean(component_item.get("body"))
+        if explicit_title:
+            number, title = split_agenda_label(explicit_title, len(items) + 1)
+            body = clean(re.sub(r"^\d+\s*", "", explicit_body)).strip()
+            if body == title:
+                body = ""
+            items.append((number, title, body))
+            continue
         for raw in split_agenda_text(component_body(component_item) or component_text(component_item)):
-            title = clean(re.sub(r"^\d+\s*", "", raw)).strip()
-            if not title:
-                continue
-            number_match = re.match(r"^(\d{1,2})", raw.strip())
-            number = f"{int(number_match.group(1)):02d}" if number_match else f"{len(items) + 1:02d}"
-            items.append((number, title))
+            number, title = split_agenda_label(raw, len(items) + 1)
+            if title:
+                items.append((number, title, ""))
     if not items:
-        items = [("01", "核心内容"), ("02", "关键分析"), ("03", "结论建议")]
+        items = [
+            ("01", "核心内容", "先建立主题与关键问题。"),
+            ("02", "关键分析", "再用事实解释核心判断。"),
+            ("03", "结论建议", "最后沉淀行动与下一步。"),
+        ]
 
     items = items[:8]
     count = len(items)
-    cols = 2 if count > 4 else 1
+    cols = 2 if count >= 4 else 1
     rows = math.ceil(count / cols)
     gap_x = 0.38
-    gap_y = 0.18 if rows >= 4 else 0.24
+    gap_y = 0.22 if rows >= 3 else 0.28
     panel_w = (width - gap_x * (cols - 1)) / cols
-    row_h = min(0.92 if rows >= 4 else 1.05, (height - gap_y * (rows - 1)) / rows)
+    row_h = min(1.58 if rows <= 2 else 1.22, (height - gap_y * (rows - 1)) / rows)
     total_h = rows * row_h + (rows - 1) * gap_y
     start_y = top + max(0.0, (height - total_h) / 2)
 
-    for index, (number, title) in enumerate(items):
-        col = index // rows
-        row = index % rows
+    for index, (number, title, subtitle) in enumerate(items):
+        col = index % cols
+        row = index // cols
         x = left + col * (panel_w + gap_x)
         y = start_y + row * (row_h + gap_y)
         add_glass_panel(slide, x, y, panel_w, row_h, palette=palette, fill_color="light_bg", alpha=214)
         add_rect(slide, x, y, 0.08, row_h, "accent" if index == 0 else "primary", palette=palette)
-        add_text(slide, number, x + 0.26, y + 0.22, 0.68, 0.34, 15, True, "primary", "center", palette=palette, colors=colors, min_font_size=9, max_font_size=False)
-        add_text(slide, clamp_text(title, text_limit(panel_w - 1.35, row_h - 0.2, 13.6, 1.04)), x + 1.05, y + 0.18, panel_w - 1.35, row_h - 0.25, 13.6, True, "text", palette=palette, colors=colors, min_font_size=9, max_font_size=False, vertical_alignment="middle", line_spacing=0.95)
+        add_text(slide, number, x + 0.25, y + 0.26, 0.68, 0.34, 16, True, "primary", "center", palette=palette, colors=colors, min_font_size=10, max_font_size=False)
+        title_width = panel_w - 1.35
+        if subtitle:
+            add_text(slide, clamp_text(title, text_limit(title_width, 0.34, 16.5, 0.98)), x + 1.05, y + 0.22, title_width, 0.34, 16.5, True, "text", palette=palette, colors=colors, min_font_size=11, max_font_size=False)
+            add_text(slide, clamp_text(subtitle, text_limit(title_width, row_h - 0.95, 11.8, 0.96)), x + 1.05, y + 0.74, title_width, row_h - 0.92, 11.8, color="secondary", palette=palette, colors=colors, min_font_size=9, max_font_size=False, line_spacing=0.96)
+        else:
+            add_text(slide, clamp_text(title, text_limit(title_width, row_h - 0.3, 16.5, 0.98)), x + 1.05, y + 0.2, title_width, row_h - 0.28, 16.5, True, "text", palette=palette, colors=colors, min_font_size=11, max_font_size=False, vertical_alignment="middle", line_spacing=0.95)
+
+
+def split_agenda_label(raw: str, fallback_index: int) -> tuple[str, str]:
+    text = clean(raw)
+    number_match = re.match(r"^(\d{1,2})\s*", text)
+    number = f"{int(number_match.group(1)):02d}" if number_match else f"{fallback_index:02d}"
+    return number, clean(re.sub(r"^\d+\s*", "", text))
 
 
 def split_agenda_text(text: str) -> list[str]:
@@ -664,10 +699,10 @@ def _render_narrative_panel(
         body_h = max(1.4, bottom - y - reserved_for_lists - (0.24 if list_count else 0))
         body = narrative_text
         is_argument = narrative.get("type") == "argument_block"
-        body_font = 15.0 if compact_panel and emphasize_body else (14.4 if compact_panel else (13.8 if emphasize_body and is_argument else (14.0 if emphasize_body else (12.2 if is_argument else 12.8))))
+        body_font = 18.0 if compact_panel and emphasize_body else (16.5 if emphasize_body else (12.2 if is_argument else 12.8))
         body_ratio = 1.54 if compact_panel else (2.05 if is_argument else 1.72)
         body_anchor = "middle" if compact_panel else "top"
-        add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=0.98)
+        add_text(slide, clamp_text(body, text_limit(inner_w, body_h, body_font, body_ratio)), inner_left, y, inner_w, body_h, body_font, color="text", palette=palette, colors=colors, min_font_size=15.5 if emphasize_body else 9.5, max_font_size=False, vertical_alignment=body_anchor, line_spacing=0.98)
         y += body_h + 0.24
 
     list_only = not narrative and list_limit > 0

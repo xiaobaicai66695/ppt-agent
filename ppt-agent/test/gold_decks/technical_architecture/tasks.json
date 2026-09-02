@@ -105,7 +105,7 @@
           {
             "id": "argument",
             "type": "argument_block",
-            "body": "PPT Agent 的生产链路以 DeckSpec 为中心：Web API 先接收用户主题、模板、风格和大纲约束，Planner 只负责把这些输入转换为结构化 tasks.json；确定性 Reviewer 检查字段、组件容量、背景计划和质量门；SlideExecutor 逐页读取任务并调用 ppt-deck-planner 中的 render_task.py；Python generators 根据 content_type 和 content_plan.components 生成单页 PPTX；最后服务端合并文件、生成缩略图并返回下载地址。这个拆分让模型输出集中在语义层，避免每页都由 LLM 手写绘图代码。"
+          "body": "PPT Agent 的生产链路以 DeckSpec 为中心：Web API 先接收用户主题、模板、风格和大纲约束，Planner 只负责把这些输入转换为结构化 tasks.json；确定性 Reviewer 检查字段、组件容量、背景计划和质量门；SlideExecutor 逐页读取任务并调用 ppt-deck-planner 中的 render_task.py；Python generators 根据 content_type 和 content_plan.components 生成单页 PPTX；最后服务端合并文件、生成缩略图并返回下载地址。这个拆分让模型输出集中在语义层，避免每页都由 LLM 手写绘图代码。更重要的是，语义层的错误可以在提交前被定位到具体页面和组件，渲染层则只消费已审查、已物化的本地素材与稳定参数；当某页失败时，工作流可以重试受影响页面而不是重跑整套 PPT，从而把模型波动、外部图片服务和文件转换故障隔离在不同阶段。容量合同由独立 skill 统一维护，任何规划器都必须在首次提交前读取并满足它。"
           },
           {
             "id": "box_api",
@@ -285,12 +285,18 @@
             "title": "执行漂移",
             "body": "通用 Agent 实验必须要求不改写 gold tasks.json，只调用 skill 脚本。"
           },
-          {
-            "id": "recommendation",
-            "type": "recommendation",
-            "title": "下一步",
-            "body": "先用五份 gold 跑通脚本执行，再接入 Planner 输出做 A/B。"
-          }
+      {
+        "id": "recommendation",
+        "type": "recommendation",
+        "title": "下一步",
+        "body": "先用五份 gold 跑通脚本执行，再接入 Planner 输出做 A/B。"
+      },
+      {
+        "id": "insight",
+        "type": "insight",
+        "title": "实验次序",
+        "body": "先固定输入、事实来源和页面容量，记录每轮 Planner、Reviewer 与渲染器的轨迹，再比较不同模型的首稿通过率、修订轮次和最终视觉抽检结果。只有把评测样例、确定性质量门和人工截图复核连在一起，团队才能区分是模型推理不足、素材解析失败还是版式承载不足，并把改动落到对应层。"
+      }
         ],
         "capacity_hint": {
           "estimated_density": "normal",

@@ -18,21 +18,26 @@ func TestPlannerPromptCarriesFirstDraftQualityGate(t *testing.T) {
 	for _, expected := range []string{
 		"首次草稿质量门",
 		"quality_gate_passed=false",
-		"只允许再执行一次完整 `initialize`",
+		"必须且只允许再执行一次完整 `initialize`",
+		"用户要求/素材事实 → 页码 → title/content_type → 组件",
 		"visual_policy",
 		"确定性搜索、下载、去重",
 		"Planner 不填写或虚构它们",
 		"section_marker",
-		"440–840",
-		"至少 240 字",
-		"至少写到 260 个中文字符",
-		"整页正文至少 300 字",
+		"component_text_density",
+		"page_content_density",
+		"当前 `content_type.capacity`",
 		"作为观点锚点",
 		"只填写一个英文单词",
 		"clean_text_only",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("planner prompt missing %q", expected)
+		}
+	}
+	for _, forbidden := range []string{"440–840", "70–130 字", "至少 240 字", "至少写到 260 个中文字符", "整页正文至少 300 字"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("planner prompt must delegate numeric content limits to the skill, found %q", forbidden)
 		}
 	}
 }

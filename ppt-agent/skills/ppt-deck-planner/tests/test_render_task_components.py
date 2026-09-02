@@ -216,7 +216,7 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("Photo by Demo on Unsplash", slide_xml)
-        self.assertRegex(slide_xml, r'<a:defRPr sz="1500"[^>]*>.*?<a:t>城市低空配送需要同时满足')
+        self.assertRegex(slide_xml, r'<a:defRPr sz="1800"[^>]*>.*?<a:t>城市低空配送需要同时满足')
 
     def test_card_grid_uses_larger_component_body_font(self):
         cards = [
@@ -478,6 +478,54 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertEqual(params["items"], ["01  概念、政策与产业定位", "02  市场规模与增长动能", "03  城市级应用场景全景"])
         self.assertNotIn("/", " ".join(params["items"]))
         self.assertEqual([c["type"] for c in params["components"]], ["toc_item", "toc_item", "toc_item"])
+        self.assertEqual(params["components"][0]["body"], "")
+
+    def test_agenda_uses_section_summary_as_subtitle(self):
+        manifest = {
+            "tasks": [
+                {"task_id": "1", "page_index": 1, "content_type": "title_slide", "title": "低空经济"},
+                {"task_id": "2", "page_index": 2, "content_type": "agenda", "title": "目录", "content_plan": {}},
+                {
+                    "task_id": "3",
+                    "page_index": 3,
+                    "content_type": "section_divider",
+                    "title": "概念、政策与产业定位",
+                    "content_plan": {"summary": "先界定产业边界，再识别政策与基础设施的约束条件。"},
+                },
+                {
+                    "task_id": "4",
+                    "page_index": 4,
+                    "content_type": "section_divider",
+                    "title": "市场规模与增长动能",
+                    "content_plan": {"slide_intent": "用需求、供给与商业化节奏解释增长从何而来。"},
+                },
+            ]
+        }
+
+        params = render_task.build_params("agenda", manifest["tasks"][1], manifest)
+
+        self.assertEqual(params["components"][0]["title"], "概念、政策与产业定位")
+        self.assertEqual(params["components"][0]["body"], "先界定产业边界，再识别政策与基础设施的约束条件。")
+        self.assertEqual(params["components"][1]["body"], "用需求、供给与商业化节奏解释增长从何而来。")
+
+    def test_section_divider_omits_legacy_number_sidebar(self):
+        prs = render_component_slide(
+            palette="ocean_soft",
+            title="环线概览",
+            subtitle="先确定路线范围，再进入每一段体验。",
+            content_type="section_divider",
+            components=[{"type": "section_marker", "text": "01"}],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "section-divider.pptx"
+            save_slide(prs.slides[0], str(output))
+            with zipfile.ZipFile(output) as package:
+                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
+
+        self.assertIn("环线概览", slide_xml)
+        self.assertIn("先确定路线范围，再进入每一段体验。", slide_xml)
+        self.assertNotIn(">01<", slide_xml)
 
     def test_agenda_splits_compact_slash_joined_toc_item(self):
         prs = render_component_slide(

@@ -51,7 +51,7 @@ from generators import (
 
 ## 模板契约元数据
 
-`templates/component_contracts.json` 集中声明组件语义、渲染归类、容量与已实现变体。规划器、Reviewer、Validator 或通用 Agent 都应优先读取这一份文件，旧 `templates/full-decks` 和 `templates/single-page` 目录不再作为运行契约。
+`templates/component_contracts.json` 集中声明组件语义、渲染归类、容量与已实现变体。规划器、Reviewer、Validator 或通用 Agent 都应优先读取这一份文件；其中 `planning_rules.component_text_density` 和 `planning_rules.page_content_density` 是单组件与整页正文的唯一字数/信息密度来源。旧 `templates/full-decks` 和 `templates/single-page` 目录不再作为运行契约。
 
 推荐字段：
 
@@ -67,7 +67,7 @@ from generators import (
 | `variants` | object[] | 已有 generator 明确支持的 `layout_variant`。空数组表示 Planner 保持 `layout_variant` 为空，由组件布局引擎自适应。 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `content_plan.components` 是生成器消费的数据源；不要依赖旧参数承载页面正文。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `number_sidebar`，`image_text` 支持 `image_left`、`image_right`、`image_top_band`，其他内容页按组件密度自适配。
+> 当前阶段 `content_plan.components` 是生成器消费的数据源；不要依赖旧参数承载页面正文。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `background_title`（全页背景上的主标题和副标题），`image_text` 支持 `image_left`、`image_right`、`image_top_band`、`image_bottom_band`，其他内容页按组件密度自适配。
 > 新 DeckSpec 内容契约以 `title`、`content_bank`、`sections` 和 `tasks[].content_plan.components` 为主；`task_id`、`output_file`、`status` 可由调用方或任务系统根据页码派生和维护，`theme/template/description/qa_report/fix_attempts/capacity_hint/reviewer_status` 不作为 Planner 内容字段。
 
 ## 组件规划入口
@@ -131,11 +131,11 @@ from generators import (
 #### generate_section_divider — 章节分隔页
 | 参数 | 类型 | 示例 |
 |------|------|------|
-| number | str | `"01"` |
+| number | str | `"01"`；仅兼容排序元数据，不渲染为可见编号 |
 | title | str | `"技术背景"` |
 | subtitle | str | `"从感知机到大模型"` |
-| kicker | str | `"第三章"` (可选，编号上方小标签) |
-| layout_variant | str | `"number_sidebar"`；当前实现的章节页结构 |
+| kicker | str | `"第三章"`；兼容字段，不在章节页显示 |
+| layout_variant | str | `"background_title"`；全页背景上的主标题与副标题。旧 `number_sidebar` 输入同样按此样式渲染 |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 #### generate_agenda — 目录页
@@ -148,7 +148,7 @@ from generators import (
 
 目录项前缀表示章节出现顺序，不是章节分割页的绝对 `page_index`。即使章节位于第 5、8、12 页，目录仍显示 `01`、`02`、`03`。
 
-组件计划中 `agenda` 最多 6 个组件，推荐 1 个 `insight/key_point` 说明阅读路径 + 3-5 个 `toc_item`。不要把每一页都列为独立目录项，章节过多时合并相邻主题。
+组件计划中 `agenda` 最多 6 个组件，推荐 1 个 `insight/key_point` 说明阅读路径 + 3-5 个 `toc_item`。每个 `toc_item` 用 `title` 写章节名，用 `body` 写 18-44 字的非重复副标题，说明章节问题、证据角度或听众收获；4 项及以上会采用双列卡片，避免一列横向拉得过宽。不要把每一页都列为独立目录项，章节过多时合并相邻主题。
 
 #### generate_summary_slide — 总结页
 | 参数 | 类型 | 示例 |
@@ -193,10 +193,11 @@ from generators import (
 | bullets | `List[str]` | ~~（已废弃，勿用 paragraph 拆分后的 bullets）~~ |
 | kicker | str | `"功能 · 核心"` (可选，标题上方小标签) |
 | sub_header | str | `"能力亮点"` (可选，header 与内容之间的次级标题) |
+| lede | str | `"一句独立的阅读引导"` (可选，显示在标题下；不能复制 paragraph 开头) |
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
-> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片的页面必须传入真实本地文件；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
+> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets；也禁止把正文截取后充当标题区副标题。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片的页面必须传入真实本地文件；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
 > `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；正文过短时生成器会压缩文本面板高度并垂直居中，避免空白大框。
 
 ### 对比与并列类

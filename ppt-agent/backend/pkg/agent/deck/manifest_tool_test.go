@@ -54,6 +54,69 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 	}
 }
 
+func TestPlannerManifestToolDerivesMissingComponentID(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "组件 ID 归一化")
+	result, err := planner.InvokableRun(context.Background(), `{
+  "mode":"initialize",
+  "tasks":[{
+    "page_index":1,"title":"组件 ID 归一化","content_type":"title_slide",
+    "content_plan":{
+      "summary":"验证服务端为缺失组件 ID 生成稳定值。",
+      "slide_intent":"展示组件级规划的稳定标识约束。",
+      "visual_intent":{"asset_purpose":"background","asset_query":"architecture"},
+      "components":[{"type":"key_point","body":"缺失的组件 ID 应由服务端确定性补齐，避免无关格式字段阻断有效内容。"}]
+    }
+  }]
+}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Fatalf("expected valid planner draft, got: %s", result)
+	}
+	manifest, err := ReadTasksDraftManifest(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.Tasks[0].ContentPlan.Components[0].ID; got != "key_point_1" {
+		t.Fatalf("generated component id = %q, want key_point_1", got)
+	}
+}
+
+func TestPlannerManifestToolCapsQualityGateRetry(t *testing.T) {
+	workDir := t.TempDir()
+	planner := newPlannerManifestTool(workDir, nil, "内容密度重试")
+	shortDraft := `{
+  "mode":"initialize",
+  "tasks":[{
+    "page_index":1,"title":"问题判断","content_type":"content_slide",
+    "content_plan":{
+      "summary":"说明核心问题。",
+      "slide_intent":"用一个完整观点解释当前问题。",
+      "visual_intent":{"asset_purpose":"background","asset_query":"analysis"},
+      "components":[{"id":"point","type":"insight","body":"当前问题需要补充完整的背景、事实与影响。"}]
+    }
+  }]
+}`
+	for attempt := 1; attempt <= 2; attempt++ {
+		result, err := planner.InvokableRun(context.Background(), shortDraft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result, `"quality_gate_passed":false`) {
+			t.Fatalf("attempt %d should expose the quality gate: %s", attempt, result)
+		}
+	}
+	result, err := planner.InvokableRun(context.Background(), shortDraft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "已用尽一次初稿和一次质量门重提") {
+		t.Fatalf("third initialize must be rejected, got: %s", result)
+	}
+}
+
 func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{
@@ -262,7 +325,7 @@ func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.
 	}
 }
 
-func TestPlannerManifestToolNormalizesShortArgumentBlockWhenLongArgumentIsNotRequired(t *testing.T) {
+func TestPlannerManifestToolNormalizesShortArgumentBlockToParagraph(t *testing.T) {
 	workDir := t.TempDir()
 	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
 
@@ -287,8 +350,8 @@ func TestPlannerManifestToolNormalizesShortArgumentBlockWhenLongArgumentIsNotReq
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := manifest.Tasks[0].ContentPlan.Components[0].Type; got != "insight" {
-		t.Fatalf("short argument_block type = %q, want insight", got)
+	if got := manifest.Tasks[0].ContentPlan.Components[0].Type; got != "paragraph" {
+		t.Fatalf("short argument_block type = %q, want paragraph", got)
 	}
 }
 

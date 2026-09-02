@@ -54,13 +54,17 @@ Planner 应尽力一次性填写完整 DeckSpec 内容字段，包括：
 
 - 整套 PPT 优先采用“观点 → 论据 → 推论/行动”的叙事结构，而不是连续罗列要点。
 - 每页只讲一个中心判断；多个判断并列时拆页或改成目录/框架页。
-- 内容容量要匹配布局：卡片、列表、KPI、图表、长论述分别遵守 `component_contracts.json` 中的容量上限。
+- 内容容量要匹配布局：`templates/component_contracts.json` 的 `planning_rules.component_text_density`、`planning_rules.page_content_density` 与每个 `content_type.capacity` 是**唯一的数字来源**。规划前读取它们，按组件类型和页面类型同时核算字数、列表项和组件数；空间不够时拆页、合并次要组件或切换页面类型，不能依赖渲染器截断文字。
+- 通用 Agent 必须把这些容量规则用于首次 DeckSpec，而不只在渲染报错后补救：卡片/段落/列表/完整论述按组件目标字数写，信息页、图文页和双栏页再满足页面总信息量与结构要求。标题、图片元数据、来源行和装饰组件不计入正文容量。
+- `agenda` 的每个 `toc_item` 都要同时写章节标题和 18-44 字的 `body` 副标题，副标题说明该章要回答的问题、观察角度或听众收获，不能只重复标题。目录超过 3 项时会以双列章节卡片呈现，不要把整页摘要塞进某一个目录项。
+- `section_divider` 固定使用 `background_title`：背景图上只呈现主标题和副标题；`section_marker` 如需保留仅作顺序元数据，不能规划为左侧色块或大号可见编号。
+- `image_text` 的完整论述只放在正文面板；可选 `lede` 只写一句独立引导，不能复制正文开头。正文已按图文阅读距离采用更高字号，若内容超出契约容量应拆页而不是降低字号。
 - 用户只给大纲时，也要扩写成可上屏内容；不要留下 `{要点1}`、`某公司`、`若干数据`、`核心观点` 这类占位词。
 - 需要真实数据时，保留来源机构、时间和 URL；不要让生成器或渲染脚本承担事实补全。
 
 ## 图片与素材策略
 
-视觉策略由 DeckSpec 顶层 `visual_policy` 显式声明，是 Planner、素材解析器和渲染器共享的唯一契约。除非用户明确要求纯文字/无图片，新 deck 必须设置 `mode="required"`、`min_image_pages`（至少 1）和 `required_roles`，并为每个非豁免视觉页规划背景 `content_plan.visual_intent`；纯文字 deck 必须设置 `mode="none"` 并说明 `reason`，对应页面使用 `visual_intent.role="clean_text_only"`。不要用缺失字段暗示“无图”。
+视觉策略由 DeckSpec 顶层 `visual_policy` 显式声明，是 Planner、素材解析器和渲染器共享的唯一契约。除非用户明确要求纯文字/无图片，新 deck 必须设置 `mode="required"` 和 `required_roles`，并为**每一页**规划并物化背景或前景图片；`min_image_pages` 是覆盖率一致性字段，必须不小于非豁免页数，不能被写成“只给少数关键页配图”的目标。只有在页面确实应保持纯文字且已明确说明原因时，才可在该页写 `content_plan.visual_intent = {"role":"clean_text_only","search_status":"skipped","skip_reason":"..."}` 作为豁免。纯文字 deck 必须设置 `mode="none"` 并说明 `reason`。不要用缺失字段、低 `min_image_pages` 或未落地的 query 暗示“无图”。
 
 Planner 只负责可执行的图片语义：背景图写入 `content_plan.visual_intent`；页内实景或证据图写成 `content_plan.components` 中的 `type="image"`。两种声明都应包含 `asset_purpose`、英文 `asset_query`、`asset_subject`、`composition` 和 `orientation`。一旦规划图片，则 `local_path`、`image_path`、`asset_path` 必须在渲染前指向真实可读的本地文件，禁止虚构路径或旧 `asset:` id。
 
@@ -90,7 +94,7 @@ python generators/validate_deck.py --work-dir <work-dir> --skills-dir <skills-di
 python generators/render_deck.py --work-dir <work-dir> --skills-dir <skills-dir> --output deck.pptx
 ```
 
-独立 Agent 的固定顺序为：`视觉规划（含 visual_policy） → unsplash auth（首次） → unsplash fetch → validate_deck.py → render_deck.py → PDF/PNG 视觉验收`。`required` 策略下，遗漏下载或只写 query 会被预检和整套渲染入口拒绝；`none` 策略才可跳过素材解析。
+独立 Agent 的固定顺序为：`视觉规划（含逐页 visual_intent） → unsplash auth（首次） → unsplash fetch → validate_deck.py → render_deck.py → PDF/PNG 视觉验收`。`required` 策略下，遗漏下载、只写 query、少配图片或仅用低 `min_image_pages` 掩盖缺图都会被预检和整套渲染入口拒绝；`none` 策略才可跳过素材解析。
 
 需要调试单页时使用 `generators/render_task.py`：
 

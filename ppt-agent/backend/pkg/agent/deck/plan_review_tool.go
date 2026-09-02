@@ -14,11 +14,100 @@ import (
 
 const planReviewFileName = "tasks.review.json"
 
-const argumentBlockTargetMinChars = 440
-const imageTextNarrativeMinChars = 240
-const informationPageNarrativeMinChars = 220
-const componentBodyMinChars = 18
 const minVisualMixedSlidesForDeck = 2
+
+// contentDensityRules is loaded from the standalone Deck Planner skill so
+// Planner, Reviewer and general-purpose agents share one numeric contract.
+type contentDensityRules struct {
+	InformationPageTotalMinChars int
+	ImageTextNarrativeMinChars   int
+	ArgumentBlockMinChars        int
+	ListOrBulletItemMinChars     int
+	InformationPageTypes         map[string]bool
+}
+
+type componentContractsDensityFile struct {
+	PlanningRules struct {
+		ComponentTextDensity struct {
+			QualityGateSafetyMargin struct {
+				InformationPageTotalMinChars int `json:"information_page_total_min_chars"`
+				ImageTextNarrativeMinChars   int `json:"image_text_narrative_min_chars"`
+				ArgumentBlockMinChars        int `json:"argument_block_min_chars"`
+				ListOrBulletItemMinChars     int `json:"list_or_bullet_item_min_chars"`
+			} `json:"quality_gate_safety_margin"`
+		} `json:"component_text_density"`
+		PageContentDensity struct {
+			InformationPageTypes         []string `json:"information_page_types"`
+			InformationPageMinTotalChars int      `json:"information_page_min_total_chars"`
+			ImageText                    struct {
+				MinNarrativeChars int `json:"min_narrative_chars"`
+			} `json:"image_text"`
+			ArgumentBlock struct {
+				MinimumCharsForFirstDraft int `json:"minimum_chars_for_first_draft"`
+			} `json:"argument_block"`
+			ListOrBullet struct {
+				MinimumCharsForFirstDraft int `json:"minimum_chars_for_first_draft"`
+			} `json:"list_or_bullet"`
+		} `json:"page_content_density"`
+	} `json:"planning_rules"`
+}
+
+func loadContentDensityRules() (contentDensityRules, error) {
+	contractPath, err := findComponentContractsPath()
+	if err != nil {
+		return contentDensityRules{}, err
+	}
+	data, err := os.ReadFile(contractPath)
+	if err != nil {
+		return contentDensityRules{}, fmt.Errorf("read component contracts: %w", err)
+	}
+	var document componentContractsDensityFile
+	if err := json.Unmarshal(data, &document); err != nil {
+		return contentDensityRules{}, fmt.Errorf("parse component contracts: %w", err)
+	}
+	margin := document.PlanningRules.ComponentTextDensity.QualityGateSafetyMargin
+	page := document.PlanningRules.PageContentDensity
+	rules := contentDensityRules{
+		InformationPageTotalMinChars: max(margin.InformationPageTotalMinChars, page.InformationPageMinTotalChars),
+		ImageTextNarrativeMinChars:   max(margin.ImageTextNarrativeMinChars, page.ImageText.MinNarrativeChars),
+		ArgumentBlockMinChars:        max(margin.ArgumentBlockMinChars, page.ArgumentBlock.MinimumCharsForFirstDraft),
+		ListOrBulletItemMinChars:     max(margin.ListOrBulletItemMinChars, page.ListOrBullet.MinimumCharsForFirstDraft),
+		InformationPageTypes:         make(map[string]bool, len(page.InformationPageTypes)),
+	}
+	for _, contentType := range page.InformationPageTypes {
+		rules.InformationPageTypes[strings.TrimSpace(contentType)] = true
+	}
+	if rules.InformationPageTotalMinChars <= 0 || rules.ImageTextNarrativeMinChars <= 0 ||
+		rules.ArgumentBlockMinChars <= 0 || rules.ListOrBulletItemMinChars <= 0 || len(rules.InformationPageTypes) == 0 {
+		return contentDensityRules{}, fmt.Errorf("component contracts missing planning_rules content-density values")
+	}
+	return rules, nil
+}
+
+func findComponentContractsPath() (string, error) {
+	if skillsDir := strings.TrimSpace(os.Getenv("PPT_SKILLS_DIR")); skillsDir != "" {
+		candidate := filepath.Join(skillsDir, "ppt-deck-planner", "templates", "component_contracts.json")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	current, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve component contracts working directory: %w", err)
+	}
+	for {
+		candidate := filepath.Join(current, "skills", "ppt-deck-planner", "templates", "component_contracts.json")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return "", fmt.Errorf("component contracts not found; set PPT_SKILLS_DIR or run beneath the ppt-agent workspace")
+}
 
 type PlanReviewReport struct {
 	OK              bool              `json:"ok"`
@@ -62,6 +151,25 @@ func ReviewTasksDraftManifest(workDir string, round int) (*PlanReviewReport, err
 }
 
 func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *PlanReviewReport {
+	rules, err := loadContentDensityRules()
+	if err != nil {
+		report := &PlanReviewReport{
+			OK:         true,
+			Target:     target,
+			Round:      round,
+			ReviewedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		report.Issues = append(report.Issues, PlanReviewIssue{
+			Code:     "invalid_component_schema",
+			Severity: "error",
+			Message:  fmt.Sprintf("无法加载 Deck Planner skill 的内容容量合同：%v", err),
+		})
+		return finalizePlanReviewReport(report, manifest)
+	}
+	return reviewTasksManifestWithRules(manifest, target, round, rules)
+}
+
+func reviewTasksManifestWithRules(manifest *TasksManifest, target string, round int, rules contentDensityRules) *PlanReviewReport {
 	report := &PlanReviewReport{
 		OK:         true,
 		Target:     target,
@@ -90,14 +198,14 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 	}
 	backgroundMode := manifestBackgroundMode(manifest)
 	for _, task := range manifest.Tasks {
-		reviewTaskPlan(task, report, backgroundMode)
+		reviewTaskPlan(task, report, backgroundMode, rules)
 	}
 	reviewDeckBackgroundVariety(manifest, report)
 	reviewDeckVisualMix(manifest, report)
 	return finalizePlanReviewReport(report, manifest)
 }
 
-func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode string) {
+func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode string, rules contentDensityRules) {
 	if task == nil {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "invalid_component_schema", Severity: "error", Message: "存在空页面任务。"})
 		return
@@ -141,7 +249,7 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode str
 	}
 	for i := range plan.Components {
 		component := &plan.Components[i]
-		reviewComponentContentQuality(task.ContentType, page, component, report)
+		reviewComponentContentQuality(task.ContentType, page, component, report, rules)
 		if isExternalBackgroundComponent(component) && strings.TrimSpace(component.LocalPath) == "" && strings.TrimSpace(component.AssetQuery) == "" {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "missing_background_image",
@@ -151,14 +259,14 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode str
 				Message:     "背景图片组件缺少 local_path 和 asset_query，无法执行后续素材规划。",
 			})
 		}
-		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars {
+		if component.Type == "argument_block" && runeLen(firstNonEmptyString(component.Body, component.Text)) < rules.ArgumentBlockMinChars {
 			currentChars := runeLen(firstNonEmptyString(component.Body, component.Text))
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "low_information_density",
-				Severity:    "warning",
+				Severity:    "error",
 				PageIndex:   page,
 				ComponentID: component.ID,
-				Message:     fmt.Sprintf("argument_block 当前约 %d 字，少于 %d 字；需要完整论述时补足背景、证据、推理和结论，否则改用 paragraph、insight 或 key_point。", currentChars, argumentBlockTargetMinChars),
+				Message:     fmt.Sprintf("argument_block 当前约 %d 字，少于 skill 合同要求的 %d 字；补足背景、证据、推理和结论，或改用 paragraph、insight 或 key_point。", currentChars, rules.ArgumentBlockMinChars),
 			})
 		}
 	}
@@ -172,23 +280,23 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode str
 	}
 	if task.ContentType == "image_text" {
 		narrativeChars := imageTextNarrativeChars(plan.Components)
-		if narrativeChars > 0 && narrativeChars < imageTextNarrativeMinChars {
+		if narrativeChars > 0 && narrativeChars < rules.ImageTextNarrativeMinChars {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:      "low_information_density",
 				Severity:  "error",
 				PageIndex: page,
-				Message:   fmt.Sprintf("image_text 正文当前约 %d 字，少于 %d 字；图文页需要完整解释场景、事实、影响和结论，避免大面积文字面板空洞。", narrativeChars, imageTextNarrativeMinChars),
+				Message:   fmt.Sprintf("image_text 正文当前约 %d 字，少于 skill 合同要求的 %d 字；图文页需要完整解释场景、事实、影响和结论，避免大面积文字面板空洞。", narrativeChars, rules.ImageTextNarrativeMinChars),
 			})
 		}
 	}
-	if requiresInformationDensity(task.ContentType) {
+	if requiresInformationDensity(task.ContentType, rules) {
 		narrativeChars := informationNarrativeChars(plan.Components)
-		if narrativeChars > 0 && narrativeChars < informationPageNarrativeMinChars {
+		if narrativeChars > 0 && narrativeChars < rules.InformationPageTotalMinChars {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:      "low_information_density",
 				Severity:  "error",
 				PageIndex: page,
-				Message:   fmt.Sprintf("%s 页面正文组件总量当前约 %d 字，少于 %d 字；需要补足背景、事实、影响和结论，避免大面积文本面板空洞。", task.ContentType, narrativeChars, informationPageNarrativeMinChars),
+				Message:   fmt.Sprintf("%s 页面正文组件总量当前约 %d 字，少于 skill 合同要求的 %d 字；需要补足背景、事实、影响和结论，避免大面积文本面板空洞。", task.ContentType, narrativeChars, rules.InformationPageTotalMinChars),
 			})
 		}
 	}
@@ -529,13 +637,8 @@ func imageTextNarrativeChars(components []PlanComponent) int {
 	return maxChars
 }
 
-func requiresInformationDensity(contentType string) bool {
-	switch strings.TrimSpace(contentType) {
-	case "content_slide", "summary_slide", "deep_dive", "case_study", "example_detail", "card_grid", "two_column", "three_column", "comparison_table", "swot_analysis":
-		return true
-	default:
-		return false
-	}
+func requiresInformationDensity(contentType string, rules contentDensityRules) bool {
+	return rules.InformationPageTypes[strings.TrimSpace(contentType)]
 }
 
 func informationNarrativeChars(components []PlanComponent) int {
@@ -567,7 +670,7 @@ func informationNarrativeChars(components []PlanComponent) int {
 	return total
 }
 
-func reviewComponentContentQuality(contentType string, page int, component *PlanComponent, report *PlanReviewReport) {
+func reviewComponentContentQuality(contentType string, page int, component *PlanComponent, report *PlanReviewReport, rules contentDensityRules) {
 	if component == nil || report == nil || isExternalBackgroundComponent(component) {
 		return
 	}
@@ -596,7 +699,7 @@ func reviewComponentContentQuality(contentType string, page int, component *Plan
 			})
 		}
 	}
-	if requiresInformationDensity(contentType) && requiresComponentBody(componentType) {
+	if requiresInformationDensity(contentType, rules) && requiresComponentBody(componentType) {
 		bodyChars := runeLen(body)
 		itemChars := 0
 		for _, item := range component.Items {
@@ -611,23 +714,23 @@ func reviewComponentContentQuality(contentType string, page int, component *Plan
 				Message:     fmt.Sprintf("组件 %s 缺少可上屏正文；信息页不能只保留标题、栏目名或空卡片。", component.ID),
 			})
 		}
-		if bodyChars > 0 && bodyChars < componentBodyMinChars {
+		if bodyChars > 0 && bodyChars < rules.ListOrBulletItemMinChars {
 			report.Issues = append(report.Issues, PlanReviewIssue{
 				Code:        "low_information_density",
 				Severity:    "error",
 				PageIndex:   page,
 				ComponentID: component.ID,
-				Message:     fmt.Sprintf("组件 %s 正文约 %d 字，少于 %d 字；不能只写栏目名或大纲短语。", component.ID, bodyChars, componentBodyMinChars),
+				Message:     fmt.Sprintf("组件 %s 正文约 %d 字，少于 skill 合同要求的 %d 字；不能只写栏目名或大纲短语。", component.ID, bodyChars, rules.ListOrBulletItemMinChars),
 			})
 		}
 		for _, item := range component.Items {
-			if chars := runeLen(item); chars > 0 && chars < componentBodyMinChars {
+			if chars := runeLen(item); chars > 0 && chars < rules.ListOrBulletItemMinChars {
 				report.Issues = append(report.Issues, PlanReviewIssue{
 					Code:        "low_information_density",
 					Severity:    "error",
 					PageIndex:   page,
 					ComponentID: component.ID,
-					Message:     fmt.Sprintf("组件 %s 的列表项约 %d 字，少于 %d 字；需要写成完整要点而不是大纲词。", component.ID, chars, componentBodyMinChars),
+					Message:     fmt.Sprintf("组件 %s 的列表项约 %d 字，少于 skill 合同要求的 %d 字；需要写成完整要点而不是大纲词。", component.ID, chars, rules.ListOrBulletItemMinChars),
 				})
 			}
 		}
