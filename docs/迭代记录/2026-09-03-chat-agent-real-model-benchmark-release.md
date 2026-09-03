@@ -20,7 +20,7 @@
 
 ## 发布与冒烟
 
-- 部署目标：`remote-dev:/ppt/ppt-agent`；最后新进程 PID `2037703`，工作目录 `/ppt/ppt-agent/backend`，监听 `:8080`。
-- 备份：`deploy-backups/20260903-1749-deepseek-chat`、`20260903-1756-text-provider`、`20260903-1804-chat-context`。
+- 部署目标：`remote-dev:/ppt/ppt-agent`；最终新进程 PID `2042294`，工作目录 `/ppt/ppt-agent/backend`，监听 `:8080`，二进制 SHA-256 为 `b301fa484d3e09ae5c8d37abfaff159267d3d04fe4368622be35a93b52759212`。
+- 备份：`deploy-backups/20260903-1749-deepseek-chat`、`20260903-1756-text-provider`、`20260903-1804-chat-context`、`20260903-1810-master-chat`。
 - `/api/health`、`/health/ready` 均正常；访客隔离会话的上下文聊天冒烟通过，测试会话已删除。
 - 线上日志确认主回复和路由辅助模型均初始化为 `deepseek/deepseek-chat(backup-0)`。
