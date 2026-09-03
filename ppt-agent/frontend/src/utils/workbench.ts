@@ -338,16 +338,6 @@ export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number
   return Math.max(0, cachedEventID, sessionBoundary);
 }
 
-// A task can emit more events than the server keeps in its bounded replay
-// buffer. Once that happens, reconnecting from the old cursor will always
-// receive the same first retained event and loop forever. Resume from just
-// before that event instead; durable task and conversation snapshots fill the
-// discarded history.
-export function resyncSSEGap(lastSeenEventID = 0, receivedEventID = 0): number {
-  if (receivedEventID > lastSeenEventID + 1) return receivedEventID - 1;
-  return Math.max(0, lastSeenEventID);
-}
-
 export interface LiveActivityInput {
   status?: TaskStatus;
   phase?: string;

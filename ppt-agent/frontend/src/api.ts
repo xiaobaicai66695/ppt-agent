@@ -329,7 +329,7 @@ export async function fetchPlanDraft(id: string): Promise<PlanDraft> {
 // ── Continue / Session API ──────────────────────────────────────────────────────
 
 export interface ContinueTaskResult {
-  status: 'accepted' | 'queued' | 'waiting_approval';
+  status: 'accepted' | 'queued';
   message: string;
   task_id: string;
   after_event_id?: number;
@@ -340,27 +340,6 @@ export async function continueTask(taskId: string, message: string): Promise<Con
 		method: 'POST',
 		headers: authHeaders(),
 		body: JSON.stringify({ message }),
-	}));
-	return res.json();
-}
-
-export async function setTaskApprovalMode(taskId: string, approvalMode: 'auto' | 'sensitive' | 'manual'): Promise<TaskInfo> {
-  const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/approval-mode`, {
-    method: 'PUT', headers: authHeaders(), body: JSON.stringify({ approval_mode: approvalMode }),
-  }));
-  return res.json();
-}
-
-export async function decideTaskApproval(taskId: string, decision: 'approve' | 'adjust_scope' | 'reject', message = ''): Promise<TaskInfo> {
-  const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/approval`, {
-    method: 'POST', headers: authHeaders(), body: JSON.stringify({ decision, message }),
-  }));
-  return res.json();
-}
-
-export async function saveTaskFeedback(taskId: string, rating: number, suggestion = ''): Promise<TaskInfo> {
-	const res = await checkResponse(await apiFetch(`/api/tasks/${taskId}/feedback`, {
-		method: 'PUT', headers: authHeaders(), body: JSON.stringify({ rating, suggestion }),
 	}));
 	return res.json();
 }

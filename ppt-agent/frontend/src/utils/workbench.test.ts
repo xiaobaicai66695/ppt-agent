@@ -3,7 +3,7 @@ import type { ConversationMessage, ConversationSession, RuntimeEvent, TaskItem }
 import {
   appendAssistantStreamContent, canonicalOutputFile, compactRuntimeEvents, deriveInlineConversationItems, deriveInlineToolPreviews,
   deriveLiveActivity, deriveObservableSteps, formatToolPreviewFields, mergeConversationMessages,
-  mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown, resyncSSEGap,
+  mergeRuntimeEvents, mergeRuntimeMeta, mergeSlideDeliveries, nextReplayCursor, recoverConversationMessages, renderSafeMarkdown,
   RUNTIME_EVENT_TAIL_LIMIT,
   runtimeAssistantOutputMessages, runtimeEventDetailLabel, runtimeEventKindLabel, runtimeEventNameLabel, runtimeEventStatusLabel,
   summarizeTaskTitle,
@@ -86,12 +86,6 @@ describe('workbench utilities', () => {
   it('resumes from the newest task-specific event boundary', () => {
     expect(nextReplayCursor(18, 12)).toBe(18);
     expect(nextReplayCursor(0, 12)).toBe(12);
-  });
-
-  it('moves the replay cursor to the first retained SSE event after a gap', () => {
-    expect(resyncSSEGap(12, 20)).toBe(19);
-    expect(resyncSSEGap(12, 13)).toBe(12);
-    expect(resyncSSEGap(0, 0)).toBe(0);
   });
 
   it('merges restored conversation without duplicating an assistant turn', () => {
