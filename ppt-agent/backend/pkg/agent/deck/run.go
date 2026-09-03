@@ -31,6 +31,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/human"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/retry"
 )
 
 // AgentEventType 流式事件类型常量
@@ -324,8 +325,6 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	return result, nil
 }
 
-const maxPlanReviewRounds = 3
-
 func ensurePlannerDraft(cfg *PPTTaskConfig, userQuery, plannerOutput string, onEvent AgentEventCallback) (*TasksManifest, error) {
 	if draft, err := ReadTasksDraftManifest(cfg.WorkDir); err == nil && draft != nil && len(draft.Tasks) > 0 {
 		return draft, nil
@@ -360,6 +359,10 @@ func ensurePlannerDraft(cfg *PPTTaskConfig, userQuery, plannerOutput string, onE
 }
 
 func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent AgentEventCallback) (*TasksManifest, error) {
+	maxPlanReviewRounds := retry.Default().MaxAttempts(retry.OperationDeckSpecReview)
+	if maxPlanReviewRounds < 1 {
+		return nil, fmt.Errorf("未配置 DeckSpec 审查重试策略")
+	}
 	var latest *PlanReviewReport
 	for round := 1; round <= maxPlanReviewRounds; round++ {
 		report, err := ReviewTasksDraftManifest(cfg.WorkDir, round)

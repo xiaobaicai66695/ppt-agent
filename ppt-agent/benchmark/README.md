@@ -11,7 +11,7 @@
 当前覆盖 4 个 suite：
 
 - `router`：评估创建入口和继续任务的意图识别，确认请求进入正确链路。评测输出使用稳定词汇 `create_deck`、`fix_existing`、`fix`、`regenerate_all`；创建入口 HTTP API 内部的 `create`、`fix` 会在 benchmark 适配层映射为前两者，并保留实际下游 Agent 和原始请求。
-- `planner`：只评估 Planner 首稿 `tasks.draft.json`，不让 Reviewer 修补后再评分；benchmark 中不挂载图片下载工具，同时评价图片语义规划、主题聚焦和跨页叙事连贯性。
+- `planner`：只评估 Planner 首稿 `tasks.draft.json`，不让 Reviewer 修补后再评分；benchmark 中不挂载图片下载工具，只评价图片语义规划。
 - `reviewer`：用带缺陷的 draft 和 review issue 评估 Reviewer 是否精准修补。
 - `fixer`：用真实用户追改请求评估 Fixer 是否只改授权页面和必要字段；不运行 Reviewer 或全量 DeckSpec review。
 
@@ -43,10 +43,6 @@ benchmark/
 ```
 
 `benchmark/runs/` 用于保存本地评测结果，已被 `.gitignore` 忽略，运行产物不会进入提交。每个 run 目录固定命名为 `YYYYMMDD-HHMMSS-<dataset>-<suite>`，例如 `20260829-150405-validation-planner`；全量评测使用 `all`。即使显式传入 `-o`，也必须使用这个格式，二阶段评分复用完全相同的目录。
-
-### 样本基线
-
-`test` 与 `validation` 的 `router`、`planner`、`reviewer`、`fixer` 各自至少包含 **10 条** case。validation 是独立 holdout：不得复用 test 的 case ID 或完全相同的用户请求。`go test ./cmd/pptbench` 会在无需模型 Key、无需网络的情况下校验这条基线。
 
 ## 环境准备
 
@@ -219,9 +215,7 @@ Hard failure 最高只能 2 分，包括：
 
 ## Case 编写要点
 
-`planner` case 应评估首稿质量，不写“Reviewer 可以补齐”的期待。重点看页面结构、事实覆盖、字段完整度、图片语义规划、DeckSpec 合法性以及主题聚焦。Planner benchmark 不测图片下载，所以不要把缺少 `local_path` 作为失败条件。
-
-需要验证内容主题时，在 `expected.content_quality` 中声明语义验收标准：`deck_thesis` 是听众应接受的中心判断，`required_narrative_chain` 是必须按页承接的论证链，`max_consecutive_same_layout` 限制连续同类叙事页面。需要目录页时增加 `agenda_subtitles`，要求 `toc_item.title` 保存章节名、`toc_item.body` 保存独立副标题。`pptbench` 会在 `model_output.json` 写入 `content_quality`：它列出 deck/逐页主张、缺失主张页、完全重复主张、连续同类布局以及 `agenda_subtitle_issues`，供 Judge 结合 case 做语义评分；该报告不是替代人工判断的关键词匹配器。
+`planner` case 应评估首稿质量，不写“Reviewer 可以补齐”的期待。重点看页面结构、事实覆盖、字段完整度、图片语义规划和 DeckSpec 合法性。Planner benchmark 不测图片下载，所以不要把缺少 `local_path` 作为失败条件。
 
 `reviewer` case 应只放一个或少数明确缺陷，避免混入无关错误。否则无法判断 Reviewer 到底修复了目标问题，还是被其它问题干扰。
 

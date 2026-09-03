@@ -29,6 +29,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
@@ -41,14 +42,25 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
 	searchTool := tools.NewSearchTool()
+	var imageSearchClient *unsplash.Client
+	imageSearchAvailable := false
+	if !cfg.DisableImageSearch {
+		if client, err := unsplash.NewClientFromEnv(); err == nil {
+			imageSearchClient = client
+			imageSearchAvailable = true
+		}
+	}
 	manifestTool := newPlannerManifestTool(cfg.WorkDir, cfg.Outline, cfg.Query)
 	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	if imageSearchAvailable {
+		plannerTools = append(plannerTools, tools.NewImageSearchTool(imageSearchClient, cfg.WorkDir))
+	}
 
 	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "PPTPlanner",
 		Description: "PPT 规划代理，无论有无大纲都负责生成完整的 DeckSpec 规划草稿，不负责审查和渲染。",
 		Model:       chatModel,
-		Instruction: buildPlannerInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.Query),
+		Instruction: buildPlannerInstruction(cfg.WorkDir, cfg.SkillsDir, cfg.Query, imageSearchAvailable),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: plannerTools},
 		},
@@ -246,13 +258,14 @@ func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int
 }
 
 // buildPlannerInstruction 从模板加载 Planner 指令。
-func buildPlannerInstruction(workDir string, skillsDir string, query string) string {
+func buildPlannerInstruction(workDir string, skillsDir string, query string, imageSearchAvailable bool) string {
 	tasksJSON := filepath.Join(workDir, tasksDraftFileName)
 
 	data := &prompts.TemplateData{
-		TasksJSON:    tasksJSON,
-		OutlineQuery: query,
-		SkillsDir:    skillsDir,
+		TasksJSON:            tasksJSON,
+		OutlineQuery:         query,
+		SkillsDir:            skillsDir,
+		ImageSearchAvailable: imageSearchAvailable,
 	}
 
 	instruction, err := prompts.RenderPlanner("master_instruction", data)

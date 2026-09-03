@@ -129,9 +129,8 @@ func (s *Server) handleMe(c *gin.Context) {
 
 func (s *Server) handleCreateTask(c *gin.Context) {
 	var req struct {
-		Query        string            `json:"query"`
-		Outline      *deck.TaskOutline `json:"outline,omitempty"`
-		ApprovalMode string            `json:"approval_mode,omitempty"`
+		Query   string            `json:"query"`
+		Outline *deck.TaskOutline `json:"outline,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Query) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
@@ -192,83 +191,12 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		c.JSON(code, gin.H{"error": err.Error()})
 		return
 	}
-	if ts := s.tasks.GetTaskState(taskID); ts != nil {
-		ts.SetApprovalMode(task.NormalizeApprovalMode(req.ApprovalMode))
-		info = s.tasks.GetTask(taskID)
-	}
 
 	// 初始化会话（消息会自动写入数据库）
 	sess := s.sessionManager.GetOrCreate(taskID, info.WorkDir)
 	sess.AddUserMessage(req.Query)
 
 	c.JSON(http.StatusCreated, info)
-}
-
-func (s *Server) handleSetTaskApprovalMode(c *gin.Context) {
-	var req struct {
-		ApprovalMode string `json:"approval_mode"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "approval_mode is required"})
-		return
-	}
-	mode := task.NormalizeApprovalMode(req.ApprovalMode)
-	if req.ApprovalMode != "" && string(mode) != strings.ToLower(strings.TrimSpace(req.ApprovalMode)) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "approval_mode must be auto, sensitive, or manual"})
-		return
-	}
-	ts := s.tasks.GetTaskState(c.Param("id"))
-	if ts == nil {
-		info := s.tasks.GetTask(c.Param("id"))
-		if info == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
-			return
-		}
-		ts = s.tasks.NewColdTaskState(*info)
-	}
-	ts.SetApprovalMode(mode)
-	c.JSON(http.StatusOK, ts.SnapshotInfo())
-}
-
-func (s *Server) handleApprovalDecision(c *gin.Context) {
-	var req struct {
-		Decision string `json:"decision"`
-		Message  string `json:"message,omitempty"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid approval decision"})
-		return
-	}
-	ts := s.tasks.GetTaskState(c.Param("id"))
-	if ts == nil {
-		info := s.tasks.GetTask(c.Param("id"))
-		if info == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
-			return
-		}
-		ts = s.tasks.NewColdTaskState(*info)
-	}
-	message, approved, err := ts.ResolveApproval(req.Decision, req.Message)
-	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-		return
-	}
-	if req.Decision == "adjust_scope" {
-		c.JSON(http.StatusOK, ts.SnapshotInfo())
-		return
-	}
-	if !approved {
-		c.JSON(http.StatusOK, ts.SnapshotInfo())
-		return
-	}
-	uid := userIDGin(c)
-	sess := s.sessionManager.GetOrCreate(c.Param("id"), ts.Info.WorkDir)
-	if err := sess.AddUserMessage(message); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存会话消息失败"})
-		return
-	}
-	s.startContinue(c.Param("id"), ts, message, uid, sess)
-	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "task_id": c.Param("id")})
 }
 
 func (s *Server) findRecentDuplicateTask(uid int, query string) *task.TaskInfo {
@@ -520,7 +448,6 @@ func (s *Server) handleGetTask(c *gin.Context) {
 			info.TotalCount = len(m.Tasks)
 		}
 	}
-	s.attachTaskFeedback(info, userIDGin(c))
 	c.JSON(http.StatusOK, info)
 }
 
@@ -534,56 +461,7 @@ func (s *Server) handleListTasks(c *gin.Context) {
 	if tasks == nil {
 		tasks = []task.TaskInfo{}
 	}
-	if !isAdminGin(c) {
-		for i := range tasks {
-			s.attachTaskFeedback(&tasks[i], userIDGin(c))
-		}
-	}
 	c.JSON(http.StatusOK, tasks)
-}
-
-func (s *Server) attachTaskFeedback(info *task.TaskInfo, userID int) {
-	if info == nil || info.UserID != userID || userID <= 0 {
-		return
-	}
-	feedback, err := s.tasks.GetDeliveryFeedback(info.ID, userID)
-	if err != nil {
-		logger.Warn("task_feedback_load_failed", "task_id", info.ID, "error", err.Error())
-		return
-	}
-	info.Feedback = feedback
-}
-
-func (s *Server) handleSaveTaskFeedback(c *gin.Context) {
-	var req struct {
-		Rating     int    `json:"rating"`
-		Suggestion string `json:"suggestion"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的反馈请求"})
-		return
-	}
-	if _, err := task.ValidateDeliveryFeedback(req.Rating, req.Suggestion); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	info := s.tasks.GetTask(c.Param("id"))
-	if info == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
-		return
-	}
-	if info.Status != task.TaskStatusCompleted {
-		c.JSON(http.StatusConflict, gin.H{"error": "PPT 尚未交付，暂不能评分"})
-		return
-	}
-	feedback, err := s.tasks.SaveDeliveryFeedback(info.ID, userIDGin(c), req.Rating, req.Suggestion)
-	if err != nil {
-		logger.Error("task_feedback_save_failed", "task_id", info.ID, "error", err.Error())
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "反馈暂时无法保存，请稍后重试"})
-		return
-	}
-	info.Feedback = feedback
-	c.JSON(http.StatusOK, info)
 }
 
 func (s *Server) handleDownloadFile(c *gin.Context) {
@@ -740,22 +618,6 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 			"message":        statusMsg,
 			"task_id":        taskID,
 			"after_event_id": afterEventID,
-		})
-		return
-	}
-	if ts.Info.Status == task.TaskStatusWaitingApproval {
-		c.JSON(http.StatusConflict, gin.H{"error": "任务正在等待审批，请先处理当前审批请求", "task": ts.SnapshotInfo()})
-		return
-	}
-
-	if task.ShouldRequestApproval(ts.Info.ApprovalMode, req.Message) {
-		approval := task.NewContinuationApproval(ts.Info.ApprovalMode, req.Message)
-		if !ts.BeginApproval(approval) {
-			c.JSON(http.StatusConflict, gin.H{"error": "当前任务不能进入审批状态"})
-			return
-		}
-		c.JSON(http.StatusAccepted, gin.H{
-			"status": "waiting_approval", "message": approval.Reason, "task_id": taskID, "approval": approval,
 		})
 		return
 	}

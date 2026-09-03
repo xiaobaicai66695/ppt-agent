@@ -2,6 +2,7 @@ package deck
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -122,7 +123,7 @@ func TestMaterializePlannedBackgroundsReusesOneBackgroundPerContentType(t *testi
 	if !gotQueries["diplomacy"] || !gotQueries["energy"] {
 		t.Fatalf("expected compact single-keyword searches, got %#v", client.searches)
 	}
-	if first.PreviewURL == "" || first.SourceURL == "" || first.Attribution == "" {
+	if first.PreviewURL == "" || first.SourceURL == "" || first.Attribution == "" || first.Provider != "unsplash" || first.SearchStatus != "resolved" {
 		t.Fatalf("expected traceable image metadata: %#v", first)
 	}
 	if !taskLocalAssetExists(workDir, first.LocalPath) {
@@ -193,7 +194,7 @@ func TestMaterializePlannedDeckAssetsDownloadsForegroundImageComponents(t *testi
 		t.Fatalf("unexpected counts background=%d image=%d", backgroundCount, imageCount)
 	}
 	component := manifest.Tasks[0].ContentPlan.Components[0]
-	if component.LocalPath == "" || component.SourceURL == "" || component.Attribution == "" {
+	if component.LocalPath == "" || component.SourceURL == "" || component.Attribution == "" || component.Provider != "unsplash" || component.SearchStatus != "resolved" {
 		t.Fatalf("expected foreground image metadata: %#v", component)
 	}
 	if !taskLocalAssetExists(workDir, component.LocalPath) {
@@ -207,9 +208,9 @@ func TestMaterializePlannedDeckAssetsCollapsesExistingBackgroundsWithoutClient(t
 	secondPath := writeFakeAsset(t, workDir, "second.jpg")
 	thirdPath := writeFakeAsset(t, workDir, "third.jpg")
 	manifest := &TasksManifest{Tasks: []*TaskItem{
-		{TaskID: "page-1", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI office wide landscape", LocalPath: firstPath}}},
-		{TaskID: "page-2", ContentType: "image_text", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI city wide landscape", LocalPath: secondPath}}},
-		{TaskID: "page-3", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light robot factory wide landscape", LocalPath: thirdPath}}},
+		{TaskID: "page-1", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI office wide landscape", LocalPath: firstPath, Provider: "unsplash", SearchStatus: "resolved"}}},
+		{TaskID: "page-2", ContentType: "image_text", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light AI city wide landscape", LocalPath: secondPath, Provider: "unsplash", SearchStatus: "resolved"}}},
+		{TaskID: "page-3", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "light robot factory wide landscape", LocalPath: thirdPath, Provider: "unsplash", SearchStatus: "resolved"}}},
 	}}
 	counts, err := MaterializePlannedDeckAssets(context.Background(), workDir, manifest)
 	if err != nil {
@@ -234,13 +235,10 @@ func TestMissingMaterializedBackgroundPagesRejectsQueryOnlyPlan(t *testing.T) {
 	}
 }
 
-func TestMaterializePlannedBackgroundsSkipsRecoverableSearchFailures(t *testing.T) {
+func TestMaterializePlannedBackgroundsReturnsLLMRevisionRequestForHTTP410(t *testing.T) {
 	workDir := t.TempDir()
-	missingQuery := "missing conference hall light bright airy background"
-	okQuery := "global diplomacy table light bright airy background"
 	manifest := &TasksManifest{Tasks: []*TaskItem{
-		{TaskID: "page-1", ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: missingQuery}}},
-		{TaskID: "page-2", ContentType: "image_text", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: okQuery}}},
+		{TaskID: "page-1", PageIndex: 1, ContentType: "content_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: "missing conference hall"}}},
 	}}
 	targets, err := collectPendingBackgroundTargets(workDir, manifest)
 	if err != nil {
@@ -249,18 +247,17 @@ func TestMaterializePlannedBackgroundsSkipsRecoverableSearchFailures(t *testing.
 	client := &fakeBackgroundAssetClient{searchErr: map[string]error{
 		"missing": fmt.Errorf("unsplash API HTTP 410: Content removed"),
 	}}
-	count, err := materializePlannedBackgroundsWithClient(context.Background(), workDir, targets, client)
-	if err != nil {
-		t.Fatal(err)
+	_, err = materializePlannedBackgroundsWithClient(context.Background(), workDir, targets, client)
+	var revision *assetQueryRevisionError
+	if !errors.As(err, &revision) {
+		t.Fatalf("expected assetQueryRevisionError, got %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected only the successful background slot to be applied, got %d", count)
+	if len(revision.Requests) != 1 {
+		t.Fatalf("revision requests = %#v", revision.Requests)
 	}
-	if manifest.Tasks[0].ContentPlan.VisualIntent.LocalPath != "" {
-		t.Fatalf("recoverable failure should leave failed background unset, got %q", manifest.Tasks[0].ContentPlan.VisualIntent.LocalPath)
-	}
-	if manifest.Tasks[1].ContentPlan.VisualIntent.LocalPath == "" {
-		t.Fatal("expected successful background slot to be materialized")
+	request := revision.Requests[0]
+	if !reflect.DeepEqual(request.TaskIDs, []string{"page-1"}) || !reflect.DeepEqual(request.PageIndexes, []int{1}) || !reflect.DeepEqual(request.Queries, []string{"missing"}) {
+		t.Fatalf("unexpected revision request: %#v", request)
 	}
 }
 

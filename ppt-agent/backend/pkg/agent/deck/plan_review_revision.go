@@ -126,24 +126,6 @@ func buildPlanReviewRevisionPayload(manifest *TasksManifest, round int, report *
 		reason = "仅包含 deck 级字段问题，可只 patch 顶层字段"
 	}
 
-	instructions := []string{
-		"只修改 included_tasks 中列出的页面，禁止新增、删除、重排页面。",
-		"patch_tasks_draft 必须使用 page_index 定位；不要修改 output_file 或 status。",
-		"不要输出完整 JSON；完成一次 patch 后用 1-3 句中文说明修改了哪些页和问题类别。",
-	}
-	for _, issue := range filteredIssues {
-		switch strings.TrimSpace(issue.Code) {
-		case "weak_narrative":
-			if issue.PageIndex > 0 {
-				instructions = append(instructions, fmt.Sprintf("第 %d 页必须在同一次 patch 的 content_plan 内填写非空 slide_intent，明确本页的决策或叙事作用；不能只修改 summary 或 components。", issue.PageIndex))
-			}
-		case "low_information_density":
-			if issue.PageIndex > 0 {
-				instructions = append(instructions, fmt.Sprintf("第 %d 页必须在同一次 patch 中补足现有正文组件的事实、影响与结论，直至消除 low_information_density；不要只补 summary。", issue.PageIndex))
-			}
-		}
-	}
-
 	return planReviewRevisionPayload{
 		Round:   round,
 		Summary: report.Summary,
@@ -156,7 +138,11 @@ func buildPlanReviewRevisionPayload(manifest *TasksManifest, round int, report *
 		},
 		Issues:        filteredIssues,
 		IncludedTasks: planReviewTasksFromItems(included),
-		Instructions:  instructions,
+		Instructions: []string{
+			"只修改 included_tasks 中列出的页面，禁止新增、删除、重排页面。",
+			"patch_tasks_draft 必须使用 page_index 定位；不要修改 output_file 或 status。",
+			"不要输出完整 JSON；完成一次 patch 后用 1-3 句中文说明修改了哪些页和问题类别。",
+		},
 	}
 }
 

@@ -34,6 +34,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/retry"
 )
 
 const (
@@ -141,7 +142,11 @@ func NewQAModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCalling
 		return nil, err
 	}
 	var lastErr error
-	for attempt := 1; attempt <= 3; attempt++ {
+	maxAttempts := retry.Default().MaxAttempts(retry.OperationQAModelInit)
+	if maxAttempts < 1 {
+		return nil, fmt.Errorf("未配置 QA 模型初始化重试策略")
+	}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		maxTokens := 32768
 		temp := float32(0)
 		topP := float32(0)
@@ -159,7 +164,7 @@ func NewQAModel(ctx context.Context, opts ...ChatModelOption) (model.ToolCalling
 		lastErr = err
 		logger.Warn("qa_model_init_retry", "attempt", attempt, "model", modelcompat.DisplayName(spec, -1), "error", err.Error())
 	}
-	return nil, fmt.Errorf("QA 模型 [%s] 创建失败（已重试 3 次）: %w", modelcompat.DisplayName(qaSpec, -1), lastErr)
+	return nil, fmt.Errorf("QA 模型 [%s] 创建失败（已重试 %d 次）: %w", modelcompat.DisplayName(qaSpec, -1), maxAttempts, lastErr)
 }
 
 func GetCurrentTime() string {
@@ -168,10 +173,6 @@ func GetCurrentTime() string {
 }
 
 // --- 模型降级管理 ---
-
-const (
-	fallbackPauseDuration = 30 * time.Second
-)
 
 // EnvInt 从环境变量读取整数，如果未设置或无效则返回默认值。
 func EnvInt(key string, defaultVal int) int {
@@ -185,14 +186,16 @@ func EnvInt(key string, defaultVal int) int {
 
 // IsRateLimitError 判断错误是否为 429 限流错误
 func IsRateLimitError(err error) bool {
-	if err == nil {
-		return false
+	_, ok := retry.Default().Select(retry.OperationModelFallback, err)
+	return ok
+}
+
+func modelFallbackPauseDuration() time.Duration {
+	decision, ok := retry.Default().Select(retry.OperationModelFallback, fmt.Errorf("HTTP 429"))
+	if !ok {
+		return 0
 	}
-	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, "429") ||
-		strings.Contains(errStr, "rate limit") ||
-		strings.Contains(errStr, "rate_limit") ||
-		strings.Contains(errStr, "too many requests")
+	return decision.Policy.Cooldown
 }
 
 // globalRateLimitTracker 全局 429 限流协调器，所有 FallbackChatModel 实例共享。
@@ -358,7 +361,7 @@ func NewFallbackToolCallingChatModel(ctx context.Context, opts ...ChatModelOptio
 		trackerNames:  trackerNames,
 		resourceKeys:  resourceKeys,
 		profiles:      profiles,
-		pauseDuration: fallbackPauseDuration,
+		pauseDuration: modelFallbackPauseDuration(),
 	}, nil
 }
 
@@ -849,7 +852,8 @@ func (f *FallbackChatModel) streamWithFallback(ctx context.Context, messages []*
 						writer.Send(nil, recvErr)
 						return
 					}
-					if !emitted && idx+1 < len(f.models) {
+					_, canFallback := retry.Default().Select(retry.OperationModelStreamRead, recvErr)
+					if !emitted && canFallback && idx+1 < len(f.models) {
 						logger.Warn("model_stream_read_failed_retrying", "model", f.modelDisplayName(idx), "error", recvErr.Error())
 						nextIdx = idx + 1
 						break

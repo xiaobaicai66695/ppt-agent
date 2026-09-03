@@ -7,16 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/retry"
 )
 
 const (
 	maxBackgroundAssetWorkers = 3
 )
+
+var backgroundSearchRetryFactory = retry.Default()
 
 type backgroundAssetClient interface {
 	Search(context.Context, unsplash.SearchOptions) (*unsplash.SearchResponse, error)
@@ -24,6 +28,8 @@ type backgroundAssetClient interface {
 }
 
 type plannedBackgroundTarget struct {
+	taskID      string
+	pageIndex   int
 	query       string
 	subject     string
 	contentType string
@@ -33,9 +39,47 @@ type plannedBackgroundTarget struct {
 	component   *PlanComponent
 }
 
+// assetQueryRevisionRequest carries only the page and failed query metadata
+// needed for an LLM to write a new background asset_query.
+type assetQueryRevisionRequest struct {
+	TaskIDs     []string
+	PageIndexes []int
+	Queries     []string
+}
+
+type assetQueryRevisionError struct {
+	Requests []assetQueryRevisionRequest
+	Cause    error
+}
+
+func (e *assetQueryRevisionError) Error() string {
+	if e == nil {
+		return ""
+	}
+	pages := make([]string, 0, len(e.Requests))
+	for _, request := range e.Requests {
+		for _, pageIndex := range request.PageIndexes {
+			pages = append(pages, strconv.Itoa(pageIndex))
+		}
+	}
+	if len(pages) == 0 {
+		return fmt.Sprintf("背景图片搜索词被素材服务拒绝（HTTP 410）: %v", e.Cause)
+	}
+	return fmt.Sprintf("背景图片搜索词被素材服务拒绝（HTTP 410），需要 LLM 重写第 %s 页的 asset_query", strings.Join(pages, ","))
+}
+
+func (e *assetQueryRevisionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
 type resolvedBackgroundAsset struct {
-	photo unsplash.Photo
-	asset *unsplash.DownloadedAsset
+	photo        unsplash.Photo
+	asset        *unsplash.DownloadedAsset
+	provider     string
+	searchStatus string
 }
 
 type plannedImageAssetTarget struct {
@@ -145,6 +189,8 @@ func collectPendingBackgroundTargets(workDir string, manifest *TasksManifest) ([
 		if visual := task.ContentPlan.VisualIntent; visual != nil && isBackgroundPlan(visual.AssetPurpose, visual.ImagePosition, visual.Role) {
 			if !taskLocalAssetExists(absWorkDir, visual.LocalPath) && strings.TrimSpace(visual.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
+					taskID:      task.TaskID,
+					pageIndex:   task.PageIndex,
 					query:       strings.TrimSpace(visual.AssetQuery),
 					subject:     strings.TrimSpace(visual.AssetSubject),
 					contentType: strings.TrimSpace(task.ContentType),
@@ -160,6 +206,8 @@ func collectPendingBackgroundTargets(workDir string, manifest *TasksManifest) ([
 			}
 			if !taskLocalAssetExists(absWorkDir, component.LocalPath) && strings.TrimSpace(component.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
+					taskID:      task.TaskID,
+					pageIndex:   task.PageIndex,
 					query:       strings.TrimSpace(component.AssetQuery),
 					subject:     strings.TrimSpace(component.AssetSubject),
 					contentType: strings.TrimSpace(task.ContentType),
@@ -192,6 +240,8 @@ func collectDeckBackgroundTargets(workDir string, manifest *TasksManifest) ([]pl
 		if visual := task.ContentPlan.VisualIntent; visual != nil && isBackgroundPlan(visual.AssetPurpose, visual.ImagePosition, visual.Role) {
 			if taskLocalAssetExists(absWorkDir, visual.LocalPath) || strings.TrimSpace(visual.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
+					taskID:      task.TaskID,
+					pageIndex:   task.PageIndex,
 					query:       strings.TrimSpace(visual.AssetQuery),
 					subject:     strings.TrimSpace(visual.AssetSubject),
 					contentType: strings.TrimSpace(task.ContentType),
@@ -207,6 +257,8 @@ func collectDeckBackgroundTargets(workDir string, manifest *TasksManifest) ([]pl
 			}
 			if taskLocalAssetExists(absWorkDir, component.LocalPath) || strings.TrimSpace(component.AssetQuery) != "" {
 				targets = append(targets, plannedBackgroundTarget{
+					taskID:      task.TaskID,
+					pageIndex:   task.PageIndex,
 					query:       strings.TrimSpace(component.AssetQuery),
 					subject:     strings.TrimSpace(component.AssetSubject),
 					contentType: strings.TrimSpace(task.ContentType),
@@ -347,7 +399,12 @@ func materializePlannedBackgroundsWithClient(ctx context.Context, workDir string
 					errs[index] = fmt.Errorf("download background for %q did not create a task-local file", query)
 					continue
 				}
-				resolved[index] = resolvedBackgroundAsset{photo: photo, asset: asset}
+				resolved[index] = resolvedBackgroundAsset{
+					photo:        photo,
+					asset:        asset,
+					provider:     "unsplash",
+					searchStatus: "resolved",
+				}
 			}
 		}()
 	}
@@ -363,13 +420,24 @@ func materializePlannedBackgroundsWithClient(ctx context.Context, workDir string
 	close(jobs)
 	wg.Wait()
 
-	for _, err := range errs {
+	var revisionRequests []assetQueryRevisionRequest
+	for index, err := range errs {
 		if err != nil {
+			if retry.IsHTTP410(err) {
+				revisionRequests = append(revisionRequests, assetQueryRevisionRequestForTargets(groups[keys[index]]))
+				continue
+			}
 			if isRecoverableAssetError(err) {
 				logger.Warn("background_asset_skipped", "error", err.Error())
 				continue
 			}
 			return 0, err
+		}
+	}
+	if len(revisionRequests) > 0 {
+		return 0, &assetQueryRevisionError{
+			Requests: revisionRequests,
+			Cause:    fmt.Errorf("unsplash background search returned HTTP 410"),
 		}
 	}
 	for index, key := range keys {
@@ -385,6 +453,37 @@ func materializePlannedBackgroundsWithClient(ctx context.Context, workDir string
 		}
 	}
 	return count, nil
+}
+
+func assetQueryRevisionRequestForTargets(targets []plannedBackgroundTarget) assetQueryRevisionRequest {
+	request := assetQueryRevisionRequest{}
+	seenTaskIDs := map[string]struct{}{}
+	seenPages := map[int]struct{}{}
+	seenQueries := map[string]struct{}{}
+	for _, target := range targets {
+		if taskID := strings.TrimSpace(target.taskID); taskID != "" {
+			if _, ok := seenTaskIDs[taskID]; !ok {
+				seenTaskIDs[taskID] = struct{}{}
+				request.TaskIDs = append(request.TaskIDs, taskID)
+			}
+		}
+		if target.pageIndex > 0 {
+			if _, ok := seenPages[target.pageIndex]; !ok {
+				seenPages[target.pageIndex] = struct{}{}
+				request.PageIndexes = append(request.PageIndexes, target.pageIndex)
+			}
+		}
+		if query := strings.TrimSpace(target.query); query != "" {
+			if _, ok := seenQueries[query]; !ok {
+				seenQueries[query] = struct{}{}
+				request.Queries = append(request.Queries, query)
+			}
+		}
+	}
+	sort.Strings(request.TaskIDs)
+	sort.Ints(request.PageIndexes)
+	sort.Strings(request.Queries)
+	return request
 }
 
 func collectPendingImageAssetTargets(workDir string, manifest *TasksManifest) ([]plannedImageAssetTarget, error) {
@@ -485,7 +584,12 @@ func materializePlannedImageAssetsWithClient(ctx context.Context, workDir string
 					errs[index] = fmt.Errorf("download image asset for %q did not create a task-local file", query)
 					continue
 				}
-				resolved[index] = resolvedBackgroundAsset{photo: photo, asset: asset}
+				resolved[index] = resolvedBackgroundAsset{
+					photo:        photo,
+					asset:        asset,
+					provider:     "unsplash",
+					searchStatus: "resolved",
+				}
 			}
 		}()
 	}
@@ -662,6 +766,8 @@ func applyResolvedBackground(target plannedBackgroundTarget, resolved resolvedBa
 		target.visual.PreviewURL = previewURL
 		target.visual.SourceURL = asset.SourceURL
 		target.visual.Attribution = asset.Attribution
+		target.visual.Provider = resolved.provider
+		target.visual.SearchStatus = resolved.searchStatus
 	}
 	if target.component != nil {
 		target.component.AssetQuery = target.query
@@ -671,6 +777,8 @@ func applyResolvedBackground(target plannedBackgroundTarget, resolved resolvedBa
 		target.component.PreviewURL = previewURL
 		target.component.SourceURL = asset.SourceURL
 		target.component.Attribution = asset.Attribution
+		target.component.Provider = resolved.provider
+		target.component.SearchStatus = resolved.searchStatus
 	}
 }
 
@@ -681,6 +789,8 @@ func resolvedExistingBackgroundAsset(workDir string, target plannedBackgroundTar
 	previewURL := ""
 	sourceURL := ""
 	attribution := ""
+	provider := ""
+	searchStatus := ""
 	if target.visual != nil {
 		localPath = target.visual.LocalPath
 		assetID = target.visual.AssetID
@@ -688,6 +798,8 @@ func resolvedExistingBackgroundAsset(workDir string, target plannedBackgroundTar
 		previewURL = target.visual.PreviewURL
 		sourceURL = target.visual.SourceURL
 		attribution = target.visual.Attribution
+		provider = target.visual.Provider
+		searchStatus = target.visual.SearchStatus
 	}
 	if target.component != nil {
 		localPath = target.component.LocalPath
@@ -696,8 +808,10 @@ func resolvedExistingBackgroundAsset(workDir string, target plannedBackgroundTar
 		previewURL = target.component.PreviewURL
 		sourceURL = target.component.SourceURL
 		attribution = target.component.Attribution
+		provider = target.component.Provider
+		searchStatus = target.component.SearchStatus
 	}
-	if !taskLocalAssetExists(workDir, localPath) {
+	if !taskLocalAssetExists(workDir, localPath) || strings.TrimSpace(provider) == "" || !isResolvedSearchStatus(searchStatus) {
 		return resolvedBackgroundAsset{}, false
 	}
 	asset := &unsplash.DownloadedAsset{
@@ -708,7 +822,12 @@ func resolvedExistingBackgroundAsset(workDir string, target plannedBackgroundTar
 		Attribution: attribution,
 	}
 	photo := unsplash.Photo{URLs: unsplash.PhotoURLs{Small: previewURL, Thumb: previewURL}}
-	return resolvedBackgroundAsset{photo: photo, asset: asset}, true
+	return resolvedBackgroundAsset{
+		photo:        photo,
+		asset:        asset,
+		provider:     provider,
+		searchStatus: searchStatus,
+	}, true
 }
 
 func applyResolvedImageAsset(target plannedImageAssetTarget, resolved resolvedBackgroundAsset) {
@@ -724,6 +843,13 @@ func applyResolvedImageAsset(target plannedImageAssetTarget, resolved resolvedBa
 	target.component.PreviewURL = previewURL
 	target.component.SourceURL = asset.SourceURL
 	target.component.Attribution = asset.Attribution
+	target.component.Provider = resolved.provider
+	target.component.SearchStatus = resolved.searchStatus
+}
+
+func isResolvedSearchStatus(status string) bool {
+	status = strings.ToLower(strings.TrimSpace(status))
+	return status == "resolved" || status == "downloaded"
 }
 
 func isBackgroundPlan(assetPurpose, imagePosition, role string) bool {

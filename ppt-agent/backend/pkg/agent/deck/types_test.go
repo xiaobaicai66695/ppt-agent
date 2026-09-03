@@ -61,7 +61,8 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 					"asset_subject":"aerial city skyline at blue hour",
 					"asset_query":"aerial city skyline at blue hour, wide landscape, clean negative space",
 					"composition":"wide landscape, clean negative space on left",
-					"orientation":"landscape"
+					"provider":"unsplash",
+					"search_status":"resolved"
 				},
 				"components":[{
 					"id":"image_1",
@@ -70,7 +71,8 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 					"asset_subject":"delivery drone above urban neighborhood",
 					"asset_query":"delivery drone flying above urban neighborhood",
 					"composition":"subject on right",
-					"orientation":"portrait",
+					"provider":"unsplash",
+					"search_status":"downloaded",
 					"caption":"城市末端配送无人机",
 					"local_path":"assets/images/unsplash_drone.jpg",
 					"image_url":"https://images.unsplash.com/photo.jpg",
@@ -93,7 +95,8 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 		plan.VisualIntent.AssetSubject != "aerial city skyline at blue hour" ||
 		plan.VisualIntent.AssetQuery == "" ||
 		plan.VisualIntent.Composition != "wide landscape, clean negative space on left" ||
-		plan.VisualIntent.Orientation != "landscape" {
+		plan.VisualIntent.Provider != "unsplash" ||
+		plan.VisualIntent.SearchStatus != "resolved" {
 		t.Fatalf("visual intent image contract lost: %#v", plan.VisualIntent)
 	}
 	if len(plan.Components) != 1 {
@@ -104,7 +107,8 @@ func TestPlanComponentUnmarshalKeepsImagePlanningContract(t *testing.T) {
 		component.AssetSubject != "delivery drone above urban neighborhood" ||
 		component.AssetQuery != "delivery drone flying above urban neighborhood" ||
 		component.Composition != "subject on right" ||
-		component.Orientation != "portrait" ||
+		component.Provider != "unsplash" ||
+		component.SearchStatus != "downloaded" ||
 		component.LocalPath != "assets/images/unsplash_drone.jpg" ||
 		component.SourceURL != "https://unsplash.com/photos/drone" ||
 		component.Attribution != "Photo by Demo on Unsplash" ||

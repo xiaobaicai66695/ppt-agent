@@ -26,26 +26,13 @@
   "expected": {
     "must_have_slide_roles": ["封面", "结论摘要", "KPI 总览", "区域对比", "问题归因", "行动计划"],
     "must_use_content_types": ["title_slide", "content_slide", "kpi_dashboard", "chart_slide", "card_grid"],
-    "must_include_data_points": ["新增线索 12800", "同比增长 18%", "付费转化率 6.4%", "环比下降 0.8 个百分点", "华东 112%", "华南 87%"],
-    "minimum_content_characters": {
-      "information_page_total": 220,
-      "image_text_narrative": 240,
-      "argument_block": 440,
-      "exclude_content_types": ["title_slide", "agenda", "section_divider", "stat_slide", "kpi_dashboard", "chart_slide"]
-    },
-    "content_quality": {
-      "deck_thesis": "增长基本盘仍在，但转化和华南执行短板决定下月必须优先修复执行链路。",
-      "required_narrative_chain": ["增长与风险总览", "区域差异证据", "执行根因", "下月行动", "管理层跟进结论"],
-      "max_consecutive_same_layout": 2
-    }
+    "must_include_data_points": ["新增线索 12800", "同比增长 18%", "付费转化率 6.4%", "环比下降 0.8 个百分点", "华东 112%", "华南 87%"]
   },
   "judge_focus": [
     "是否覆盖用户意图",
     "页面结构是否合理",
     "tasks.draft.json 字段是否尽力完整",
     "图表/KPI 是否结构化",
-    "是否没有把生成器/skill 才该处理的坐标字号颜色写进 Planner",
-    "适用的信息页正文组件总量是否至少 220 字，图文页正文是否至少 240 字，完整论述是否达到 440 字",
-    "是否有贯穿整套的管理层判断，并依次完成增长与风险、区域证据、执行根因、行动和跟进的论证链"
+    "是否没有把生成器/skill 才该处理的坐标字号颜色写进 Planner"
   ]
 }

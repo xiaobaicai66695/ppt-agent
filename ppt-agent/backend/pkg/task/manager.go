@@ -26,46 +26,12 @@ import (
 type TaskStatus string
 
 const (
-	TaskStatusConversation        TaskStatus = "conversation"
-	TaskStatusRunning             TaskStatus = "running"
-	TaskStatusWaitingApproval     TaskStatus = "waiting_approval"
-	TaskStatusWaitingConfirmation TaskStatus = "waiting_confirmation"
-	TaskStatusRecovering          TaskStatus = "recovering"
-	TaskStatusCompleted           TaskStatus = "completed"
-	TaskStatusFailed              TaskStatus = "failed"
-	TaskStatusCancelled           TaskStatus = "cancelled"
+	TaskStatusConversation TaskStatus = "conversation"
+	TaskStatusRunning      TaskStatus = "running"
+	TaskStatusCompleted    TaskStatus = "completed"
+	TaskStatusFailed       TaskStatus = "failed"
+	TaskStatusCancelled    TaskStatus = "cancelled"
 )
-
-type ApprovalMode string
-
-const (
-	ApprovalModeAuto      ApprovalMode = "auto"
-	ApprovalModeSensitive ApprovalMode = "sensitive"
-	ApprovalModeManual    ApprovalMode = "manual"
-)
-
-type ApprovalRequest struct {
-	ID                    string    `json:"id"`
-	ReasonCode            string    `json:"reason_code"`
-	Reason                string    `json:"reason"`
-	ActionSummary         string    `json:"action_summary"`
-	AffectedPages         []int     `json:"affected_pages,omitempty"`
-	ConsequenceIfRejected string    `json:"consequence_if_rejected"`
-	Message               string    `json:"-"`
-	Status                string    `json:"status"`
-	CreatedAt             time.Time `json:"created_at"`
-}
-
-func NormalizeApprovalMode(value string) ApprovalMode {
-	switch ApprovalMode(strings.ToLower(strings.TrimSpace(value))) {
-	case ApprovalModeSensitive:
-		return ApprovalModeSensitive
-	case ApprovalModeManual:
-		return ApprovalModeManual
-	default:
-		return ApprovalModeAuto
-	}
-}
 
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
@@ -89,44 +55,32 @@ type SSERichEvent struct {
 	Phase            string              `json:"phase,omitempty"`
 	PhaseDetail      string              `json:"phase_detail,omitempty"`
 	RuntimeEvent     *utils.RuntimeEvent `json:"runtime_event,omitempty"`
-	ApprovalRequest  *ApprovalRequest    `json:"approval_request,omitempty"`
 }
 
 const sseReplayEventLimit = 1024
 
 // TaskInfo 是任务的公开可见摘要。
 type TaskInfo struct {
-	ID                  string            `json:"id"`
-	UserID              int               `json:"user_id"`
-	Query               string            `json:"query"`
-	Status              TaskStatus        `json:"status"`
-	WorkDir             string            `json:"work_dir"`
-	CreatedAt           time.Time         `json:"created_at"`
-	DoneCount           int               `json:"done_count"`
-	TotalCount          int               `json:"total_count"`
-	Duration            string            `json:"duration,omitempty"`
-	Error               string            `json:"error,omitempty"`
-	Files               []string          `json:"files,omitempty"`
-	PromptTokens        int64             `json:"prompt_tokens"`
-	CompletionTokens    int64             `json:"completion_tokens"`
-	TotalTokens         int64             `json:"total_tokens"`
-	ConversationContent string            `json:"conversation_content,omitempty"` // 拼接后的对话内容
-	FullAnswer          string            `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
-	Intent              string            `json:"intent,omitempty"`
-	ConversationID      string            `json:"conversation_id,omitempty"`
-	SourceMessageID     string            `json:"source_message_id,omitempty"`
-	ParentTaskID        string            `json:"parent_task_id,omitempty"`
-	ApprovalMode        ApprovalMode      `json:"approval_mode"`
-	PendingApproval     *ApprovalRequest  `json:"pending_approval,omitempty"`
-	Feedback            *DeliveryFeedback `json:"feedback,omitempty"`
-}
-
-// DeliveryFeedback is the task owner's structured evaluation of an already
-// delivered deck. It is deliberately separate from continuation messages.
-type DeliveryFeedback struct {
-	Rating     int       `json:"rating"`
-	Suggestion string    `json:"suggestion,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                  string     `json:"id"`
+	UserID              int        `json:"user_id"`
+	Query               string     `json:"query"`
+	Status              TaskStatus `json:"status"`
+	WorkDir             string     `json:"work_dir"`
+	CreatedAt           time.Time  `json:"created_at"`
+	DoneCount           int        `json:"done_count"`
+	TotalCount          int        `json:"total_count"`
+	Duration            string     `json:"duration,omitempty"`
+	Error               string     `json:"error,omitempty"`
+	Files               []string   `json:"files,omitempty"`
+	PromptTokens        int64      `json:"prompt_tokens"`
+	CompletionTokens    int64      `json:"completion_tokens"`
+	TotalTokens         int64      `json:"total_tokens"`
+	ConversationContent string     `json:"conversation_content,omitempty"` // 拼接后的对话内容
+	FullAnswer          string     `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
+	Intent              string     `json:"intent,omitempty"`
+	ConversationID      string     `json:"conversation_id,omitempty"`
+	SourceMessageID     string     `json:"source_message_id,omitempty"`
+	ParentTaskID        string     `json:"parent_task_id,omitempty"`
 }
 
 // TaskState 保存单个任务的内部状态。
@@ -225,11 +179,6 @@ func (ts *TaskState) SnapshotInfo() TaskInfo {
 	defer ts.Mu.Unlock()
 	info := ts.Info
 	info.Files = append([]string(nil), ts.Info.Files...)
-	if ts.Info.PendingApproval != nil {
-		copy := *ts.Info.PendingApproval
-		copy.AffectedPages = append([]int(nil), copy.AffectedPages...)
-		info.PendingApproval = &copy
-	}
 	return info
 }
 
@@ -271,109 +220,6 @@ func (ts *TaskState) SetPendingContinueMsg(msg string) bool {
 	ts.pendingContinueMsg = msg
 	ts.pendingContinueQueued = false
 	return true
-}
-
-// SetApprovalMode changes the effective policy for this task. The caller is
-// responsible for ownership checks; the policy is persisted with task metadata.
-func (ts *TaskState) SetApprovalMode(mode ApprovalMode) {
-	ts.Mu.Lock()
-	ts.Info.ApprovalMode = NormalizeApprovalMode(string(mode))
-	ts.Mu.Unlock()
-	ts.persist()
-}
-
-func ShouldRequestApproval(mode ApprovalMode, message string) bool {
-	switch NormalizeApprovalMode(string(mode)) {
-	case ApprovalModeManual:
-		return true
-	case ApprovalModeSensitive:
-		lower := strings.ToLower(message)
-		for _, hint := range []string{"全部", "所有", "整份", "整体", "主题", "风格", "目录", "重做", "重写", "replace all", "global"} {
-			if strings.Contains(lower, hint) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func NewContinuationApproval(mode ApprovalMode, message string) *ApprovalRequest {
-	reasonCode := "manual_mode"
-	reason := "你为本任务开启了逐步审批，系统将在执行修改前等待确认。"
-	if NormalizeApprovalMode(string(mode)) == ApprovalModeSensitive {
-		reasonCode = "scope_expansion"
-		reason = "本次请求可能影响整份 PPT 的结构或视觉风格，系统将在执行前等待确认。"
-	}
-	return &ApprovalRequest{
-		ID:                    fmt.Sprintf("apr-%d", time.Now().UnixNano()),
-		ReasonCode:            reasonCode,
-		Reason:                reason,
-		ActionSummary:         "根据你的修改请求生成新的候选版本，不会直接覆盖当前已交付 PPT。",
-		ConsequenceIfRejected: "本次修改不会执行，当前已交付版本保持不变。",
-		Message:               strings.TrimSpace(message),
-		Status:                "pending",
-		CreatedAt:             time.Now(),
-	}
-}
-
-func (ts *TaskState) BeginApproval(request *ApprovalRequest) bool {
-	if request == nil || strings.TrimSpace(request.Message) == "" {
-		return false
-	}
-	ts.Mu.Lock()
-	if ts.Info.Status == TaskStatusRunning || ts.Info.Status == TaskStatusCompleted || ts.Info.Status == TaskStatusCancelled {
-		ts.Info.Status = TaskStatusWaitingApproval
-		ts.Info.PendingApproval = request
-		ts.Info.Error = ""
-		ts.Mu.Unlock()
-		ts.persist()
-		ts.Broadcast(SSERichEvent{Type: "approval_required", Status: TaskStatusWaitingApproval, Message: request.Reason, ApprovalRequest: request})
-		return true
-	}
-	ts.Mu.Unlock()
-	return false
-}
-
-// ResolveApproval persists an idempotent decision and returns the approved
-// continuation message. A rejected request restores completed state because
-// the active deck remains available.
-func (ts *TaskState) ResolveApproval(decision, adjustedMessage string) (string, bool, error) {
-	decision = strings.ToLower(strings.TrimSpace(decision))
-	ts.Mu.Lock()
-	request := ts.Info.PendingApproval
-	if request == nil || request.Status != "pending" || ts.Info.Status != TaskStatusWaitingApproval {
-		ts.Mu.Unlock()
-		return "", false, fmt.Errorf("没有待处理的审批请求")
-	}
-	if decision == "adjust_scope" {
-		if strings.TrimSpace(adjustedMessage) == "" {
-			ts.Mu.Unlock()
-			return "", false, fmt.Errorf("调整范围时必须提供新的修改说明")
-		}
-		request.Message = strings.TrimSpace(adjustedMessage)
-		request.ActionSummary = "将按你调整后的范围生成候选版本，不会直接覆盖当前已交付 PPT。"
-		ts.Mu.Unlock()
-		ts.persist()
-		ts.Broadcast(SSERichEvent{Type: "approval_updated", Status: TaskStatusWaitingApproval, Message: "已更新待审批的修改范围", ApprovalRequest: request})
-		return "", false, nil
-	}
-	request.Status = decision
-	message := request.Message
-	switch decision {
-	case "approve":
-		ts.Info.Status = TaskStatusRunning
-		ts.Info.PendingApproval = nil
-	case "reject":
-		ts.Info.Status = TaskStatusCompleted
-		ts.Info.PendingApproval = nil
-	default:
-		ts.Mu.Unlock()
-		return "", false, fmt.Errorf("无效审批决定")
-	}
-	ts.Mu.Unlock()
-	ts.persist()
-	ts.Broadcast(SSERichEvent{Type: "approval_decision", Status: ts.SnapshotInfo().Status, Message: request.Status, ApprovalRequest: request})
-	return message, decision == "approve", nil
 }
 
 // IsPendingContinueMsgFirst 检查当前等待消息是否为第一条（即之前没有排队）。
@@ -677,7 +523,6 @@ func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) 
 
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(DeduplicateOutputFiles(info.Files))
-	pendingApprovalJSON, _ := json.Marshal(info.PendingApproval)
 	return &db.TaskRecord{
 		ID:                  info.ID,
 		UserID:              uint(info.UserID),
@@ -698,8 +543,6 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		ConversationID:      mysqlSafeText(info.ConversationID),
 		SourceMessageID:     mysqlSafeText(info.SourceMessageID),
 		ParentTaskID:        mysqlSafeText(info.ParentTaskID),
-		ApprovalMode:        string(NormalizeApprovalMode(string(info.ApprovalMode))),
-		PendingApproval:     mysqlSafeText(string(pendingApprovalJSON)),
 		CreatedAt:           info.CreatedAt,
 	}
 }
@@ -735,10 +578,6 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 	if files == nil {
 		files = []string{}
 	}
-	var pendingApproval *ApprovalRequest
-	if strings.TrimSpace(r.PendingApproval) != "" && r.PendingApproval != "null" {
-		_ = json.Unmarshal([]byte(r.PendingApproval), &pendingApproval)
-	}
 	return &TaskInfo{
 		ID:                  r.ID,
 		UserID:              int(r.UserID),
@@ -760,8 +599,6 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		ConversationID:      r.ConversationID,
 		SourceMessageID:     r.SourceMessageID,
 		ParentTaskID:        r.ParentTaskID,
-		ApprovalMode:        NormalizeApprovalMode(r.ApprovalMode),
-		PendingApproval:     pendingApproval,
 	}
 }
 
@@ -788,8 +625,6 @@ func (ts *TaskState) persist() {
 		"conversation_id":      r.ConversationID,
 		"source_message_id":    r.SourceMessageID,
 		"parent_task_id":       r.ParentTaskID,
-		"approval_mode":        r.ApprovalMode,
-		"pending_approval":     r.PendingApproval,
 	}); err != nil {
 		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}

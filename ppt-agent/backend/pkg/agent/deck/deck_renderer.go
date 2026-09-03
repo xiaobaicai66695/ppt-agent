@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 
 	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	"github.com/cloudwego/ppt-agent/pkg/retry"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
@@ -71,32 +73,189 @@ func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContex
 	if deck == nil || deck.Config == nil || deck.Manifest == nil || len(deck.Tasks) == 0 {
 		return deck, nil
 	}
-	// Only hydrate pages selected for this render pass. The task pointers are shared
-	// with deck.Manifest, so successful metadata is still persisted to tasks.json.
-	pendingManifest := &TasksManifest{Tasks: deck.Tasks, VisualPolicy: deck.Manifest.VisualPolicy}
-	counts, err := MaterializePlannedDeckAssets(ctx, deck.Config.WorkDir, pendingManifest)
-	if errors.Is(err, unsplash.ErrMissingAccessKey) {
-		return nil, fmt.Errorf("图片素材服务未配置，无法交付带背景图片的 PPT: %w", err)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("materialize planned deck assets: %w", err)
-	}
-	if missingPages := missingMaterializedBackgroundPages(deck.Config.WorkDir, pendingManifest); len(missingPages) > 0 {
-		return nil, fmt.Errorf("背景图片未物化到本地，拒绝交付无背景 PPT：第 %s 页", formatPageIndexes(missingPages))
-	}
-	if counts.Backgrounds == 0 && counts.Images == 0 {
+	for revisionAttempt := 1; ; revisionAttempt++ {
+		// Only hydrate pages selected for this render pass. The task pointers are
+		// shared with deck.Manifest, so successful metadata is persisted below.
+		pendingManifest := &TasksManifest{Tasks: deck.Tasks, VisualPolicy: deck.Manifest.VisualPolicy}
+		counts, err := MaterializePlannedDeckAssets(ctx, deck.Config.WorkDir, pendingManifest)
+		if errors.Is(err, unsplash.ErrMissingAccessKey) {
+			return nil, fmt.Errorf("图片素材服务未配置，无法交付带背景图片的 PPT: %w", err)
+		}
+		if err != nil {
+			var revision *assetQueryRevisionError
+			if !errors.As(err, &revision) {
+				return nil, fmt.Errorf("materialize planned deck assets: %w", err)
+			}
+			handled, revisionErr := backgroundSearchRetryFactory.Execute(ctx, retry.OperationUnsplashSearch, err, revisionAttempt, func(ctx context.Context, decision retry.Decision) error {
+				return reviseBackgroundSearchTermsWithFixer(ctx, deck, revision, decision)
+			})
+			if revisionErr != nil {
+				return nil, fmt.Errorf("背景图片搜索词 LLM 修订失败: %w", revisionErr)
+			}
+			if !handled {
+				return nil, fmt.Errorf("背景图片搜索词经 LLM 修订后仍不可用: %w", err)
+			}
+			if err := reloadDeckRenderManifest(deck); err != nil {
+				return nil, fmt.Errorf("读取 LLM 修订后的 DeckSpec 失败: %w", err)
+			}
+			continue
+		}
+		if missingPages := missingMaterializedBackgroundPages(deck.Config.WorkDir, pendingManifest); len(missingPages) > 0 {
+			return nil, fmt.Errorf("背景图片未物化到本地，拒绝交付无背景 PPT：第 %s 页", formatPageIndexes(missingPages))
+		}
+		if counts.Backgrounds == 0 && counts.Images == 0 {
+			return deck, nil
+		}
+		if err := WriteTasksManifest(deck.Config.WorkDir, deck.Manifest); err != nil {
+			return nil, fmt.Errorf("persist materialized deck assets: %w", err)
+		}
+		if deck.Config.RuntimeMeta != nil {
+			deck.Config.RuntimeMeta.RecordPhase(
+				"compiling",
+				fmt.Sprintf("已写回 %d 个轮换背景引用和 %d 个图文素材，开始按页渲染", counts.Backgrounds, counts.Images),
+			)
+		}
 		return deck, nil
 	}
-	if err := WriteTasksManifest(deck.Config.WorkDir, deck.Manifest); err != nil {
-		return nil, fmt.Errorf("persist materialized deck assets: %w", err)
+}
+
+func reviseBackgroundSearchTermsWithFixer(ctx context.Context, deck *deckRenderContext, revision *assetQueryRevisionError, decision retry.Decision) error {
+	if deck == nil || deck.Config == nil || revision == nil {
+		return fmt.Errorf("背景搜索词修订上下文不完整")
 	}
+	allowedTaskIDs, pageIndexes, queries := assetQueryRevisionTargets(revision.Requests)
+	if len(allowedTaskIDs) == 0 {
+		return fmt.Errorf("背景搜索词修订未包含可授权的任务 ID")
+	}
+	before, err := ReadTasksManifest(deck.Config.WorkDir)
+	if err != nil {
+		return err
+	}
+	beforeQueries := backgroundQuerySnapshot(before, allowedTaskIDs)
+	emitRenderEvent(deck.Callback, DeckRenderEvent{Type: "asset_query_revision", Detail: fmt.Sprintf("背景素材服务拒绝第 %s 页搜索词，正在请求 LLM 重写", formatPageIndexes(pageIndexes))})
 	if deck.Config.RuntimeMeta != nil {
-		deck.Config.RuntimeMeta.RecordPhase(
-			"compiling",
-			fmt.Sprintf("已写回 %d 个轮换背景引用和 %d 个图文素材，开始按页渲染", counts.Backgrounds, counts.Images),
-		)
+		deck.Config.RuntimeMeta.RecordPhase("revising", fmt.Sprintf("背景素材 HTTP 410：按策略 %s 重写第 %s 页搜索词", decision.StrategyName, formatPageIndexes(pageIndexes)))
 	}
-	return deck, nil
+	fixerCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	fixer, err := NewPPTFixerAgentForTasks(fixerCtx, deck.Config, allowedTaskIDs)
+	if err != nil {
+		return err
+	}
+	input := fmt.Sprintf("系统素材修订：Unsplash 背景图片搜索返回 HTTP 410，说明当前 asset_query 不适合素材服务。仅修改授权页面的背景 visual_intent.asset_query 或背景 image 组件的 asset_query。必须改成与原词不同、可搜索的简洁英文视觉主体词（2-5 个词）；不要重复原词、不要下载图片、不要改正文、标题、版式或其他字段。\n目标页面：%v\n失败搜索词：%v", pageIndexes, queries)
+	if err := RunPPTFixerWithCallback(fixerCtx, fixer, input, func(event AgentEvent) {
+		if event.Type == AgentEventProgress {
+			emitRenderEvent(deck.Callback, DeckRenderEvent{Type: "asset_query_revision", Detail: event.PhaseDetail})
+		}
+	}); err != nil {
+		return err
+	}
+	after, err := ReadTasksManifest(deck.Config.WorkDir)
+	if err != nil {
+		return err
+	}
+	if !backgroundQueriesChanged(beforeQueries, backgroundQuerySnapshot(after, allowedTaskIDs)) {
+		return fmt.Errorf("LLM 未修改失败页的背景 asset_query")
+	}
+	return nil
+}
+
+func assetQueryRevisionTargets(requests []assetQueryRevisionRequest) ([]string, []int, []string) {
+	taskSet, pageSet, querySet := map[string]struct{}{}, map[int]struct{}{}, map[string]struct{}{}
+	for _, request := range requests {
+		for _, taskID := range request.TaskIDs {
+			taskSet[taskID] = struct{}{}
+		}
+		for _, pageIndex := range request.PageIndexes {
+			pageSet[pageIndex] = struct{}{}
+		}
+		for _, query := range request.Queries {
+			querySet[query] = struct{}{}
+		}
+	}
+	taskIDs, pageIndexes, queries := make([]string, 0, len(taskSet)), make([]int, 0, len(pageSet)), make([]string, 0, len(querySet))
+	for taskID := range taskSet {
+		taskIDs = append(taskIDs, taskID)
+	}
+	for pageIndex := range pageSet {
+		pageIndexes = append(pageIndexes, pageIndex)
+	}
+	for query := range querySet {
+		queries = append(queries, query)
+	}
+	sort.Strings(taskIDs)
+	sort.Ints(pageIndexes)
+	sort.Strings(queries)
+	return taskIDs, pageIndexes, queries
+}
+
+func backgroundQuerySnapshot(manifest *TasksManifest, taskIDs []string) map[string]string {
+	allowed := map[string]struct{}{}
+	for _, taskID := range taskIDs {
+		allowed[taskID] = struct{}{}
+	}
+	result := map[string]string{}
+	if manifest == nil {
+		return result
+	}
+	for _, task := range manifest.Tasks {
+		if task == nil {
+			continue
+		}
+		if _, ok := allowed[task.TaskID]; !ok {
+			continue
+		}
+		if task.ContentPlan == nil {
+			continue
+		}
+		queries := []string{}
+		if visual := task.ContentPlan.VisualIntent; visual != nil && isBackgroundPlan(visual.AssetPurpose, visual.ImagePosition, visual.Role) {
+			queries = append(queries, strings.TrimSpace(visual.AssetQuery))
+		}
+		for index := range task.ContentPlan.Components {
+			component := &task.ContentPlan.Components[index]
+			if component.Type == "image" && isBackgroundPlan(component.AssetPurpose, "", component.Role) {
+				queries = append(queries, strings.TrimSpace(component.AssetQuery))
+			}
+		}
+		result[task.TaskID] = strings.Join(queries, "\x00")
+	}
+	return result
+}
+
+func backgroundQueriesChanged(before, after map[string]string) bool {
+	for taskID, beforeQuery := range before {
+		if afterQuery := strings.TrimSpace(after[taskID]); afterQuery != "" && afterQuery != beforeQuery {
+			return true
+		}
+	}
+	return false
+}
+
+func reloadDeckRenderManifest(deck *deckRenderContext) error {
+	selected := map[string]struct{}{}
+	for _, task := range deck.Tasks {
+		if task != nil {
+			selected[task.TaskID] = struct{}{}
+		}
+	}
+	manifest, err := ReadTasksManifest(deck.Config.WorkDir)
+	if err != nil {
+		return err
+	}
+	tasks := make([]*TaskItem, 0, len(selected))
+	for _, task := range manifest.Tasks {
+		if task != nil {
+			if _, ok := selected[task.TaskID]; ok {
+				tasks = append(tasks, task)
+			}
+		}
+	}
+	if len(tasks) != len(selected) {
+		return fmt.Errorf("修订后 DeckSpec 缺少待渲染页面")
+	}
+	deck.Manifest, deck.Tasks = manifest, tasks
+	return nil
 }
 
 func formatPageIndexes(pageIndexes []int) string {

@@ -46,7 +46,10 @@ type PPTTaskConfig struct {
 	SkillsDir     string // skills 目录的绝对路径，用于构造 read_file 可用的模板路径
 	ModelAPIKey   string // account-level model key override; empty uses env fallback
 	ModelProvider string // provider that owns ModelAPIKey; empty keeps legacy Ark behavior
-	CompressorOpt CompressorOption
+	// DisableImageSearch lets isolated evaluation runs avoid registering the
+	// network-backed image search tool. Production tasks keep the default false.
+	DisableImageSearch bool
+	CompressorOpt      CompressorOption
 	// CompressorTracker 启用压缩器的 token 统计
 	// 设置后，主模型调用和压缩器调用（用于上下文压缩）都会被计入同一个 TokenTracker，提供准确的总数
 	CompressorTracker *agentutils.TokenTracker
@@ -446,7 +449,8 @@ type PlanComponent struct {
 	AssetSubject string         `json:"asset_subject,omitempty"`
 	AssetQuery   string         `json:"asset_query,omitempty"`
 	Composition  string         `json:"composition,omitempty"`
-	Orientation  string         `json:"orientation,omitempty"`
+	Provider     string         `json:"provider,omitempty"`
+	SearchStatus string         `json:"search_status,omitempty"`
 	Caption      string         `json:"caption,omitempty"`
 	AssetID      string         `json:"asset_id,omitempty"`
 	LocalPath    string         `json:"local_path,omitempty"`
@@ -475,7 +479,8 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 		AssetSubject string          `json:"asset_subject"`
 		AssetQuery   string          `json:"asset_query"`
 		Composition  string          `json:"composition"`
-		Orientation  string          `json:"orientation"`
+		Provider     string          `json:"provider"`
+		SearchStatus string          `json:"search_status"`
 		Caption      string          `json:"caption"`
 		AssetID      string          `json:"asset_id"`
 		LocalPath    string          `json:"local_path"`
@@ -505,7 +510,8 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 		Items: items, Emphasis: raw.Emphasis, Role: raw.Role, Relation: raw.Relation,
 		Target: raw.Target, Icon: raw.Icon, Source: raw.Source,
 		AssetPurpose: raw.AssetPurpose, AssetSubject: raw.AssetSubject,
-		AssetQuery: raw.AssetQuery, Composition: raw.Composition, Orientation: raw.Orientation,
+		AssetQuery: raw.AssetQuery, Composition: raw.Composition,
+		Provider: raw.Provider, SearchStatus: raw.SearchStatus,
 		Caption: raw.Caption, AssetID: raw.AssetID,
 		LocalPath: raw.LocalPath, ImageURL: raw.ImageURL, PreviewURL: raw.PreviewURL,
 		SourceURL: raw.SourceURL, Attribution: raw.Attribution,
@@ -539,7 +545,8 @@ type VisualIntent struct {
 	AssetSubject     string `json:"asset_subject,omitempty"`     // visual subject or semantic proxy selected for search
 	AssetQuery       string `json:"asset_query,omitempty"`       // transformed provider-ready image search phrase
 	Composition      string `json:"composition,omitempty"`       // wide/close-up, negative space and subject placement
-	Orientation      string `json:"orientation,omitempty"`       // landscape, portrait or squarish
+	Provider         string `json:"provider,omitempty"`          // asset provider that resolved the local file
+	SearchStatus     string `json:"search_status,omitempty"`     // resolved or downloaded after provider search
 	PreferredVariant string `json:"preferred_variant,omitempty"` // matching layout_variant when known
 	ImagePosition    string `json:"image_position,omitempty"`    // background, left, right, strip, inline
 	Caption          string `json:"caption,omitempty"`           // short caption or alt text
