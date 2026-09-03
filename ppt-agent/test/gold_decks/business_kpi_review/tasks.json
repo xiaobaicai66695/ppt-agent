@@ -346,7 +346,7 @@
       "task_id": "slide_06",
       "page_index": 6,
       "title": "Q3 行动计划：把增长转化为可复制机制",
-      "content_type": "process_flow",
+      "content_type": "timeline",
       "description": "行动计划流程页，包含高意向线索池、伙伴共创包、续费预警、周度经营看板四个动作，每个动作给出负责人和预期产出。",
       "output_file": "06_Q3行动计划.pptx",
       "status": "pending",

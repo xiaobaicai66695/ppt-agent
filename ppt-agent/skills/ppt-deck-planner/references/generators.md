@@ -14,12 +14,10 @@ sys.path.insert(0, str(generators_pkg_dir))
 from generators import (
     new_presentation, save_presentation, save_slide,
     generate_title_slide, generate_section_divider, generate_content_slide,
-    generate_stat_slide, generate_quote_slide, generate_card_grid,
-    generate_timeline, generate_process_flow, generate_two_column,
-    generate_three_column, generate_summary_slide, generate_image_text,
-    generate_example_detail, generate_deep_dive, generate_agenda,
-    generate_case_study, generate_kpi_dashboard, generate_chart_slide,
-    generate_icon_grid, generate_swot_analysis, generate_comparison_table,
+    generate_quote_slide, generate_card_grid, generate_timeline,
+    generate_two_column, generate_image_text, generate_agenda,
+    generate_kpi_dashboard, generate_chart_slide, generate_swot_analysis,
+    generate_comparison_table,
     generate_image_hero, generate_kanban, generate_brand_focus, generate_region_map,
 )
 ```
@@ -51,7 +49,7 @@ from generators import (
 
 ## 模板契约元数据
 
-`templates/component_contracts.json` 集中声明组件语义、渲染归类、容量与已实现变体。规划器、Reviewer、Validator 或通用 Agent 都应优先读取这一份文件；其中 `planning_rules.component_text_density` 和 `planning_rules.page_content_density` 是单组件与整页正文的唯一字数/信息密度来源。旧 `templates/full-decks` 和 `templates/single-page` 目录不再作为运行契约。
+`templates/component_contracts.json` 集中声明组件语义、渲染归类、容量与已实现变体。规划器、Reviewer、Validator 或通用 Agent 都应优先读取这一份文件，旧 `templates/full-decks` 和 `templates/single-page` 目录不再作为运行契约。
 
 推荐字段：
 
@@ -62,12 +60,12 @@ from generators import (
 | `contract.best_for` | string[] | 最适合的内容场景 |
 | `contract.avoid_for` | string[] | 应避免使用的内容场景 |
 | `contract.overflow_strategy` | string | 内容超量时的推荐动作，例如 `split_slide`、`reduce_series` |
-| `contract.background_policy` | string | 页面视觉策略；整套 deck 仍以顶层 `visual_policy` 为准，常规 deck 必须物化背景或前景图，纯文字 deck 显式使用 `mode="none"`。 |
+| `contract.background_policy` | string | 图片策略，例如 `image_recommended`、`image_optional` 或 `clean_default`；不要求每页都有背景图。 |
 | `contract.visual_primitives` | string[] | 首选视觉 primitives，例如 `local_icons`、`shapes`、`charts`、`cards` |
 | `variants` | object[] | 已有 generator 明确支持的 `layout_variant`。空数组表示 Planner 保持 `layout_variant` 为空，由组件布局引擎自适应。 |
 
 > 注意：部分旧模板 JSON 的 UI 字段名与生成器参数名不同，例如 `chart_data` 对应 `data`、`metrics` 对应 `kpis`。`contract.required_fields` 优先按生成器参数理解，后续 selector/adapter 应负责字段映射。
-> 当前阶段 `content_plan.components` 是生成器消费的数据源；不要依赖旧参数承载页面正文。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `background_title`（全页背景上的主标题和副标题），`image_text` 支持 `image_left`、`image_right`、`image_top_band`、`image_bottom_band`，其他内容页按组件密度自适配。
+> 当前阶段 `content_plan.components` 是生成器消费的数据源；不要依赖旧参数承载页面正文。`layout_variant` 只用于已实现分支，当前 `section_divider` 固定 `number_sidebar`，`image_text` 支持 `image_left`、`image_right`、`image_top_band`，其他内容页按组件密度自适配。
 > 新 DeckSpec 内容契约以 `title`、`content_bank`、`sections` 和 `tasks[].content_plan.components` 为主；`task_id`、`output_file`、`status` 可由调用方或任务系统根据页码派生和维护，`theme/template/description/qa_report/fix_attempts/capacity_hint/reviewer_status` 不作为 Planner 内容字段。
 
 ## 组件规划入口
@@ -88,7 +86,7 @@ from generators import (
 
 ## 图片与动态排版
 
-- 常规 deck 在每页 `visual_intent` 和需要前景图的 `image` 组件中声明图片语义，并在渲染前解析为有效的本地路径；只有显式 `visual_policy.mode="none"` 的页面可使用无图布局。
+- 需要图片时，在每页 `visual_intent` 中声明图片语义，并在渲染前解析为有效的本地路径；没有图片意图的页面可使用无图布局。
 - 图片搜索、下载、保存、来源和署名由调用方或宿主系统负责；生成器只消费本地文件，不直接访问图片 provider，也不读取离线 `assets/manifest.json`。
 - 若组件本身需要图片（如 `image_text`、`image_hero`），`asset_query` / `asset_subject` 必须在渲染前解析为真实 `local_path`；来源与署名应一并保留。
 - 文字 glyph、几何形状、卡片、图表和分隔线可作为无图页面的完整视觉表达；它们也可补充有图页面的信息层级。
@@ -110,7 +108,7 @@ from generators import (
 - 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
 - 页面存在 `source` 时，工作台内容区必须在底部来源分隔线上方保留安全间距；图片、卡片、图表和正文面板都不得侵入来源栏。
 - 背景图片默认使用 `cover` 适配：按当前幻灯片真实宽高比等比铺满，允许边缘被适度裁剪，但底层图片锚点必须严格限制在幻灯片画布内。内部 helper 保留 `contain`，供明确要求完整显示原图时使用同图模糊扩展层补边；Planner 不控制该参数。
-- 所有带背景图的页面都会在完成尺寸适配后自动做轻度模糊、降饱和、降对比，并把可读性柔化烘焙进背景位图；生成器还会从背景图提取弱化色系，替代固定主题色 token 用于面板、色块、分割线和强调装饰，但正文、标题、小标题和图片说明保持深色可读文本 token，避免浅黄、浅绿或浅灰背景把文字染到低对比状态。不再依赖跨查看器表现不一致的全页透明遮罩。标题页和章节分割页使用更强一级的模糊。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径、透明度或固定色值。
+- 所有带背景图的页面会做轻度降饱和、降对比和极低比例柔化；正文卡片则裁切对应背景区域，做约 58px 高半径模糊后仅叠加约 1%–13% 的中性浅层。因此背景照片持续可见、正文仍有稳定对比，且大面积信息页不会形成灰色实底。标题区根据顶部背景区域自动选择高对比反相文字。标题页使用全局虚化背景和居中内容，不使用左右分栏或底部色板。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径、透明度或固定色值。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
@@ -131,11 +129,11 @@ from generators import (
 #### generate_section_divider — 章节分隔页
 | 参数 | 类型 | 示例 |
 |------|------|------|
-| number | str | `"01"`；仅兼容排序元数据，不渲染为可见编号 |
+| number | str | `"01"` |
 | title | str | `"技术背景"` |
 | subtitle | str | `"从感知机到大模型"` |
-| kicker | str | `"第三章"`；兼容字段，不在章节页显示 |
-| layout_variant | str | `"background_title"`；全页背景上的主标题与副标题。旧 `number_sidebar` 输入同样按此样式渲染 |
+| kicker | str | `"第三章"` (可选，编号上方小标签) |
+| layout_variant | str | `"number_sidebar"`；当前实现的章节页结构 |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 #### generate_agenda — 目录页
@@ -148,17 +146,7 @@ from generators import (
 
 目录项前缀表示章节出现顺序，不是章节分割页的绝对 `page_index`。即使章节位于第 5、8、12 页，目录仍显示 `01`、`02`、`03`。
 
-组件计划中 `agenda` 最多 6 个组件，推荐 1 个 `insight/key_point` 说明阅读路径 + 3-5 个 `toc_item`。每个 `toc_item` 用 `title` 写章节名，用 `body` 写 18-44 字的非重复副标题，说明章节问题、证据角度或听众收获；4 项及以上会采用双列卡片，避免一列横向拉得过宽。不要把每一页都列为独立目录项，章节过多时合并相邻主题。
-
-#### generate_summary_slide — 总结页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| title | str | `"总结"` |
-| key_points | `List[str]` | `["01  核心结论1", "02  核心结论2"]` (最多4条) |
-| thank_you | str | `"感谢聆听"` |
-| contact | str | `"{联系方式}"` |
-| kicker | str | `"总结"` (可选，标题上方小标签) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
+组件计划中 `agenda` 最多 6 个组件，推荐 1 个 `insight/key_point` 说明阅读路径 + 3-5 个 `toc_item`。不要把每一页都列为独立目录项，章节过多时合并相邻主题。
 
 ### 内容陈述类
 
@@ -193,12 +181,11 @@ from generators import (
 | bullets | `List[str]` | ~~（已废弃，勿用 paragraph 拆分后的 bullets）~~ |
 | kicker | str | `"功能 · 核心"` (可选，标题上方小标签) |
 | sub_header | str | `"能力亮点"` (可选，header 与内容之间的次级标题) |
-| lede | str | `"一句独立的阅读引导"` (可选，显示在标题下；不能复制 paragraph 开头) |
 | source | str | `"来源: 腾讯云 2025 | https://..."` (可选，数据来源标注) |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
-> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets；也禁止把正文截取后充当标题区副标题。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片的页面必须传入真实本地文件；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
-> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；图文正文面板使用更宽的内边距、轻微字间距、略放松的行距和短至中等篇幅的垂直居中，避免文字贴边或视觉重心偏向面板上沿。不要在 `tasks.json` 写坐标、padding、字间距或行间距字段。
+> **强制规则**：`paragraph` 是唯一正文来源。禁止将 paragraph 内容拆分为 bullets 后只传 bullets。paragraph 必须是240-450字的完整自然语言段落，禁止罗列要点。需要图片的页面必须传入真实本地文件；禁止自行绘制图片占位符、传入虚构路径或依赖旧 `asset:` id。
+> `image_left` 为左图右文，`image_right` 为左文右图，`image_top_band` 为上方横幅图加下方正文，`image_bottom_band` 为上方正文加下方横幅图。四者都保留来源栏安全区和图片 caption 面板；正文过短时生成器会压缩文本面板高度并垂直居中，避免空白大框。
 
 ### 对比与并列类
 
@@ -221,14 +208,6 @@ from generators import (
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 > **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。
-
-#### generate_three_column — 三栏并列
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| title | str | `"三种方案对比"` |
-| columns | `List[dict]` | `[{"header": "方案A", "bullets": ["优点1", "优点2"]}, ...]` ×3 |
-| kicker | str | `"能力矩阵"` (可选，标题上方小标签) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 #### generate_card_grid — 卡片阵列
 | 参数 | 类型 | 示例 |
@@ -253,28 +232,7 @@ from generators import (
 | subtitle | str | `"从深度学习到大模型的时代跨越"` (可选，标题下方副标题) |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
-#### generate_process_flow — 步骤流程图
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| title | str | `"模型训练流程"` |
-| direction | str | `"horizontal"` / `"horizontal_zigzag"` / `"vertical"` |
-| steps | `List[dict]` | `[{"num": "01", "title": "数据收集", "desc": "采集多源数据"}, ...]` ×3-6 |
-| kicker | str | `"工程实践"` (可选，标题上方小标签) |
-| subtitle | str | `"端到端自动化训练流水线"` (可选，标题下方副标题) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
 ### 数据与指标类
-
-#### generate_stat_slide — 关键数字页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| title | str | `"系统性能指标"` |
-| stats | `List[dict]` | `[{"number": "99.99", "unit": "%", "label": "系统可用性"}, ...]` ×2-4 |
-| kicker | str | `"年度成果"` (可选，标题上方小标签) |
-| subtitle | str | `"2025财年关键数据一览"` (可选，标题下方副标题) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
-组件计划中 `stat_slide` 总组件最多 4 个，必须包含 1 个 `insight/key_point` 解释数字背后的判断；不要只堆叠 `stat` 或 `number_callout`。
 
 #### generate_kpi_dashboard — 指标看板（固定 2x2 布局，最多 4 个 KPI）
 | 参数 | 类型 | 示例 |
@@ -287,46 +245,6 @@ from generators import (
 
 > **强制规则**：每个 KPI 字典必须包含全部 4 个字段：`value`（具体数值+单位）、`label`（效果说明）、`delta`（变化趋势，如 ↑38%）、`baseline`（对比基准，如 vs 传统方案）。禁止使用占位符如 `"{数值}"`。数据必须真实（通过 search 获取）。
 
-### 内容叙事类（案例/详解）
-
-#### generate_example_detail — 实例详解页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| kicker | str | `"实例 · 金融风控"` |
-| title | str | `"蚂蚁AlphaRisk：实时风控系统"` |
-| lede | str | `"日均处理数亿笔交易，风险识别准确率99.99%"` |
-| context_block | str | `"金融欺诈每年造成数百亿损失..."` (1-2句背景) |
-| solution_block | str | `"基于深度图学习的实时检测..."` (2-3句方案) |
-| metrics | `List[dict]` | `[{"value": "99.99%", "label": "准确率", "trend": "↑"}, ...]` ×3 |
-| takeaway | str | `"图学习是风控的核心技术方向"` |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
-#### generate_deep_dive — 深入详解页（双栏）
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| kicker | str | `"详解 · Transformer架构"` |
-| title | str | `"自注意力机制原理"` |
-| lede | str | `"一句话概括核心价值"` |
-| left_header | str | `"核心要点"` |
-| key_points | `List[str]` | `["多头注意力：16个子空间并行建模", ...]` (3-5条) |
-| analysis | `List[str]` | `["维度分析1：结论", "维度分析2：结论"]` (2条) |
-| right_header | str | `"案例/数据"` |
-| case_example | `List[str]` | `["GPT-4：万亿参数，MMLU 86.4%", ...]` (3-4条) |
-| data_evidence | `List[str]` | `["推理延迟：320ms→18ms", "训练成本：$63M", ...]` (3条) |
-| supplement | `List[str]` | 可选补充信息 (0-2条) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
-#### generate_case_study — 案例研究页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| kicker | str | `"案例 · 智能客服"` |
-| title | str | `"某银行AI客服系统"` |
-| context | str | `"银行业客服成本高、响应慢..."` (背景) |
-| problem | str | `"日均10万+咨询，人工应答率仅60%"` (痛点) |
-| solution | str | `"基于RAG+大模型的智能问答..."` (方案) |
-| results | `List[dict]` | `[{"metric": "应答率", "value": "95%", "comparison": "提升35%"}, ...]` ×4 |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
 ### 数据与可视化类
 
 #### generate_chart_slide — 图表专页
@@ -338,16 +256,6 @@ from generators import (
 | chart_type | str | `"bar"`, `"pie"`, `"line"`, `"doughnut"`, `"stacked_bar"` |
 | data | `Dict` | `{"labels": ["Q1","Q2","Q3"], "datasets": [{"name": "2025", "values": [100,200,300]}]}` |
 | show_legend | bool | `True` (是否显示图例) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
-#### generate_icon_grid — 图标网格页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| kicker | str | `"核心能力"` |
-| title | str | `"六大技术支柱"` |
-| subtitle | str | `"构建完整AI技术体系"` (可选) |
-| layout | str | `"3x2"` 或 `"3x3"` 或 `"2x3"` |
-| icons | `List[dict]` | `[{"icon": "研", "label": "基础研究", "color": "primary"}, ...]` |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 #### generate_swot_analysis — SWOT分析页

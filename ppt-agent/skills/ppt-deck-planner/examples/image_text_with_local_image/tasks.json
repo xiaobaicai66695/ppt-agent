@@ -1,7 +1,6 @@
 {
   "title": "本地图文页示例",
   "audience": "需要验证图片路径契约的通用 Agent",
-  "visual_policy": {"mode": "required", "min_image_pages": 1, "required_roles": ["scene"]},
   "tasks": [
     {
       "task_id": "slide_01",

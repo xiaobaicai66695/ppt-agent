@@ -43,25 +43,17 @@ def main() -> int:
         generate_agenda,
         generate_brand_focus,
         generate_card_grid,
-        generate_case_study,
         generate_chart_slide,
         generate_comparison_table,
         generate_content_slide,
-        generate_deep_dive,
-        generate_example_detail,
-        generate_icon_grid,
         generate_image_hero,
         generate_image_text,
         generate_kanban,
         generate_kpi_dashboard,
-        generate_process_flow,
         generate_quote_slide,
         generate_region_map,
         generate_section_divider,
-        generate_stat_slide,
-        generate_summary_slide,
         generate_swot_analysis,
-        generate_three_column,
         generate_timeline,
         generate_title_slide,
         generate_two_column,
@@ -90,25 +82,17 @@ def main() -> int:
         "agenda": generate_agenda,
         "brand_focus": generate_brand_focus,
         "card_grid": generate_card_grid,
-        "case_study": generate_case_study,
         "chart_slide": generate_chart_slide,
         "comparison_table": generate_comparison_table,
         "content_slide": generate_content_slide,
-        "deep_dive": generate_deep_dive,
-        "example_detail": generate_example_detail,
-        "icon_grid": generate_icon_grid,
         "image_hero": generate_image_hero,
         "image_text": generate_image_text,
         "kanban": generate_kanban,
         "kpi_dashboard": generate_kpi_dashboard,
-        "process_flow": generate_process_flow,
         "quote_slide": generate_quote_slide,
         "region_map": generate_region_map,
         "section_divider": generate_section_divider,
-        "stat_slide": generate_stat_slide,
-        "summary_slide": generate_summary_slide,
         "swot_analysis": generate_swot_analysis,
-        "three_column": generate_three_column,
         "timeline": generate_timeline,
         "title_slide": generate_title_slide,
         "two_column": generate_two_column,
@@ -203,18 +187,11 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         }
     if content_type == "agenda":
         agenda_items = agenda_items_from_manifest(manifest, task) or items
-        agenda_components = agenda_components_from_manifest(manifest, task)
+        agenda_components = [
+            {"type": "toc_item", "title": agenda_item_title(item), "body": item}
+            for item in agenda_items[:8]
+        ]
         return {"title": title, "items": agenda_items[:8], "kicker": "目录", "source": source, "components": agenda_components or components}
-    if content_type == "summary_slide":
-        return {
-            "title": title,
-            "key_points": ensure_items(items, summary, 4),
-            "thank_you": plan.get("thank_you", "感谢聆听"),
-            "contact": plan.get("contact", ""),
-            "kicker": plan.get("kicker", "总结"),
-            "source": source,
-            "components": components,
-        }
     if content_type == "quote_slide":
         quote = first_by_type(plan, "quote") or summary
         return {
@@ -249,20 +226,6 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "source": source,
             "components": components,
         }
-    if content_type == "three_column":
-        groups = split_three(items, summary)
-        headers = extract_headers(plan, ["一", "二", "三"])
-        return {
-            "title": title,
-            "columns": [
-                {"header": headers[0], "bullets": groups[0]},
-                {"header": headers[1], "bullets": groups[1]},
-                {"header": headers[2], "bullets": groups[2]},
-            ],
-            "kicker": plan.get("kicker", "三维分析"),
-            "source": source,
-            "components": components,
-        }
     if content_type == "image_text":
         return {
             "title": title,
@@ -272,7 +235,6 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "layout_variant": layout_variant,
             "kicker": plan.get("kicker", "图文解读"),
             "sub_header": plan.get("sub_header", ""),
-            "lede": plan.get("lede", ""),
             "source": source,
             "components": components,
         }
@@ -301,11 +263,11 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         params = comparison_params(title, summary, plan, items, source)
         params["components"] = components
         return params
-    if content_type in {"process_flow", "timeline", "icon_grid", "stat_slide", "case_study"}:
-        params = generic_structured_params(content_type, title, summary, plan, items, cards, source)
+    if content_type == "timeline":
+        params = timeline_params(title, summary, plan, cards, source)
         params["components"] = components
         return params
-    if content_type in {"image_hero", "example_detail", "deep_dive", "swot_analysis", "kanban", "brand_focus", "region_map"}:
+    if content_type in {"image_hero", "swot_analysis", "kanban", "brand_focus", "region_map"}:
         return {
             "title": title,
             "subtitle": summary,
@@ -369,33 +331,6 @@ def agenda_items_from_manifest(manifest: dict[str, Any], current_task: dict[str,
         # index. This keeps the TOC stable when cover, notes, or divider pages
         # are inserted before a section.
         result.append(f"{index:02d}  {title}")
-    return result
-
-
-def agenda_components_from_manifest(manifest: dict[str, Any], current_task: dict[str, Any]) -> list[dict[str, str]]:
-    tasks = sorted(
-        [t for t in manifest.get("tasks", []) if isinstance(t, dict)],
-        key=lambda item: safe_int(item.get("page_index"), 9999),
-    )
-    current_id = str(current_task.get("task_id"))
-
-    def usable(task: dict[str, Any]) -> bool:
-        return (
-            str(task.get("task_id")) != current_id
-            and bool(clean_text(task.get("title")))
-            and normalize_content_type(task.get("content_type", "")) not in {"title_slide", "agenda"}
-        )
-
-    sections = [task for task in tasks if usable(task) and normalize_content_type(task.get("content_type", "")) == "section_divider"]
-    candidates = sections if len(sections) >= 2 else [task for task in tasks if usable(task)]
-    result: list[dict[str, str]] = []
-    for task in candidates[:8]:
-        title = clean_text(task.get("title"))
-        plan = task.get("content_plan") if isinstance(task.get("content_plan"), dict) else {}
-        subtitle = clean_text(plan.get("summary") or plan.get("slide_intent"))
-        if subtitle == title:
-            subtitle = ""
-        result.append({"type": "toc_item", "title": title, "body": subtitle})
     return result
 
 
@@ -549,11 +484,6 @@ def split_items(items: list[str], fallback: str) -> tuple[list[str], list[str]]:
     values = ensure_items(items, fallback, 6)
     mid = max(1, len(values) // 2)
     return values[:mid], values[mid:] or values[:mid]
-
-
-def split_three(items: list[str], fallback: str) -> list[list[str]]:
-    values = ensure_items(items, fallback, 6)
-    return [values[0::3] or values[:1], values[1::3] or values[:1], values[2::3] or values[:1]]
 
 
 def extract_headers(plan: dict[str, Any], fallback: list[str]) -> list[str]:
@@ -737,67 +667,23 @@ def comparison_params(title: str, summary: str, plan: dict[str, Any], items: lis
     }
 
 
-def generic_structured_params(
-    content_type: str,
+def timeline_params(
     title: str,
     summary: str,
     plan: dict[str, Any],
-    items: list[str],
     cards: list[dict[str, str]],
     source: str,
 ) -> dict[str, Any]:
-    if content_type == "process_flow":
-        return {
-            "title": title,
-            "steps": [
-                {"num": f"{i + 1:02d}", "title": c.get("header", ""), "desc": c.get("body", "")}
-                for i, c in enumerate(cards[:6])
-            ],
-            "kicker": plan.get("kicker", "流程"),
-            "subtitle": summary,
-            "source": source,
-        }
-    if content_type == "timeline":
-        return {
-            "title": title,
-            "nodes": [
-                {"year": c.get("header", f"{i + 1:02d}"), "event": c.get("body", ""), "icon": ""}
-                for i, c in enumerate(cards[:6])
-            ],
-            "kicker": plan.get("kicker", "时间线"),
-            "subtitle": summary,
-            "source": source,
-        }
-    if content_type == "icon_grid":
-        return {
-            "title": title,
-            "icons": [{"icon": c.get("header", ""), "label": c.get("body", "") or c.get("header", "")} for c in cards[:6]],
-            "subtitle": summary,
-            "kicker": plan.get("kicker", "能力"),
-            "source": source,
-        }
-    if content_type == "stat_slide":
-        return {
-            "title": title,
-            "stats": [
-                {"number": f"{i + 1}", "unit": "", "label": c.get("header", ""), "trend": c.get("body", "")}
-                for i, c in enumerate(cards[:4])
-            ],
-            "subtitle": summary,
-            "kicker": plan.get("kicker", "数据"),
-            "source": source,
-        }
-    if content_type == "case_study":
-        return {
-            "title": title,
-            "context": summary,
-            "problem": items[0] if items else summary,
-            "solution": "；".join(items[1:4]) if len(items) > 1 else summary,
-            "results": [{"metric": "结果", "value": str(i + 1), "comparison": item} for i, item in enumerate(ensure_items(items, summary, 4))],
-            "kicker": plan.get("kicker", "案例"),
-            "source": source,
-        }
-    return {"title": title, "bullets": ensure_items(items, summary, 5), "source": source}
+    return {
+        "title": title,
+        "nodes": [
+            {"year": c.get("header", f"{i + 1:02d}"), "event": c.get("body", ""), "icon": ""}
+            for i, c in enumerate(cards[:6])
+        ],
+        "kicker": plan.get("kicker", "时间线"),
+        "subtitle": summary,
+        "source": source,
+    }
 
 
 if __name__ == "__main__":

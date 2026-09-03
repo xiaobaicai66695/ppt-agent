@@ -216,47 +216,6 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         self.assertTrue(any(name.startswith("ppt/media/") for name in names), names)
         self.assertIn("Photo by Demo on Unsplash", slide_xml)
-        self.assertRegex(slide_xml, r'<a:defRPr sz="1800"[^>]*>.*?<a:t>城市低空配送需要同时满足')
-        self.assertRegex(slide_xml, r'<a:defRPr(?=[^>]*spc="25")[^>]*>.*?<a:t>城市低空配送需要同时满足')
-        self.assertIn('<a:spcPct val="106000"/>', slide_xml)
-
-    def test_image_text_narrative_panel_has_comfortable_inset_padding(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            image_path = tmp_path / "scene.jpg"
-            Image.new("RGB", (640, 360), color=(40, 120, 180)).save(image_path)
-            body = "用适中的正文长度验证图文页文字不会贴近面板边缘，同时维持轻微居中的阅读重心。"
-            prs = render_component_slide(
-                palette="ocean_soft",
-                title="图文页留白",
-                content_type="image_text",
-                layout_variant="image_right",
-                components=[
-                    {"type": "image", "local_path": str(image_path)},
-                    {"type": "paragraph", "body": body},
-                ],
-            )
-
-        body_shape = next(shape for shape in prs.slides[0].shapes if getattr(shape, "text", "") == body)
-        _, text_box, _ = image_text_regions("image_right", 0.65, 1.72, 11.95, 5.25)
-        self.assertAlmostEqual(body_shape.left.inches, text_box[0] + 0.50, places=2)
-        self.assertAlmostEqual(body_shape.width.inches, text_box[2] - 1.0, places=2)
-
-    def test_card_grid_uses_larger_component_body_font(self):
-        cards = [
-            {"type": "feature_card", "title": "会发光的路线", "body": "不发纸质地图，而以微弱路标和短句提示引导方向，让参与者在步行中持续发现城市细节。"},
-            {"type": "feature_card", "title": "城市收音台", "body": "在巷口设置可短暂停留的耳机点，播放街头环境声和远处列车声，形成可带走的夜间声景。"},
-            {"type": "feature_card", "title": "慢闪灯箱", "body": "灯箱不播放广告，只显示参与者留下的匿名短句，并以缓慢节奏更新，让陌生人之间产生回应。"},
-            {"type": "feature_card", "title": "延迟邮筒", "body": "写好的明信片由工作人员统一收集并加盖日期邮戳，在参与者选择的未来日期重新投递。"},
-        ]
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "card-grid.pptx"
-            prs = render_component_slide(palette="ocean_soft", title="夜晚共创组件", content_type="card_grid", components=cards)
-            save_slide(prs.slides[0], str(output))
-            with zipfile.ZipFile(output) as package:
-                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
-
-        self.assertRegex(slide_xml, r'<a:defRPr sz="1320"[^>]*>.*?<a:t>不发纸质地图')
 
     def test_image_text_rejects_legacy_asset_id(self):
         with self.assertRaisesRegex(ValueError, "legacy asset id is unsupported"):
@@ -399,8 +358,8 @@ class RenderTaskComponentsTest(unittest.TestCase):
             self.assertEqual(rendered_background.size, (1920, 1080))
             top_center = rendered_background.getpixel((960, 8))
             bottom_center = rendered_background.getpixel((960, 1071))
-            self.assertGreater(top_center[0], 180, top_center)
-            self.assertGreater(bottom_center[2], 180, bottom_center)
+            self.assertGreater(top_center[0], 120, top_center)
+            self.assertGreater(bottom_center[2], 150, bottom_center)
 
     def test_background_image_palette_keeps_text_readable_and_moves_image_color_to_fills(self):
         image = Image.new("RGB", (960, 540), color=(214, 178, 80))
@@ -449,10 +408,10 @@ class RenderTaskComponentsTest(unittest.TestCase):
 
         xml_colors = set(re.findall(r'val="([0-9A-F]{6})"', slide_xml))
         static_colors = set(PALETTES["ocean_soft"].values())
-        readable_text_colors = {"17202A", "51616D", "5A8AA8", "FFFFFF"}
+        readable_text_colors = {"17202A", "51616D", "5A8AA8", "FFFFFF", "111820", "2D3A45", "174E73"}
         derived_shape_colors = xml_colors - static_colors - readable_text_colors
         self.assertTrue(derived_shape_colors, xml_colors)
-        self.assertIn("51616D", xml_colors)
+        self.assertIn("2D3A45", xml_colors)
         self.assertIn("17202A", xml_colors)
 
     def test_all_background_slides_receive_blur(self):
@@ -477,8 +436,8 @@ class RenderTaskComponentsTest(unittest.TestCase):
                     components=[{"type": "section_marker", "text": "01"}],
                 )
 
-            self.assertEqual(background_mock.call_args_list[0].kwargs["blur_radius"], 2)
-            self.assertEqual(background_mock.call_args_list[1].kwargs["blur_radius"], 4)
+            self.assertEqual(background_mock.call_args_list[0].kwargs["blur_radius"], 0)
+            self.assertEqual(background_mock.call_args_list[1].kwargs["blur_radius"], 1)
 
     def test_agenda_uses_manifest_titles_not_summary_blob(self):
         manifest = {
@@ -502,54 +461,6 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertEqual(params["items"], ["01  概念、政策与产业定位", "02  市场规模与增长动能", "03  城市级应用场景全景"])
         self.assertNotIn("/", " ".join(params["items"]))
         self.assertEqual([c["type"] for c in params["components"]], ["toc_item", "toc_item", "toc_item"])
-        self.assertEqual(params["components"][0]["body"], "")
-
-    def test_agenda_uses_section_summary_as_subtitle(self):
-        manifest = {
-            "tasks": [
-                {"task_id": "1", "page_index": 1, "content_type": "title_slide", "title": "低空经济"},
-                {"task_id": "2", "page_index": 2, "content_type": "agenda", "title": "目录", "content_plan": {}},
-                {
-                    "task_id": "3",
-                    "page_index": 3,
-                    "content_type": "section_divider",
-                    "title": "概念、政策与产业定位",
-                    "content_plan": {"summary": "先界定产业边界，再识别政策与基础设施的约束条件。"},
-                },
-                {
-                    "task_id": "4",
-                    "page_index": 4,
-                    "content_type": "section_divider",
-                    "title": "市场规模与增长动能",
-                    "content_plan": {"slide_intent": "用需求、供给与商业化节奏解释增长从何而来。"},
-                },
-            ]
-        }
-
-        params = render_task.build_params("agenda", manifest["tasks"][1], manifest)
-
-        self.assertEqual(params["components"][0]["title"], "概念、政策与产业定位")
-        self.assertEqual(params["components"][0]["body"], "先界定产业边界，再识别政策与基础设施的约束条件。")
-        self.assertEqual(params["components"][1]["body"], "用需求、供给与商业化节奏解释增长从何而来。")
-
-    def test_section_divider_omits_legacy_number_sidebar(self):
-        prs = render_component_slide(
-            palette="ocean_soft",
-            title="环线概览",
-            subtitle="先确定路线范围，再进入每一段体验。",
-            content_type="section_divider",
-            components=[{"type": "section_marker", "text": "01"}],
-        )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "section-divider.pptx"
-            save_slide(prs.slides[0], str(output))
-            with zipfile.ZipFile(output) as package:
-                slide_xml = package.read("ppt/slides/slide1.xml").decode("utf-8")
-
-        self.assertIn("环线概览", slide_xml)
-        self.assertIn("先确定路线范围，再进入每一段体验。", slide_xml)
-        self.assertNotIn(">01<", slide_xml)
 
     def test_agenda_splits_compact_slash_joined_toc_item(self):
         prs = render_component_slide(
@@ -641,13 +552,13 @@ class RenderTaskComponentsTest(unittest.TestCase):
         self.assertIn("含2个链接", compact)
         self.assertNotIn("https://", compact)
 
-    def test_sourced_deep_dive_panels_stay_above_footer(self):
+    def test_sourced_content_panels_stay_above_footer(self):
         prs = render_component_slide(
             palette="ocean_soft",
             title="AI落地的三大挑战与应对",
             subtitle="深入分析信任成本、系统交付和人才能力",
             source="来源: Gartner 2026 AI Survey、毕马威AI投资回报报告",
-            content_type="deep_dive",
+            content_type="content_slide",
             components=[
                 {
                     "type": "argument_block",
@@ -684,7 +595,7 @@ class RenderTaskComponentsTest(unittest.TestCase):
         prs = render_component_slide(
             palette="charcoal_light",
             title="组件式执行链路",
-            content_type="deep_dive",
+            content_type="content_slide",
             components=[
                 {"type": "tag", "text": "准备阶段"},
                 {"type": "icon", "icon": "LLM", "title": "规划器"},

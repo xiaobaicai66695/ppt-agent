@@ -2,6 +2,12 @@
 
 本说明只适用于脱离 `ppt-agent` 项目的独立 Agent。`ppt-agent` 项目内的 Agent 必须使用后端已有的图片搜索与下载链路，不能读取本 skill 的 `auth.txt`，也不能调用本 CLI。
 
+## 图片工具优先级
+
+当 DeckSpec 使用默认的 `visual_policy.mode="required"` 时，这个 CLI 是独立 Agent 的**默认图片搜索与下载入口**：先规划每页 `visual_intent`，再用 `unsplash fetch` 物化图片。不要因为宿主提供了 `imagegen`、绘图或截图工具就跳过搜索并自行生成背景图。
+
+图像生成仅在用户明确要求 AI 生成插画、概念图或艺术图时使用，且该图不能替代每页 required 背景。CLI 未注册、认证失败、网络失败或没有结果时，保留失败原因并修复后重试；禁止以生成图、虚构本地路径或伪造 Unsplash 来源作为回退。仅当另一个宿主工具实际搜索并下载 Unsplash 图片，且能回填同等的路径、来源和署名时，才可替代本 CLI。
+
 ## 获取 Access Key
 
 1. 打开 Unsplash Developers 控制台并登录账号。
@@ -33,7 +39,7 @@ accessToken（输入后不会回显）:
 
 ## 下载已规划的图片
 
-先查看顶层 `visual_policy`：`mode="required"` 时，所有非 `clean_text_only` 页面都必须拥有可下载背景或前景视觉计划；`mode="none"` 才可完全跳过认证和下载。`fetch` 同时扫描 `content_plan.visual_intent` 和 `components[].type="image"`，不会只下载背景。
+先查看顶层 `visual_policy`：默认必须为 `mode="required"`，每一页都必须拥有可下载的背景 `visual_intent`；`mode="none"` 只有在 `user_declined_background:true` 和 `decline_reason` 记录了用户明确拒绝背景图片时才可完全跳过认证和下载。`fetch` 会先下载所有背景，也会扫描 `components[].type="image"` 前景图。
 
 需要图片时，先在 `visual_intent` 或 `image` 组件中填写 `asset_purpose`、`asset_query`、`asset_subject`、`composition` 与 `orientation`，再运行：
 

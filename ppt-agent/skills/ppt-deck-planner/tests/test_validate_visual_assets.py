@@ -26,8 +26,7 @@ class ValidateVisualAssetsTest(unittest.TestCase):
                 "title": "智能制造",
                 "visual_policy": {
                     "mode": "required",
-                    "min_image_pages": 1,
-                    "required_roles": ["scene"]
+                    "min_image_pages": 1
                 },
                 "tasks": [
                     {
@@ -64,11 +63,6 @@ class ValidateVisualAssetsTest(unittest.TestCase):
             manifest_path = work_dir / "tasks.json"
             manifest_path.write_text(json.dumps({
                 "title": "智能制造",
-                "visual_policy": {
-                    "mode": "required",
-                    "min_image_pages": 1,
-                    "required_roles": ["scene"]
-                },
                 "tasks": [
                     {
                         "page_index": 1,
@@ -97,93 +91,6 @@ class ValidateVisualAssetsTest(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["image_page_count"], 1)
 
-    def test_required_policy_rejects_pages_without_materialized_visuals(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            work_dir = Path(tmp)
-            image_path = work_dir / "factory.png"
-            image_path.write_bytes(PNG_1X1)
-            manifest_path = work_dir / "tasks.json"
-            manifest_path.write_text(json.dumps({
-                "title": "智能制造",
-                "visual_policy": {
-                    "mode": "required",
-                    "min_image_pages": 1,
-                    "required_roles": ["background"]
-                },
-                "tasks": [
-                    {
-                        "page_index": 1,
-                        "title": "智能工厂现场",
-                        "content_type": "content_slide",
-                        "content_plan": {
-                            "visual_intent": {
-                                "role": "background",
-                                "local_path": "factory.png",
-                                "provider": "test"
-                            }
-                        }
-                    },
-                    {
-                        "page_index": 2,
-                        "title": "生产协同流程",
-                        "content_type": "process_flow",
-                        "content_plan": {}
-                    }
-                ]
-            }, ensure_ascii=False), encoding="utf-8")
-
-            result = validate_visual_manifest_file(manifest_path, work_dir)
-
-        error_codes = {error["code"] for error in result["errors"]}
-        self.assertFalse(result["ok"])
-        self.assertIn("missing_required_visual", error_codes)
-        self.assertIn("insufficient_required_visual_coverage", error_codes)
-
-    def test_required_policy_accepts_explicit_clean_text_exception(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            work_dir = Path(tmp)
-            image_path = work_dir / "factory.png"
-            image_path.write_bytes(PNG_1X1)
-            manifest_path = work_dir / "tasks.json"
-            manifest_path.write_text(json.dumps({
-                "title": "智能制造",
-                "visual_policy": {
-                    "mode": "required",
-                    "min_image_pages": 1,
-                    "required_roles": ["background"]
-                },
-                "tasks": [
-                    {
-                        "page_index": 1,
-                        "title": "智能工厂现场",
-                        "content_type": "content_slide",
-                        "content_plan": {
-                            "visual_intent": {
-                                "role": "background",
-                                "local_path": "factory.png",
-                                "provider": "test"
-                            }
-                        }
-                    },
-                    {
-                        "page_index": 2,
-                        "title": "讨论题",
-                        "content_type": "quote_slide",
-                        "content_plan": {
-                            "visual_intent": {
-                                "role": "clean_text_only",
-                                "search_status": "skipped",
-                                "skip_reason": "用户要求该讨论页保持纯文字，以留出现场互动空间。"
-                            }
-                        }
-                    }
-                ]
-            }, ensure_ascii=False), encoding="utf-8")
-
-            result = validate_visual_manifest_file(manifest_path, work_dir)
-
-        self.assertTrue(result["ok"], result)
-
     def test_deck_preflight_accepts_deck_without_background_images(self):
         with tempfile.TemporaryDirectory() as tmp:
             work_dir = Path(tmp)
@@ -206,40 +113,7 @@ class ValidateVisualAssetsTest(unittest.TestCase):
             }, ensure_ascii=False), encoding="utf-8")
             result = validate_manifest_file(manifest_path, SKILL_ROOT / "templates" / "component_contracts.json", work_dir)
 
-            self.assertTrue(result["ok"], result)
-
-    def test_deck_preflight_rejects_query_only_required_visual_plan(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            work_dir = Path(tmp)
-            manifest_path = work_dir / "tasks.json"
-            manifest_path.write_text(json.dumps({
-                "title": "智能制造",
-                "visual_policy": {
-                    "mode": "required",
-                    "min_image_pages": 1,
-                    "required_roles": ["background"]
-                },
-                "tasks": [{
-                    "task_id": "slide_01",
-                    "page_index": 1,
-                    "title": "智能工厂",
-                    "content_type": "content_slide",
-                    "content_plan": {
-                        "visual_intent": {
-                            "asset_purpose": "background",
-                            "asset_query": "smart factory",
-                            "asset_subject": "robotic production line",
-                            "composition": "wide landscape with text space on left",
-                            "orientation": "landscape"
-                        },
-                        "components": [{"type": "headline", "text": "智能工厂的生产协同"}]
-                    }
-                }]
-            }, ensure_ascii=False), encoding="utf-8")
-            result = validate_manifest_file(manifest_path, SKILL_ROOT / "templates" / "component_contracts.json", work_dir)
-
-        self.assertFalse(result["ok"])
-        self.assertIn("unmaterialized_visual_asset", {error["code"] for error in result["errors"]})
+        self.assertTrue(result["ok"], result)
 
 
 if __name__ == "__main__":

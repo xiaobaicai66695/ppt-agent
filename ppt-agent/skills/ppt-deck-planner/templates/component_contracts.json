@@ -36,51 +36,14 @@
       "list_item_target_chars": [35, 90],
       "flow_body_target_chars": [45, 85],
       "case_snapshot_min_chars": 100,
-      "quality_gate_safety_margin": {
-        "information_page_total_min_chars": 220,
-        "image_text_narrative_min_chars": 240,
-        "argument_block_min_chars": 440,
-        "list_or_bullet_item_min_chars": 18
-      },
       "kpi_requirement": "Every kpi_metric should include value/label plus delta or baseline, and a short body explaining why the metric matters.",
       "source_requirement": "When a page uses facts, data, quotes or charts, add a source_note or component source field whenever a concrete source is available."
     },
-    "page_content_density": {
-      "principle": "Use the content_type capacity together with component_text_density. Count only presentation-visible body/text/items, not titles, source_note, image metadata or decorative primitives. Split the slide or choose another content_type instead of exceeding a component or character budget.",
-      "information_page_types": ["content_slide", "card_grid", "two_column", "three_column", "case_study", "example_detail", "deep_dive", "summary_slide", "comparison_table", "swot_analysis"],
-    "information_page_min_total_chars": 220,
-      "image_text": {
-        "narrative_component_types": ["paragraph", "argument_block", "text_block", "list", "numbered_list", "bullet_list", "evidence_list"],
-      "min_narrative_chars": 240,
-        "required_topics": ["scenario", "fact_or_evidence", "impact", "conclusion"]
-      },
-      "two_column": {
-        "min_complete_cards": 4,
-        "min_card_body_chars": 70,
-        "min_total_chars": 300,
-        "required_pairing": "Use two complete contrast groups, such as two risks plus two corresponding mitigations. Risk cards state trigger, impact and verification signal; mitigation cards state action, responsibility boundary and expected effect."
-      },
-      "argument_block": {
-        "only_for_full_narrative": true,
-      "minimum_chars_for_first_draft": 440,
-        "target_chars": [440, 840]
-      },
-      "list_or_bullet": {
-      "minimum_chars_for_first_draft": 18,
-        "target_chars": [35, 90]
-      },
-      "agenda": {
-        "require_title_and_body": true,
-        "toc_item_body_target_chars": [18, 44],
-        "body_must_not_repeat_title": true,
-        "body_purpose": "Explain the chapter question, evidence lens or audience takeaway."
-      }
-    },
     "first_draft_quality_gate": {
       "explicit_image_paths_required": true,
-      "image_rule": "New decks must declare visual_policy. When visual_policy.mode is required, every non-exempt page must provide a materialized background visual_intent or foreground image component; min_image_pages must not be lower than the non-exempt page count. A text-only exemption requires visual_intent.role=clean_text_only, search_status=skipped and a non-empty skip_reason. A deterministic asset resolver must materialize every planned image to a readable local file before validation/rendering. Query-only plans are not generator input.",
+      "image_rule": "Images are optional. Any planned image that should render must point to a readable local file before validation/rendering. Query-only plans are metadata for the calling Agent or host workflow, not generator input.",
       "narrative_anchor_types": ["headline", "deck_title", "argument_block", "insight", "recommendation", "key_point", "quote_block"],
-      "capacity_rule": "Before writing a page, use planning_rules.component_text_density, planning_rules.page_content_density and the selected content_type.capacity as the only numeric source of truth. Do not compensate for missing detail by exceeding the layout capacity.",
+      "section_marker_required_field": "text",
       "revision_rule": "When validation fails, revise only the failing pages or fields unless the deck structure itself is wrong. Do not rely on render-time fallbacks to repair invalid content."
     },
     "layout_variant_rule": "Only use layout_variant values listed in this file. An empty variants array means the generator uses adaptive component layout and Planner should leave layout_variant empty. image_text may omit layout_variant only when accepting the renderer's page-order rotation."
@@ -111,7 +74,7 @@
     "opportunity_item": "机会项，适合趋势、增长点或正向空间。",
     "case_snapshot": "案例摘要，包含命名实体、背景、动作和结果。",
     "decision_item": "决策项，适合会议纪要、项目评审和路线选择。",
-    "toc_item": "目录项，适合 agenda 页按章节展示。title 写章节名称，body 写 18-44 字的阅读引导副标题，说明该章回答的问题、观察角度或听众可获得的结论；body 不得重复 title。",
+    "toc_item": "目录项，适合 agenda 页按章节展示。",
     "kpi_metric": "KPI 指标，data 中写 value、label、delta、baseline。",
     "stat": "关键数字，强调一个数字和说明。",
     "number_callout": "大数字强调，适合少量指标或结论页。",
@@ -146,7 +109,7 @@
     "purpose_values": ["background", "scene", "evidence", "decorative"],
     "query_rule": "When an independent Agent needs Unsplash images, asset_query should describe a concrete visible subject, action and environment. Generators do not execute searches or resolve query-only plans.",
     "local_path_rule": "Before validation/rendering, every image that should appear in the deck must be written as a real local_path/image_path/asset_path value that exists on disk.",
-    "query_contract": "For a required visual plan, asset_query, asset_subject, composition and orientation are mandatory for both page visual_intent and image components. asset_query records the provider-ready visual query; asset_subject records the visual proxy; composition records semantic framing constraints.",
+    "query_contract": "asset_query is optional planning metadata; asset_subject records the visual proxy; composition records semantic framing constraints. Any materialized background resolved through an image provider must retain its provider and search_status=resolved/downloaded.",
     "hydration_command": "unsplash fetch --work-dir <work-dir> (run npm link once in the skill root first)",
     "provider": "unsplash (external Agent CLI only)",
     "missing_key_behavior": "The external CLI directs the user to run unsplash auth. Project agents use the backend provider instead.",
@@ -163,15 +126,14 @@
       "best_for": ["目录", "章节预告", "汇报路线"],
       "recommended_components": ["insight", "key_point", "toc_item"],
       "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 6},
-      "variants": [],
-      "component_rule": "Use 3-6 toc_item components. Each toc_item needs a concise chapter title plus a non-repetitive body subtitle (18-44 Chinese characters) that frames the chapter's question, evidence or audience takeaway."
+      "variants": []
     },
     "section_divider": {
       "best_for": ["章节转换", "大段落切换"],
-      "recommended_components": ["headline", "subheadline"],
+      "recommended_components": ["section_marker", "headline", "subheadline"],
       "capacity": {"target_components_min": 1, "target_components_max": 2, "max_components": 3},
-      "variants": ["background_title", "number_sidebar"],
-      "deck_rule": "新规划固定使用 background_title：整页背景图上只呈现主标题与副标题。number_sidebar 仅作为旧任务输入别名被接受，渲染时同样不再显示侧栏；section_marker 可保留为排序元数据，但不作为可见的编号。"
+      "variants": ["number_sidebar"],
+      "deck_rule": "同一套 PPT 固定一种 section_divider variant，当前实现仅支持 number_sidebar。"
     },
     "content_slide": {
       "best_for": ["解释观点", "普通要点", "概念说明"],
@@ -191,18 +153,6 @@
       "capacity": {"target_components_min": 4, "target_components_max": 6, "max_components": 8},
       "variants": []
     },
-    "three_column": {
-      "best_for": ["三个并列维度", "三阶段框架", "三方案概览"],
-      "recommended_components": ["feature_card", "fact_card", "key_point", "insight"],
-      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 9},
-      "variants": []
-    },
-    "icon_grid": {
-      "best_for": ["能力支柱", "功能入口", "特征概览"],
-      "recommended_components": ["feature_card", "key_point", "fact_card", "icon", "tag"],
-      "capacity": {"target_components_min": 4, "target_components_max": 6, "max_components": 9},
-      "variants": []
-    },
     "two_column": {
       "best_for": ["左右对比", "并列分析", "问题-方案"],
       "recommended_components": ["fact_card", "key_point", "risk_item", "opportunity_item", "comparison_matrix", "divider", "tag"],
@@ -213,18 +163,6 @@
       "best_for": ["历史沿革", "项目节点", "行程路线"],
       "recommended_components": ["timeline_node", "milestone", "callout"],
       "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
-      "variants": []
-    },
-    "process_flow": {
-      "best_for": ["步骤流程", "方法路径", "执行链路"],
-      "recommended_components": ["process_step", "decision_item", "callout", "arrow", "icon", "tag"],
-      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
-      "variants": []
-    },
-    "stat_slide": {
-      "best_for": ["关键数字", "成果概览", "规模说明"],
-      "recommended_components": ["stat", "number_callout", "insight", "source_note"],
-      "capacity": {"target_components_min": 2, "target_components_max": 4, "max_components": 4},
       "variants": []
     },
     "kpi_dashboard": {
@@ -257,24 +195,6 @@
       "capacity": {"target_components_min": 1, "target_components_max": 3, "max_components": 4},
       "variants": []
     },
-    "example_detail": {
-      "best_for": ["命名案例", "实例拆解", "单点深度说明"],
-      "recommended_components": ["case_snapshot", "argument_block", "paragraph", "list", "kpi_metric", "insight", "source_note"],
-      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 8},
-      "variants": []
-    },
-    "case_study": {
-      "best_for": ["案例研究", "问题到结果", "客户成功故事"],
-      "recommended_components": ["case_snapshot", "argument_block", "numbered_list", "risk_item", "recommendation", "kpi_metric", "source_note"],
-      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 8},
-      "variants": []
-    },
-    "deep_dive": {
-      "best_for": ["原理详解", "机制分析", "架构与证据并列"],
-      "recommended_components": ["argument_block", "paragraph", "list", "numbered_list", "evidence_list", "diagram", "architecture_box", "arrow", "divider", "tag", "fact_card", "insight", "source_note"],
-      "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 9},
-      "variants": []
-    },
     "swot_analysis": {
       "best_for": ["战略分析", "内外部因素", "机会风险判断"],
       "recommended_components": ["fact_card", "risk_item", "opportunity_item", "recommendation"],
@@ -297,12 +217,6 @@
       "best_for": ["区域布局", "城市介绍", "市场版图", "路线空间关系"],
       "recommended_components": ["map", "fact_card", "kpi_metric", "callout", "source_note"],
       "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 8},
-      "variants": []
-    },
-    "summary_slide": {
-      "best_for": ["结论收束", "行动建议", "核心回顾"],
-      "recommended_components": ["argument_block", "key_point", "recommendation", "list", "quote_block", "source_note"],
-      "capacity": {"target_components_min": 3, "target_components_max": 5, "max_components": 6},
       "variants": []
     }
   }

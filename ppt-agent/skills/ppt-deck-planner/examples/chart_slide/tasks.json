@@ -1,7 +1,7 @@
 {
   "title": "图表页示例",
   "audience": "需要验证结构化图表数据的通用 Agent",
-  "visual_policy": {"mode": "none", "reason": "图表示例只验证结构化数据渲染"},
+  "visual_policy": {"mode": "none", "user_declined_background": true, "decline_reason": "此图表示例模拟用户明确要求只验证结构化数据渲染。"},
   "tasks": [
     {
       "task_id": "slide_01",

@@ -240,6 +240,7 @@ def set_image_background(
     palette: str = "ocean_soft",
     blur_radius: float = 0,
     fit_mode: Literal["contain", "cover"] = "cover",
+    veil_strength: float = 0.06,
 ):
     """
     为幻灯片设置图片背景。
@@ -250,6 +251,8 @@ def set_image_background(
         brightness: 亮度调整 (0.0-1.0)，值越小背景越暗。推荐值 0.9-1.0
         blur_radius: 高斯模糊半径。标题页和章节分割页使用轻度模糊，
             避免复杂背景或透视结构压低文字可读性。
+        veil_strength: 烘焙到背景图中的轻微白色柔化比例。保持较低值，
+            让背景照片仍然可辨；正文阅读依靠局部磨砂卡片而非全页色罩。
         fit_mode: 背景适配方式。默认 cover，等比铺满画布并允许边缘适度裁剪；
             contain 完整保留原图，并用同图的模糊扩展层填满比例不一致的留白。
 
@@ -288,18 +291,14 @@ def set_image_background(
     if blur_radius > 0:
         img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
-    # Bake the readability veil into the raster instead of relying on a
-    # slide-sized semi-transparent shape. LibreOffice and some browser preview
-    # converters render DrawingML alpha inconsistently, which can turn that
-    # overlay nearly opaque and make a valid background appear missing.
-    preview = img.resize((64, 64), Image.Resampling.BILINEAR)
-    mean_r, mean_g, mean_b = ImageStat.Stat(preview).mean[:3]
-    mean_luma = 0.2126 * mean_r + 0.7152 * mean_g + 0.0722 * mean_b
-    target_luma = 202.0
-    veil_strength = (target_luma - mean_luma) / max(1.0, 255.0 - mean_luma)
-    veil_strength = min(0.58, max(0.20, veil_strength))
-    veil = Image.new("RGB", img.size, (255, 255, 255))
-    img = Image.blend(img, veil, veil_strength)
+    # Keep the global treatment deliberately light.  A former adaptive veil
+    # regularly became a 20%-58% white screen, washing out the source photo.
+    # Content uses a cropped, strongly blurred local panel below instead.
+    veil_strength = min(0.14, max(0.0, float(veil_strength)))
+    if veil_strength:
+        img = Image.blend(img, Image.new("RGB", img.size, (255, 255, 255)), veil_strength)
+    slide._ppt_deck_background_path = os.path.abspath(image_path)
+    slide._ppt_deck_background_image = img.copy()
 
     # 临时保存处理后的图片
     import tempfile
@@ -383,6 +382,16 @@ def background_image_palette(image: Image.Image, palette: str = "ocean_soft") ->
     secondary = ranked[1][1] if len(ranked) > 1 else dominant
     mean_r, mean_g, mean_b = ImageStat.Stat(sample).mean[:3]
     average = (int(mean_r), int(mean_g), int(mean_b))
+    header_h = max(1, sample.height // 3)
+    header = sample.crop((0, 0, sample.width, header_h))
+    header_r, header_g, header_b = ImageStat.Stat(header).mean[:3]
+    header_luma = 0.2126 * header_r + 0.7152 * header_g + 0.0722 * header_b
+    # Use a strong opposing text value for the bare header strip.  This is
+    # intentionally independent from card text, whose contrast is determined
+    # after the local frosted panel has been composed.
+    header_text = "FFFFFF" if header_luma < 148 else "111820"
+    header_secondary = "E6EEF6" if header_luma < 148 else "2D3A45"
+    header_accent = "C8E8FF" if header_luma < 148 else "174E73"
 
     primary_fill = _muted_token(dominant, light_mix=0.48, saturation=0.36, min_luma=92, max_luma=150)
     secondary_fill = _muted_token(secondary, light_mix=0.58, saturation=0.28, min_luma=116, max_luma=170)
@@ -406,6 +415,9 @@ def background_image_palette(image: Image.Image, palette: str = "ocean_soft") ->
         "primary_fill": _hex(primary_fill),
         "secondary_fill": _hex(secondary_fill),
         "accent_fill": _hex(_mix(accent, (255, 255, 255), 0.22)),
+        "header_text": header_text,
+        "header_secondary": header_secondary,
+        "header_accent": header_accent,
     })
     return colors
 
@@ -872,8 +884,8 @@ def add_text(
     max_font_size: float = None,
     vertical_alignment: Literal["top", "middle", "bottom", "center", "auto"] = "auto",
     line_spacing: float = 1.0,
-    char_spacing: float | None = None,
     margin: float = 0.03,
+    char_spacing: float | None = None,
 ) -> "pptx.shapes.shapetree.Shape":
     """Add a text box to the slide with consistent styling."""
     txbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
@@ -901,9 +913,12 @@ def add_text(
     p.font.italic = italic
     p.line_spacing = line_spacing
     if char_spacing is not None:
-        # DrawingML stores tracking in hundredths of a point on defRPr.
-        # Keep it opt-in so body-copy refinements do not alter global text.
-        p.font._element.set("spc", str(int(round(char_spacing * 100))))
+        p_pr = p._p.get_or_add_pPr()
+        existing = p_pr.find(qn("a:spc"))
+        if existing is not None:
+            p_pr.remove(existing)
+        spacing = etree.SubElement(p_pr, qn("a:spc"))
+        spacing.set("val", str(round(float(char_spacing) * 1000)))
 
     if colors is not None:
         p.font.color.rgb = rgb(colors.get(color, color))
@@ -1129,7 +1144,25 @@ def add_glass_panel(
     line_color: str = "divider",
     line_width: float = 0.5,
 ) -> "pptx.shapes.shapetree.Shape":
-    """Add a semi-transparent content panel over image backgrounds."""
+    """Add a restrained frosted panel when the slide has a photo background."""
+    if getattr(slide, "_ppt_deck_background_image", None) is not None:
+        add_blurred_background_panel(slide, left, top, width, height)
+        # The blurred crop carries the frosted effect.  Keep only a whisper of
+        # neutral white above it; using palette fill here creates the coloured
+        # blocks that this renderer is explicitly avoiding.
+        return add_round_rect(
+            slide,
+            left=left,
+            top=top,
+            width=width,
+            height=height,
+        # The raster crop provides the blur.  This top layer is deliberately
+        # close to transparent so large panels do not turn into grey blocks.
+        fill_color=(255, 255, 255, min(34, max(10, round(alpha * 0.12)))),
+            palette=palette,
+            line_color=None,
+            line_width=0,
+        )
     colors = PALETTES.get(palette, PALETTES["ocean_soft"])
     base = colors.get(fill_color, fill_color)
     color = rgb(base)
@@ -1144,6 +1177,66 @@ def add_glass_panel(
         line_color=line_color,
         line_width=line_width,
     )
+
+
+def _panel_crop(slide, left: float, top: float, width: float, height: float) -> Image.Image | None:
+    """Return the corresponding area of the prepared background bitmap."""
+    image = getattr(slide, "_ppt_deck_background_image", None)
+    if not isinstance(image, Image.Image):
+        return None
+    presentation = slide.part.package.presentation_part.presentation
+    slide_w = float(presentation.slide_width) / float(Inches(1))
+    slide_h = float(presentation.slide_height) / float(Inches(1))
+    x0 = max(0, min(image.width - 1, round(left / slide_w * image.width)))
+    y0 = max(0, min(image.height - 1, round(top / slide_h * image.height)))
+    x1 = max(x0 + 1, min(image.width, round((left + width) / slide_w * image.width)))
+    y1 = max(y0 + 1, min(image.height, round((top + height) / slide_h * image.height)))
+    return image.crop((x0, y0, x1, y1))
+
+
+def add_blurred_background_panel(slide, left: float, top: float, width: float, height: float):
+    """Place a large-radius blurred crop of the actual photo behind a panel."""
+    crop = _panel_crop(slide, left, top, width, height)
+    if crop is None:
+        return None
+    target_w = max(480, round(width * 180))
+    target_h = max(260, round(height * 180))
+    crop = ImageOps.fit(crop, (target_w, target_h), method=Image.Resampling.LANCZOS)
+    crop = crop.filter(ImageFilter.GaussianBlur(radius=58))
+    crop = Image.blend(crop, Image.new("RGB", crop.size, (255, 255, 255)), 0.035)
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        panel_path = tmp.name
+    try:
+        crop.save(panel_path, format="PNG")
+        picture = slide.shapes.add_picture(panel_path, Inches(left), Inches(top), Inches(width), Inches(height))
+        picture.name = "Frosted background panel"
+        return picture
+    finally:
+        if os.path.exists(panel_path):
+            os.remove(panel_path)
+
+
+def frosted_panel_text_tokens(
+    slide,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    palette: str = "ocean_soft",
+    fill_color: str = "light_bg",
+    alpha: int = 72,
+) -> tuple[str, str]:
+    """Choose card text from the luminance of its final local background."""
+    _ = (palette, fill_color, alpha)
+    crop = _panel_crop(slide, left, top, width, height)
+    if crop is None:
+        return ("17202A", "51616D")
+    mean_r, mean_g, mean_b = ImageStat.Stat(crop.resize((32, 32))).mean[:3]
+    luma = 0.2126 * mean_r + 0.7152 * mean_g + 0.0722 * mean_b
+    # Strong local blur plus only a 3.5% neutral lift keeps the photo visible.
+    # The threshold stays conservative so text remains readable on dark crops.
+    return ("17202A", "3F4D58") if luma >= 132 else ("FFFFFF", "F0F5F8")
 
 
 def add_ellipse(

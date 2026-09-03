@@ -13,6 +13,7 @@ PATH_FIELDS = ("local_path", "image_path", "asset_path", "path")
 QUERY_FIELDS = ("asset_query", "asset_subject", "image_url", "preview_url")
 IMAGE_REQUIRED_CONTENT_TYPES = {"image_text", "image_hero"}
 VALID_MODES = {"required", "optional", "none"}
+SEARCHED_STATUSES = {"resolved", "downloaded"}
 
 
 def main() -> int:
@@ -45,8 +46,6 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
     mode = "optional"
     if isinstance(policy, dict):
         mode = clean(policy.get("mode")) or "optional"
-    else:
-        add_warning(warnings, "manifest.visual_policy", "missing_visual_policy", "legacy manifest has no visual policy; new deck plans must declare required or none")
     if mode not in VALID_MODES:
         add_error(errors, "manifest.visual_policy.mode", "invalid_visual_policy", f"visual_policy.mode must be one of {sorted(VALID_MODES)}")
         mode = "optional"
@@ -54,6 +53,13 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
         roles = policy.get("required_roles")
         if not isinstance(roles, list) or not any(clean(role) for role in roles):
             add_error(errors, "manifest.visual_policy.required_roles", "missing_required_roles", "required visual_policy requires at least one required role")
+        elif "background" not in {clean(role) for role in roles}:
+            add_error(errors, "manifest.visual_policy.required_roles", "background_role_required", "required visual_policy must include background because every page needs a searched background image")
+    if mode == "none":
+        if not isinstance(policy, dict) or policy.get("user_declined_background") is not True:
+            add_error(errors, "manifest.visual_policy.user_declined_background", "missing_user_background_decline", "mode=none is allowed only when the user explicitly declines background images")
+        if not isinstance(policy, dict) or not clean(policy.get("decline_reason")):
+            add_error(errors, "manifest.visual_policy.decline_reason", "missing_background_decline_reason", "mode=none requires the user's explicit no-background instruction")
 
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list) or not tasks:
@@ -69,6 +75,7 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
         task_path = f"tasks[{index}]"
         content_type = clean(task.get("content_type")) or "content_slide"
         task_has_materialized_image = False
+        task_has_materialized_background = False
         for item_path, item in collect_visual_items(task, task_path):
             status = clean(item.get("search_status"))
             path_value = first_path_value(item)
@@ -79,6 +86,10 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
             if path_value:
                 validate_local_path(path_value, item_path, work_dir, errors)
                 task_has_materialized_image = True
+                if is_background_visual(item):
+                    task_has_materialized_background = True
+                    if status not in SEARCHED_STATUSES or not clean(item.get("provider")):
+                        add_error(errors, item_path, "background_search_not_recorded", "required backgrounds must be obtained through an image-search tool and record provider plus search_status=resolved/downloaded")
                 if not has_attribution(item):
                     add_warning(warnings, item_path, "missing_attribution", "materialized image should include source_url, attribution or provider")
                 continue
@@ -91,16 +102,15 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
                 add_error(errors, item_path, "unmaterialized_visual_asset", "planned visual asset must be materialized to a local path or marked skipped before rendering")
         if task_has_materialized_image:
             image_page_count += 1
-        clean_text_exception = is_explicit_clean_text_exception(task)
-        if mode == "required" and not clean_text_exception:
+        if mode == "required":
             required_visual_page_count += 1
-            if not task_has_materialized_image:
+            if not task_has_materialized_background:
                 add_error(
                     errors,
                     task_path,
                     "missing_required_visual",
-                    "required visual_policy needs a materialized local image on every non-exempt page; "
-                    "use visual_intent.role=clean_text_only with search_status=skipped and skip_reason only for an explicit text-only exception",
+                    "required visual_policy needs a searched and materialized background image on every page; "
+                    "only a deck with visual_policy.mode=none and an explicit user background decline may omit it",
                 )
         if content_type in IMAGE_REQUIRED_CONTENT_TYPES and not task_has_materialized_image:
             add_error(errors, task_path, "missing_required_slide_image", f"{content_type} requires a materialized local image")
@@ -119,8 +129,6 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
         )
     elif isinstance(required_min, int) and image_page_count < required_min:
         add_error(errors, "manifest.visual_policy.min_image_pages", "too_few_image_pages", f"visual_policy requires at least {required_min} image pages, got {image_page_count}")
-    elif mode == "optional" and image_page_count == 0 and planned_but_unmaterialized == 0:
-        add_warning(warnings, "manifest.visual_policy", "no_optional_images", "optional visual_policy has no materialized or planned image pages")
     return result(errors, warnings, image_page_count=image_page_count)
 
 
@@ -136,14 +144,8 @@ def collect_visual_items(task: dict[str, Any], task_path: str) -> list[tuple[str
     return items
 
 
-def is_explicit_clean_text_exception(task: dict[str, Any]) -> bool:
-    plan = task.get("content_plan") if isinstance(task.get("content_plan"), dict) else {}
-    visual_intent = plan.get("visual_intent") if isinstance(plan.get("visual_intent"), dict) else {}
-    return (
-        clean(visual_intent.get("role")) == "clean_text_only"
-        and clean(visual_intent.get("search_status")) == "skipped"
-        and bool(clean(visual_intent.get("skip_reason")))
-    )
+def is_background_visual(item: dict[str, Any]) -> bool:
+    return clean(item.get("role")) == "background" or clean(item.get("asset_purpose")) == "background"
 
 
 def is_visual_component(component: dict[str, Any]) -> bool:

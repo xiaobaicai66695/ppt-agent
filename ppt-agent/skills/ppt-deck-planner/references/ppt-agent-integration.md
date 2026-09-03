@@ -22,7 +22,7 @@ Planner 应尽力填写完整 DeckSpec 内容字段，但不写 `task_id`、`out
 ## Planner
 
 - 通过 manifest tool 初始化或 patch DeckSpec 草稿，不直接编辑 JSON 文件。
-- 一次性规划整套 PPT 的页序、`content_type`、`layout_variant`、`content_plan.components`、顶层 `visual_policy` 和视觉意图。Planner 不下载图片，也不填写尚未解析的本地路径、来源链接或署名。
+- 一次性规划整套 PPT 的页序、`content_type`、`layout_variant`、`content_plan.components`、视觉意图和来源信息。
 - 如果确定性预检未通过，Planner 不反复全量重写；后续由 TaskPlanReviewer 根据失败页/章节切片修正。
 
 ## TaskPlanReviewer
@@ -36,9 +36,9 @@ Planner 应尽力填写完整 DeckSpec 内容字段，但不写 `task_id`、`out
 
 通用 skill 不规定图片保存目录；在 `ppt-agent` 后端中，图片下载、去重、路径写回和背景收敛由后端适配层负责。
 
-- 通用 skill 默认要求 `visual_policy.mode="required"`；只有用户明确请求纯文字时才使用 `mode="none"`。后端在 Reviewer 后由既有素材链路搜索、下载、去重并写回 `visual_intent` 与 `image` 组件的 `local_path`、来源和署名。
+- 图片是可选增强：有 `visual_intent` 或图文组件需求时，由后端既有素材链路搜索、下载并写回 `local_path`、`provider` 和 `search_status`；没有图片的页面直接使用无图布局。
 - `scripts/hydrate_unsplash_assets.ts` 仅供 `ppt-agent` 项目外的通用 Agent 使用，项目内 Agent 不读取其 `auth.txt`，也不调用该脚本。
-- 背景按 `content_type` 收敛，减少同类页面视觉节奏漂移；required 策略下缺少背景或前景素材会阻断渲染。
+- 背景可以按 `content_type` 收敛，减少同类页面视觉节奏漂移；缺少可选背景图不阻断渲染，但图片必填组件仍须有有效本地图片路径。
 
 ## Benchmark 含义
 
