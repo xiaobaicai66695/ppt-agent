@@ -1,178 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { ArrowRight, Clock3, LayoutPanelTop, LoaderCircle, Sparkles, WandSparkles } from 'lucide-vue-next';
-import AppShell from '../components/AppShell.vue';
-import { isLoggedIn, routeMessage, startTask } from '../api';
-import { authState } from '../stores/auth';
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ArrowUpRight, Check, FileStack, Sparkles } from 'lucide-vue-next'
+import DeckStack from '../components/DeckStack.vue'
+import { isLoggedIn } from '../api'
 
-type CreationMode = 'planned' | 'custom';
-
-const router = useRouter();
-const auth = authState;
-const brief = ref('');
-const mode = ref<CreationMode>('planned');
-const creating = ref(false);
-const createError = ref('');
-const intentNotice = ref('');
-const activeMode = ref<'chat' | 'pptagent'>('chat');
-
-const canStart = computed(() => brief.value.trim().length > 0 && !creating.value);
-const selectedLabel = computed(() => mode.value === 'planned' ? '智能规划' : '自定义编排');
-
-onMounted(async () => {
-  if (isLoggedIn() && !auth.user) await auth.init();
-});
-
-async function startCreation() {
-  const query = brief.value.trim();
-  if (!query || creating.value) return;
-  createError.value = '';
-  intentNotice.value = '';
-
-  if (mode.value === 'custom') {
-    await router.push({ path: '/compose', query: { brief: query, mode: 'custom' } });
-    return;
-  }
-
-  creating.value = true;
-  try {
-    const routed = await routeMessage(query, '', activeMode.value);
-    activeMode.value = routed.mode;
-    if (routed.intent === 'chat' || routed.action === 'reply') {
-      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
-      return;
-    }
-    if (routed.intent === 'plan' || routed.action === 'save_plan') {
-      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
-      return;
-    }
-    if (routed.intent === 'fix') {
-      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
-      return;
-    }
-    if (routed.needs_confirmation || routed.action === 'ask_clarification') {
-      await router.push({ path: '/dashboard', query: { select: routed.task_id } });
-      return;
-    }
-    const task = await startTask(routed.task_id);
-    await router.push({ path: '/dashboard', query: { select: task.id } });
-  } catch (error) {
-    createError.value = error instanceof Error ? error.message : '任务创建失败，请重试';
-  } finally {
-    creating.value = false;
-  }
-}
+const router = useRouter()
+const brief = ref('')
+const focused = ref(false)
+const canStart = computed(() => brief.value.trim().length > 0)
+function start() { router.push(isLoggedIn() ? { path: '/dashboard', query: { brief: brief.value.trim() } } : { path: '/auth', query: { next: `/dashboard?brief=${encodeURIComponent(brief.value.trim())}` } }) }
 </script>
 
 <template>
-  <AppShell title="开始创作" eyebrow="PPT 工作区" content-class="home-workspace">
-    <template #actions>
-      <button class="ui-button" type="button" @click="router.push('/dashboard')">
-        <Clock3 :size="17" />
-        <span>任务记录</span>
-      </button>
-    </template>
-
-    <section class="creation-zone" aria-labelledby="creation-title">
-      <div class="creation-copy">
-        <span class="section-kicker"><Sparkles :size="15" /> 新建演示</span>
-        <h2 id="creation-title">今天要讲清楚什么？</h2>
-        <p>写下受众、场景、页数和最重要的结论。Planner 会先完成叙事与组件规划，再进入审查和并发渲染。</p>
-      </div>
-
-      <div class="prompt-composer">
-        <label for="presentation-brief">演示文稿需求</label>
-        <textarea
-          id="presentation-brief"
-          v-model="brief"
-          rows="6"
-          placeholder="例如：为产品委员会准备一份 10 页的季度复盘，突出增长、用户反馈和下一阶段取舍，语气务实。"
-          @keydown.ctrl.enter.prevent="startCreation"
-          @keydown.meta.enter.prevent="startCreation"
-        />
-
-        <div class="mode-switch" aria-label="生成方式">
-          <button type="button" :class="{ active: mode === 'planned' }" @click="mode = 'planned'">
-            <WandSparkles :size="17" />
-            <span><strong>智能规划</strong><small>动态拆页与组件编排</small></span>
-          </button>
-          <button type="button" :class="{ active: mode === 'custom' }" @click="mode = 'custom'">
-            <LayoutPanelTop :size="17" />
-            <span><strong>自定义编排</strong><small>手动确定页面结构</small></span>
-          </button>
-        </div>
-
-        <div class="composer-footer">
-          <span class="selected-mode">{{ selectedLabel }}</span>
-          <button class="start-button" type="button" :disabled="!canStart" @click="startCreation">
-            <LoaderCircle v-if="creating" :size="18" class="spin" />
-            <span>{{ creating ? '创建中' : mode === 'custom' ? '打开编排' : '开始规划' }}</span>
-            <ArrowRight v-if="!creating" :size="18" />
-          </button>
-        </div>
-        <p v-if="intentNotice" class="intent-notice" role="status">{{ intentNotice }}</p>
-        <p v-if="createError" class="creation-error" role="alert">{{ createError }}</p>
-      </div>
+  <main class="landing">
+    <header class="home-nav"><RouterLink to="/" class="wordmark"><span><FileStack :size="17" /></span>Deckform</RouterLink><div><RouterLink class="text-link" to="/auth">登录</RouterLink><RouterLink class="small-button" to="/auth">开始创作 <ArrowUpRight :size="15" /></RouterLink></div></header>
+    <section class="hero">
+      <div class="hero-copy"><p class="eyeline"><i></i>从主题到可交付的叙事</p><h1>别再从<br>空白页开始。</h1><p class="lede">给出一个想法。Deckform 帮你检索、组织、写作并排成一份真正能讲清楚事情的演示文稿。</p><form class="brief-box" :class="{ focused }" @submit.prevent="start"><textarea v-model="brief" rows="2" placeholder="例如：为新能源储能方案做一份 10 页客户提案" @focus="focused = true" @blur="focused = false" /><button :disabled="!canStart" type="submit" aria-label="开始生成"><ArrowUpRight :size="22" /></button><span>可直接输入需求，也可稍后编排每一页</span></form><div class="proof"><span><Check :size="14" />先规划，再生成</span><span><Check :size="14" />过程随时可见</span><span><Check :size="14" />导出可编辑 PPTX</span></div></div>
+      <DeckStack :active="focused" />
     </section>
-
-    <section class="workflow-strip" aria-label="生成流程">
-      <div><span>01</span><strong>意图识别</strong><small>判断受众、场景与规模</small></div>
-      <div><span>02</span><strong>DeckSpec 规划</strong><small>组织叙事与页面组件</small></div>
-      <div><span>03</span><strong>质量审查</strong><small>校验密度、结构与契约</small></div>
-      <div><span>04</span><strong>并发渲染</strong><small>按页生成并完成交付</small></div>
-    </section>
-  </AppShell>
+    <section class="how"><p>把想法变成一份可讲述的作品</p><div class="sequence"><article><b>01</b><h2>给出问题</h2><span>一句需求、一段资料，或一份已有大纲。</span></article><article><b>02</b><h2>看它成形</h2><span>研究、规划和每一页的交付都有清晰轨迹。</span></article><article><b>03</b><h2>带走并继续</h2><span>预览、下载、修改；工作不会被锁在一个对话框里。</span></article></div></section>
+    <section class="final"><div><p class="eyeline"><i></i>一套为演示而生的工作流</p><h2>你的下一份<br>演示，从这里展开。</h2></div><RouterLink class="final-cta" to="/auth"><Sparkles :size="18" />开始一份演示</RouterLink></section>
+  </main>
 </template>
 
 <style scoped>
-:global(.home-workspace) { width: min(100%, 1320px); margin: 0 auto; padding: 42px 48px 64px; }
-.creation-zone { display: grid; grid-template-columns: minmax(250px, .72fr) minmax(460px, 1.28fr); gap: 48px; align-items: start; }
-.creation-copy { padding-top: 18px; }
-.section-kicker { display: inline-flex; align-items: center; gap: 7px; color: var(--action-ink); font-size: 11px; font-weight: 750; }
-.creation-copy h2 { margin: 10px 0 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-spacing: 0; }
-.creation-copy p { max-width: 430px; margin: 14px 0 0; color: var(--text-secondary); font-size: 14px; line-height: 1.72; }
-.prompt-composer { padding: 17px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-sm); }
-.prompt-composer > label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
-.prompt-composer textarea { width: 100%; min-height: 150px; padding: 4px 2px 13px; resize: vertical; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: 16px; line-height: 1.65; }
-.prompt-composer textarea::placeholder { color: var(--text-muted); }
-.mode-switch { padding: 10px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid var(--divider); }
-.mode-switch button { min-width: 0; min-height: 58px; padding: 9px 10px; display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--surface-muted); text-align: left; cursor: pointer; }
-.mode-switch button.active { border-color: var(--action-ink); color: var(--action-ink); background: var(--action-soft); box-shadow: 0 0 0 1px rgba(7, 94, 87, .08); }
-.mode-switch span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.mode-switch strong { color: var(--text); font-size: 12px; }
-.mode-switch small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.composer-footer { padding-top: 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--divider); }
-.selected-mode { color: var(--text-secondary); font-size: 12px; }
-.start-button { min-width: 128px; min-height: 44px; padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--action-ink); border-radius: 6px; color: #fff; background: var(--action-ink); font-weight: 700; cursor: pointer; }
-.start-button:hover:not(:disabled) { background: #064d48; }
-.start-button:disabled { border-color: var(--border-strong); color: var(--text-disabled); background: var(--surface-pressed); cursor: not-allowed; }
-.creation-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
-.intent-notice { margin: 10px 0 0; padding: 10px 11px; border-left: 3px solid var(--info); color: var(--text-secondary); background: var(--info-soft); font-size: 12px; line-height: 1.6; white-space: pre-line; }
-.workflow-strip { margin-top: 42px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.workflow-strip div { min-width: 0; padding: 18px 20px; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 3px 9px; border-right: 1px solid var(--divider); }
-.workflow-strip div:last-child { border-right: 0; }
-.workflow-strip span { grid-row: 1 / 3; color: var(--action-ink); font-size: 11px; font-weight: 800; }
-.workflow-strip strong { color: var(--text); font-size: 12px; }
-.workflow-strip small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.spin { animation: spin .9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 920px) {
-  :global(.home-workspace) { padding: 28px 28px 52px; }
-  .creation-zone { grid-template-columns: 1fr; gap: 18px; }
-  .creation-copy { padding-top: 0; }
-  .creation-copy h2 { font-size: 28px; }
-  .workflow-strip { grid-template-columns: 1fr 1fr; }
-  .workflow-strip div:nth-child(2) { border-right: 0; }
-  .workflow-strip div:nth-child(-n+2) { border-bottom: 1px solid var(--divider); }
-}
-@media (max-width: 600px) {
-  :global(.home-workspace) { padding: 20px 16px 40px; }
-  .mode-switch, .workflow-strip { grid-template-columns: 1fr; }
-  .workflow-strip div { border-right: 0; border-bottom: 1px solid var(--divider); }
-  .workflow-strip div:last-child { border-bottom: 0; }
-  .composer-footer { align-items: stretch; flex-direction: column; }
-  .start-button { width: 100%; }
-}
-@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.landing { min-height: 100vh; overflow: hidden; color: #eaf2f3; background: #081a28; }.home-nav { height: 77px; display: flex; align-items: center; justify-content: space-between; width: min(1180px, calc(100% - 48px)); margin: auto; border-bottom: 1px solid rgba(219,242,244,.14); }.home-nav>div { display:flex;align-items:center;gap:21px }.wordmark { display:flex;align-items:center;gap:9px;font:700 20px 'Noto Serif SC',serif;letter-spacing:-.045em }.wordmark span { display:grid;place-items:center;width:27px;height:27px;background:#70e3c9;color:#051f26;border-radius:8px 8px 2px 8px }.text-link { color:#afc2c9;font-size:14px }.small-button,.final-cta { display:flex;align-items:center;gap:8px;padding:9px 12px;color:#061b22;background:#eef7f4;border-radius:6px;font-size:13px;font-weight:700 }.hero { position: relative; display:grid;grid-template-columns:minmax(0,1.03fr) minmax(330px,.97fr);align-items:center;gap:34px;width:min(1180px,calc(100% - 48px));min-height:596px;margin:auto;padding:80px 0 90px }.hero:after { content:'';position:absolute;right:-28%;bottom:-55%;width:80%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,rgba(52,152,149,.2),transparent 67%);pointer-events:none }.hero-copy { position:relative;z-index:1 }.eyeline { display:flex;align-items:center;gap:9px;margin:0 0 20px;color:#9fc7c9;font-size:13px;font-weight:600 }.eyeline i { width:20px;height:1px;background:#6ce5ca }.hero h1,.final h2 { margin:0;font:900 clamp(47px,6vw,79px)/1.08 'Noto Serif SC',serif;letter-spacing:-.09em }.lede { max-width:535px;margin:25px 0 30px;color:#b2c4cc;font-size:16px;line-height:1.9 }.brief-box { position:relative;display:grid;grid-template-columns:minmax(0,1fr) 48px;gap:8px;max-width:590px;padding:11px 11px 30px;background:#f1f4ea;border:1px solid transparent;color:#142e3d;border-radius:9px;box-shadow:0 17px 36px rgba(0,0,0,.12);transition:transform .25s,box-shadow .25s,border-color .25s }.brief-box.focused { transform:translateY(-3px);border-color:#6ce5ca;box-shadow:0 23px 47px rgba(0,0,0,.23) }.brief-box textarea { width:100%;resize:none;min-height:45px;padding:4px 5px;border:0;outline:0;color:#15323c;background:transparent;line-height:1.55 }.brief-box button { width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:6px;align-self:start;color:#f0fbf7;background:#135f65;transition:background .2s }.brief-box button:disabled { color:#81969a;background:#d9dfd8;cursor:not-allowed }.brief-box span { position:absolute;bottom:10px;left:16px;color:#6d8184;font-size:11px }.proof { display:flex;gap:16px;flex-wrap:wrap;margin-top:19px;color:#a7c1c5;font-size:12px }.proof span { display:flex;gap:4px;align-items:center }.proof svg { color:#70e3c9 }.deck-stack { justify-self:center;z-index:1 }.how { width:min(1180px,calc(100% - 48px));margin:auto;padding:30px 0 100px;border-top:1px solid rgba(219,242,244,.14) }.how>p { margin:0 0 39px;color:#b4c6ca;font-size:14px }.sequence { display:grid;grid-template-columns:repeat(3,1fr);gap:50px }.sequence article { padding-right:18px }.sequence b { font:500 11px 'DM Mono',monospace;color:#6ce5ca;letter-spacing:.08em }.sequence h2 { margin:13px 0 9px;font:700 22px 'Noto Serif SC',serif;letter-spacing:-.05em }.sequence span { color:#91aab3;font-size:14px;line-height:1.75 }.final { display:flex;justify-content:space-between;align-items:end;gap:30px;padding:100px max(24px,calc((100% - 1180px)/2)) 110px;background:#c8e9e1;color:#0a2e38 }.final h2 { font-size:clamp(39px,5vw,66px) }.final .eyeline { color:#3c7271 }.final .eyeline i { background:#377a75 }.final-cta { padding:15px 19px;color:#ecfaf6;background:#0d3e49;white-space:nowrap }
+@media(max-width:760px){.home-nav,.hero,.how{width:min(100% - 32px,1180px)}.home-nav{height:64px}.text-link{display:none}.hero{grid-template-columns:1fr;min-height:0;padding:60px 0 80px}.hero h1{font-size:54px}.deck-stack{width:min(80vw,440px);margin-top:8px}.sequence{grid-template-columns:1fr;gap:28px}.final{align-items:start;flex-direction:column;padding:70px 16px}.final h2{font-size:47px}}
 </style>
