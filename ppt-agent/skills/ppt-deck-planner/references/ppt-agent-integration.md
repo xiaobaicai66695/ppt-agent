@@ -37,7 +37,7 @@ Planner 应尽力填写完整 DeckSpec 内容字段，但不写 `task_id`、`out
 通用 skill 不规定图片保存目录；在 `ppt-agent` 后端中，图片下载、去重、路径写回和背景收敛由后端适配层负责。
 
 - 图片搜索是默认执行步骤：除用户明确要求无图、页面明确标记 `clean_text_only` 或素材服务返回已记录的实际失败外，每页都必须通过后端既有素材链路搜索、下载并写回 `local_path`、`provider` 和 `search_status`。
-- `scripts/hydrate_unsplash_assets.ts` 仅供 `ppt-agent` 项目外的通用 Agent 使用，项目内 Agent 不读取其 `auth.txt`，也不调用该脚本。
+- Planner 不注册或调用 `search_images` 等图片 Agent 工具；它只提交视觉意图。需要在服务器上手工运行 skill CLI 时，使用 `unsplash auth --from-env` 从服务 `.env` 的 `UNSPLASH_ACCESS_KEY` 完成无交互认证；后端进程也必须保留该环境变量，供素材物化层访问 Unsplash API。
 - 背景可以按 `content_type` 收敛，减少同类页面视觉节奏漂移；默认背景图缺失应阻断无理由交付，只有已记录豁免或素材失败才可继续无图渲染；图片必填组件始终须有有效本地图片路径。
 
 ## Benchmark 含义

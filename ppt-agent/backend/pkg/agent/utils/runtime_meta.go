@@ -1007,23 +1007,6 @@ func addToolObservationFields(metadata map[string]any, name, args, result string
 		if urls := extractSearchURLs(result, 5); len(urls) > 0 {
 			metadata["source_urls"] = urls
 		}
-	case "search_images":
-		addJSONFieldAs(metadata, args, "query", "image_query")
-		addJSONFieldAs(metadata, args, "asset_purpose", "asset_purpose")
-		addJSONFieldAs(metadata, args, "asset_subject", "asset_subject")
-		addJSONFieldAs(metadata, args, "composition", "composition")
-		addJSONFieldAs(metadata, args, "reason", "search_reason")
-		addJSONFieldAs(metadata, result, "provider", "provider")
-		addJSONFieldAs(metadata, result, "asset_query", "asset_query")
-		addJSONFieldAs(metadata, result, "total", "total")
-		addJSONFieldAs(metadata, result, "total_pages", "total_pages")
-		addJSONFieldAs(metadata, result, "error", "error")
-		if previews, urls := extractImageSearchResults(result, 6); len(previews) > 0 {
-			metadata["image_results"] = previews
-			if len(urls) > 0 {
-				metadata["source_urls"] = urls
-			}
-		}
 	case "read_file":
 		addJSONFieldAs(metadata, args, "path", "file_path")
 	case "update_tasks_manifest":
@@ -1144,77 +1127,6 @@ func extractSearchURLs(raw string, limit int) []string {
 		}
 	}
 	return urls
-}
-
-func extractImageSearchResults(raw string, limit int) ([]map[string]any, []string) {
-	if strings.TrimSpace(raw) == "" || limit <= 0 {
-		return nil, nil
-	}
-	var parsed struct {
-		Provider     string `json:"provider"`
-		AssetPurpose string `json:"asset_purpose"`
-		AssetQuery   string `json:"asset_query"`
-		Photos       []struct {
-			ID              string `json:"id"`
-			Description     string `json:"description"`
-			AltDescription  string `json:"alt_description"`
-			ImageURL        string `json:"image_url"`
-			PreviewURL      string `json:"preview_url"`
-			SourceURL       string `json:"source_url"`
-			Photographer    string `json:"photographer"`
-			PhotographerURL string `json:"photographer_url"`
-			Attribution     string `json:"attribution"`
-			LocalPath       string `json:"local_path"`
-			DownloadError   string `json:"download_error"`
-		} `json:"photos"`
-	}
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		return nil, nil
-	}
-	previews := make([]map[string]any, 0, minInt(len(parsed.Photos), limit))
-	urls := make([]string, 0, minInt(len(parsed.Photos), limit))
-	seenURLs := map[string]struct{}{}
-	for _, photo := range parsed.Photos {
-		item := map[string]any{
-			"id":               truncateString(strings.TrimSpace(photo.ID), 80),
-			"provider":         truncateString(strings.TrimSpace(parsed.Provider), 40),
-			"asset_purpose":    truncateString(strings.TrimSpace(parsed.AssetPurpose), 40),
-			"asset_query":      truncateString(strings.TrimSpace(parsed.AssetQuery), 180),
-			"preview_url":      truncateString(strings.TrimSpace(firstRuntimeString(photo.PreviewURL, photo.ImageURL)), 240),
-			"image_url":        truncateString(strings.TrimSpace(photo.ImageURL), 240),
-			"source_url":       truncateString(strings.TrimSpace(photo.SourceURL), 240),
-			"photographer":     truncateString(strings.TrimSpace(photo.Photographer), 120),
-			"photographer_url": truncateString(strings.TrimSpace(photo.PhotographerURL), 240),
-			"attribution":      truncateString(strings.TrimSpace(photo.Attribution), 180),
-			"local_path":       truncateString(strings.TrimSpace(photo.LocalPath), 240),
-		}
-		if strings.TrimSpace(photo.Description) != "" || strings.TrimSpace(photo.AltDescription) != "" {
-			item["description"] = truncateString(strings.TrimSpace(firstRuntimeString(photo.Description, photo.AltDescription)), 180)
-		}
-		if strings.TrimSpace(photo.DownloadError) != "" {
-			item["download_error"] = truncateString(strings.TrimSpace(photo.DownloadError), 180)
-		}
-		previews = append(previews, item)
-		if url := strings.TrimSpace(photo.SourceURL); url != "" {
-			if _, ok := seenURLs[url]; !ok {
-				seenURLs[url] = struct{}{}
-				urls = append(urls, truncateString(url, 240))
-			}
-		}
-		if len(previews) >= limit {
-			break
-		}
-	}
-	return previews, urls
-}
-
-func firstRuntimeString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func compactRuntimeMetadata(metadata map[string]any, depth int) map[string]any {

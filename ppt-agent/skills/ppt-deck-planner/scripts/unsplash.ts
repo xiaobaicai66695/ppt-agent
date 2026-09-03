@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline";
 
-import { AUTH_FILE, saveAccessToken } from "./auth_store.ts";
+import { AUTH_FILE, readAccessTokenFromEnv, saveAccessToken } from "./auth_store.ts";
 import { hydrateUnsplashAssets } from "./hydrate_unsplash_assets.ts";
 
 function usage(): void {
   console.log("Usage: unsplash <auth|fetch> [options]");
-  console.log("  unsplash auth");
+	console.log("  unsplash auth [--from-env]");
   console.log("  unsplash fetch --work-dir <directory> [--per-page 1-10]");
 }
 
@@ -46,10 +46,12 @@ async function main(): Promise<void> {
     usage();
     process.exit(command ? 0 : 1);
   }
-  if (command === "auth" && !rest.length) {
-    const accessToken = await readSecret("accessToken（输入后不会回显）: ");
-    await saveAccessToken(accessToken);
-    console.log(`Unsplash 认证已保存到 ${AUTH_FILE}。该文件已被 Git 忽略。`);
+	if (command === "auth" && (rest.length === 0 || (rest.length === 1 && rest[0] === "--from-env"))) {
+		const accessToken = rest.length === 0
+			? await readSecret("accessToken（输入后不会回显）: ")
+			: readAccessTokenFromEnv();
+		await saveAccessToken(accessToken);
+		console.log(`Unsplash 认证已保存到 ${AUTH_FILE}。该文件已被 Git 忽略。`);
     return;
   }
   if (command === "fetch") {

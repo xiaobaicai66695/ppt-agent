@@ -18,7 +18,7 @@ description: 规划可执行的 PPT DeckSpec/tasks.json，并用组件化 Python
 - 规划页面时读取 `templates/component_contracts.json` 和 `references/slide_types.md`。
 - 调用生成器或排查渲染问题时读取 `references/generators.md`。
 - 验证独立 skill 可用性时读取 `references/standalone-validation.md`。
-- 独立 Agent 需要使用 Unsplash 图片 CLI 时读取 `references/unsplash-cli.md`。
+- 需要使用 Unsplash 图片 CLI 或部署认证时读取 `references/unsplash-cli.md`。
 - 需要可执行示例时读取 `examples/README.md`，再按需查看对应示例目录。
 - 只有在接入本仓库 `ppt-agent` Go 后端时，才读取 `references/ppt-agent-integration.md`。
 
@@ -26,7 +26,7 @@ description: 规划可执行的 PPT DeckSpec/tasks.json，并用组件化 Python
 
 - 在本 skill 目录或 `ppt-agent` 项目中处理 PPT 请求时，本 skill 负责 DeckSpec、素材路线、校验和渲染；先读取本文件并完成素材预检，再调用通用 PPT 或图像生成能力。
 - **默认先搜索图片，且不得因页面可由文本、图表或卡片表达而跳过。** 除用户明确要求纯文字/无图片、页面被明确标记为 `clean_text_only`，或图片服务实际返回可报告的配置、鉴权、网络或无结果错误外，不得无图降级。
-- 默认素材路线：独立 Agent 使用 Unsplash CLI；项目内 Agent 使用后端既有素材搜索与下载链路。成功搜索后应下载，并将真实 `local_path`、`source_url`、`attribution`、`provider` 与 `search_status` 写入 `visual_intent` 或 `image` 组件。
+- 默认素材路线：Agent 侧图片搜索统一使用本 skill 的 Unsplash CLI；`ppt-agent` 后端的确定性素材物化层负责在审查后执行同等的搜索与下载，不再向 Planner 暴露图片搜索工具。成功搜索后应下载，并将真实 `local_path`、`source_url`、`attribution`、`provider` 与 `search_status` 写入 `visual_intent` 或 `image` 组件。
 - 仅在上述豁免或实际失败发生后，文本、图表、流程和浅色面板才可作为无图页的交付方案；必须在任务记录或最终说明中写明豁免理由或失败类型，禁止静默 fallback。
 - 不要为了绕过搜图认证、下载失败或素材缺失而自动改用通用 AI 图像生成。只有用户明确要求 AI 生成配图，或明确同意切换该路线时，才可以使用它。
 - 若用户要求“配图不可用即停止”，任一选定素材路线失败后都必须在渲染前停止，并说明失败的工具或服务、失败类型，以及可用的替代路线；不得静默降级或切换路线。
@@ -71,7 +71,7 @@ Planner 应尽力一次性填写完整 DeckSpec 内容字段，包括：
 
 图片默认是必需的视觉素材，而不是可选增强。只有“执行优先级与素材预检”中列明的豁免或实际素材失败，才可使用无图页；一旦规划图片，则 `local_path`、`image_path`、`asset_path` 必须指向真实可读的本地文件，禁止虚构路径或旧 `asset:` id。经图片服务解析的背景还必须保留实际 `provider` 与 `search_status:"resolved"`/`"downloaded"`，以便渲染前校验其来源链路。具体素材路线遵循上面的“执行优先级与素材预检”。
 
-**ppt-agent 项目外的独立 Agent** 必须使用`scripts/`下的 Unsplash CLI ，如codex，Claude code，opencode，pi等等通用agent。项目内 Agent 必须使用后端既有素材搜索与下载链路，不能读取 skill 根目录的 `auth.txt` 或调用该 CLI。
+需要由 Agent 搜图时，必须使用本 skill `scripts/` 下的 Unsplash CLI，例如 Codex、Claude Code、OpenCode、Pi 等通用 Agent。`ppt-agent` 的 Planner 不直接调用图片工具：它只规划视觉意图，后端会在审查后通过确定性素材物化层下载图片并回填字段。
 
 独立 Agent 首次使用时，在 skill 根目录以 Node.js 22+ 执行一次 `npm link`，即可注册本机 `unsplash` 命令。需要图片时，在 `content_plan.visual_intent` 中规划 `asset_purpose`、`asset_query`、`asset_subject`、`composition` 与 `orientation`：
 
@@ -81,7 +81,7 @@ unsplash auth
 unsplash fetch --work-dir <work-dir>
 ```
 
-`unsplash auth` 会显示 `accessToken（输入后不会回显）:`；粘贴或输入 Access Key 后按 Enter，输入字符不可见是正常的保护行为。认证信息保存到 skill 根目录、已被 Git 忽略的 `auth.txt`。Access Key 在 Unsplash Developers 控制台创建应用后可获得；不要写入 `tasks.json`、日志、prompt、命令参数或仓库文件。下载成功后脚本会回写 `local_path`、`source_url`、`attribution` 和图片元数据。
+`unsplash auth` 会显示 `accessToken（输入后不会回显）:`；粘贴或输入 Access Key 后按 Enter，输入字符不可见是正常的保护行为。服务器部署可在已加载环境变量后执行 `unsplash auth --from-env`，它读取 `UNSPLASH_ACCESS_KEY`（兼容 `UNSPLASH_ACCESS_TOKEN`）且不会回显密钥。认证信息保存到 skill 根目录、已被 Git 忽略的 `auth.txt`。Access Key 在 Unsplash Developers 控制台创建应用后可获得；不要写入 `tasks.json`、日志、prompt、命令参数或仓库文件。下载成功后脚本会回写 `local_path`、`source_url`、`attribution` 和图片元数据。
 
 ## 校验与渲染入口
 

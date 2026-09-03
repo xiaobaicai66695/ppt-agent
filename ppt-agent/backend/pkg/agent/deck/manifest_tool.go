@@ -43,7 +43,7 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 					"preferred_variant": {Type: schema.String, Desc: "偏好的 layout_variant"},
 					"image_position":    {Type: schema.String, Desc: "background、left、right、strip、inline 等"},
 					"caption":           {Type: schema.String, Desc: "图片说明或替代文本"},
-					"local_path":        {Type: schema.String, Desc: "search_images(download=true) 返回的本地图片路径，位于当前任务工作目录内"},
+					"local_path":        {Type: schema.String, Desc: "确定性图片物化阶段回填的本地图片路径，位于当前任务工作目录内"},
 					"source_url":        {Type: schema.String, Desc: "图片来源页 URL，用于署名"},
 					"attribution":       {Type: schema.String, Desc: "图片署名，例如 Photo by ... on Unsplash"},
 				},

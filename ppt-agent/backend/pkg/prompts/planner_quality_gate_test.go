@@ -7,10 +7,9 @@ import (
 
 func TestPlannerPromptCarriesFirstDraftQualityGate(t *testing.T) {
 	prompt, err := RenderPlanner("master_instruction", &TemplateData{
-		SkillsDir:            "/tmp/skills",
-		TasksJSON:            "/tmp/tasks.draft.json",
-		OutlineQuery:         "AI 产业趋势",
-		ImageSearchAvailable: true,
+		SkillsDir:    "/tmp/skills",
+		TasksJSON:    "/tmp/tasks.draft.json",
+		OutlineQuery: "AI 产业趋势",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -26,9 +25,9 @@ func TestPlannerPromptCarriesFirstDraftQualityGate(t *testing.T) {
 		"section_marker",
 		"440–840",
 		"clean_text_only",
-		"默认每页都必须先执行图片搜索",
-		"不得把文本、图表或卡片可表达当成跳过图片搜索的理由",
-		"搜索并下载外部背景",
+		"默认每页都必须规划图片检索意图",
+		"不得把文本、图表或卡片可表达当成跳过视觉规划的理由",
+		"确定性素材物化阶段会搜索下载",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("planner prompt missing %q", expected)

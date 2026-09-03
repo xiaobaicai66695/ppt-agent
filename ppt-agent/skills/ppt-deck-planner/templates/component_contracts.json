@@ -111,8 +111,8 @@
     "local_path_rule": "Before validation/rendering, every image that should appear in the deck must be written as a real local_path/image_path/asset_path value that exists on disk.",
     "query_contract": "asset_query is optional planning metadata; asset_subject records the visual proxy; composition records semantic framing constraints. Any materialized background resolved through an image provider must retain its provider and search_status=resolved/downloaded.",
     "hydration_command": "unsplash fetch --work-dir <work-dir> (run npm link once in the skill root first)",
-    "provider": "unsplash (external Agent CLI only)",
-    "missing_key_behavior": "The external CLI directs the user to run unsplash auth. Project agents use the backend provider instead.",
+    "provider": "unsplash (skill CLI; backend materialization adapter)",
+    "missing_key_behavior": "The CLI directs the user to run unsplash auth; servers may use unsplash auth --from-env with UNSPLASH_ACCESS_KEY. The Planner only plans visual intent and never invokes an image-search tool.",
     "background_color_rule": "When a real local background image is provided, the renderer may extract muted colors for panels, accent bars, dividers and decorative fills. Text tokens remain contrast-safe dark/readable colors; do not route pale background colors into titles, subtitles, body copy or image captions."
   },
   "content_types": {

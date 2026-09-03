@@ -132,7 +132,7 @@ var (
 			Name:      "calls_total",
 			Help:      "Total number of tool invocations.",
 		},
-		[]string{"tool", "status"}, // read_file, search, search_images, manifest tools
+		[]string{"tool", "status"}, // read_file, search, manifest tools
 	)
 
 	// ActiveTasks 追踪当前正在运行的任务数量

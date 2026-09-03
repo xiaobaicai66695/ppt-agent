@@ -230,49 +230,6 @@ func TestRuntimeMetaExtractsObservableSearchAndManifestFields(t *testing.T) {
 	}
 }
 
-func TestRuntimeMetaExtractsImageSearchPreviews(t *testing.T) {
-	meta := NewRuntimeMeta("task-image-search", t.TempDir())
-	var events []RuntimeEvent
-	meta.SetEventSink(func(event RuntimeEvent) {
-		events = append(events, event)
-	})
-
-	meta.RecordToolStart("search_images", `{"query":"aerial city skyline, wide landscape","asset_purpose":"background","asset_subject":"city skyline","composition":"clean negative space"}`)
-	meta.RecordToolEnd("search_images", "", `{
-		"provider":"unsplash",
-		"asset_purpose":"background",
-		"asset_query":"aerial city skyline, wide landscape",
-		"photos":[{
-			"id":"abc",
-			"preview_url":"https://images.unsplash.com/small.jpg",
-			"image_url":"https://images.unsplash.com/photo.jpg",
-			"source_url":"https://unsplash.com/photos/abc",
-			"photographer":"Demo",
-			"attribution":"Photo by Demo on Unsplash",
-			"local_path":"assets/images/unsplash_abc.jpg"
-		}]
-	}`)
-
-	if events[0].Metadata["image_query"] != "aerial city skyline, wide landscape" {
-		t.Fatalf("image args were not extracted: %#v", events[0].Metadata)
-	}
-	previews, ok := events[1].Metadata["image_results"].([]any)
-	if !ok || len(previews) != 1 {
-		t.Fatalf("image previews were not extracted: %#v", events[1].Metadata)
-	}
-	first, ok := previews[0].(map[string]any)
-	if !ok || first["local_path"] != "assets/images/unsplash_abc.jpg" || first["preview_url"] == "" {
-		t.Fatalf("image preview metadata invalid: %#v", previews[0])
-	}
-	if events[1].Metadata["provider"] != "unsplash" || events[1].Metadata["asset_query"] != "aerial city skyline, wide landscape" {
-		t.Fatalf("image search summary metadata invalid: %#v", events[1].Metadata)
-	}
-	urls, ok := events[1].Metadata["source_urls"].([]string)
-	if !ok || len(urls) != 1 || urls[0] != "https://unsplash.com/photos/abc" {
-		t.Fatalf("image source urls were not extracted: %#v", events[1].Metadata)
-	}
-}
-
 func TestRuntimeMetaDeduplicatesManifestValidationAndUsesProgressStatus(t *testing.T) {
 	meta := NewRuntimeMeta("task-manifest", t.TempDir())
 	var events []RuntimeEvent

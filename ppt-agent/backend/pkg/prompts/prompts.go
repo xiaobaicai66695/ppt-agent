@@ -56,11 +56,10 @@ func parseWithFuncs(pattern string) (*template.Template, error) {
 
 // TemplateData 跨提示模板使用的数据字段。
 type TemplateData struct {
-	SkillsDir            string
-	TasksJSON            string
-	FixerTaskSnapshot    string
-	OutlineQuery         string
-	ImageSearchAvailable bool
+	SkillsDir         string
+	TasksJSON         string
+	FixerTaskSnapshot string
+	OutlineQuery      string
 }
 
 // Render 使用给定数据执行命名模板并返回渲染后的字符串。

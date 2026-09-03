@@ -128,9 +128,9 @@ python generators/render_task.py --work-dir <work-dir> --skills-dir <skill-paren
 
 预期结果：工作目录中生成该页 PPTX，且没有依赖 `assets/manifest.json`。若 `tasks.json` 显式写入图片路径或旧 `asset:` id，该路径必须真实可读，否则渲染应失败。
 
-## 6. 外部 Agent 的 Unsplash 图片 CLI
+## 6. Unsplash 图片 CLI
 
-该 CLI 只供 `ppt-agent` 项目外的 Agent 使用；项目内使用后端已有的图片搜索能力。先在 Unsplash Developers 控制台创建应用，在应用的 **Keys** 页面复制 **Access Key**。不要使用 Secret Key。
+该 CLI 是 skill 的 Agent 侧图片搜索能力；`ppt-agent` Planner 仅规划视觉意图，运行链路中的确定性素材物化层负责搜索和下载。先在 Unsplash Developers 控制台创建应用，在应用的 **Keys** 页面复制 **Access Key**。不要使用 Secret Key。
 
 在 skill 根目录运行下列命令，随后按提示输入 Key；输入不会回显，也不会出现在命令参数中：
 
@@ -140,7 +140,7 @@ unsplash auth
 unsplash fetch --work-dir <work-dir>
 ```
 
-认证信息保存到 skill 根目录的 `auth.txt`，该文件已被 Git 忽略。需要清除认证时删除该文件。图片搜索是可选步骤；需要图片时必须先在 `visual_intent` 中声明查询、主体、构图和方向。
+认证信息保存到 skill 根目录的 `auth.txt`，该文件已被 Git 忽略。服务器可先加载 `.env` 后执行 `unsplash auth --from-env`，读取 `UNSPLASH_ACCESS_KEY`（兼容 `UNSPLASH_ACCESS_TOKEN`）完成无交互认证。需要清除认证时删除该文件。图片搜索是可选步骤；需要图片时必须先在 `visual_intent` 中声明查询、主体、构图和方向。
 
 ## 7. 视觉验收
 

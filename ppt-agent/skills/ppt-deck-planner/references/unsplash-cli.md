@@ -1,10 +1,10 @@
-# 外部 Agent 的 Unsplash 图片 CLI
+# Unsplash 图片 CLI
 
-本说明只适用于脱离 `ppt-agent` 项目的独立 Agent。`ppt-agent` 项目内的 Agent 必须使用后端已有的图片搜索与下载链路，不能读取本 skill 的 `auth.txt`，也不能调用本 CLI。
+本 CLI 是 `ppt-deck-planner` skill 的 Agent 侧图片搜索与下载入口。`ppt-agent` 的 Planner 不直接调用图片工具；它只输出视觉意图，再由审查后的确定性素材物化层执行搜索、下载与路径回填。
 
 ## 图片工具优先级
 
-当 DeckSpec 使用默认的 `visual_policy.mode="required"` 时，这个 CLI 是独立 Agent 的**默认图片搜索与下载入口**：先规划每页 `visual_intent`，再用 `unsplash fetch` 物化图片。不要因为宿主提供了 `imagegen`、绘图或截图工具就跳过搜索并自行生成背景图。
+当 DeckSpec 使用默认的 `visual_policy.mode="required"` 时，这个 CLI 是 Agent 的**默认图片搜索与下载入口**：先规划每页 `visual_intent`，再用 `unsplash fetch` 物化图片。不要因为宿主提供了 `imagegen`、绘图或截图工具就跳过搜索并自行生成背景图。
 
 图像生成仅在用户明确要求 AI 生成插画、概念图或艺术图时使用，且该图不能替代每页 required 背景。CLI 未注册、认证失败、网络失败或没有结果时，保留失败原因并修复后重试；禁止以生成图、虚构本地路径或伪造 Unsplash 来源作为回退。仅当另一个宿主工具实际搜索并下载 Unsplash 图片，且能回填同等的路径、来源和署名时，才可替代本 CLI。
 
@@ -27,6 +27,17 @@ unsplash auth
 
 按 `accessToken:` 提示输入 Access Key。输入内容不会回显，命令会将其保存为 skill 根目录的 `auth.txt`；该文件已在 `.gitignore` 中忽略。Windows 无需设置环境变量。
 
+服务器部署中，先加载服务使用的 `.env`，再通过环境变量完成无交互认证；优先读取 `UNSPLASH_ACCESS_KEY`，兼容 `UNSPLASH_ACCESS_TOKEN`：
+
+```bash
+set -a
+. /ppt/ppt-agent/backend/.env
+set +a
+node /ppt/ppt-agent/skills/ppt-deck-planner/scripts/unsplash.mjs auth --from-env
+```
+
+此命令不会在终端输出 Access Key；后端进程仍必须在其启动环境中保留同一个 `UNSPLASH_ACCESS_KEY`，供确定性素材物化层访问 Unsplash API。
+
 成功注册命令后，认证时会明确显示以下提示。粘贴或输入 Access Key 后直接按 Enter；看不到输入字符是正常的保护行为：
 
 ```text
@@ -47,4 +58,4 @@ accessToken（输入后不会回显）:
 unsplash fetch --work-dir <work-dir>
 ```
 
-`unsplash` 命令只面向项目外的独立 Agent；`fetch` 会把本地路径、来源链接和署名写回全部已声明的视觉资产。下载失败时不会写回部分 manifest；修正查询后重试即可。
+`fetch` 会把本地路径、来源链接和署名写回全部已声明的视觉资产。下载失败时不会写回部分 manifest；修正查询后重试即可。

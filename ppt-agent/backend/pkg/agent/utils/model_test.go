@@ -581,7 +581,7 @@ func TestSanitizeStreamingToolCallDeltasFlushesCompletedToolCallBeforeLaterText(
 				ID:    "call_1",
 				Type:  "function",
 				Function: schema.FunctionCall{
-					Name:      "search_images",
+					Name:      "update_tasks_manifest",
 					Arguments: `{"query":"world map"`,
 				},
 			}},
