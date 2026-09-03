@@ -38,7 +38,7 @@ func TestTaskGenerationQueryRetainsInitialTopicAndFollowup(t *testing.T) {
 	}
 }
 
-func TestHandleMessageManualPPTModeOverridesGenericChatRoute(t *testing.T) {
+func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	previousDB := db.DB
 	db.DB = nil
 	t.Cleanup(func() { db.DB = previousDB })
@@ -50,7 +50,7 @@ func TestHandleMessageManualPPTModeOverridesGenericChatRoute(t *testing.T) {
 		textModelFactory: func(context.Context) (interface {
 			Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
 		}, error) {
-			return fakeCreateRouteModel{response: `{"intent":"chat","mode":"chat","action":"reply","confidence":0.95,"reply":"普通回答"}`}, nil
+			return fakeCreateRouteModel{response: `{"intent":"plan","mode":"pptagent","action":"save_plan","needs_confirmation":true,"confidence":0.95,"reply":"普通回答"}`}, nil
 		},
 	}
 	recorder := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestHandleMessageManualPPTModeOverridesGenericChatRoute(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &route); err != nil {
 		t.Fatal(err)
 	}
-	if route.Intent != messageIntentCreate || route.Mode != messageModePPTAgent || route.Action != messageActionPrepareCreate {
+	if route.Intent != messageIntentCreate || route.Mode != messageModePPTAgent || route.Action != messageActionPrepareCreate || route.NeedsConfirmation || route.Reply != "" {
 		t.Fatalf("manual PPT route = %#v, want create/pptagent/prepare_create", route)
 	}
 }

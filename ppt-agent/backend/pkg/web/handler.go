@@ -281,10 +281,13 @@ func (s *Server) handleMessage(c *gin.Context) {
 	// selected, it is an explicit user instruction to prepare the next message
 	// as a new deck even when the natural-language classifier sees a generic
 	// topic rather than the word “PPT”.
-	if strings.EqualFold(strings.TrimSpace(req.ManualMode), messageModePPTAgent) && route.Intent == messageIntentChat {
+	if strings.EqualFold(strings.TrimSpace(req.ManualMode), messageModePPTAgent) {
 		route.Mode = messageModePPTAgent
 		route.Intent = messageIntentCreate
 		route.Action = messageActionPrepareCreate
+		route.NeedsConfirmation = false
+		route.MissingFields = nil
+		route.Reply = ""
 		route.Reason = firstCreateRouteText(route.Reason, "用户手动选择 PPT Agent，按创建准备处理")
 	}
 	if route.Intent == messageIntentPlan {

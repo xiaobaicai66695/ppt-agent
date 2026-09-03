@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { FileStack, LayoutDashboard, LogOut, Menu, PanelLeftClose, Plus, Settings2, Sparkles } from 'lucide-vue-next'
+import { FileStack, LayoutDashboard, LogOut, Menu, Moon, PanelLeftClose, Plus, Settings2, Sparkles, Sun } from 'lucide-vue-next'
 import { clearToken, logout } from '../api'
+import AccountSettingsDialog from './AccountSettingsDialog.vue'
+import { useTheme } from '../composables/useTheme'
 
 defineProps<{ title?: string; subtitle?: string; email?: string; guest?: boolean }>()
 const emit = defineEmits<{ new: []; compose: [] }>()
 const router = useRouter()
 const open = ref(true)
+const accountOpen = ref(false)
+const { isLight, toggleTheme } = useTheme()
 async function signOut() { await logout(); clearToken(); router.push('/') }
 </script>
 
@@ -23,6 +27,8 @@ async function signOut() { await logout(); clearToken(); router.push('/') }
       </nav>
       <div class="nav-bottom">
         <div class="identity"><span class="avatar">{{ guest ? 'G' : (email || 'U').slice(0, 1).toUpperCase() }}</span><span><b>{{ guest ? '访客工作区' : (email || '创作账户') }}</b><small>{{ guest ? '退出后无法恢复' : '已连接' }}</small></span></div>
+        <button class="quiet-action" @click="accountOpen = true"><Settings2 :size="16" />模型 Key</button>
+        <button class="quiet-action" @click="toggleTheme"><Sun v-if="!isLight" :size="16" /><Moon v-else :size="16" />{{ isLight ? '切换深色' : '切换亮色' }}</button>
         <button class="quiet-action" @click="signOut"><LogOut :size="16" />退出</button>
       </div>
     </aside>
@@ -30,6 +36,7 @@ async function signOut() { await logout(); clearToken(); router.push('/') }
       <header class="studio-header"><button class="icon-button" :aria-label="open ? '收起导航' : '展开导航'" @click="open = !open"><PanelLeftClose v-if="open" :size="19" /><Menu v-else :size="19" /></button><div><h1>{{ title }}</h1><p v-if="subtitle">{{ subtitle }}</p></div><slot name="header" /></header>
       <slot />
     </main>
+    <AccountSettingsDialog v-if="accountOpen" @close="accountOpen = false" />
   </div>
 </template>
 
@@ -50,5 +57,6 @@ nav a:hover, .quiet-action:hover { color: #ecf6f8; background: rgba(132,184,197,
 .identity { display: flex; gap: 9px; padding: 0 8px 16px; align-items: center; font-size: 12px; white-space: nowrap; }
 .identity b, .identity small { display: block; overflow: hidden; text-overflow: ellipsis; max-width: 168px; }.identity small { margin-top: 2px; color: #8095a3; }.avatar { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid #497283; border-radius: 50%; color: #92f0db; font-family: 'DM Mono', monospace; }
 .quiet-action { width: 100%; border: 0; background: none; text-align: left; }.studio-main { min-width: 0; }.studio-header { min-height: 78px; padding: 16px 30px; display: flex; gap: 13px; align-items: center; border-bottom: 1px solid rgba(213,235,245,.1); }.studio-header h1 { margin: 0; font-size: 16px; font-weight: 700; }.studio-header p { margin: 2px 0 0; font-size: 12px; color: #8ca2b1; }.icon-button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid rgba(213,235,245,.14); border-radius: 7px; color: #aec2cd; background: transparent; }
+.studio-main { min-height:0; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
 @media (max-width: 760px) { .studio-shell { grid-template-columns: 0 minmax(0,1fr); }.studio-nav { opacity: 0; pointer-events: none; }.studio-header { padding: 14px 18px; } }
 </style>
