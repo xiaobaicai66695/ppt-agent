@@ -1,0 +1,136 @@
+[
+  {
+    "id": "chat-validation-yunnan-materials",
+    "name": "云南行程材料整合",
+    "input": {
+      "message": "给这个行程补充资料参考",
+      "conversation_context": "用户：云南雨季自驾七天路线\n助手：已按大理、丽江和香格里拉串联\n用户：给这个行程补充资料参考",
+      "web_results": [
+        {"title": "云南雨季道路提示", "url": "https://example.com/yunnan-rainy-road", "description": "建议关注山区降雨、塌方预警和日间行车。"},
+        {"title": "高原住宿准备", "url": "https://example.com/yunnan-altitude", "description": "说明保暖、补水和行程节奏。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["云南雨季道路提示", "https://example.com/yunnan-rainy-road"],
+    "must_mention_any": ["云南", "雨季", "道路"],
+    "must_not": ["我可以先按普通对话回答"],
+    "min_links": 2
+  },
+  {
+    "id": "chat-validation-energy-sources",
+    "name": "储能资料来源",
+    "input": {
+      "message": "查一下长时储能项目的资料来源",
+      "web_results": [
+        {"title": "长时储能技术路线", "url": "https://example.com/long-duration-storage", "description": "比较电化学、热储能和机械储能。"},
+        {"title": "储能项目安全实践", "url": "https://example.com/storage-safety", "description": "包括选址、热管理和运维演练。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["长时储能技术路线", "https://example.com/long-duration-storage"],
+    "must_mention_any": ["储能", "安全", "技术"],
+    "must_not": ["我可以先按普通对话回答"],
+    "min_links": 2
+  },
+  {
+    "id": "chat-validation-image-clean",
+    "name": "图片坏地址过滤",
+    "input": {
+      "message": "给我森林徒步的视觉参考",
+      "images": [
+        {"preview_url": "https://images.example/forest-trail.jpg", "attribution": "林间步道", "photographer": "Kai Wu", "photographer_url": "https://unsplash.com/@kaiwu"},
+        {"preview_url": "https://bad image.example/forest.jpg", "attribution": "坏图"}
+      ]
+    },
+    "model_reply": "可参考纵深步道、人物比例和晨雾层次来确定视觉方向。",
+    "must_have": ["![林间步道](https://images.example/forest-trail.jpg)"],
+    "must_mention_any": ["森林", "步道", "视觉"],
+    "must_not": ["bad image.example"],
+    "min_links": 2
+  },
+  {
+    "id": "chat-validation-image-service-error",
+    "name": "图片服务错误透明降级",
+    "input": {"message": "帮我找适合海报的极光照片", "image_search_error": "upstream timeout"},
+    "model_reply": "可先确定极光的冷色、留白和主体位置，再补充可用图片。",
+    "must_have": ["当前未检索到图片候选：图片搜索能力未配置或暂不可用。"],
+    "must_mention_any": ["极光", "冷色", "海报"],
+    "must_not": ["!["],
+    "min_links": 0
+  },
+  {
+    "id": "chat-validation-product-explanation",
+    "name": "产品术语解释",
+    "input": {"message": "留存率和复购率有什么区别"},
+    "model_reply": "留存率看用户在一段时间后是否仍回来使用，复购率看已经购买过的用户是否再次购买；两者分别反映使用黏性和交易重复性。",
+    "must_have": ["留存率", "复购率"],
+    "must_mention_any": ["用户", "购买", "使用"],
+    "must_not": ["已创建任务"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-validation-presentation-advice",
+    "name": "表达建议",
+    "input": {"message": "面对高管时怎样把风险讲清楚"},
+    "model_reply": "先给出风险结论和影响范围，再说明触发条件、已采取措施和需要高管决策的选项，避免只罗列问题。",
+    "must_have": ["风险"],
+    "must_mention_any": ["结论", "影响", "决策"],
+    "must_not": ["已经开始生成"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-validation-history-followup",
+    "name": "历史上下文延续",
+    "input": {
+      "message": "那预算应该重点留给哪里",
+      "conversation_context": "用户：社区读书会要办三场线下活动\n助手：可按场地、嘉宾和传播拆解\n用户：那预算应该重点留给哪里"
+    },
+    "model_reply": "三场社区读书会应优先保障场地与嘉宾体验，再按目标人群分配传播预算；同时预留现场执行和临时变更的缓冲。",
+    "must_have": ["读书会"],
+    "must_mention_any": ["场地", "嘉宾", "传播"],
+    "must_not": ["已创建任务"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-validation-source-host",
+    "name": "来源 host 校验",
+    "input": {
+      "message": "补充无障碍设计规范的资料",
+      "web_results": [
+        {"title": "无障碍设计要点", "url": "https://example.com/accessibility-basics", "description": "涵盖可达路径、触觉提示和信息可读性。"},
+        {"title": "无 host 地址", "url": "https:///missing-host", "description": "必须忽略。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["无障碍设计要点", "https://example.com/accessibility-basics"],
+    "must_mention_any": ["无障碍", "可达", "信息"],
+    "must_not": ["missing-host", "我可以先按普通对话回答"],
+    "min_links": 1
+  },
+  {
+    "id": "chat-validation-data-literacy",
+    "name": "数据解读建议",
+    "input": {"message": "怎么判断一张趋势图有没有误导性"},
+    "model_reply": "先检查坐标轴是否截断、时间窗口是否有选择性、基数是否变化，以及是否同时给出了绝对量和比例。",
+    "must_have": ["坐标轴"],
+    "must_mention_any": ["时间", "基数", "比例"],
+    "must_not": ["已创建任务"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-validation-current-policy",
+    "name": "当前政策资料线索",
+    "input": {
+      "message": "给我近期绿色建筑政策的资料线索",
+      "web_results": [
+        {"title": "绿色建筑评价更新", "url": "https://example.com/green-building-rating", "description": "包括节能、材料和运行管理指标。"},
+        {"title": "城市绿色更新项目", "url": "https://example.com/green-renewal", "description": "整理改造项目的融资与验收关注点。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["绿色建筑评价更新", "https://example.com/green-building-rating"],
+    "must_mention_any": ["绿色建筑", "节能", "更新"],
+    "must_not": ["我可以先按普通对话回答"],
+    "min_links": 2
+  }
+]

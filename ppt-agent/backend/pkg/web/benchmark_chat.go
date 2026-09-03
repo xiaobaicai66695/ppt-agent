@@ -52,6 +52,9 @@ func BuildChatReplyForBenchmark(ctx context.Context, input ChatBenchmarkInput, m
 	augmentations := chatAugmentations{
 		query: chatSearchQuery(input.Message, input.ConversationContext),
 	}
+	if conversation := compactChatConversationContext(input.ConversationContext); conversation != "" {
+		augmentations.promptParts = append(augmentations.promptParts, "conversation_context:\n"+conversation)
+	}
 	for _, result := range input.WebResults {
 		augmentations.webResults = append(augmentations.webResults, search.SearchResult{
 			Title: result.Title, URL: result.URL, Description: result.Description, Source: result.Source,

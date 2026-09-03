@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 )
 
@@ -18,6 +19,14 @@ func TestChatSearchQueryUsesPriorTopicForSupplementalMaterials(t *testing.T) {
 	query := chatSearchQuery("给我补充些材料", "用户：青甘大环线旅游攻略\n助手：我可以补充路线和注意事项\n用户：给我补充些材料")
 	if query != "青甘大环线旅游攻略 给我补充些材料" {
 		t.Fatalf("query = %q", query)
+	}
+}
+
+func TestCompactChatConversationContextKeepsRecentTopic(t *testing.T) {
+	context := strings.Repeat("旧内容", 900) + "\n用户：厦门三天亲子行的交通安排"
+	got := compactChatConversationContext(context)
+	if !strings.Contains(got, "厦门三天亲子行") || len([]rune(got)) > 2400 {
+		t.Fatalf("compact context lost recent topic or exceeded bound: runes=%d", len([]rune(got)))
 	}
 }
 
@@ -76,6 +85,27 @@ func TestChatFallbackExplainsUnavailableImageSearchWithoutFakePreview(t *testing
 	})
 	if !strings.Contains(got, "尚未配置图片搜索") {
 		t.Fatalf("fallback = %q", got)
+	}
+}
+
+func TestChatImageResultsMapsUnsplashAttribution(t *testing.T) {
+	results := chatImageResults(&unsplash.SearchResponse{Results: []unsplash.Photo{{
+		ID:    "photo-1",
+		URLs:  unsplash.PhotoURLs{Regular: "https://images.unsplash.com/photo-1", Small: "https://images.unsplash.com/photo-1-small"},
+		Links: unsplash.PhotoLinks{HTML: "https://unsplash.com/photos/photo-1"},
+		User:  unsplash.User{Name: "Example Photographer", Links: unsplash.UserLinks{HTML: "https://unsplash.com/@example"}},
+	}}})
+	if len(results) != 1 {
+		t.Fatalf("results = %#v", results)
+	}
+	got := results[0]
+	if got.PreviewURL != "https://images.unsplash.com/photo-1-small" || got.Attribution != "Photo by Example Photographer on Unsplash" {
+		t.Fatalf("mapped image = %#v", got)
+	}
+	for _, value := range []string{got.SourceURL, got.PhotographerURL} {
+		if !strings.Contains(value, "utm_source=ppt_agent") || !strings.Contains(value, "utm_medium=referral") {
+			t.Fatalf("missing Unsplash attribution tags: %q", value)
+		}
 	}
 }
 

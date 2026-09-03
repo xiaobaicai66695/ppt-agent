@@ -172,18 +172,12 @@ func runWebMode(pwd, skillsDir, addr string) {
 		TextModelFactory: func(ctx context.Context) (interface {
 			Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 		}, error) {
-			routingModel := strings.TrimSpace(os.Getenv("ARK_ROUTER_MODEL"))
-			if routingModel == "" {
-				routingModel = strings.TrimSpace(os.Getenv("ARK_MODEL"))
-			}
 			credential := resolveUserModelCredentialFromContext(ctx)
 			opts := []agentutils.ChatModelOption{
+				agentutils.WithTextModel(),
 				agentutils.WithMaxTokens(1024),
 				agentutils.WithTemperature(0),
 				agentutils.WithDisableThinking(true),
-			}
-			if credential.Provider == "" || modelcompat.NormalizeProvider(credential.Provider) == modelcompat.ProviderArk {
-				opts = append([]agentutils.ChatModelOption{agentutils.WithModel(routingModel)}, opts...)
 			}
 			if credential.APIKey != "" {
 				opts = append(opts, agentutils.WithAPIKeyForProvider(credential.Provider, credential.APIKey))
@@ -410,6 +404,9 @@ func resolveUserModelCredentialFromContext(ctx context.Context) userModelCredent
 
 func resolveUserModelCredential(userID uint) userModelCredential {
 	provider := modelcompat.ProviderArk
+	if configured := strings.TrimSpace(os.Getenv("MODEL_PRIMARY_PROVIDER")); configured != "" {
+		provider = modelcompat.NormalizeProvider(configured)
+	}
 	accountKey := ""
 	if userID > 0 && db.DB != nil {
 		record, err := db.GetUserAPIKey(userID)

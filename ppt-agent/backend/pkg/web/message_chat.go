@@ -24,10 +24,6 @@ type chatImageResult struct {
 	Attribution     string `json:"attribution"`
 }
 
-type chatImageSearchResponse struct {
-	Photos []chatImageResult `json:"photos"`
-}
-
 type chatAugmentations struct {
 	promptParts []string
 	webResults  []search.SearchResult
@@ -134,6 +130,12 @@ func (s *Server) collectChatAugmentations(ctx context.Context, message, conversa
 		return chatAugmentations{}
 	}
 	augmentations := chatAugmentations{}
+	if conversation := compactChatConversationContext(conversationContext); conversation != "" {
+		// Follow-up chat requests often omit the subject (for example "那预算"
+		// or "再补充一条"). Keep a bounded recent context in the text-model
+		// prompt so direct answers remain grounded even without web retrieval.
+		augmentations.promptParts = append(augmentations.promptParts, "conversation_context:\n"+conversation)
+	}
 	query := chatSearchQuery(message, conversationContext)
 	augmentations.query = query
 	if forceWebSearch || chatNeedsWebSearch(message) {
@@ -159,27 +161,51 @@ func (s *Server) collectChatAugmentations(ctx context.Context, message, conversa
 		} else if client, err := unsplash.NewClientFromEnv(); err == nil {
 			imageCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
-			out, runErr := tools.NewImageSearchTool(client, "").InvokableRun(imageCtx, mustJSON(map[string]any{
-				"query":         query,
-				"asset_purpose": "scene",
-				"per_page":      2,
-				"download":      false,
-				"reason":        "闲聊回答需要图片候选作为参考",
-			}))
-			if runErr != nil {
-				augmentations.promptParts = append(augmentations.promptParts, "image_search_error: "+runErr.Error())
-			} else if strings.TrimSpace(out) != "" {
-				augmentations.promptParts = append(augmentations.promptParts, "image_search_result:\n"+out)
-				var response chatImageSearchResponse
-				if json.Unmarshal([]byte(out), &response) == nil {
-					augmentations.images = append(augmentations.images, response.Photos...)
-				}
+			response, searchErr := client.Search(imageCtx, unsplash.SearchOptions{
+				Query:         query,
+				ContentFilter: "high",
+				OrderBy:       "relevant",
+				PerPage:       2,
+			})
+			if searchErr != nil {
+				augmentations.promptParts = append(augmentations.promptParts, "image_search_error: "+searchErr.Error())
+			} else {
+				augmentations.images = append(augmentations.images, chatImageResults(response)...)
 			}
 		} else {
 			augmentations.promptParts = append(augmentations.promptParts, "image_search_error: "+err.Error())
 		}
 	}
 	return augmentations
+}
+
+func chatImageResults(response *unsplash.SearchResponse) []chatImageResult {
+	if response == nil || len(response.Results) == 0 {
+		return nil
+	}
+	results := make([]chatImageResult, 0, min(len(response.Results), 2))
+	for _, photo := range response.Results[:min(len(response.Results), 2)] {
+		photographer := strings.TrimSpace(photo.User.Name)
+		if photographer == "" {
+			photographer = strings.TrimSpace(photo.User.Username)
+		}
+		results = append(results, chatImageResult{
+			PreviewURL:      firstNonEmpty(photo.URLs.Small, photo.URLs.Regular, photo.URLs.Thumb),
+			ImageURL:        firstNonEmpty(photo.URLs.Regular, photo.URLs.Full, photo.URLs.Small),
+			SourceURL:       unsplash.AttributionURL(photo.Links.HTML),
+			Photographer:    photographer,
+			PhotographerURL: unsplash.AttributionURL(photo.User.Links.HTML),
+			Attribution:     chatImageAttribution(photographer),
+		})
+	}
+	return results
+}
+
+func chatImageAttribution(photographer string) string {
+	if photographer == "" {
+		return "Photo on Unsplash"
+	}
+	return "Photo by " + photographer + " on Unsplash"
 }
 
 func chatNeedsWebSearch(message string) bool {
@@ -209,6 +235,19 @@ func compactSearchQuery(message string) string {
 		return string(runes[:80])
 	}
 	return message
+}
+
+func compactChatConversationContext(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	const maxRunes = 2400
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[len(runes)-maxRunes:])
 }
 
 func chatSearchQuery(message, conversationContext string) string {

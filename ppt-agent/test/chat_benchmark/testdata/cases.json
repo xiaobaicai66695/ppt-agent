@@ -1,0 +1,142 @@
+[
+  {
+    "id": "chat-test-qinggan-materials",
+    "name": "青甘线路资料与图片降级",
+    "input": {
+      "message": "补充些材料和图片参考",
+      "conversation_context": "用户：青甘大环线旅游项目介绍\n助手：可以补充路线、季节和交通建议\n用户：补充些材料和图片参考",
+      "web_results": [
+        {"title": "青甘大环线自驾提示", "url": "https://example.com/qinggan-driving", "description": "覆盖青海湖、敦煌和祁连段的季节、交通与高反注意事项。"},
+        {"title": "青甘旅行季节建议", "url": "https://example.com/qinggan-season", "description": "建议按夏季花海、秋季气温和盐湖开放情况安排行程。"}
+      ],
+      "image_search_error": "未配置 UNSPLASH_ACCESS_KEY"
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["青甘大环线自驾提示", "https://example.com/qinggan-driving", "当前未检索到图片候选"],
+    "must_mention_any": ["青甘", "路线", "交通"],
+    "must_not": ["我可以先按普通对话回答", "!["],
+    "min_links": 2
+  },
+  {
+    "id": "chat-test-citywalk-sources",
+    "name": "城市漫步资料来源",
+    "input": {
+      "message": "帮我查一下苏州园林半日游的可靠资料来源",
+      "web_results": [
+        {"title": "苏州园林开放信息", "url": "https://example.com/suzhou-hours", "description": "整理预约、开放时间和交通入口。"},
+        {"title": "园林保护导览", "url": "https://example.com/suzhou-guide", "description": "介绍拙政园与留园的游览秩序。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["苏州园林开放信息", "https://example.com/suzhou-hours"],
+    "must_mention_any": ["苏州", "园林", "预约"],
+    "must_not": ["我可以先按普通对话回答"],
+    "min_links": 2
+  },
+  {
+    "id": "chat-test-source-sanitization",
+    "name": "坏链接与重复来源过滤",
+    "input": {
+      "message": "给我补充火星探测任务的资料来源",
+      "web_results": [
+        {"title": "火星探测任务概览", "url": "https://example.com/mars-overview", "description": "包含轨道器、着陆器和科学目标。"},
+        {"title": "重复链接", "url": "https://example.com/mars-overview", "description": "不应重复显示。"},
+        {"title": "损坏链接", "url": "https://bai jiahao.baidu.com/s?id=123", "description": "不应展示。"},
+        {"title": "危险链接", "url": "javascript:alert(1)", "description": "不应展示。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["火星探测任务概览", "https://example.com/mars-overview"],
+    "must_mention_any": ["火星", "探测", "科学"],
+    "must_not": ["bai jiahao", "javascript:", "我可以先按普通对话回答"],
+    "min_links": 1
+  },
+  {
+    "id": "chat-test-image-attribution",
+    "name": "图片署名与预览",
+    "input": {
+      "message": "给我两张咖啡店空间设计的图片参考",
+      "images": [
+        {"preview_url": "https://images.example/cafe-interior.jpg", "attribution": "暖色咖啡空间", "photographer": "Avery Lin", "photographer_url": "https://unsplash.com/@averylin"},
+        {"preview_url": "https://images.example/cafe-counter.jpg", "attribution": "吧台动线", "photographer": "Mina Zhao", "photographer_url": "https://unsplash.com/@minazhao"}
+      ]
+    },
+    "model_reply": "可以从暖色灯光、木质材料和吧台动线三个角度参考这两张图片。",
+    "must_have": ["![暖色咖啡空间](https://images.example/cafe-interior.jpg)", "摄影：[Avery Lin](https://unsplash.com/@averylin)"],
+    "must_mention_any": ["咖啡", "空间", "动线"],
+    "must_not": ["当前未检索到图片候选"],
+    "min_links": 4
+  },
+  {
+    "id": "chat-test-image-unavailable",
+    "name": "图片能力不可用说明",
+    "input": {"message": "找几张适合新能源工厂的照片", "image_search_error": "provider unavailable"},
+    "model_reply": "可先从厂房、设备与人员协同三个画面方向描述。",
+    "must_have": ["当前未检索到图片候选：图片搜索能力未配置或暂不可用。"],
+    "must_mention_any": ["新能源", "工厂", "画面"],
+    "must_not": ["!["],
+    "min_links": 0
+  },
+  {
+    "id": "chat-test-direct-concept",
+    "name": "直接解释概念",
+    "input": {"message": "用通俗的话解释什么是产品北极星指标"},
+    "model_reply": "北极星指标是最能代表用户持续获得核心价值的一项关键结果，用它帮助团队在众多局部指标中保持同一方向。",
+    "must_have": ["北极星指标"],
+    "must_mention_any": ["用户", "价值", "指标"],
+    "must_not": ["暂时无法调用普通对话模型"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-test-ppt-boundary",
+    "name": "闲聊不创建任务",
+    "input": {"message": "我想聊聊汇报开场应该怎么说"},
+    "model_reply": "可以先用结论或现场问题开场，再说明这次汇报要帮助听众做出的决定；需要时我也能帮你整理成开场提纲。",
+    "must_have": ["开场"],
+    "must_mention_any": ["结论", "问题", "决定"],
+    "must_not": ["已经开始生成", "已创建任务"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-test-context-followup",
+    "name": "上下文补全后续问题",
+    "input": {
+      "message": "再补充一条交通建议",
+      "conversation_context": "用户：我在规划厦门三天亲子行\n助手：已按海边与城市两条线建议安排\n用户：再补充一条交通建议"
+    },
+    "model_reply": "厦门三天亲子行可优先把同一天的景点安排在同一片区，短距离用地铁或出租车衔接，并为轮渡和高峰期预留缓冲时间。",
+    "must_have": ["厦门"],
+    "must_mention_any": ["交通", "地铁", "轮渡"],
+    "must_not": ["已创建任务"],
+    "min_links": 0
+  },
+  {
+    "id": "chat-test-markdown-label",
+    "name": "来源标题 Markdown 安全",
+    "input": {
+      "message": "补充海绵城市案例资料",
+      "web_results": [{"title": "[海绵城市] 实施手册", "url": "https://example.com/sponge-city", "description": "说明雨洪管理、透水铺装和调蓄空间。"}]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["https://example.com/sponge-city", "海绵城市"],
+    "must_mention_any": ["海绵城市", "雨洪", "调蓄"],
+    "must_not": ["[[海绵城市]"],
+    "min_links": 1
+  },
+  {
+    "id": "chat-test-recent-materials",
+    "name": "近期资料带来源",
+    "input": {
+      "message": "整理近期人工智能治理讨论的资料线索",
+      "web_results": [
+        {"title": "人工智能治理原则", "url": "https://example.com/ai-governance-principles", "description": "讨论透明度、责任划分和风险治理。"},
+        {"title": "高风险系统评估", "url": "https://example.com/ai-risk-assessment", "description": "覆盖数据、模型和部署后的持续评估。"}
+      ]
+    },
+    "model_reply": "我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。",
+    "must_have": ["人工智能治理原则", "https://example.com/ai-governance-principles"],
+    "must_mention_any": ["人工智能", "治理", "风险"],
+    "must_not": ["我可以先按普通对话回答"],
+    "min_links": 2
+  }
+]
