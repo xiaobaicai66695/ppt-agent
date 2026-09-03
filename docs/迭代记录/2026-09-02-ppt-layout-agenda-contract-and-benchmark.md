@@ -37,3 +37,10 @@
 - 图文正文面板内边距调整为 `0.50in × 0.46in`；短中篇正文在阅读区内轻微垂直居中，长文继续顶对齐以保留容量。
 - 图文正文增加 `0.25pt` 字间距并将行距由 `0.98` 放松至 `1.06`；只作用于 `image_text` 正文，不影响标题、目录和普通内容页。
 - 验证：组件回归 38 项通过、6 页本地 PPTX→PDF→PNG 目检无溢出；线上 skill 6 页渲染 smoke 成功。上线后 Web 进程 PID `1688027`，内网与公网 `/api/health` 均为 200，临时 smoke 文件已清理。
+
+## 背景图片默认强制
+
+- 新 DeckSpec 缺少 `visual_policy`、使用 `optional`、任一页面没有背景 `visual_intent`，或背景未记录 provider 与 `search_status=resolved/downloaded`，都会被预检拒绝。
+- `mode="none"` 只允许用户明确表示不需要背景图片，且必须在顶层写 `user_declined_background:true` 和 `decline_reason`；不再允许用单页 `clean_text_only` 规避搜索。
+- 独立 Unsplash CLI 会拒绝缺少每页背景视觉意图的 required deck；只有本地路径、Unsplash provider、搜索状态、来源和署名完整时才视为已完成，否则会执行搜索下载。
+- 验证：39 项 skill 单测、skill quick validation、严格 fixture 预检、6 页本地 PPTX→PDF→PNG 渲染以及远端单页严格预检/渲染 smoke 均通过。线上同步至 `/ppt/ppt-agent/skills` 和 `/ppt/skills`；新进程 PID `1745224`，内网和公网 health 均 200，临时 smoke 文件已清理。
