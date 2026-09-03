@@ -158,18 +158,21 @@ export function appendAssistantStreamContent(current: string, chunk: string): st
   if (existingTrimmed === incomingTrimmed) return existing;
   if (incoming.startsWith(existing)) {
     const suffix = incoming.slice(existing.length);
-    return suffix.trim() ? appendWithReadableBoundary(existing, suffix) : existing;
+    return suffix.trim() ? `${existing}${suffix}` : existing;
   }
   if (incomingTrimmed.startsWith(existingTrimmed)) {
     const suffix = cumulativeConversationSuffix(existingTrimmed, incomingTrimmed);
-    return suffix !== null && suffix.trim() ? appendWithReadableBoundary(existing, suffix) : existing;
+    return suffix !== null && suffix.trim() ? `${existing}${suffix}` : existing;
   }
   const incomingNormalized = normalizeConversationContent(incomingTrimmed);
   const existingNormalized = normalizeConversationContent(existingTrimmed);
   if (incomingNormalized.length >= 20 && existingNormalized.includes(incomingNormalized)) {
     return existing;
   }
-  return appendWithReadableBoundary(existing, incoming);
+  // SSE chunks are byte-for-byte pieces of one Markdown document. Adding a
+  // "readable" space here corrupts URLs, Markdown links, and image sources
+  // whenever a chunk cuts through an ASCII token.
+  return `${existing}${incoming}`;
 }
 
 export function runtimeAssistantOutputMessages(events: RuntimeEvent[]): ConversationMessage[] {
@@ -307,31 +310,12 @@ function cumulativeConversationSuffix(existing: string, incoming: string): strin
     suffixStart = index + 1;
   }
   if (matched !== existingNormalized.length) return null;
-  const suffix = incomingTrimmed.slice(suffixStart).trim();
+  // Preserve the original boundary whitespace from a cumulative snapshot.
+  // It is content, not presentation: dropping it would join normal words,
+  // while inventing it would damage URLs and Markdown destinations.
+  const suffix = incomingTrimmed.slice(suffixStart);
   if (!suffix.trim()) return '';
-  return shouldInsertASCIIWordSpace(existingTrimmed, suffix) ? ` ${suffix}` : suffix;
-}
-
-function appendWithReadableBoundary(existing: string, incoming: string): string {
-  return shouldInsertASCIIWordSpace(existing, incoming)
-    ? `${existing} ${incoming}`
-    : `${existing}${incoming}`;
-}
-
-function shouldInsertASCIIWordSpace(left: string, right: string): boolean {
-  const first = firstChar(right);
-  if (!first || /\s/.test(first) || !/[A-Za-z0-9]/.test(first)) return false;
-  const last = lastChar(left);
-  return !!last && /[A-Za-z0-9]/.test(last);
-}
-
-function firstChar(value: string): string {
-  return Array.from(value)[0] || '';
-}
-
-function lastChar(value: string): string {
-  const chars = Array.from(value);
-  return chars[chars.length - 1] || '';
+  return suffix;
 }
 
 export function nextReplayCursor(cachedEventID = 0, sessionBoundary = 0): number {
@@ -365,6 +349,7 @@ export interface InlineToolImagePreview {
   image_url?: string;
   source_url?: string;
   photographer?: string;
+  photographer_url?: string;
   attribution?: string;
   local_path?: string;
   description?: string;
@@ -918,6 +903,7 @@ function metadataImageResults(value: unknown): InlineToolImagePreview[] {
         image_url: text('image_url'),
         source_url: text('source_url'),
         photographer: text('photographer'),
+        photographer_url: text('photographer_url'),
         attribution: text('attribution'),
         local_path: text('local_path'),
         description: text('description'),
@@ -1395,8 +1381,11 @@ function normalizeDisplayMarkdown(markdown: string): string {
 
 function normalizeMarkdownTextSegment(segment: string): string {
   let text = segment;
-  text = text.replace(/(^|\n)(#{1,6})(?=\S)/g, '$1$2 ');
-  text = text.replace(/([^\n])\s+(#{1,6})\s*/g, '$1\n\n$2 ');
+  // The character after the marker must not be another '#'. Otherwise a
+  // valid "### heading" can backtrack as "##" + "# heading" and render the
+  // final hash as visible text.
+  text = text.replace(/(^|\n)(#{1,6})([^\s#])/g, '$1$2 $3');
+  text = text.replace(/([^\n])\s+(#{1,6})([^\s#])/g, '$1\n\n$2 $3');
   text = text.replace(/([：:])\s*(\d{1,2})[.、]\s*/g, '$1\n$2. ');
   text = text.replace(/([。！？；;])\s*(\d{1,2})[.、]\s*/g, '$1\n$2. ');
   text = text.replace(/([）)])\s*(\d{1,2})[.、]\s*/g, '$1\n$2. ');

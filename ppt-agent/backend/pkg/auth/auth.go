@@ -3,9 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -97,6 +100,43 @@ func LoginWithCode(email, code string) (token string, user *db.User, isNew bool,
 		return "", nil, false, fmt.Errorf("创建会话失败: %w", err)
 	}
 	return token, u, isNew, nil
+}
+
+// GuestLoginEnabled keeps the validation-stage entry point easy to turn off
+// without changing routes. It is enabled by default and can be disabled with
+// GUEST_LOGIN_ENABLED=false (or 0) when the service moves to a closed beta.
+func GuestLoginEnabled() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("GUEST_LOGIN_ENABLED")))
+	return value == "" || (value != "0" && value != "false" && value != "off")
+}
+
+// LoginAsGuest creates an isolated, non-recoverable account for the current
+// browser. Guest tasks keep normal owner checks and never share a task list.
+func LoginAsGuest() (token string, user *db.User, err error) {
+	if !GuestLoginEnabled() {
+		return "", nil, errors.New("访客体验暂未开放")
+	}
+	if db.DB == nil {
+		return "", nil, errors.New("认证数据库不可用")
+	}
+	entropy := make([]byte, 12)
+	if _, err := rand.Read(entropy); err != nil {
+		return "", nil, fmt.Errorf("创建访客会话失败: %w", err)
+	}
+	user = &db.User{Email: "guest-" + hex.EncodeToString(entropy) + "@guest.local"}
+	if err := db.DB.Create(user).Error; err != nil {
+		return "", nil, fmt.Errorf("创建访客会话失败: %w", err)
+	}
+	token, err = createToken(user)
+	if err != nil {
+		return "", nil, fmt.Errorf("创建访客会话失败: %w", err)
+	}
+	return token, user, nil
+}
+
+func IsGuestEmail(email string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	return strings.HasPrefix(email, "guest-") && strings.HasSuffix(email, "@guest.local")
 }
 
 // ── JWT token management ─────────────────────────────────────────────────

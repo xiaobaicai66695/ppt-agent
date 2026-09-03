@@ -75,6 +75,9 @@ func TestImageSearchToolReturnsStructuredResults(t *testing.T) {
 	if response.Photos[0].Attribution != "Photo by Photographer on Unsplash" {
 		t.Fatalf("attribution = %q", response.Photos[0].Attribution)
 	}
+	if response.Photos[0].PhotographerURL != "https://unsplash.com/@photographer?utm_medium=referral&utm_source=ppt_agent" {
+		t.Fatalf("photographer URL = %q", response.Photos[0].PhotographerURL)
+	}
 }
 
 func TestImageSearchToolRejectsDownloadPathEscape(t *testing.T) {

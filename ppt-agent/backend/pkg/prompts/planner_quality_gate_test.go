@@ -26,6 +26,9 @@ func TestPlannerPromptCarriesFirstDraftQualityGate(t *testing.T) {
 		"section_marker",
 		"440–840",
 		"clean_text_only",
+		"默认每页都必须先执行图片搜索",
+		"不得把文本、图表或卡片可表达当成跳过图片搜索的理由",
+		"搜索并下载外部背景",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("planner prompt missing %q", expected)

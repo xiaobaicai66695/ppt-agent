@@ -92,6 +92,21 @@ func (s *Server) handleLogin(c *gin.Context) {
 	c.JSON(http.StatusBadRequest, gin.H{"error": "请提供验证码或密码"})
 }
 
+func (s *Server) handleGuestLogin(c *gin.Context) {
+	token, user, err := auth.LoginAsGuest()
+	if err != nil {
+		status := http.StatusInternalServerError
+		if !auth.GuestLoginEnabled() {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"token": token, "id": user.ID, "email": user.Email, "is_guest": true, "is_admin": false,
+	})
+}
+
 func (s *Server) handleSetPassword(c *gin.Context) {
 	var req struct {
 		Password string `json:"password"`
@@ -122,6 +137,7 @@ func (s *Server) handleMe(c *gin.Context) {
 		"id":       uid,
 		"email":    email,
 		"is_admin": isAdminGin(c),
+		"is_guest": auth.IsGuestEmail(email),
 	})
 }
 

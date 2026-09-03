@@ -15,10 +15,9 @@ from generators import (
     new_presentation, save_presentation, save_slide,
     generate_title_slide, generate_section_divider, generate_content_slide,
     generate_quote_slide, generate_card_grid, generate_timeline,
-    generate_two_column, generate_image_text, generate_agenda,
+    generate_image_text, generate_agenda,
     generate_kpi_dashboard, generate_chart_slide, generate_swot_analysis,
-    generate_comparison_table,
-    generate_image_hero, generate_kanban, generate_brand_focus, generate_region_map,
+    generate_comparison_table, generate_kanban, generate_brand_focus,
 )
 ```
 
@@ -86,10 +85,10 @@ from generators import (
 
 ## 图片与动态排版
 
-- 需要图片时，在每页 `visual_intent` 中声明图片语义，并在渲染前解析为有效的本地路径；没有图片意图的页面可使用无图布局。
+- 默认每页先通过既有图片搜索路线获取素材，并在 `visual_intent` 中声明图片语义、于渲染前解析为有效的本地路径。仅用户明确要求无图、任务明确标记 `clean_text_only`，或搜索服务发生已记录的实际失败时，页面才可使用无图布局。
 - 图片搜索、下载、保存、来源和署名由调用方或宿主系统负责；生成器只消费本地文件，不直接访问图片 provider，也不读取离线 `assets/manifest.json`。
-- 若组件本身需要图片（如 `image_text`、`image_hero`），`asset_query` / `asset_subject` 必须在渲染前解析为真实 `local_path`；来源与署名应一并保留。
-- 文字 glyph、几何形状、卡片、图表和分隔线可作为无图页面的完整视觉表达；它们也可补充有图页面的信息层级。
+- 若组件本身需要图片（如 `image_text`），`asset_query` / `asset_subject` 必须在渲染前解析为真实 `local_path`；来源与署名应一并保留。
+- 文字 glyph、几何形状、卡片、图表和分隔线用于补充有图页面的信息层级；仅在已记录的无图豁免或素材失败时，才可构成完整无图页面。
 
 生成器辅助模块：
 
@@ -108,7 +107,7 @@ from generators import (
 - 目录、卡片、流程、时间线、KPI、列表等成组元素应先计算实际占用高度，再放入可用内容带。
 - 页面存在 `source` 时，工作台内容区必须在底部来源分隔线上方保留安全间距；图片、卡片、图表和正文面板都不得侵入来源栏。
 - 背景图片默认使用 `cover` 适配：按当前幻灯片真实宽高比等比铺满，允许边缘被适度裁剪，但底层图片锚点必须严格限制在幻灯片画布内。内部 helper 保留 `contain`，供明确要求完整显示原图时使用同图模糊扩展层补边；Planner 不控制该参数。
-- 所有带背景图的页面会做轻度降饱和、降对比和极低比例柔化；正文卡片则裁切对应背景区域，做约 58px 高半径模糊后仅叠加约 1%–13% 的中性浅层。因此背景照片持续可见、正文仍有稳定对比，且大面积信息页不会形成灰色实底。标题区根据顶部背景区域自动选择高对比反相文字。标题页使用全局虚化背景和居中内容，不使用左右分栏或底部色板。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径、透明度或固定色值。
+- 所有带背景图的页面会做降饱和、降对比和全局柔化；标题页、章节页与信息页分别使用更高的虚化级别。正文卡片则裁切对应背景区域，施加约 160px 高半径模糊并只保留约 16% 的透明度，再叠加极低比例中性浅层。因此背景照片持续可见、正文仍有稳定对比，且大面积信息页不会形成灰色实底。标题区根据顶部背景区域自动选择高对比反相文字。标题页使用全局虚化背景和居中内容，不使用左右分栏或底部色板。调用方只传递图片路径和语义构图，不控制适配方式、模糊半径、透明度或固定色值。
 - 生成器大改后必须跑全单页模板 smoke test：一页一个模板生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG，输出 contact sheet 和 JSON 报告。
 
 ## 生成器函数参数
@@ -189,26 +188,6 @@ from generators import (
 
 ### 对比与并列类
 
-#### generate_two_column — 双栏对比
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| title | str | `"CNN vs Transformer 对比"` |
-| left_header | str | `"CNN"` |
-| right_header | str | `"Transformer"` |
-| kicker | str | `"方案对比"` (可选，标题上方小标签) |
-| left_bullets | `List[str]` | `["擅长空间特征提取", ...]` (3-6条) |
-| right_bullets | `List[str]` | `["擅长全局依赖建模", ...]` (3-6条) |
-| left_intro | str | `"CNN是计算机视觉的基础架构..."` (可选，开篇引言段落) |
-| right_intro | str | `"Transformer在NLP领域取得突破..."` (可选，开篇引言段落) |
-| left_sections | `Dict[str, List[str]]` | `{"key_points": [...], "analysis": [...], "data": [...]}` (可选，多区块结构) |
-| right_sections | `Dict[str, List[str]]` | 同上 (可选，多区块结构) |
-| left_items | `List[dict]` | `[{"title": "...", "desc": "...", "metric": "↑ 30%"}, ...]` (可选，逐项卡片模式) |
-| right_items | `List[dict]` | 同上 (可选，逐项卡片模式) |
-| layout_variant | str | 新规划保持为空；对比结构优先用 `comparison_table` 或 `comparison_matrix` 组件表达 |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
-> **内容模式优先级**：优先使用 `left_sections` / `right_sections`（多区块模式），包含"核心要点"、"深度分析"、"数据支撑"等子区块；其次使用 `left_intro` + `left_bullets`（引言+要点模式）；最后才用纯 `left_bullets` / `right_bullets`。每条内容必须包含具体数字或事实，禁用模糊描述。
-
 #### generate_card_grid — 卡片阵列
 | 参数 | 类型 | 示例 |
 |------|------|------|
@@ -278,14 +257,6 @@ from generators import (
 | recommendation | str | `"综合考虑，建议选择 Azure ML"` (可选) |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
-#### generate_image_hero — 视觉冲击页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| title | str | `"震撼标题"` |
-| subtitle | str | `"副标题说明"` (可选) |
-| overlay_color | str | `"primary"` (可选，颜色主题) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
 #### generate_kanban — 看板进度页
 | 参数 | 类型 | 示例 |
 |------|------|------|
@@ -305,16 +276,6 @@ from generators import (
 | center_text | str | `"核心\n理念"` (中心圆文字) |
 | surrounding_points | `List[dict]` | `[{"title": "创新", "desc": "持续创新驱动发展"}, ...]` (围绕中心的点) |
 | principles | `List[dict]` | `[{"title": "原则1", "desc": "描述"}, ...]` (右侧面板内容) |
-| background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
-
-#### generate_region_map — 区域版图页
-| 参数 | 类型 | 示例 |
-|------|------|------|
-| kicker | str | `"市场布局"` |
-| title | str | `"全球业务版图"` |
-| subtitle | str | `"区域覆盖"` (可选) |
-| regions | `List[dict]` | `[{"label": "华东", "fill": "primary", "active": true}, ...]` (地图区域) |
-| regions_detail | `List[dict]` | `[{"title": "华东", "metrics": [{"label": "营收", "value": "12亿"}]}, ...]` (右侧详情) |
 | background | str | 显式本地图片路径；为空时不使用背景图，非空但无效时直接失败 |
 
 ## 常见错误

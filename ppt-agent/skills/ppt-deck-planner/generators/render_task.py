@@ -46,17 +46,14 @@ def main() -> int:
         generate_chart_slide,
         generate_comparison_table,
         generate_content_slide,
-        generate_image_hero,
         generate_image_text,
         generate_kanban,
         generate_kpi_dashboard,
         generate_quote_slide,
-        generate_region_map,
         generate_section_divider,
         generate_swot_analysis,
         generate_timeline,
         generate_title_slide,
-        generate_two_column,
     )
 
     manifest = read_json(work_dir / "tasks.json")
@@ -85,17 +82,14 @@ def main() -> int:
         "chart_slide": generate_chart_slide,
         "comparison_table": generate_comparison_table,
         "content_slide": generate_content_slide,
-        "image_hero": generate_image_hero,
         "image_text": generate_image_text,
         "kanban": generate_kanban,
         "kpi_dashboard": generate_kpi_dashboard,
         "quote_slide": generate_quote_slide,
-        "region_map": generate_region_map,
         "section_divider": generate_section_divider,
         "swot_analysis": generate_swot_analysis,
         "timeline": generate_timeline,
         "title_slide": generate_title_slide,
-        "two_column": generate_two_column,
     }
 
     prs = new_presentation(palette=palette)
@@ -212,20 +206,6 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
             "source": source,
             "components": components,
         }
-    if content_type == "two_column":
-        left, right = split_items(items, summary)
-        headers = extract_headers(plan, ["左侧", "右侧"])
-        return {
-            "title": title,
-            "left_header": headers[0],
-            "right_header": headers[1],
-            "left_bullets": left,
-            "right_bullets": right,
-            "layout_variant": layout_variant,
-            "kicker": plan.get("kicker", "对比"),
-            "source": source,
-            "components": components,
-        }
     if content_type == "image_text":
         return {
             "title": title,
@@ -267,7 +247,7 @@ def build_params(content_type: str, task: dict[str, Any], manifest: dict[str, An
         params = timeline_params(title, summary, plan, cards, source)
         params["components"] = components
         return params
-    if content_type in {"image_hero", "swot_analysis", "kanban", "brand_focus", "region_map"}:
+    if content_type in {"swot_analysis", "kanban", "brand_focus"}:
         return {
             "title": title,
             "subtitle": summary,
@@ -484,18 +464,6 @@ def split_items(items: list[str], fallback: str) -> tuple[list[str], list[str]]:
     values = ensure_items(items, fallback, 6)
     mid = max(1, len(values) // 2)
     return values[:mid], values[mid:] or values[:mid]
-
-
-def extract_headers(plan: dict[str, Any], fallback: list[str]) -> list[str]:
-    headers = [
-        clean_text(component.get("title"))
-        for component in semantic_components(plan)
-        if component.get("title")
-    ]
-    headers = [h for h in headers if h]
-    while len(headers) < len(fallback):
-        headers.append(fallback[len(headers)])
-    return headers[: len(fallback)]
 
 
 def ensure_items(items: list[str], fallback: str, count: int) -> list[str]:

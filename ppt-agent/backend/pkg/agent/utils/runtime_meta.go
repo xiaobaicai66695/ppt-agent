@@ -1155,16 +1155,17 @@ func extractImageSearchResults(raw string, limit int) ([]map[string]any, []strin
 		AssetPurpose string `json:"asset_purpose"`
 		AssetQuery   string `json:"asset_query"`
 		Photos       []struct {
-			ID             string `json:"id"`
-			Description    string `json:"description"`
-			AltDescription string `json:"alt_description"`
-			ImageURL       string `json:"image_url"`
-			PreviewURL     string `json:"preview_url"`
-			SourceURL      string `json:"source_url"`
-			Photographer   string `json:"photographer"`
-			Attribution    string `json:"attribution"`
-			LocalPath      string `json:"local_path"`
-			DownloadError  string `json:"download_error"`
+			ID              string `json:"id"`
+			Description     string `json:"description"`
+			AltDescription  string `json:"alt_description"`
+			ImageURL        string `json:"image_url"`
+			PreviewURL      string `json:"preview_url"`
+			SourceURL       string `json:"source_url"`
+			Photographer    string `json:"photographer"`
+			PhotographerURL string `json:"photographer_url"`
+			Attribution     string `json:"attribution"`
+			LocalPath       string `json:"local_path"`
+			DownloadError   string `json:"download_error"`
 		} `json:"photos"`
 	}
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -1175,16 +1176,17 @@ func extractImageSearchResults(raw string, limit int) ([]map[string]any, []strin
 	seenURLs := map[string]struct{}{}
 	for _, photo := range parsed.Photos {
 		item := map[string]any{
-			"id":            truncateString(strings.TrimSpace(photo.ID), 80),
-			"provider":      truncateString(strings.TrimSpace(parsed.Provider), 40),
-			"asset_purpose": truncateString(strings.TrimSpace(parsed.AssetPurpose), 40),
-			"asset_query":   truncateString(strings.TrimSpace(parsed.AssetQuery), 180),
-			"preview_url":   truncateString(strings.TrimSpace(firstRuntimeString(photo.PreviewURL, photo.ImageURL)), 240),
-			"image_url":     truncateString(strings.TrimSpace(photo.ImageURL), 240),
-			"source_url":    truncateString(strings.TrimSpace(photo.SourceURL), 240),
-			"photographer":  truncateString(strings.TrimSpace(photo.Photographer), 120),
-			"attribution":   truncateString(strings.TrimSpace(photo.Attribution), 180),
-			"local_path":    truncateString(strings.TrimSpace(photo.LocalPath), 240),
+			"id":               truncateString(strings.TrimSpace(photo.ID), 80),
+			"provider":         truncateString(strings.TrimSpace(parsed.Provider), 40),
+			"asset_purpose":    truncateString(strings.TrimSpace(parsed.AssetPurpose), 40),
+			"asset_query":      truncateString(strings.TrimSpace(parsed.AssetQuery), 180),
+			"preview_url":      truncateString(strings.TrimSpace(firstRuntimeString(photo.PreviewURL, photo.ImageURL)), 240),
+			"image_url":        truncateString(strings.TrimSpace(photo.ImageURL), 240),
+			"source_url":       truncateString(strings.TrimSpace(photo.SourceURL), 240),
+			"photographer":     truncateString(strings.TrimSpace(photo.Photographer), 120),
+			"photographer_url": truncateString(strings.TrimSpace(photo.PhotographerURL), 240),
+			"attribution":      truncateString(strings.TrimSpace(photo.Attribution), 180),
+			"local_path":       truncateString(strings.TrimSpace(photo.LocalPath), 240),
 		}
 		if strings.TrimSpace(photo.Description) != "" || strings.TrimSpace(photo.AltDescription) != "" {
 			item["description"] = truncateString(strings.TrimSpace(firstRuntimeString(photo.Description, photo.AltDescription)), 180)

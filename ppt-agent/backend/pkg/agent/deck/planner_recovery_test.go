@@ -12,7 +12,7 @@ func TestRecoverMissingPlannerManifestFromThoughtOutput(t *testing.T) {
 	skillsDir := t.TempDir()
 
 	output := `{
-"thought": "规划 8 页桂林介绍 PPT：\n1. 封面页 (title_slide)\n2. 目录页 (agenda)\n3. 章节1：山水桂林 (section_divider)\n4. 桂林概况 (image_text)\n5. 核心景点 (card_grid)\n6. 章节2：文化美食 (section_divider)\n7. 文化与美食 (two_column)\n8. 旅行贴士与总结 (summary_slide)\n\n背景素材：landscape（同类型页面复用）"
+"thought": "规划 8 页桂林介绍 PPT：\n1. 封面页 (title_slide)\n2. 目录页 (agenda)\n3. 章节1：山水桂林 (section_divider)\n4. 桂林概况 (image_text)\n5. 核心景点 (card_grid)\n6. 章节2：文化美食 (section_divider)\n7. 文化与美食 (content_slide)\n8. 旅行贴士与总结 (content_slide)\n\n背景素材：landscape（同类型页面复用）"
 }`
 	cfg := &PPTTaskConfig{
 		WorkDir:   workDir,
@@ -57,7 +57,7 @@ func TestPlannerScratchThoughtFormatsForUser(t *testing.T) {
 	if isPlannerScratchThought(`{"message":"用户可见内容"}`) {
 		t.Fatal("ordinary JSON should remain visible")
 	}
-	visible := plannerVisibleThought(`{"thought":"规划 3 页延安介绍 PPT：\n1. 封面页 (title_slide)\n2. 革命历史 (image_text)\n3. 总结 (summary_slide)\n\n背景素材：historical site"}`)
+	visible := plannerVisibleThought(`{"thought":"规划 3 页延安介绍 PPT：\n1. 封面页 (title_slide)\n2. 革命历史 (image_text)\n3. 总结 (content_slide)\n\n背景素材：historical site"}`)
 	if visible == "" || visible == `{"thought":"内部规划"}` {
 		t.Fatalf("thought should be formatted for the user, got %q", visible)
 	}

@@ -140,6 +140,9 @@ func TestDownloadTracksAndWritesImage(t *testing.T) {
 	if asset.LocalPath == "" || asset.Attribution != "Photo by 摄影师 on Unsplash" {
 		t.Fatalf("unexpected asset metadata: %#v", asset)
 	}
+	if asset.PhotographerURL != "https://unsplash.com/@photographer?utm_medium=referral&utm_source=ppt_agent" {
+		t.Fatalf("photographer URL = %q", asset.PhotographerURL)
+	}
 	content, err := os.ReadFile(asset.LocalPath)
 	if err != nil {
 		t.Fatal(err)
@@ -149,5 +152,14 @@ func TestDownloadTracksAndWritesImage(t *testing.T) {
 	}
 	if filepath.Ext(asset.LocalPath) != ".jpg" {
 		t.Fatalf("downloaded extension = %q", filepath.Ext(asset.LocalPath))
+	}
+}
+
+func TestAttributionURLOnlyTagsUnsplashLinks(t *testing.T) {
+	if got := AttributionURL("https://unsplash.com/@alice?foo=bar"); got != "https://unsplash.com/@alice?foo=bar&utm_medium=referral&utm_source=ppt_agent" {
+		t.Fatalf("Unsplash attribution URL = %q", got)
+	}
+	if got := AttributionURL("https://example.com/profile"); got != "https://example.com/profile" {
+		t.Fatalf("non-Unsplash URL = %q", got)
 	}
 }

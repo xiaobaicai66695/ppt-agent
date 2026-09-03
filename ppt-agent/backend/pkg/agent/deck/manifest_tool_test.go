@@ -229,13 +229,13 @@ func TestPlannerManifestToolNormalizesAgendaBeforePreflight(t *testing.T) {
 	}
 }
 
-func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.T) {
+func TestPlannerManifestToolNormalizesKPIDashboardAnchorBeforePreflight(t *testing.T) {
 	workDir := t.TempDir()
 	planner := newPlannerManifestTool(workDir, nil, "国际局势分析")
 
 	result, err := planner.InvokableRun(context.Background(), `{
 		"mode":"initialize","title":"国际局势分析","tasks":[{
-			"page_index":4,"title":"冲突数量上升","content_type":"stat_slide",
+			"page_index":4,"title":"冲突数量上升","content_type":"kpi_dashboard",
 			"content_plan":{
 				"summary":"关键数字说明安全风险没有随外交斡旋自然降温。",
 				"slide_intent":"用指标建立后续冲突分析的事实基线。",
@@ -251,14 +251,14 @@ func TestPlannerManifestToolNormalizesStatSlideAnchorBeforePreflight(t *testing.
 		t.Fatal(err)
 	}
 	if !strings.Contains(result, `"ok":true`) {
-		t.Fatalf("stat slide should receive an insight before preflight, got: %s", result)
+		t.Fatalf("KPI dashboard should receive an insight before preflight, got: %s", result)
 	}
 	manifest, err := ReadTasksDraftManifest(workDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !hasNarrativeAnchor(manifest.Tasks[0].ContentPlan.Components) {
-		t.Fatalf("stat slide still lacks narrative anchor: %#v", manifest.Tasks[0].ContentPlan.Components)
+		t.Fatalf("KPI dashboard still lacks narrative anchor: %#v", manifest.Tasks[0].ContentPlan.Components)
 	}
 }
 

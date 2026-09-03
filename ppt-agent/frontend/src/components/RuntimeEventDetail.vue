@@ -38,6 +38,7 @@ const imageResults = computed(() => (
       imageUrl: String(item.image_url || item.preview_url || '').trim(),
       sourceUrl: String(item.source_url || '').trim(),
       photographer: String(item.photographer || '').trim(),
+      photographerUrl: String(item.photographer_url || '').trim(),
       attribution: String(item.attribution || '').trim(),
       localPath: String(item.local_path || '').trim(),
       description: String(item.description || '').trim(),
@@ -260,6 +261,7 @@ function filterThoughtMetadata(record: RuntimeRecord): RuntimeRecord {
               <strong>{{ item.attribution || item.photographer || item.description || 'Unsplash image' }}</strong>
               <small v-if="item.localPath">本地：{{ item.localPath }}</small>
               <small v-if="item.downloadError" class="image-error">下载失败：{{ item.downloadError }}</small>
+              <a v-if="item.photographerUrl" :href="item.photographerUrl" target="_blank" rel="noreferrer">摄影：{{ item.photographer || '摄影师' }} · Unsplash</a>
               <a v-if="item.sourceUrl" :href="item.sourceUrl" target="_blank" rel="noreferrer">来源页面</a>
             </div>
           </article>

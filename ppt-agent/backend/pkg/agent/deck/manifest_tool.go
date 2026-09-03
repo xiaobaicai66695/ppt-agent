@@ -320,14 +320,13 @@ func normalizePlannerInitialTask(item *TaskItem) {
 	if strings.TrimSpace(item.ContentType) == "agenda" {
 		plan.Components = compactAgendaComponents(item, plan.Components, limit)
 	}
-	if strings.TrimSpace(item.ContentType) == "stat_slide" && len(plan.Components) > 0 && !hasNarrativeAnchor(plan.Components) {
+	if strings.TrimSpace(item.ContentType) == "kpi_dashboard" && len(plan.Components) > 0 && !hasNarrativeAnchor(plan.Components) {
 		plan.Components = appendInsightWithinLimit(plan.Components, limit, "insight_auto", "关键判断", summaryForAutoInsight(item))
 	}
 	for i := range plan.Components {
 		component := &plan.Components[i]
 		if strings.TrimSpace(component.Type) == "argument_block" &&
-			runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars &&
-			!contentTypeRequiresLongArgument(item.ContentType) {
+			runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars {
 			component.Type = "insight"
 		}
 	}
@@ -414,15 +413,6 @@ func summaryForAutoInsight(item *TaskItem) string {
 		}
 	}
 	return "本页用于建立阅读顺序和核心判断，帮助观众理解后续内容之间的关系。"
-}
-
-func contentTypeRequiresLongArgument(contentType string) bool {
-	switch strings.TrimSpace(contentType) {
-	case "deep_dive", "case_study", "example_detail":
-		return true
-	default:
-		return false
-	}
 }
 
 func preferredSectionDividerVariant(manifest *TasksManifest) string {
@@ -1022,20 +1012,16 @@ func validPlanComponentType(componentType string) bool {
 
 func maxComponentsForContentType(contentType string) int {
 	switch strings.TrimSpace(contentType) {
-	case "title_slide", "section_divider", "quote_slide", "stat_slide":
+	case "title_slide", "section_divider", "quote_slide":
 		return 4
-	case "agenda", "summary_slide", "kpi_dashboard":
+	case "agenda", "kpi_dashboard":
 		return 6
-	case "timeline", "process_flow", "card_grid", "icon_grid", "three_column":
+	case "timeline", "card_grid", "swot_analysis", "brand_focus":
 		return 8
-	case "chart_slide", "comparison_table", "two_column", "image_text", "case_study", "example_detail", "deep_dive":
+	case "chart_slide", "comparison_table", "image_text":
 		return 10
-	case "swot_analysis", "brand_focus", "region_map":
-		return 8
 	case "kanban":
 		return 10
-	case "image_hero":
-		return 4
 	default:
 		return 8
 	}

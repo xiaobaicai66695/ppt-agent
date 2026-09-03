@@ -52,6 +52,7 @@ export interface AuthUser {
   token?: string;
   is_new?: boolean;
   is_admin?: boolean;
+  is_guest?: boolean;
 }
 
 export async function sendCode(email: string): Promise<void> {
@@ -278,6 +279,20 @@ export interface MessageRouteResult {
   task_candidates?: TaskCandidate[];
   streaming?: boolean;
   after_event_id?: number;
+}
+
+export async function loginAsGuest(): Promise<AuthUser> {
+  const res = await apiFetch('/api/auth/guest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error || '访客登录失败');
+  }
+  const data = await res.json();
+  if (data.token) setToken(data.token);
+  return data;
 }
 
 export interface TaskCandidate {

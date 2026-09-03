@@ -83,9 +83,6 @@ function statusLabel(status: string): string {
             </span>
             <span><Clock3 :size="12" />{{ fmtTime(task.created_at) }}</span>
           </span>
-          <span v-if="task.total_count > 0" class="mini-progress">
-            <i :style="{ width: `${Math.round((task.done_count / task.total_count) * 100)}%` }"></i>
-          </span>
           <small v-if="(task.total_tokens || 0) > 0">{{ fmtTokens(task.total_tokens || 0) }} tokens</small>
         </button>
         <button
@@ -130,8 +127,6 @@ function statusLabel(status: string): string {
 .task-state.running { color: var(--info); }.task-state.running i { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
 .task-state.completed { color: var(--success); }.task-state.completed i { background: var(--success); }
 .task-state.failed { color: var(--danger); }.task-state.failed i { background: var(--danger); }
-.mini-progress { height: 3px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: var(--surface-pressed); }
-.mini-progress i { display: block; height: 100%; background: var(--action-ink); }
 .task-select > small { margin-top: 5px; color: var(--text-muted); font-size: 9px; }
 .task-delete { position: absolute; top: 6px; right: 4px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 4px; color: var(--text-muted); background: transparent; opacity: 0; cursor: pointer; }
 .task-item:hover .task-delete, .task-delete:focus-visible { opacity: 1; }

@@ -65,10 +65,9 @@ function onDrop(e: DragEvent, index: number) {
 // Layout category groups
 const layoutCategories = [
   { label: '封面/目录', names: ['title_slide', 'agenda', 'section_divider'] },
-  { label: '内容', names: ['content_slide', 'quote_slide', 'deep_dive'] },
-  { label: '布局', names: ['two_column', 'three_column', 'card_grid'] },
-  { label: '图表', names: ['process_flow', 'stat_slide', 'kpi_dashboard'] },
-  { label: '案例', names: ['case_study', 'image_text', 'summary_slide'] },
+  { label: '内容叙事', names: ['content_slide', 'image_text', 'quote_slide', 'card_grid'] },
+  { label: '数据对比', names: ['kpi_dashboard', 'chart_slide', 'comparison_table'] },
+  { label: '结构策略', names: ['timeline', 'swot_analysis', 'kanban', 'brand_focus'] },
 ];
 
 const groupedLayouts = computed(() => {
@@ -145,7 +144,7 @@ async function loadWorkspaceData() {
       slides.value = [
         { title: '', content_type: 'title_slide' },
         { title: '', content_type: 'content_slide' },
-        { title: '', content_type: 'summary_slide' },
+        { title: '', content_type: 'content_slide' },
       ];
     }
   } catch (e) {

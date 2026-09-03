@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -15,11 +16,12 @@ import (
 )
 
 type chatImageResult struct {
-	PreviewURL   string `json:"preview_url"`
-	ImageURL     string `json:"image_url"`
-	SourceURL    string `json:"source_url"`
-	Photographer string `json:"photographer"`
-	Attribution  string `json:"attribution"`
+	PreviewURL      string `json:"preview_url"`
+	ImageURL        string `json:"image_url"`
+	SourceURL       string `json:"source_url"`
+	Photographer    string `json:"photographer"`
+	PhotographerURL string `json:"photographer_url"`
+	Attribution     string `json:"attribution"`
 }
 
 type chatImageSearchResponse struct {
@@ -30,6 +32,7 @@ type chatAugmentations struct {
 	promptParts []string
 	webResults  []search.SearchResult
 	images      []chatImageResult
+	query       string
 }
 
 func (s *Server) buildChatReply(ctx context.Context, message, fallback, conversationContext string, forceWebSearch, forceImageSearch bool) string {
@@ -46,17 +49,11 @@ func (s *Server) buildChatReplyWithAugmentations(ctx context.Context, message, f
 		modelFactory = s.aiModelFactory
 	}
 	if modelFactory == nil {
-		if fallback != "" {
-			return appendChatSupplement(fallback+augmentationNote(augmentations.promptParts), augmentations)
-		}
-		return appendChatSupplement("我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。"+augmentationNote(augmentations.promptParts), augmentations)
+		return appendChatSupplement(chatFallbackReply(message, fallback, augmentations), augmentations)
 	}
 	model, err := modelFactory(ctx)
 	if err != nil || model == nil {
-		if fallback != "" {
-			return appendChatSupplement(fallback+augmentationNote(augmentations.promptParts), augmentations)
-		}
-		return appendChatSupplement("普通对话模型暂时不可用。你仍可以明确输入 PPT 创建、规划或修复需求。"+augmentationNote(augmentations.promptParts), augmentations)
+		return appendChatSupplement(chatFallbackReply(message, fallback, augmentations), augmentations)
 	}
 
 	chatCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -65,12 +62,13 @@ func (s *Server) buildChatReplyWithAugmentations(ctx context.Context, message, f
 
 	resp, err := model.Generate(chatCtx, []*schema.Message{schema.UserMessage(prompt)})
 	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
-		if fallback != "" {
-			return appendChatSupplement(fallback+augmentationNote(augmentations.promptParts), augmentations)
-		}
-		return appendChatSupplement("我可以先按普通对话回答；如果你要做 PPT，请说明主题、受众、页数和使用场景。"+augmentationNote(augmentations.promptParts), augmentations)
+		return appendChatSupplement(chatFallbackReply(message, fallback, augmentations), augmentations)
 	}
-	return appendChatSupplement(strings.TrimSpace(resp.Content), augmentations)
+	reply := strings.TrimSpace(resp.Content)
+	if len(augmentations.webResults) > 0 && isGenericChatReply(reply) {
+		reply = chatFallbackReply(message, fallback, augmentations)
+	}
+	return appendChatSupplement(reply, augmentations)
 }
 
 // streamChatReply runs the existing chat model asynchronously, then delivers
@@ -87,10 +85,9 @@ func (s *Server) streamChatReply(ctx context.Context, message, fallback, convers
 	select {
 	case reply = <-result:
 	case <-time.After(35 * time.Second):
-		reply = strings.TrimSpace(fallback)
-		if reply == "" {
-			reply = "普通对话暂时响应较慢，请稍后重试；你也可以继续描述 PPT 主题、受众和页数。"
-		}
+		// Preserve the same retrieval-first and capability-degradation contract
+		// as the synchronous path when an upstream model ignores cancellation.
+		reply = appendChatSupplement(chatFallbackReply(message, fallback, augmentations), augmentations)
 	}
 	for _, chunk := range splitChatReplyForSSE(reply) {
 		emit(chunk)
@@ -138,6 +135,7 @@ func (s *Server) collectChatAugmentations(ctx context.Context, message, conversa
 	}
 	augmentations := chatAugmentations{}
 	query := chatSearchQuery(message, conversationContext)
+	augmentations.query = query
 	if forceWebSearch || chatNeedsWebSearch(message) {
 		searchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
@@ -246,11 +244,105 @@ func mustJSON(value any) string {
 	return string(data)
 }
 
-func augmentationNote(augmentations []string) string {
-	if len(augmentations) == 0 {
+func chatFallbackReply(message, fallback string, augmentations chatAugmentations) string {
+	if len(augmentations.webResults) > 0 {
+		topic := strings.TrimSpace(augmentations.query)
+		if topic == "" {
+			topic = message
+		}
+		return chatSearchFallback(topic, augmentations.webResults)
+	}
+	if strings.TrimSpace(fallback) != "" {
+		return strings.TrimSpace(fallback)
+	}
+	if hasImageSearchConfigurationError(augmentations.promptParts) {
+		return "当前无法检索图片参考：服务端尚未配置图片搜索。你可以先继续描述想要的画面、地点或风格，我会据此组织文字内容。"
+	}
+	return "暂时无法调用普通对话模型。请稍后重试，或直接说明 PPT 的主题、受众、页数和使用场景。"
+}
+
+func chatSearchFallback(message string, results []search.SearchResult) string {
+	items := make([]string, 0, min(len(results), 3))
+	for _, result := range results[:min(len(results), 3)] {
+		title := strings.TrimSpace(result.Title)
+		description := compactChatDescription(result.Description)
+		if title == "" && description == "" {
+			continue
+		}
+		if description == "" {
+			items = append(items, "- "+title)
+			continue
+		}
+		if title == "" {
+			items = append(items, "- "+description)
+			continue
+		}
+		items = append(items, fmt.Sprintf("- **%s**：%s", title, description))
+	}
+	if len(items) == 0 {
+		return "已找到可供核对的补充资料，但摘要为空。请直接打开下方来源查看原文。"
+	}
+	query := strings.TrimSpace(message)
+	if query == "" {
+		query = "这个主题"
+	}
+	return fmt.Sprintf("围绕“%s”，我已整理到以下可直接用于进一步了解和核对的资料：\n\n%s\n\n下方附有可点击的原始来源；如需，我可以继续把这些资料整理成路线、要点或 PPT 大纲。", query, strings.Join(items, "\n"))
+}
+
+// chatSafeURL only permits complete HTTP(S) URLs in assistant Markdown. Search
+// providers occasionally return truncated/whitespace-corrupted redirect URLs;
+// emitting those as links produces the broken sources shown in the workbench.
+func chatSafeURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\r\n\t ") {
 		return ""
 	}
-	return "\n\n补充：已尝试使用可用的搜索/图片能力组织答案；如果能力未配置，结果会在服务端降级。"
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
+	}
+	return parsed.String()
+}
+
+func chatSafeLabel(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	value = strings.NewReplacer("[", "（", "]", "）", "\r", " ", "\n", " ").Replace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func compactChatDescription(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	runes := []rune(value)
+	if len(runes) > 120 {
+		return string(runes[:120]) + "…"
+	}
+	return value
+}
+
+func hasImageSearchConfigurationError(parts []string) bool {
+	for _, part := range parts {
+		if strings.Contains(part, "未配置 UNSPLASH_ACCESS_KEY") {
+			return true
+		}
+	}
+	return false
+}
+
+func isGenericChatReply(reply string) bool {
+	reply = strings.TrimSpace(reply)
+	for _, generic := range []string{
+		"我可以先按普通对话回答",
+		"请说明主题、受众、页数和使用场景",
+		"你仍可以明确输入 PPT 创建、规划或修复需求",
+	} {
+		if strings.Contains(reply, generic) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendChatSupplement(reply string, augmentations chatAugmentations) string {
@@ -265,11 +357,17 @@ func chatSupplement(augmentations chatAugmentations) string {
 	sections := make([]string, 0, 2)
 	if len(augmentations.webResults) > 0 {
 		items := make([]string, 0, min(len(augmentations.webResults), 4))
+		seenURLs := make(map[string]struct{})
 		for _, result := range augmentations.webResults[:min(len(augmentations.webResults), 4)] {
-			if strings.TrimSpace(result.URL) == "" || strings.TrimSpace(result.Title) == "" {
+			link := chatSafeURL(result.URL)
+			if link == "" {
 				continue
 			}
-			items = append(items, fmt.Sprintf("- [%s](%s)", result.Title, result.URL))
+			if _, duplicate := seenURLs[link]; duplicate {
+				continue
+			}
+			seenURLs[link] = struct{}{}
+			items = append(items, fmt.Sprintf("- [%s](%s)", chatSafeLabel(result.Title, "资料来源"), link))
 		}
 		if len(items) > 0 {
 			sections = append(sections, "### 补充资料来源\n"+strings.Join(items, "\n"))
@@ -277,26 +375,47 @@ func chatSupplement(augmentations chatAugmentations) string {
 	}
 	if len(augmentations.images) > 0 {
 		items := make([]string, 0, min(len(augmentations.images), 2))
+		seenImages := make(map[string]struct{})
 		for _, image := range augmentations.images[:min(len(augmentations.images), 2)] {
 			preview := strings.TrimSpace(image.PreviewURL)
 			if preview == "" {
 				preview = strings.TrimSpace(image.ImageURL)
 			}
+			preview = chatSafeURL(preview)
 			if preview == "" {
 				continue
 			}
+			if _, duplicate := seenImages[preview]; duplicate {
+				continue
+			}
+			seenImages[preview] = struct{}{}
 			label := strings.TrimSpace(image.Attribution)
 			if label == "" {
 				label = strings.TrimSpace(image.Photographer)
 			}
-			if label == "" {
-				label = "图片参考"
+			label = chatSafeLabel(label, "图片参考")
+			credit := ""
+			if photographerURL := chatSafeURL(image.PhotographerURL); photographerURL != "" {
+				photographer := chatSafeLabel(image.Photographer, label)
+				credit = fmt.Sprintf("\n摄影：[%s](%s) · [Unsplash](https://unsplash.com/?utm_source=ppt_agent&utm_medium=referral)", photographer, photographerURL)
 			}
-			items = append(items, fmt.Sprintf("![%s](%s)", label, preview))
+			items = append(items, fmt.Sprintf("![%s](%s)%s", label, preview, credit))
 		}
 		if len(items) > 0 {
 			sections = append(sections, "### 图片参考\n"+strings.Join(items, "\n"))
 		}
 	}
+	if len(augmentations.images) == 0 && hasImageSearchError(augmentations.promptParts) {
+		sections = append(sections, "### 图片参考\n当前未检索到图片候选：图片搜索能力未配置或暂不可用。")
+	}
 	return strings.Join(sections, "\n\n")
+}
+
+func hasImageSearchError(parts []string) bool {
+	for _, part := range parts {
+		if strings.HasPrefix(strings.TrimSpace(part), "image_search_error:") {
+			return true
+		}
+	}
+	return false
 }

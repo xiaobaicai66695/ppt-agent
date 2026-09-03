@@ -40,7 +40,7 @@ const navItems = computed(() => {
   return items;
 });
 
-const userLabel = computed(() => auth.user?.email || '访客');
+const userLabel = computed(() => auth.isGuest ? '体验访客' : auth.user?.email || '尚未登录');
 const userInitial = computed(() => userLabel.value.slice(0, 1).toUpperCase());
 
 onMounted(async () => {
@@ -105,11 +105,11 @@ async function handleAuthAction() {
           <span class="user-avatar" aria-hidden="true">{{ userInitial }}</span>
           <span class="user-copy">
             <strong>{{ userLabel }}</strong>
-            <small>{{ auth.isAdmin ? '管理员' : auth.loggedIn ? '个人工作区' : '尚未登录' }}</small>
+            <small>{{ auth.isAdmin ? '管理员' : auth.isGuest ? '访客工作区' : auth.loggedIn ? '个人工作区' : '尚未登录' }}</small>
           </span>
         </div>
         <button
-          v-if="auth.loggedIn"
+          v-if="auth.loggedIn && !auth.isGuest"
           class="rail-auth"
           type="button"
           title="账户设置"

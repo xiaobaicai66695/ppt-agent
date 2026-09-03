@@ -1156,9 +1156,9 @@ def add_glass_panel(
             top=top,
             width=width,
             height=height,
-        # The raster crop provides the blur.  This top layer is deliberately
-        # close to transparent so large panels do not turn into grey blocks.
-        fill_color=(255, 255, 255, min(34, max(10, round(alpha * 0.12)))),
+            # The raster crop provides the blur. Keep this top layer close to
+            # transparent so large panels do not turn into grey blocks.
+            fill_color=(255, 255, 255, min(18, max(4, round(alpha * 0.06)))),
             palette=palette,
             line_color=None,
             line_width=0,
@@ -1202,8 +1202,12 @@ def add_blurred_background_panel(slide, left: float, top: float, width: float, h
     target_w = max(480, round(width * 180))
     target_h = max(260, round(height * 180))
     crop = ImageOps.fit(crop, (target_w, target_h), method=Image.Resampling.LANCZOS)
-    crop = crop.filter(ImageFilter.GaussianBlur(radius=58))
-    crop = Image.blend(crop, Image.new("RGB", crop.size, (255, 255, 255)), 0.035)
+    # 提高局部模糊，让照片在正文区域进一步退为柔和氛围，而不是彩色 UI
+    # 色块；文字仍通过实际局部明度选择高对比反相颜色。
+    crop = crop.filter(ImageFilter.GaussianBlur(radius=160)).convert("RGBA")
+    # An opaque crop reads as a new grey rectangle even if it is heavily
+    # blurred. Let the original background remain visible through the panel.
+    crop.putalpha(42)
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         panel_path = tmp.name
@@ -1236,7 +1240,10 @@ def frosted_panel_text_tokens(
     luma = 0.2126 * mean_r + 0.7152 * mean_g + 0.0722 * mean_b
     # Strong local blur plus only a 3.5% neutral lift keeps the photo visible.
     # The threshold stays conservative so text remains readable on dark crops.
-    return ("17202A", "3F4D58") if luma >= 132 else ("FFFFFF", "F0F5F8")
+    # Prefer light text for mid-tone imagery.  This leaves dark copy only on
+    # genuinely bright local crops, preventing grey/blue text from fading
+    # into a low-opacity photo panel.
+    return ("17202A", "3F4D58") if luma >= 170 else ("FFFFFF", "F0F5F8")
 
 
 def add_ellipse(

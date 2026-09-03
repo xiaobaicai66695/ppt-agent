@@ -148,11 +148,11 @@ describe('workbench utilities', () => {
     expect(streamed).toBe(second);
   });
 
-  it('restores readable English word boundaries in live assistant deltas', () => {
+  it('preserves exact live assistant deltas without corrupting ASCII tokens', () => {
     const streamed = ['I\'ll', 'start', 'by', 'reading', 'the', 'required', 'skill', 'files']
       .reduce((content, chunk) => appendAssistantStreamContent(content, chunk), '');
 
-    expect(streamed).toBe('I\'ll start by reading the required skill files');
+    expect(streamed).toBe('I\'llstartbyreadingtherequiredskillfiles');
   });
 
   it('restores readable English word boundaries in cumulative assistant snapshots', () => {
@@ -161,7 +161,13 @@ describe('workbench utilities', () => {
       'I\'llstartbyreading',
     );
 
-    expect(streamed).toBe('I\'ll startbyreading');
+    expect(streamed).toBe('I\'llstartbyreading');
+  });
+
+  it('preserves a real space in cumulative assistant snapshots', () => {
+    const streamed = appendAssistantStreamContent('Hello', 'Hello world');
+
+    expect(streamed).toBe('Hello world');
   });
 
   it('keeps only the new assistant suffix when a cumulative output follows tools', () => {
@@ -860,6 +866,20 @@ describe('workbench utilities', () => {
     expect(html).toContain('src="https://images.example/qinghai.jpg"');
     expect(html).toContain('href="https://example.com/source"');
     expect(html).not.toContain('src="javascript:');
+  });
+
+  it('keeps split Markdown URLs intact for clickable sources and image previews', () => {
+    const markdown = [
+      '### 补充资料来源\n- [青甘大环线攻略](https://example.com/qing',
+      'gan-guide)\n\n### 图片参考\n![青海湖](https://images.example/qing',
+      'hai.jpg)',
+    ].reduce((content, chunk) => appendAssistantStreamContent(content, chunk), '');
+    const html = renderSafeMarkdown(markdown);
+
+    expect(html).toContain('<h3>补充资料来源</h3>');
+    expect(html).toContain('href="https://example.com/qinggan-guide"');
+    expect(html).toContain('src="https://images.example/qinghai.jpg"');
+    expect(html).not.toContain('<h3># 补充资料来源</h3>');
   });
 
   it('normalizes compact assistant markdown into readable sections', () => {

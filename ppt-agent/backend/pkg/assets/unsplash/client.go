@@ -41,6 +41,8 @@ const (
 	defaultPerPage       = 10
 	maxPerPage           = 30
 	defaultMaxImageBytes = 20 << 20
+	attributionUTMSource = "ppt_agent"
+	attributionUTMMedium = "referral"
 )
 
 var (
@@ -409,13 +411,29 @@ func (c *Client) Download(ctx context.Context, photo Photo, dir string) (*Downlo
 		PhotoID:         photo.ID,
 		LocalPath:       targetPath,
 		ImageURL:        imageURL,
-		SourceURL:       photo.Links.HTML,
+		SourceURL:       AttributionURL(photo.Links.HTML),
 		Photographer:    photo.User.Name,
-		PhotographerURL: photo.User.Links.HTML,
+		PhotographerURL: AttributionURL(photo.User.Links.HTML),
 		Attribution:     attributionFor(photo),
 		Width:           photo.Width,
 		Height:          photo.Height,
 	}, nil
+}
+
+// AttributionURL adds Unsplash's required referral tags to a public
+// Unsplash photo or photographer profile URL. Non-Unsplash URLs are left
+// untouched so callers cannot accidentally turn an arbitrary source into an
+// attribution claim.
+func AttributionURL(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed == nil || !isUnsplashHost(parsed.Hostname()) {
+		return strings.TrimSpace(rawURL)
+	}
+	query := parsed.Query()
+	query.Set("utm_source", attributionUTMSource)
+	query.Set("utm_medium", attributionUTMMedium)
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func (c *Client) trackDownload(ctx context.Context, rawURL string) (string, error) {

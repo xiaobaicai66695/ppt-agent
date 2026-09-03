@@ -153,12 +153,6 @@
       "capacity": {"target_components_min": 4, "target_components_max": 6, "max_components": 8},
       "variants": []
     },
-    "two_column": {
-      "best_for": ["左右对比", "并列分析", "问题-方案"],
-      "recommended_components": ["fact_card", "key_point", "risk_item", "opportunity_item", "comparison_matrix", "divider", "tag"],
-      "capacity": {"target_components_min": 4, "target_components_max": 8, "max_components": 10},
-      "variants": []
-    },
     "timeline": {
       "best_for": ["历史沿革", "项目节点", "行程路线"],
       "recommended_components": ["timeline_node", "milestone", "callout"],
@@ -189,12 +183,6 @@
       "capacity": {"target_components_min": 1, "target_components_max": 2, "max_components": 3},
       "variants": []
     },
-    "image_hero": {
-      "best_for": ["视觉转场", "场景建立", "重点主题强调"],
-      "recommended_components": ["image", "headline", "subheadline", "callout"],
-      "capacity": {"target_components_min": 1, "target_components_max": 3, "max_components": 4},
-      "variants": []
-    },
     "swot_analysis": {
       "best_for": ["战略分析", "内外部因素", "机会风险判断"],
       "recommended_components": ["fact_card", "risk_item", "opportunity_item", "recommendation"],
@@ -211,12 +199,6 @@
       "best_for": ["品牌价值", "核心理念", "中心辐射关系"],
       "recommended_components": ["key_point", "feature_card", "insight", "callout"],
       "capacity": {"target_components_min": 4, "target_components_max": 7, "max_components": 8},
-      "variants": []
-    },
-    "region_map": {
-      "best_for": ["区域布局", "城市介绍", "市场版图", "路线空间关系"],
-      "recommended_components": ["map", "fact_card", "kpi_metric", "callout", "source_note"],
-      "capacity": {"target_components_min": 3, "target_components_max": 6, "max_components": 8},
       "variants": []
     }
   }

@@ -47,3 +47,23 @@ func TestWithUserCarriesAuthorizationClaims(t *testing.T) {
 		t.Fatalf("IsAdminFromContext() = %v, %v", isAdmin, ok)
 	}
 }
+
+func TestGuestLoginEnabledDefaultsToOnAndHonorsDisableFlag(t *testing.T) {
+	t.Setenv("GUEST_LOGIN_ENABLED", "")
+	if !GuestLoginEnabled() {
+		t.Fatal("guest login should be enabled by default")
+	}
+	t.Setenv("GUEST_LOGIN_ENABLED", "false")
+	if GuestLoginEnabled() {
+		t.Fatal("guest login should honor disable flag")
+	}
+}
+
+func TestIsGuestEmail(t *testing.T) {
+	if !IsGuestEmail("guest-0123abcd@guest.local") {
+		t.Fatal("expected generated guest address to be recognized")
+	}
+	if IsGuestEmail("member@example.com") {
+		t.Fatal("regular address must not be recognized as guest")
+	}
+}

@@ -161,9 +161,9 @@ func defaultRecoveredSlideSpecs(topic string, pageCount int) []recoveredSlideSpe
 		{Title: "主题背景", ContentType: "section_divider"},
 		{Title: "基本概况", ContentType: "image_text"},
 		{Title: "核心亮点", ContentType: "card_grid"},
-		{Title: "重点解读", ContentType: "two_column"},
+		{Title: "重点解读", ContentType: "content_slide"},
 		{Title: "实践建议", ContentType: "content_slide"},
-		{Title: "总结展望", ContentType: "summary_slide"},
+		{Title: "总结展望", ContentType: "content_slide"},
 	}
 	if pageCount <= 0 || pageCount >= len(base) {
 		return base
@@ -206,8 +206,6 @@ func recoveredSlideIntent(topic, title, contentType string) string {
 		return fmt.Sprintf("把%s的叙事拆成可跟随的章节路线，让观众知道后续如何展开。", topic)
 	case "section_divider":
 		return fmt.Sprintf("开启“%s”章节，并提示这一部分在整套 PPT 中承担的转场作用。", title)
-	case "summary_slide":
-		return fmt.Sprintf("收束%s的核心信息，给出可复述的结论和后续行动建议。", topic)
 	default:
 		return fmt.Sprintf("围绕“%s”展开%s相关事实、解释和结论，支撑整套 PPT 的主线。", title, topic)
 	}
@@ -241,19 +239,6 @@ func recoveredComponents(topic, title, contentType string) []PlanComponent {
 			{ID: "insight_1", Type: "insight", Title: "关键洞察", Body: fmt.Sprintf("从这些事实中提炼出%s的核心价值：它不仅是一个被介绍的对象，还能说明某种趋势、方法或体验变化。", topic)},
 			{ID: "recommendation_1", Type: "recommendation", Title: "表达建议", Body: "在讲述时优先选择听众熟悉的入口，再逐步补充细节和判断，避免一开始堆砌名词导致理解成本过高。"},
 		}
-	case "two_column":
-		return []PlanComponent{
-			{ID: "fact_card_1", Type: "fact_card", Title: "认知维度", Body: fmt.Sprintf("从历史、地理、系统结构或业务背景解释%s为何形成今天的样貌，帮助观众建立稳定的理解框架。", topic), Emphasis: "primary"},
-			{ID: "insight_1", Type: "insight", Title: "判断维度", Body: fmt.Sprintf("进一步说明%s背后的关键变化、代表意义或方法启发，让页面不只是罗列事实，而是给出可以带走的判断。", topic)},
-			{ID: "fact_card_2", Type: "fact_card", Title: "体验维度", Body: fmt.Sprintf("从真实场景、典型路线、用户触点或工作过程说明%s如何被感知，增强内容的现场感和可讲述性。", topic)},
-			{ID: "recommendation_1", Type: "recommendation", Title: "行动维度", Body: "将前面的分析收束为下一步建议、参观路径、学习方法或汇报重点，使结论可以直接转化为行动。"},
-		}
-	case "summary_slide":
-		return []PlanComponent{
-			{ID: "key_point_1", Type: "key_point", Title: "核心认知", Body: fmt.Sprintf("%s的介绍需要同时覆盖背景、事实和价值三个层次，只有把它们串成主线，观众才容易形成稳定记忆。", topic), Emphasis: "primary"},
-			{ID: "insight_1", Type: "insight", Title: "主要收获", Body: fmt.Sprintf("通过前面的展开，可以看到%s不仅有可展示的表层亮点，也能反映更深层的历史脉络、系统逻辑或实践方法。", topic)},
-			{ID: "recommendation_1", Type: "recommendation", Title: "后续建议", Body: "正式汇报时可根据听众背景补充数据、图片或案例来源，把介绍型内容进一步升级为可讨论、可追问的交流材料。"},
-		}
 	default:
 		return []PlanComponent{
 			{ID: "key_point_1", Type: "key_point", Title: "基本背景", Body: fmt.Sprintf("先说明%s中“%s”的基本定位，包括它出现的场景、涉及的对象以及为什么需要单独展开。", topic, title), Emphasis: "primary"},
@@ -272,8 +257,6 @@ func recoveredSummary(topic, title, contentType string) string {
 		return fmt.Sprintf("列出围绕%s展开的主要章节，帮助观众理解后续内容顺序。", topic)
 	case "section_divider":
 		return fmt.Sprintf("章节过渡页，开启“%s”相关板块，并用一句话提示本章关注点。", title)
-	case "summary_slide":
-		return fmt.Sprintf("总结%s的核心认知、代表亮点和后续行动建议。", topic)
 	default:
 		return fmt.Sprintf("围绕%s中的“%s”展开，包含背景解释、具体事实和可被观众记住的结论。", topic, title)
 	}
@@ -286,8 +269,8 @@ func normalizeRecoveredContentType(contentType string) string {
 	}
 	switch contentType {
 	case "title_slide", "agenda", "section_divider", "content_slide", "image_text", "card_grid",
-		"two_column", "three_column", "summary_slide", "chart_slide", "kpi_dashboard", "process_flow",
-		"timeline", "quote_slide", "stat_slide", "case_study", "comparison_table", "icon_grid":
+		"timeline", "kpi_dashboard", "chart_slide", "comparison_table", "quote_slide",
+		"swot_analysis", "kanban", "brand_focus":
 		return contentType
 	default:
 		return "content_slide"

@@ -38,6 +38,10 @@ $env:PPT_BENCH_LIMIT="1"
 go test ./test/plan_benchmark -v -run TestPlannerWorkflowGeneratesReviewedDeckSpec -count 1 -timeout 20m
 ```
 
+`PPT_BENCH_RUN_LIVE=true` is the unified real-model switch. It also enables
+the real Planner and Judge tests below; use `PPT_BENCH_LIMIT` for a bounded
+smoke run before evaluating the complete dataset.
+
 ## Judge API
 
 By default, the Judge test scores the gold manifests. To score generated
@@ -69,6 +73,7 @@ go test ./test/plan_benchmark -v -run TestGoldDecksRenderWithSkillScripts -count
 | --- | --- |
 | `PPT_BENCH_CASES` | Override benchmark case file. |
 | `PPT_BENCH_LIMIT` | Limit number of cases. |
+| `PPT_BENCH_RUN_LIVE` | Unified real-model switch for Planner and Judge benchmarks. |
 | `PPT_BENCH_RUN_PLANNER` | Set to `true` to call the real Planner Agent. |
 | `PPT_BENCH_RUN_JUDGE` | Set to `true` to call the Judge API. |
 | `PPT_BENCH_RUN_GOLD_RENDER` | Set to `true` to render gold manifests. |

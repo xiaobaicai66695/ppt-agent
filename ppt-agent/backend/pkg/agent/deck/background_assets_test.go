@@ -135,8 +135,8 @@ func TestMaterializePlannedBackgroundsUsesOneAssetForRepeatedContentType(t *test
 	workDir := t.TempDir()
 	query := "light AI cloud architecture wide landscape clean negative space"
 	manifest := &TasksManifest{Tasks: []*TaskItem{
-		{TaskID: "page-1", ContentType: "stat_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
-		{TaskID: "page-2", ContentType: "stat_slide", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
+		{TaskID: "page-1", ContentType: "kpi_dashboard", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
+		{TaskID: "page-2", ContentType: "kpi_dashboard", ContentPlan: &ContentPlan{VisualIntent: &VisualIntent{AssetPurpose: "background", AssetQuery: query}}},
 	}}
 	targets, err := collectPendingBackgroundTargets(workDir, manifest)
 	if err != nil {

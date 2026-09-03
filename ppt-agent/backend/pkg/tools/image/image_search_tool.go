@@ -251,9 +251,9 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 			AltDescription:  photo.AltDescription,
 			ImageURL:        firstNonEmpty(photo.URLs.Regular, photo.URLs.Full, photo.URLs.Small),
 			PreviewURL:      firstNonEmpty(photo.URLs.Small, photo.URLs.Thumb),
-			SourceURL:       photo.Links.HTML,
+			SourceURL:       unsplash.AttributionURL(photo.Links.HTML),
 			Photographer:    firstNonEmpty(photo.User.Name, photo.User.Username),
-			PhotographerURL: photo.User.Links.HTML,
+			PhotographerURL: unsplash.AttributionURL(photo.User.Links.HTML),
 			Attribution:     attributionFor(photo),
 		}
 		if input.Download {

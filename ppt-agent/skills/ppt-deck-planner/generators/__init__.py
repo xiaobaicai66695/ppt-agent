@@ -10,14 +10,11 @@ from .content_slide_generator import generate as generate_content_slide
 from .quote_slide_generator import generate as generate_quote_slide
 from .card_grid_generator import generate as generate_card_grid
 from .comparison_table_generator import generate as generate_comparison_table
-from .image_hero_generator import generate as generate_image_hero
-from .two_column_generator import generate as generate_two_column
 from .image_text_generator import generate as generate_image_text
 from .agenda_generator import generate as generate_agenda
 from .kpi_dashboard_generator import generate as generate_kpi_dashboard
 from .kanban_generator import generate as generate_kanban
 from .brand_focus_generator import generate as generate_brand_focus
-from .region_map_generator import generate as generate_region_map
 from .timeline_generator import generate as generate_timeline
 from .chart_slide_generator import generate as generate_chart_slide
 from .swot_analysis_generator import generate as generate_swot_analysis
@@ -38,15 +35,12 @@ __all__ = [
     "generate_content_slide",
     "generate_quote_slide",
     "generate_card_grid",
-    "generate_two_column",
     "generate_image_text",
     "generate_agenda",
     "generate_kpi_dashboard",
     "generate_comparison_table",
-    "generate_image_hero",
     "generate_kanban",
     "generate_brand_focus",
-    "generate_region_map",
     "generate_timeline",
     "generate_chart_slide",
     "generate_swot_analysis",

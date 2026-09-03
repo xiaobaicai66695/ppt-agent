@@ -397,7 +397,7 @@ func reviewDeckVisualMix(manifest *TasksManifest, report *PlanReviewReport) {
 		report.Issues = append(report.Issues, PlanReviewIssue{
 			Code:     "layout_mismatch",
 			Severity: "warning",
-			Message:  fmt.Sprintf("整套 PPT 图文混排不足：%d 个叙事内容页中仅 %d 页使用 image_text/case_study/example_detail；应多用 scene/evidence 图片组件承载示例素材。", contentSlides, visualMixedSlides),
+			Message:  fmt.Sprintf("整套 PPT 图文混排不足：%d 个叙事内容页中仅 %d 页使用 image_text；应多用 scene/evidence 图片组件承载示例素材。", contentSlides, visualMixedSlides),
 		})
 	}
 	if imageTextSlides >= 3 && len(imageTextVariants) == 1 {
@@ -411,7 +411,7 @@ func reviewDeckVisualMix(manifest *TasksManifest, report *PlanReviewReport) {
 
 func isNarrativeContentSlide(contentType string) bool {
 	switch strings.TrimSpace(contentType) {
-	case "content_slide", "card_grid", "three_column", "two_column", "image_text", "case_study", "example_detail", "deep_dive", "summary_slide", "icon_grid", "region_map", "brand_focus":
+	case "content_slide", "card_grid", "image_text", "brand_focus":
 		return true
 	default:
 		return false
@@ -420,7 +420,7 @@ func isNarrativeContentSlide(contentType string) bool {
 
 func isVisualMixedContentType(contentType string) bool {
 	switch strings.TrimSpace(contentType) {
-	case "image_text", "case_study", "example_detail":
+	case "image_text":
 		return true
 	default:
 		return false
@@ -531,7 +531,7 @@ func imageTextNarrativeChars(components []PlanComponent) int {
 
 func requiresInformationDensity(contentType string) bool {
 	switch strings.TrimSpace(contentType) {
-	case "content_slide", "summary_slide", "deep_dive", "case_study", "example_detail", "card_grid", "two_column", "three_column", "comparison_table", "swot_analysis":
+	case "content_slide", "card_grid", "comparison_table", "swot_analysis":
 		return true
 	default:
 		return false

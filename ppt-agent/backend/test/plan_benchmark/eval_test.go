@@ -90,8 +90,8 @@ func TestGoldDeckSpecsPassReviewer(t *testing.T) {
 }
 
 func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
-	if !envBool("PPT_BENCH_RUN_PLANNER") {
-		t.Skip("set PPT_BENCH_RUN_PLANNER=true to run the real Planner workflow")
+	if !envBool("PPT_BENCH_RUN_PLANNER") && !envBool("PPT_BENCH_RUN_LIVE") {
+		t.Skip("set PPT_BENCH_RUN_LIVE=true (or PPT_BENCH_RUN_PLANNER=true) to run the real Planner workflow")
 	}
 	loadEnv(t)
 	cases := limitedCases(loadBenchmarkCases(t), envInt("PPT_BENCH_LIMIT", 0))
@@ -167,8 +167,8 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 }
 
 func TestPlanJudgeAPIScoresDeckSpecs(t *testing.T) {
-	if !envBool("PPT_BENCH_RUN_JUDGE") {
-		t.Skip("set PPT_BENCH_RUN_JUDGE=true to call the Judge API")
+	if !envBool("PPT_BENCH_RUN_JUDGE") && !envBool("PPT_BENCH_RUN_LIVE") {
+		t.Skip("set PPT_BENCH_RUN_LIVE=true (or PPT_BENCH_RUN_JUDGE=true) to call the Judge API")
 	}
 	loadEnv(t)
 	apiKey := firstEnv("PLAN_JUDGE_API_KEY", "OPENAI_API_KEY", "ARK_API_KEY")

@@ -138,10 +138,8 @@ func (l *Loader) GetLayout(name string) *LayoutInfo {
 func builtInLayouts() []LayoutInfo {
 	names := []string{
 		"title_slide", "agenda", "section_divider", "content_slide", "image_text", "card_grid",
-		"three_column", "icon_grid", "two_column", "timeline", "process_flow", "stat_slide",
-		"kpi_dashboard", "chart_slide", "comparison_table", "quote_slide", "image_hero",
-		"example_detail", "case_study", "deep_dive", "swot_analysis", "kanban", "brand_focus",
-		"region_map", "summary_slide",
+		"timeline", "kpi_dashboard", "chart_slide", "comparison_table", "quote_slide",
+		"swot_analysis", "kanban", "brand_focus",
 	}
 	result := make([]LayoutInfo, 0, len(names))
 	for _, name := range names {
@@ -167,25 +165,14 @@ func displayNameForContentType(name string) string {
 		"content_slide":    "内容页",
 		"image_text":       "图文页",
 		"card_grid":        "卡片矩阵",
-		"three_column":     "三栏并列",
-		"icon_grid":        "图标网格",
-		"two_column":       "双栏对比",
 		"timeline":         "时间线",
-		"process_flow":     "流程图",
-		"stat_slide":       "关键数字",
 		"kpi_dashboard":    "指标看板",
 		"chart_slide":      "图表页",
 		"comparison_table": "对比表",
 		"quote_slide":      "引用页",
-		"image_hero":       "视觉页",
-		"example_detail":   "实例详解",
-		"case_study":       "案例研究",
-		"deep_dive":        "深入分析",
 		"swot_analysis":    "SWOT 分析",
 		"kanban":           "看板",
 		"brand_focus":      "品牌聚焦",
-		"region_map":       "区域地图",
-		"summary_slide":    "总结页",
 	}
 	if label, ok := labels[name]; ok {
 		return label

@@ -296,12 +296,21 @@ async function submitComposer() {
     }
     if (routed.intent === 'plan' || routed.action === 'save_plan') {
       composerNotice.value = routed.draft_id ? `已保存规划草稿 ${routed.draft_id}，任务会话会继续保留。` : '已识别为规划请求，可继续补充当前任务。';
+      // This is a synchronous route result, not a background run. Leaving the
+      // composer busy here makes the follow-up input permanently disabled.
+      composerLoading.value = false;
       return;
     }
     if (routed.needs_confirmation || routed.action === 'ask_clarification') {
+      // Clarification is the answer to this turn; the user must be able to
+      // immediately provide the requested audience, page count, or style.
+      composerLoading.value = false;
       return;
     }
-    if (selectedTask.value?.status === 'conversation') return;
+    if (selectedTask.value?.status === 'conversation') {
+      composerLoading.value = false;
+      return;
+    }
     const accepted = await continueTask(taskId, message);
     composerNotice.value = accepted.message;
     continuationQueued.value = accepted.status === 'queued';
@@ -382,17 +391,6 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000) return (n / 1000).toFixed(1) + 'K';
   return String(n);
-}
-
-function fmtElapsed(ms?: number): string {
-  if (!ms || ms < 0) return '0s';
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${rest}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
 }
 
 const runtimeTimelineAll = computed(() => compactRuntimeEvents(
@@ -640,9 +638,14 @@ function connectSSE(taskId: string, afterEventID = 0) {
     if (eventID > 0 && eventID <= lastSeenEventID) return;
     if (eventID > 0 && lastSeenEventID > 0 && eventID > lastSeenEventID + 1) {
       sseConnectionInterrupted.value = true;
-      addLog('error', '实时事件出现缺口，正在从最后确认的位置恢复');
+      // The in-memory replay window may have moved forward while a tab was
+      // suspended. Reconnecting from the stale cursor loops on the same gap;
+      // recover the durable snapshot, then resume from the event we can see.
+      lastSeenEventID = Math.max(0, eventID - 1);
+      addLog('worker', '已恢复最新执行状态，正在补齐可用事件');
       source.close();
       if (es === source) es = null;
+      void loadConversation(taskId, true);
       window.setTimeout(() => {
         if (selectedId.value === taskId && !sseCompleted) connectSSE(taskId, lastSeenEventID);
       }, 0);
@@ -661,6 +664,9 @@ function connectSSE(taskId: string, afterEventID = 0) {
 
       case 'answer_end':
         finalizeAssistantTurn();
+        // `answer_end` is the durable boundary of a chat turn. Do not wait
+        // for a later transport-close event before allowing the next message.
+        if (conversationStreaming.value) composerLoading.value = false;
         break;
 
 	  case 'system_step':

@@ -11,7 +11,7 @@ from typing import Any
 
 PATH_FIELDS = ("local_path", "image_path", "asset_path", "path")
 QUERY_FIELDS = ("asset_query", "asset_subject", "image_url", "preview_url")
-IMAGE_REQUIRED_CONTENT_TYPES = {"image_text", "image_hero"}
+IMAGE_REQUIRED_CONTENT_TYPES = {"image_text"}
 VALID_MODES = {"required", "optional", "none"}
 SEARCHED_STATUSES = {"resolved", "downloaded"}
 

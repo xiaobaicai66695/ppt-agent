@@ -167,6 +167,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	{
 		auth.POST("/send-code", s.handleSendCode)
 		auth.POST("/login", s.handleLogin)
+		auth.POST("/guest", s.handleGuestLogin)
 		auth.POST("/set-password", s.authMiddleware(), s.handleSetPassword)
 		auth.POST("/logout", s.handleLogout)
 		auth.GET("/me", s.authMiddleware(), s.handleMe)

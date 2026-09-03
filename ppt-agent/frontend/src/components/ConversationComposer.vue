@@ -164,6 +164,10 @@ function previewImageLabel(item: { attribution?: string; photographer?: string; 
   return String(item.attribution || item.photographer || item.description || '图片预览').trim();
 }
 
+function photographerCredit(image: { photographer?: string; attribution?: string }): string {
+  return String(image.photographer || image.attribution || '摄影师').trim();
+}
+
 function sourceHost(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -287,18 +291,26 @@ function handleToolToggle(
                     </a>
                   </div>
                   <div v-if="tool.image_results.length" class="tool-image-grid">
-                    <a
+                    <article
                       v-for="image in tool.image_results"
                       :key="image.id"
                       class="tool-image-preview"
-                      :href="image.source_url || image.image_url || previewImageUrl(image)"
-                      target="_blank"
-                      rel="noreferrer"
                     >
-                      <img v-if="previewImageUrl(image)" :src="previewImageUrl(image)" :alt="previewImageLabel(image)" loading="lazy" />
-                      <span v-else>无缩略图</span>
+                      <a
+                        class="tool-image-photo"
+                        :href="image.source_url || image.image_url || previewImageUrl(image)"
+                        target="_blank"
+                        rel="noreferrer"
+                        :aria-label="`在 Unsplash 查看图片：${previewImageLabel(image)}`"
+                      >
+                        <img v-if="previewImageUrl(image)" :src="previewImageUrl(image)" :alt="previewImageLabel(image)" loading="lazy" />
+                        <span v-else>无缩略图</span>
+                      </a>
                       <small>{{ previewImageLabel(image) }}</small>
-                    </a>
+                      <a v-if="image.photographer_url" class="tool-image-credit" :href="image.photographer_url" target="_blank" rel="noreferrer">
+                        摄影：{{ photographerCredit(image) }} <span aria-hidden="true">·</span> Unsplash
+                      </a>
+                    </article>
                   </div>
                   <div class="tool-preview-columns">
                     <div v-if="formatToolPreviewFields(tool, 'args').length" class="tool-preview-block">
@@ -542,10 +554,10 @@ function handleToolToggle(
   border-radius: 5px;
   color: var(--text-secondary);
   background: var(--surface-muted);
-  text-decoration: none;
 }
+.tool-image-photo { display: block; color: inherit; text-decoration: none; }
 .tool-image-preview img,
-.tool-image-preview > span {
+.tool-image-photo > span {
   width: 100%;
   height: 74px;
   display: grid;
@@ -564,6 +576,18 @@ function handleToolToggle(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tool-image-credit {
+  padding: 0 6px 6px;
+  display: block;
+  overflow: hidden;
+  color: var(--action-ink);
+  font-size: 9px;
+  line-height: 1.35;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-image-credit:hover, .tool-image-credit:focus-visible { text-decoration: underline; }
 .tool-preview-columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

@@ -13,17 +13,14 @@
 - `content_slide`: 普通内容页
 - `quote_slide`: 金句/引言页
 - `image_text`: 图文混排页
-- `image_hero`: 视觉冲击页
 
 ### 对比与并列类
-- `two_column`: 双栏对比
 - `card_grid`: 卡片阵列
 - `comparison_table`: 对比表格页
 
 ### 流程与关系类
 - `timeline`: 时间轴
 - `kanban`: 看板进度页
-- `region_map`: 区域版图页
 - `brand_focus`: 品牌价值聚焦页
 
 ### 数据与图表类
@@ -54,7 +51,7 @@
 | 介绍概念、总结、原理说明 | `content_slide` |
 | 展示案例效果 | `image_text` |
 | 多个平等要点 | `card_grid` |
-| 多维对比 | `two_column` / `comparison_table` |
+| 多维对比 | `comparison_table` |
 | 时间顺序 | `timeline` |
 | 流程步骤 | `timeline`（使用 `process_step`） |
 | 数据展示 | `chart_slide` / `kpi_dashboard` |

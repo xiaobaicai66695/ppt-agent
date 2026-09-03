@@ -22,6 +22,15 @@ description: 规划可执行的 PPT DeckSpec/tasks.json，并用组件化 Python
 - 需要可执行示例时读取 `examples/README.md`，再按需查看对应示例目录。
 - 只有在接入本仓库 `ppt-agent` Go 后端时，才读取 `references/ppt-agent-integration.md`。
 
+## 执行优先级与素材预检
+
+- 在本 skill 目录或 `ppt-agent` 项目中处理 PPT 请求时，本 skill 负责 DeckSpec、素材路线、校验和渲染；先读取本文件并完成素材预检，再调用通用 PPT 或图像生成能力。
+- **默认先搜索图片，且不得因页面可由文本、图表或卡片表达而跳过。** 除用户明确要求纯文字/无图片、页面被明确标记为 `clean_text_only`，或图片服务实际返回可报告的配置、鉴权、网络或无结果错误外，不得无图降级。
+- 默认素材路线：独立 Agent 使用 Unsplash CLI；项目内 Agent 使用后端既有素材搜索与下载链路。成功搜索后应下载，并将真实 `local_path`、`source_url`、`attribution`、`provider` 与 `search_status` 写入 `visual_intent` 或 `image` 组件。
+- 仅在上述豁免或实际失败发生后，文本、图表、流程和浅色面板才可作为无图页的交付方案；必须在任务记录或最终说明中写明豁免理由或失败类型，禁止静默 fallback。
+- 不要为了绕过搜图认证、下载失败或素材缺失而自动改用通用 AI 图像生成。只有用户明确要求 AI 生成配图，或明确同意切换该路线时，才可以使用它。
+- 若用户要求“配图不可用即停止”，任一选定素材路线失败后都必须在渲染前停止，并说明失败的工具或服务、失败类型，以及可用的替代路线；不得静默降级或切换路线。
+
 ## DeckSpec 规划边界
 
 Planner 应尽力一次性填写完整 DeckSpec 内容字段，包括：
@@ -60,9 +69,9 @@ Planner 应尽力一次性填写完整 DeckSpec 内容字段，包括：
 
 ## 图片与素材策略
 
-图片是可选的视觉增强。没有图片时可使用文本、卡片、流程、图表和浅色面板渲染；一旦规划图片，则 `local_path`、`image_path`、`asset_path` 必须指向真实可读的本地文件，禁止虚构路径或旧 `asset:` id。经图片服务解析的背景还必须保留实际 `provider` 与 `search_status:"resolved"`/`"downloaded"`，以便渲染前校验其来源链路。
+图片默认是必需的视觉素材，而不是可选增强。只有“执行优先级与素材预检”中列明的豁免或实际素材失败，才可使用无图页；一旦规划图片，则 `local_path`、`image_path`、`asset_path` 必须指向真实可读的本地文件，禁止虚构路径或旧 `asset:` id。经图片服务解析的背景还必须保留实际 `provider` 与 `search_status:"resolved"`/`"downloaded"`，以便渲染前校验其来源链路。具体素材路线遵循上面的“执行优先级与素材预检”。
 
-`scripts/` 下的 Unsplash CLI 只供 **ppt-agent 项目外的独立 Agent** 使用。项目内 Agent 必须使用后端既有素材搜索与下载链路，不能读取 skill 根目录的 `auth.txt` 或调用该 CLI。
+**ppt-agent 项目外的独立 Agent** 必须使用`scripts/`下的 Unsplash CLI ，如codex，Claude code，opencode，pi等等通用agent。项目内 Agent 必须使用后端既有素材搜索与下载链路，不能读取 skill 根目录的 `auth.txt` 或调用该 CLI。
 
 独立 Agent 首次使用时，在 skill 根目录以 Node.js 22+ 执行一次 `npm link`，即可注册本机 `unsplash` 命令。需要图片时，在 `content_plan.visual_intent` 中规划 `asset_purpose`、`asset_query`、`asset_subject`、`composition` 与 `orientation`：
 
@@ -88,7 +97,7 @@ python generators/validate_deck.py --work-dir <work-dir> --skills-dir <skills-di
 python generators/render_deck.py --work-dir <work-dir> --skills-dir <skills-dir> --output deck.pptx
 ```
 
-有图片时，独立 Agent 的顺序为：`视觉规划 → unsplash auth → unsplash fetch → validate_deck.py → render_deck.py → PDF/PNG 视觉验收`；没有图片时直接执行预检和渲染。
+默认执行顺序为：`视觉规划 → 图片搜索与下载 → validate_deck.py → render_deck.py → PDF/PNG 视觉验收`。无图页只能在已记录豁免或搜索失败后执行预检和渲染。
 
 需要调试单页时使用 `generators/render_task.py`：
 

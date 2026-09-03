@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import {
   ArrowLeft,
   CheckCircle2,
+  CircleUserRound,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -70,6 +71,18 @@ async function handleLogin() {
     password.value = '';
     codeSent.value = false;
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    const redirect = (route.query.redirect as string) || '/dashboard';
+    router.push(redirect);
+  } catch {
+    localError.value = auth.error;
+  }
+}
+
+async function handleGuestLogin() {
+  localError.value = '';
+  auth.clearError();
+  try {
+    await auth.loginAsGuest();
     const redirect = (route.query.redirect as string) || '/dashboard';
     router.push(redirect);
   } catch {
@@ -192,6 +205,14 @@ function switchMode(next: 'code' | 'password') {
           </button>
         </form>
 
+        <div class="guest-entry">
+          <span>或先快速体验</span>
+          <button type="button" :disabled="auth.loading" @click="handleGuestLogin">
+            <CircleUserRound :size="16" />以访客身份体验
+          </button>
+          <small>任务仅保存在当前浏览器；退出后无法恢复。</small>
+        </div>
+
         <button class="back-link" type="button" @click="router.push('/')">
           <ArrowLeft :size="16" />
           返回创建工作区
@@ -207,13 +228,26 @@ function switchMode(next: 'code' | 'password') {
       </div>
       <div class="preview-stack" aria-hidden="true">
         <figure class="preview-main">
-          <img src="/deck-previews/deck-preview-1.jpg" alt="" width="640" height="360" />
+          <div class="deck-surface cover-deck">
+            <span>STRATEGY BRIEF</span>
+            <strong>把复杂议题，
+              <br>讲成一条清晰的线。</strong>
+            <i></i>
+          </div>
         </figure>
         <figure class="preview-secondary first">
-          <img src="/deck-previews/deck-preview-2.jpg" alt="" width="640" height="360" />
+          <div class="deck-surface data-deck">
+            <span>关键指标</span>
+            <div><b>72%</b><b>4.8×</b></div>
+            <i></i>
+          </div>
         </figure>
         <figure class="preview-secondary second">
-          <img src="/deck-previews/deck-preview-3.jpg" alt="" width="640" height="360" />
+          <div class="deck-surface outline-deck">
+            <span>03 / 执行路径</span>
+            <b>从发现到交付</b>
+            <i></i><i></i><i></i>
+          </div>
         </figure>
       </div>
       <div class="preview-facts">
@@ -373,6 +407,8 @@ function switchMode(next: 'code' | 'password') {
   font-size: 12px;
   cursor: pointer;
 }
+.guest-entry { margin-top: 24px; padding-top: 20px; display: grid; justify-items: start; gap: 8px; border-top: 1px solid var(--divider); }
+.guest-entry > span { color: var(--text-muted); font-size: 11px; }.guest-entry > button { min-height: 38px; padding: 0 11px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-secondary); background: var(--surface); font-size: 12px; font-weight: 700; cursor: pointer; }.guest-entry > button:hover:not(:disabled) { color: var(--action-ink); border-color: #9cc7c3; background: var(--action-soft); }.guest-entry small { color: var(--text-muted); font-size: 10px; line-height: 1.5; }
 .back-link:hover { color: var(--text); }
 
 .auth-preview {
@@ -393,7 +429,10 @@ function switchMode(next: 'code' | 'password') {
 
 .preview-stack { position: relative; width: min(100%, 620px); aspect-ratio: 1.55; margin: 44px 0 28px; }
 .preview-stack figure { position: absolute; margin: 0; overflow: hidden; border: 1px solid rgba(255,255,255,0.13); border-radius: 7px; background: #2b3033; box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
-.preview-stack img { width: 100%; height: 100%; object-fit: cover; }
+.deck-surface { width: 100%; height: 100%; padding: 11%; display: flex; flex-direction: column; color: #eff4f2; }.deck-surface > span { color: rgba(239,244,242,.72); font-size: clamp(7px, 1vw, 11px); font-weight: 700; letter-spacing: .08em; }.deck-surface b { font-size: clamp(10px, 1.7vw, 19px); }.deck-surface i { display: block; height: 2px; margin-top: auto; background: rgba(255,255,255,.64); }
+.cover-deck { justify-content: space-between; background: linear-gradient(126deg, #154d4c, #216a68 57%, #d6d47e); }.cover-deck strong { margin-top: auto; font-size: clamp(18px, 3vw, 36px); line-height: 1.15; letter-spacing: -.03em; }.cover-deck i { width: 34%; margin-top: 14%; background: #dfe48b; }
+.data-deck { justify-content: space-between; background: #ece7dc; color: #1d3135; }.data-deck > span { color: #687a7a; }.data-deck div { display: flex; gap: 12%; }.data-deck b { color: #1a5958; }.data-deck i { width: 78%; height: 23%; margin: 0; background: repeating-linear-gradient(90deg, #aac8bd 0 18%, transparent 18% 22%); }
+.outline-deck { background: #252a3b; }.outline-deck b { margin: auto 0 14%; font-size: clamp(12px, 2vw, 24px); }.outline-deck i { width: 100%; height: 3px; margin: 6% 0 0; background: rgba(194, 207, 173, .75); }.outline-deck i:nth-of-type(2) { width: 70%; }.outline-deck i:nth-of-type(3) { width: 83%; }
 .preview-main { inset: 0 12% 10% 0; z-index: 3; }
 .preview-secondary { width: 48%; aspect-ratio: 16/9; right: 0; }
 .preview-secondary.first { top: 8%; z-index: 2; }

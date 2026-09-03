@@ -44,17 +44,14 @@ def main() -> int:
         generate_chart_slide,
         generate_comparison_table,
         generate_content_slide,
-        generate_image_hero,
         generate_image_text,
         generate_kanban,
         generate_kpi_dashboard,
         generate_quote_slide,
-        generate_region_map,
         generate_section_divider,
         generate_swot_analysis,
         generate_timeline,
         generate_title_slide,
-        generate_two_column,
     )
 
     generators: dict[str, Callable[..., Any]] = {
@@ -64,17 +61,14 @@ def main() -> int:
         "chart_slide": generate_chart_slide,
         "comparison_table": generate_comparison_table,
         "content_slide": generate_content_slide,
-        "image_hero": generate_image_hero,
         "image_text": generate_image_text,
         "kanban": generate_kanban,
         "kpi_dashboard": generate_kpi_dashboard,
         "quote_slide": generate_quote_slide,
-        "region_map": generate_region_map,
         "section_divider": generate_section_divider,
         "swot_analysis": generate_swot_analysis,
         "timeline": generate_timeline,
         "title_slide": generate_title_slide,
-        "two_column": generate_two_column,
     }
 
     manifest = render_task.read_json(manifest_path)
