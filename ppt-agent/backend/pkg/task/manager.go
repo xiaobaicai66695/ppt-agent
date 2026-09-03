@@ -81,6 +81,14 @@ type TaskInfo struct {
 	ConversationID      string     `json:"conversation_id,omitempty"`
 	SourceMessageID     string     `json:"source_message_id,omitempty"`
 	ParentTaskID        string     `json:"parent_task_id,omitempty"`
+	Feedback            *DeliveryFeedback `json:"feedback,omitempty"`
+}
+
+// DeliveryFeedback is the task owner's evaluation, intentionally separate from revision messages.
+type DeliveryFeedback struct {
+	Rating     int       `json:"rating"`
+	Suggestion string    `json:"suggestion,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // TaskState 保存单个任务的内部状态。

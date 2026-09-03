@@ -21,7 +21,10 @@ export interface TaskInfo {
   error?: string
   files?: string[]
   total_tokens?: number
+  feedback?: DeliveryFeedback
 }
+
+export interface DeliveryFeedback { rating: number; suggestion?: string; updated_at: string }
 
 export interface ConversationMessage {
   role: 'user' | 'assistant'

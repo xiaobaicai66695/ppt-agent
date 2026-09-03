@@ -33,6 +33,11 @@ export async function login(email: string, secret: string, byPassword = false) {
   if (user.token) setToken(user.token)
   return user
 }
+export async function register(email: string, code: string, password: string) {
+  const user = await request<AuthUser>('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, code, password }) })
+  if (user.token) setToken(user.token)
+  return user
+}
 export const fetchMe = () => request<AuthUser>('/api/auth/me')
 export async function logout() { await request('/api/auth/logout', { method: 'POST' }).catch(() => undefined); clearToken() }
 export const fetchTasks = () => request<TaskInfo[]>('/api/tasks')
@@ -48,6 +53,7 @@ export const fetchLayouts = async () => (await request<{ layouts?: AtomicLayout[
 export const createTaskWithOutline = (query: string, outline: TaskOutline) => request<TaskInfo>('/api/tasks', { method: 'POST', body: JSON.stringify({ query, outline }) })
 export const taskDownloadUrl = (id: string, name: string) => `/api/tasks/${id}/files/${encodeURIComponent(name)}`
 export const taskThumbUrl = (id: string, name: string) => `/api/tasks/${id}/thumb/${encodeURIComponent(name)}`
+export const saveTaskFeedback = (taskId: string, rating: number, suggestion = '') => request<TaskInfo>(`/api/tasks/${taskId}/feedback`, { method: 'PUT', body: JSON.stringify({ rating, suggestion }) })
 export interface UserApiKeyStatus { configured: boolean; provider: string; default_provider?: string; masked_key: string; default_configured: boolean; updated_at?: string }
 export const fetchUserApiKeyStatus = () => request<UserApiKeyStatus>('/api/users/me/api-key')
 export const updateUserApiKey = (apiKey: string, provider = 'ark') => request<UserApiKeyStatus>('/api/users/me/api-key', { method: 'PUT', body: JSON.stringify({ provider, api_key: apiKey }) })

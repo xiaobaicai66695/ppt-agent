@@ -166,6 +166,7 @@ func NewServer(cfg *ServerConfig) *Server {
 	auth := engine.Group("/api/auth")
 	{
 		auth.POST("/send-code", s.handleSendCode)
+		auth.POST("/register", s.handleRegister)
 		auth.POST("/login", s.handleLogin)
 		auth.POST("/guest", s.handleGuestLogin)
 		auth.POST("/set-password", s.authMiddleware(), s.handleSetPassword)
@@ -200,6 +201,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		tasks.GET("/:id/files/:filename", s.taskOwnershipMiddleware(), s.handleDownloadFile)
 		tasks.GET("/:id/thumb/:filename", s.taskOwnershipMiddleware(), s.handleThumbnail)
 		tasks.POST("/:id/cancel", s.taskOwnershipMiddleware(), s.handleCancelTask)
+		tasks.PUT("/:id/feedback", s.taskOwnershipMiddleware(), s.handleSaveTaskFeedback)
 		tasks.DELETE("/:id", s.taskOwnershipMiddleware(), s.handleDeleteTask)
 		// 会话/继续路由
 		tasks.POST("/:id/continue", s.taskOwnershipMiddleware(), s.handleContinueTask)

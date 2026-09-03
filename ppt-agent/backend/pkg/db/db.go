@@ -76,6 +76,17 @@ type TaskRecord struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
+// TaskFeedback stores one owner's reusable evaluation of a delivered deck.
+type TaskFeedback struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	TaskID     string    `gorm:"size:64;uniqueIndex:idx_task_feedback_task_user;index;not null" json:"task_id"`
+	UserID     uint      `gorm:"uniqueIndex:idx_task_feedback_task_user;index;not null" json:"user_id"`
+	Rating     int       `gorm:"not null" json:"rating"`
+	Suggestion string    `gorm:"type:text" json:"suggestion"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 // PlanDraftRecord stores PPT Agent planning results that must not trigger PPT rendering.
 type PlanDraftRecord struct {
 	ID                string    `gorm:"size:64;primaryKey" json:"id"`
@@ -170,6 +181,25 @@ func ListTaskRecordsByUser(userID uint) ([]TaskRecord, error) {
 
 func DeleteTaskRecord(id string) error {
 	return DB.Where("id = ?", id).Delete(&TaskRecord{}).Error
+}
+
+func UpsertTaskFeedback(taskID string, userID uint, rating int, suggestion string) (*TaskFeedback, error) {
+	if DB == nil { return nil, fmt.Errorf("database unavailable") }
+	ctx, cancel := withOperationTimeout(); defer cancel()
+	now := time.Now()
+	record := TaskFeedback{TaskID: taskID, UserID: userID, Rating: rating, Suggestion: suggestion, CreatedAt: now, UpdatedAt: now}
+	if err := DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "task_id"}, {Name: "user_id"}}, DoUpdates: clause.Assignments(map[string]any{"rating": rating, "suggestion": suggestion, "updated_at": now})}).Create(&record).Error; err != nil { return nil, err }
+	return GetTaskFeedback(taskID, userID)
+}
+
+func GetTaskFeedback(taskID string, userID uint) (*TaskFeedback, error) {
+	if DB == nil { return nil, nil }
+	ctx, cancel := withOperationTimeout(); defer cancel()
+	var record TaskFeedback
+	err := DB.WithContext(ctx).Where("task_id = ? AND user_id = ?", taskID, userID).First(&record).Error
+	if err == gorm.ErrRecordNotFound { return nil, nil }
+	if err != nil { return nil, err }
+	return &record, nil
 }
 
 // ── PlanDraftRecord CRUD ──────────────────────────────────────────────────
@@ -371,7 +401,7 @@ func Init(dsn string) error {
 		return fmt.Errorf("refusing to migrate non-business database %q", currentDatabase)
 	}
 
-	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &PlanDraftRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
+	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VerificationCode{}, &TaskRecord{}, &TaskFeedback{}, &PlanDraftRecord{}, &ConversationMessage{}, &RuntimeEventRecord{}, &TaskErrorAnalysis{}); err != nil {
 		return fmt.Errorf("AutoMigrate: %w", err)
 	}
 

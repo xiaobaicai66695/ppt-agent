@@ -65,13 +65,13 @@ func (s *Server) handleLogin(c *gin.Context) {
 	}
 
 	if req.Code != "" {
-		token, user, isNew, err := auth.LoginWithCode(req.Email, req.Code)
+		token, user, err := auth.LoginWithCode(req.Email, req.Code)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"token": token, "id": user.ID, "email": user.Email, "is_new": isNew, "is_admin": user.IsAdmin,
+			"token": token, "id": user.ID, "email": user.Email, "is_admin": user.IsAdmin,
 		})
 		return
 	}
@@ -90,6 +90,26 @@ func (s *Server) handleLogin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusBadRequest, gin.H{"error": "请提供验证码或密码"})
+}
+
+func (s *Server) handleRegister(c *gin.Context) {
+	var req struct {
+		Email    string `json:"email"`
+		Code     string `json:"code"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
+		return
+	}
+	token, user, err := auth.Register(req.Email, req.Code, req.Password)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"token": token, "id": user.ID, "email": user.Email, "is_admin": user.IsAdmin,
+	})
 }
 
 func (s *Server) handleGuestLogin(c *gin.Context) {
@@ -467,6 +487,7 @@ func (s *Server) handleGetTask(c *gin.Context) {
 			info.TotalCount = len(m.Tasks)
 		}
 	}
+	s.attachTaskFeedback(info, userIDGin(c))
 	c.JSON(http.StatusOK, info)
 }
 
@@ -480,7 +501,30 @@ func (s *Server) handleListTasks(c *gin.Context) {
 	if tasks == nil {
 		tasks = []task.TaskInfo{}
 	}
+	if !isAdminGin(c) {
+		for index := range tasks { s.attachTaskFeedback(&tasks[index], userIDGin(c)) }
+	}
 	c.JSON(http.StatusOK, tasks)
+}
+
+func (s *Server) attachTaskFeedback(info *task.TaskInfo, userID int) {
+	if info == nil || info.UserID != userID || userID <= 0 { return }
+	feedback, err := s.tasks.GetDeliveryFeedback(info.ID, userID)
+	if err != nil { logger.Warn("task_feedback_load_failed", "task_id", info.ID, "error", err.Error()); return }
+	info.Feedback = feedback
+}
+
+func (s *Server) handleSaveTaskFeedback(c *gin.Context) {
+	var req struct { Rating int `json:"rating"`; Suggestion string `json:"suggestion"` }
+	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "无效的反馈请求"}); return }
+	if _, err := task.ValidateDeliveryFeedback(req.Rating, req.Suggestion); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+	info := s.tasks.GetTask(c.Param("id"))
+	if info == nil { c.JSON(http.StatusNotFound, gin.H{"error": "task not found"}); return }
+	if info.Status != task.TaskStatusCompleted { c.JSON(http.StatusConflict, gin.H{"error": "PPT 尚未交付，暂不能评分"}); return }
+	feedback, err := s.tasks.SaveDeliveryFeedback(info.ID, userIDGin(c), req.Rating, req.Suggestion)
+	if err != nil { logger.Error("task_feedback_save_failed", "task_id", info.ID, "error", err.Error()); c.JSON(http.StatusServiceUnavailable, gin.H{"error": "反馈暂时无法保存，请稍后重试"}); return }
+	info.Feedback = feedback
+	c.JSON(http.StatusOK, info)
 }
 
 func (s *Server) handleDownloadFile(c *gin.Context) {
