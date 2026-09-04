@@ -41,7 +41,7 @@ ok   github.com/cloudwego/ppt-agent/pkg/agent/deck
 | `pkg/runtime/task` | 状态/锁、SSE、持久化、会话、交付对账 | HTTP 路由和 provider 配置 |
 | `pkg/runtime/model` | 模型配置、provider 工厂、fallback、限流、流处理、观测、压缩 | 业务路由和任务数据库生命周期 |
 
-为改善目录导航，在三个运行时包下增加职责索引子目录（`web/{auth,task,conversation,delivery,admin}`、`task/{state,sse,persistence,conversation,delivery}`、`model/{config,fallback,stream,observability}`）。这些索引不改变 Go package 边界，避免跨目录拆包造成未导出符号和 API 变化。
+三个运行时包均按职责后缀拆分实现文件；未创建只有 README 的子包，避免跨目录拆包造成未导出符号和 API 变化。
 
 文件使用职责后缀（`*_handler.go`、`*_state.go`、`*_stream.go`、`*_persistence.go` 等），先保留原 package，避免为纯搬迁引入新依赖层。
 

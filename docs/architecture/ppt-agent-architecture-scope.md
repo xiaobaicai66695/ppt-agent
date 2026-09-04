@@ -17,8 +17,8 @@
 ```mermaid
 flowchart LR
   U["用户"] --> F["frontend<br/>Compose / Dashboard"]
-  F --> W["backend/pkg/web<br/>REST + SSE"]
-  W --> TM["backend/pkg/task<br/>TaskManager"]
+  F --> W["backend/pkg/runtime/web<br/>REST + SSE"]
+  W --> TM["backend/pkg/runtime/task<br/>TaskManager"]
   W --> CR["request_router<br/>创建入口意图分类"]
   CR --> TM
   TM --> PL["backend/pkg/agent/deck<br/>PPTPlanner"]
@@ -39,8 +39,8 @@ flowchart LR
 | 层级 | 主要路径 | 职责 | 后续改动边界 |
 | --- | --- | --- | --- |
 | Web 入口 | `ppt-agent/backend/main.go` | 读取 `.env`、初始化 logger/callback/skill/backend/db，组装 web/cli 两种启动模式 | 改服务启动、模型工厂、skill 路径、输出目录时看这里 |
-| HTTP API | `ppt-agent/backend/pkg/web` | Gin 路由、认证、创建入口意图分类、任务接口、模板接口、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
-| 任务生命周期 | `ppt-agent/backend/pkg/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
+| HTTP API | `ppt-agent/backend/pkg/runtime/web` | Gin 路由、认证、创建入口意图分类、任务接口、模板接口、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
+| 任务生命周期 | `ppt-agent/backend/pkg/runtime/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
 | 规划与渲染编排 | `ppt-agent/backend/pkg/agent/deck` | `PPTPlanner`、`TaskPlanReviewer`、`PPTFixer`、manifest 草稿/提交、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、继续修复或 Agent prompt 时看这里 |
 | Prompt 模板 | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
 | 工具层 | `ppt-agent/backend/pkg/tools` | 当前 Agent 只注册 `read_file`、`search`、`search_images`；转换脚本属于确定性基础设施 | 改工具能力、安全边界、搜索策略时看这里 |
