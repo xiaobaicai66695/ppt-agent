@@ -47,7 +47,7 @@ components:
 
 ### Creative North Star
 
-这是一个“演示制作台”，不是营销页：像编辑室里的任务轨迹，主画布清楚呈现用户请求、已完成阶段和可下载交付物；每一次状态变化都可被核验。
+认证后的产品是“演示制作台”：像编辑室里的任务轨迹，主画布清楚呈现用户请求、已完成阶段和可下载交付物；每一次状态变化都可被核验。首页则是进入制作台前的安静序章：暖象牙色纸面、焦糖橙的流动光影和可感知的纸张视差，表达“一个念头正在被展开”，不伪造生成进度。
 
 ### Product context and register
 
@@ -55,7 +55,7 @@ components:
 - **Target market(s) and evidence:** 目标市场未单独定义；当前界面和任务请求以简体中文为主，依据 `src/pages/DashboardPage.vue` 与根目录 `docs/architecture/ppt-agent-current-architecture-summary.md`。
 - **Locale(s) and language policy:** 已有界面文案使用简体中文；模型、文件名和 API 标识可保留其原始语言。当前不是日本市场或 `ja` locale。
 - **Usage scene:** 桌面优先的生产工作台，用户在生成期间需要辨别“规划文本已结束”与“PPT 正在渲染”的不同状态。
-- **Register:** product。安静、紧凑、操作导向。
+- **Register:** 认证区为 product，首页为 marketing landing。两者用同一套中文字体、线性图标与直接动作文案连接；首页允许更宽松的留白和单一的氛围动效。
 - **Memorable signature:** 仅在活跃会话中，对话时间线在可见“请求分析”阶段内嵌逐次工具调用；每次调用可独立展开结果与安全图片预览，而不展示模型私有推理。任务终态只保留对话与交付，不恢复工具轨迹。
 - **Restraint:** 不用装饰性渐变、营销式卡片或伪造的百分比进度替代真实任务状态。
 - **Anti-references:** 避免聊天应用将流式文本结束误写成任务完成，也避免深色面板堆叠造成的视觉噪声。
@@ -107,7 +107,7 @@ components:
 
 ### Motion
 
-仅将转动加载图标和短页面淡入用于状态提示；在 `prefers-reduced-motion` 下不依赖位移动画表达任务状态。
+工作台仅将转动加载图标和短页面淡入用于状态提示；首页可用鼠标驱动的光影与纸张轻微视差、进入视口的内容淡入来表达创作展开。所有这类装饰性运动在 `prefers-reduced-motion` 下静止，任务状态绝不依赖位移动画。
 
 ### Content and data visualization
 
