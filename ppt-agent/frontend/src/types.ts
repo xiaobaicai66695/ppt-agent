@@ -1,4 +1,4 @@
-export type TaskStatus = 'conversation' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type TaskStatus = 'conversation' | 'running' | 'completed' | 'paused_retryable' | 'failed' | 'cancelled'
 
 export interface AuthUser {
   id: number

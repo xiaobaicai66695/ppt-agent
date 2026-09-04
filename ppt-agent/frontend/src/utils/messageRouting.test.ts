@@ -3,7 +3,7 @@ import { shouldStartPPTGeneration } from './messageRouting'
 
 describe('message routing', () => {
   it('starts PPT generation when intent recognition returns create in chat mode', () => {
-    expect(shouldStartPPTGeneration({ intent: 'create' }, 'chat')).toBe(true)
+    expect(shouldStartPPTGeneration({ intent: 'create', action: 'prepare_create' }, 'chat')).toBe(true)
   })
 
   it('keeps the manual PPT choice as a create override', () => {
@@ -12,5 +12,9 @@ describe('message routing', () => {
 
   it('streams an ordinary reply for non-create chat intent', () => {
     expect(shouldStartPPTGeneration({ intent: 'chat' }, 'chat')).toBe(false)
+  })
+
+  it('does not start from an uncertain creation recommendation', () => {
+    expect(shouldStartPPTGeneration({ intent: 'create', action: 'ask_clarification', needs_confirmation: true }, 'chat')).toBe(false)
   })
 })

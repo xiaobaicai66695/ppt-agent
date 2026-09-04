@@ -70,6 +70,13 @@ export function parseMarkdownInline(source: string): MarkdownInline[] {
       index += strong[0].length
       continue
     }
+    // A streamed Markdown media/link token is not valid until its closing
+    // parenthesis arrives. Preserve the whole partial token as text instead
+    // of turning only the URL suffix into a link and hiding the syntax.
+    if (/^!\[[^\]]*\]\([^)]*$/.test(rest) || /^\[[^\]]+\]\([^)]*$/.test(rest)) {
+      appendText(tokens, rest)
+      break
+    }
     const bareURL = rest.match(/^https?:\/\/[^\s<>'"]+/)
     if (bareURL) {
       const value = bareURL[0]

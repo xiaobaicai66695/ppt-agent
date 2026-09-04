@@ -6,6 +6,8 @@ export interface MessageRoute {
   task_id: string
   intent: string
   mode: string
+  action?: string
+  needs_confirmation?: boolean
   reply?: string
   after_event_id?: number
 }
