@@ -332,8 +332,18 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 	// call is held briefly and is only appended to the replay buffer once its
 	// result arrives, so clients never render duplicate tool rows.
 	if event.Type == "tool_call" {
+		completedTurn := strings.TrimSpace(ts.answerTurn.String())
+		if completedTurn != "" {
+			ts.Info.AssistantTurns = append(ts.Info.AssistantTurns, completedTurn)
+		}
+		ts.answerTurn.Reset()
+		turnCallback := ts.assistantTurnFn
+		taskID, workDir := ts.Info.ID, ts.Info.WorkDir
 		ts.pendingTools = append(ts.pendingTools, event)
 		ts.Mu.Unlock()
+		if completedTurn != "" && turnCallback != nil {
+			turnCallback(taskID, workDir, completedTurn)
+		}
 		return event
 	}
 	if event.Type == "tool_result" {
@@ -398,7 +408,10 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 		ts.Events = ts.Events[len(ts.Events)-sseReplayEventLimit:]
 	}
 	var completedTurn string
-	isTurnBoundary := event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete"
+	// A tool call also closes the preceding visible assistant segment. This
+	// keeps durable assistant turns aligned with the SSE timeline instead of
+	// flattening thought -> tool -> follow-up text into one database row.
+	isTurnBoundary := event.Type == "answer_end" || event.Type == "tool_call" || event.Type == "complete" || event.Type == "continue_complete"
 	if isTurnBoundary {
 		completedTurn = strings.TrimSpace(ts.answerTurn.String())
 		if completedTurn != "" {
@@ -916,8 +929,16 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 
 	startedAt := time.Now()
 	createdAt := startedAt
+	var previousInfo *TaskInfo
 	if existing := tm.GetTask(cfg.TaskID); existing != nil && !existing.CreatedAt.IsZero() {
+		previousInfo = existing
 		createdAt = existing.CreatedAt
+	}
+	var previousTurns []string
+	previousFullAnswer := ""
+	if previousInfo != nil {
+		previousTurns = append([]string(nil), previousInfo.AssistantTurns...)
+		previousFullAnswer = previousInfo.FullAnswer
 	}
 	ts := &TaskState{
 		Info: TaskInfo{
@@ -932,6 +953,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 			SourceMessageID:     cfg.SourceMessageID,
 			ParentTaskID:        cfg.ParentTaskID,
 			GenerationStartedAt: &startedAt,
+			AssistantTurns:      previousTurns,
 		},
 		listeners:       make(map[string]chan SSERichEvent),
 		reportedFiles:   make(map[string]bool),
@@ -939,6 +961,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		assistantTurnFn: tm.onAssistantTurn,
 		done:            make(chan struct{}),
 	}
+	ts.fullAnswer.WriteString(previousFullAnswer)
 	cfg.OnFixerTriggered = ts.RecordFixerRun
 	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
 		persistRuntimeEvent(event)
@@ -1572,18 +1595,6 @@ func (tm *TaskManager) cleanupTask(ts *TaskState) {
 	}
 	ts.listeners = nil
 
-	// Flush conversation content to DB (once, on task end — not mid-stream)
-	if db.DB != nil && ts.Info.ConversationContent != "" {
-		conversationContent := mysqlSafeText(ts.Info.ConversationContent)
-		go func() {
-			if err := db.UpdateTaskRecord(ts.Info.ID, map[string]any{
-				"conversation_content": conversationContent,
-			}); err != nil {
-				logger.Error("persist_conversation_content_failed", "task_id", ts.Info.ID, "error", err.Error())
-			}
-		}()
-	}
-
 	// Schedule removal from memory after 1 hour (MySQL + NewColdTaskState handles replay after that)
 	id := ts.Info.ID
 	time.AfterFunc(1*time.Hour, func() {
@@ -1924,8 +1935,11 @@ func (ts *TaskState) persistConversationContent() {
 	}
 
 	ts.Mu.Lock()
-	defer ts.Mu.Unlock()
 	ts.Info.ConversationContent = b.String()
+	ts.Mu.Unlock()
+	// Persist the summary synchronously with the terminal task snapshot. This
+	// prevents a process exit from leaving task_records without its summary.
+	ts.persist()
 }
 
 // BuildContinueContext 构建用于任务继续的紧凑 LLM 上下文。

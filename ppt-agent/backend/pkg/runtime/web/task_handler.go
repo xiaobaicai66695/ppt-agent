@@ -81,7 +81,13 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 
 	// 初始化会话（消息会自动写入数据库）
 	sess := s.sessionManager.GetOrCreate(taskID, info.WorkDir)
-	sess.AddUserMessage(req.Query)
+	if err := sess.AddUserMessage(req.Query); err != nil {
+		logger.Error("initial_user_message_persist_failed", "task_id", taskID, "error", err.Error())
+		// Do not leave a generation running without its durable user input.
+		s.tasks.CancelTask(taskID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存会话消息失败"})
+		return
+	}
 
 	c.JSON(http.StatusCreated, info)
 }

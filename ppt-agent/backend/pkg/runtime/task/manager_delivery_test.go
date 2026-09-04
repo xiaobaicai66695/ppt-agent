@@ -40,11 +40,12 @@ func TestTaskInfoToRecordDropsFourByteRunesForLegacyMySQL(t *testing.T) {
 		Query:               "介绍桂林📋",
 		ConversationContent: "中文保留，emoji移除✨",
 		FullAnswer:          "完成✅",
+		AssistantTurns:      []string{"先分析📋", "完成✅"},
 		Error:               "错误🚫",
 		Files:               []string{"1_桂林.pptx"},
 	})
 
-	if strings.ContainsAny(record.Query+record.ConversationContent+record.FullAnswer+record.Error, "📋✨✅🚫") {
+	if strings.ContainsAny(record.Query+record.ConversationContent+record.FullAnswer+record.AssistantTurns+record.Error, "📋✨✅🚫") {
 		t.Fatalf("record still contains four-byte runes: %#v", record)
 	}
 	if !strings.Contains(record.ConversationContent, "中文保留") || !strings.Contains(record.Query, "介绍桂林") {
@@ -68,6 +69,15 @@ func TestTaskInfoRecordCarriesIntentMetadata(t *testing.T) {
 	info := recordToTaskInfo(record)
 	if info.Intent != "create" || info.ConversationID != "conv-1" || info.SourceMessageID != "msg-1" || info.ParentTaskID != "parent-1" {
 		t.Fatalf("task info metadata not restored: %#v", info)
+	}
+}
+
+func TestTaskInfoRecordCarriesAssistantTurnBoundaries(t *testing.T) {
+	want := []string{"先分析", "工具完成后继续回答"}
+	record := taskInfoToRecord(&TaskInfo{ID: "task-turns", AssistantTurns: want})
+	info := recordToTaskInfo(record)
+	if !reflect.DeepEqual(info.AssistantTurns, want) {
+		t.Fatalf("assistant turns = %#v, want %#v", info.AssistantTurns, want)
 	}
 }
 
@@ -122,17 +132,23 @@ func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
 
 	ts.Broadcast(SSERichEvent{Type: "answer", Content: "## 结果\n\n"})
 	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "python"})
+	if !reflect.DeepEqual(turns, []string{"## 结果"}) {
+		t.Fatalf("turns after tool boundary = %#v, want first segment", turns)
+	}
 	ts.Broadcast(SSERichEvent{Type: "progress", Done: 1, Total: 2})
 	ts.Broadcast(SSERichEvent{Type: "answer", Content: "- 第一页完成\n- 第二页完成"})
-	if len(turns) != 0 {
-		t.Fatalf("turn persisted before answer_end: %#v", turns)
+	if len(turns) != 1 {
+		t.Fatalf("unexpected turn count before answer_end: %#v", turns)
 	}
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 	ts.Broadcast(SSERichEvent{Type: "complete"})
 
-	want := []string{"## 结果\n\n- 第一页完成\n- 第二页完成"}
+	want := []string{"## 结果", "- 第一页完成\n- 第二页完成"}
 	if !reflect.DeepEqual(turns, want) {
 		t.Fatalf("turns = %#v, want %#v", turns, want)
+	}
+	if !reflect.DeepEqual(ts.Info.AssistantTurns, want) {
+		t.Fatalf("assistant turns = %#v, want %#v", ts.Info.AssistantTurns, want)
 	}
 }
 

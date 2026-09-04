@@ -334,7 +334,12 @@ func (s *Server) onTaskContinue(taskID string) {
 
 	uid := ts.Info.UserID
 	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
-	sess.AddUserMessage(pendingMsg)
+	if err := sess.AddUserMessage(pendingMsg); err != nil {
+		logger.Error("queued_user_message_persist_failed", "task_id", taskID, "error", err.Error())
+		ts.Broadcast(task.SSERichEvent{Type: "error", Error: "保存会话消息失败，未执行继续任务"})
+		ts.Broadcast(task.SSERichEvent{Type: "continue_complete", Message: "继续任务未启动"})
+		return
+	}
 
 	// 重新标记为运行状态
 	ts.Mu.Lock()

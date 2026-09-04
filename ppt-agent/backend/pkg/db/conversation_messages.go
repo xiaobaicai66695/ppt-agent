@@ -38,7 +38,9 @@ func ListConversationMessages(taskID string) ([]ConversationMessage, error) {
 	ctx, cancel := withOperationTimeout()
 	defer cancel()
 	var msgs []ConversationMessage
-	err := DB.WithContext(ctx).Preload("Chunks", func(tx *gorm.DB) *gorm.DB { return tx.Order("sequence ASC") }).Where("task_id = ?", taskID).Order("timestamp ASC").Find(&msgs).Error
+	// Timestamp is useful for chronology, but can collide for messages created
+	// in the same clock tick. ID is the monotonic tie-breaker.
+	err := DB.WithContext(ctx).Preload("Chunks", func(tx *gorm.DB) *gorm.DB { return tx.Order("sequence ASC") }).Where("task_id = ?", taskID).Order("timestamp ASC").Order("id ASC").Find(&msgs).Error
 	for index := range msgs {
 		if len(msgs[index].Chunks) == 0 {
 			continue
