@@ -8,15 +8,12 @@
 | --- | --- | --- |
 | `main.go` | `aiModelAdapter`、`userModelCredential` | 启动层模型适配与按用户装配的模型凭据。 |
 | `pkg/runtime/web/server.go` | `Server`、`ServerConfig` | HTTP 服务依赖、任务管理器、路由模型和服务配置。 |
-| `pkg/runtime/web/request_router.go` | `createRequestRoute`、`MessageRouteResult`、`TaskCandidate` | 创建请求路由决策、消息路由输出和候选任务摘要。 |
-| `pkg/runtime/web/continuation_handler.go` | `RouteResult`、`FixDetails` | 续办/修复请求的路由结果及修复范围。 |
-| `pkg/runtime/web/benchmark_router.go` | `BenchmarkCreateRouteResult`、`BenchmarkMessageRouteResult`、`benchmarkModelAdapter` | 路由基准接口输出与测试模型适配。 |
-| `pkg/runtime/web/benchmark_chat.go` | `ChatBenchmarkSearchResult`、`ChatBenchmarkImageResult`、`ChatBenchmarkInput` | 聊天基准的搜索、图片与输入载荷。 |
+| `pkg/runtime/web/model/route.go` | `CreateRequestRoute`、`MessageRouteResult`、`TaskCandidate`、`RouteResult`、`FixDetails` | Web 路由决策、消息输出、候选任务及续办修复范围 DTO。 |
+| `pkg/runtime/web/model/benchmark.go` | `BenchmarkCreateRouteResult`、`BenchmarkMessageRouteResult`、`ChatBenchmarkSearchResult`、`ChatBenchmarkImageResult`、`ChatBenchmarkInput` | 路由/聊天基准输入输出与 fixture 结构。 |
 | `pkg/runtime/web/message_chat.go` | `chatImageResult`、`chatImageSearchResponse`、`chatAugmentations`、`chatTraceEvent` | 聊天附加图片、资料增强及流式轨迹事件。 |
-| `pkg/runtime/web/plan_draft.go` | `planDraftResponse` | 规划草稿的 API 返回视图。 |
-| `pkg/runtime/web/admin_handler.go` | `adminTaskResponse` | 管理端任务列表的安全投影视图。 |
-| `pkg/runtime/web/credential_handler.go` | `modelCredential` | 用户模型凭据请求/响应的安全 DTO。 |
-| `pkg/runtime/web/health.go` | `HealthStatus`、`HealthReport` | 服务、数据库与依赖项健康检查结果。 |
+| `pkg/runtime/web/model/admin.go` | `PlanDraftResponse`、`AdminTaskResponse` | 规划草稿和管理端任务列表的安全投影视图。 |
+| `pkg/runtime/web/model/route.go` | `ModelCredential` | 用户模型凭据的内部安全 DTO。 |
+| `pkg/runtime/web/model/health.go` | `HealthStatus`、`HealthReport` | 服务、数据库与依赖项健康检查结果。 |
 
 字段规则：Web DTO 应只带调用方需要的状态、ID、展示摘要和安全化数据；密钥、完整日志、原始模型载荷不可直接进入响应。
 

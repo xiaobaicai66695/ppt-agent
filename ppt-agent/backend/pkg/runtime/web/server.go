@@ -22,6 +22,8 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/chattrace"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
+	webrouter "github.com/cloudwego/ppt-agent/pkg/runtime/web/router"
+	webservice "github.com/cloudwego/ppt-agent/pkg/runtime/web/service"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
 	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
@@ -43,6 +45,7 @@ type Server struct {
 	httpServer      *http.Server
 	runContext      context.Context
 	chatTrace       chattrace.Store
+	taskService     *webservice.TaskService
 	continueStarter func(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession)
 	aiModelFactory  func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
@@ -149,96 +152,60 @@ func NewServer(cfg *ServerConfig) *Server {
 	// 页面能力只从 component_contracts.json 加载。
 	s.templateLoader = templates.NewComponentLoader(filepath.Join(cfg.SkillsDir, "ppt-planner"))
 
-	// 认证路由（公开）
-	auth := engine.Group("/api/auth")
-	{
-		auth.POST("/send-code", s.handleSendCode)
-		auth.POST("/register", s.handleRegister)
-		auth.POST("/login", s.handleLogin)
-		auth.POST("/guest", s.handleGuestLogin)
-		auth.POST("/set-password", s.authMiddleware(), s.handleSetPassword)
-		auth.POST("/logout", s.handleLogout)
-		auth.GET("/me", s.authMiddleware(), s.handleMe)
-	}
-
-	// 任务路由（需要认证）
-	messages := engine.Group("/api/messages")
-	messages.Use(s.authMiddleware())
-	{
-		messages.POST("", s.handleMessage)
-	}
-
-	planDrafts := engine.Group("/api/plan-drafts")
-	planDrafts.Use(s.authMiddleware())
-	{
-		planDrafts.POST("", s.handleCreatePlanDraft)
-		planDrafts.GET("", s.handleListPlanDrafts)
-		planDrafts.GET("/:id", s.handleGetPlanDraft)
-	}
-
-	// 任务路由（需要认证）
-	tasks := engine.Group("/api/tasks")
-	tasks.Use(s.authMiddleware())
-	{
-		tasks.POST("", s.handleCreateTask)
-		tasks.POST("/:id/start", s.taskOwnershipMiddleware(), s.handleStartConversationTask)
-		tasks.GET("", s.handleListTasks)
-		tasks.GET("/:id", s.taskOwnershipMiddleware(), s.handleGetTask)
-		tasks.GET("/:id/stream", s.taskOwnershipMiddleware(), s.handleStreamTask)
-		tasks.GET("/:id/files/:filename", s.taskOwnershipMiddleware(), s.handleDownloadFile)
-		tasks.GET("/:id/thumb/:filename", s.taskOwnershipMiddleware(), s.handleThumbnail)
-		tasks.POST("/:id/cancel", s.taskOwnershipMiddleware(), s.handleCancelTask)
-		tasks.PUT("/:id/feedback", s.taskOwnershipMiddleware(), s.handleSaveTaskFeedback)
-		tasks.DELETE("/:id", s.taskOwnershipMiddleware(), s.handleDeleteTask)
-		// 会话/继续路由
-		tasks.POST("/:id/continue", s.taskOwnershipMiddleware(), s.handleContinueTask)
-		tasks.GET("/:id/conversation", s.taskOwnershipMiddleware(), s.handleGetConversation)
-		tasks.GET("/:id/runtime-events/:event_id", s.taskOwnershipMiddleware(), s.handleGetRuntimeEvent)
-	}
-
-	// 用户资料路由（需要认证）
-	users := engine.Group("/api/users")
-	users.Use(s.authMiddleware())
-	{
-		users.GET("/me/api-key", s.handleGetUserAPIKey)
-		users.PUT("/me/api-key", s.handleUpdateUserAPIKey)
-		users.DELETE("/me/api-key", s.handleDeleteUserAPIKey)
-	}
-
-	// 组件布局路由（公开）
-	tpls := engine.Group("/api/templates")
-	{
-		tpls.GET("/layouts", s.handleListLayouts)
-	}
-
-	// 管理员路由（需要管理员权限）
-	admin := engine.Group("/api/admin")
-	admin.Use(s.adminMiddleware())
-	{
-		admin.GET("/stats", s.handleAdminStats)
-		admin.GET("/users", s.handleAdminUsers)
-		admin.GET("/tasks", s.handleAdminTasks)
-		admin.GET("/feedback", s.handleAdminFeedback)
-	}
-
-	// 指标
-	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
-
-	// 健康检查（基础）
-	engine.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	// TaskService owns task lifecycle orchestration; the router package below
+	// only receives handler functions and middleware adapters.
+	s.taskService = webservice.NewTaskService(webservice.TaskServiceConfig{
+		Tasks:          s.tasks,
+		Sessions:       s.sessionManager,
+		AgentFactory:   s.agentFactory,
+		MakeTaskConfig: s.makeTaskConfig,
+		TemplateLoader: s.templateLoader,
 	})
-
-	// 详细健康检查（K8s 探针，可选认证）
-	engine.GET("/health/ready", s.handleHealthCheck)
-
-	// 静态前端
-	engine.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.JSON(http.StatusNotFound, gin.H{"error": "api route not found"})
-			return
-		}
-		serveStatic(c, frontendDir)
+	webrouter.Register(engine, webrouter.Handlers{
+		AuthMiddleware:      s.authMiddleware(),
+		OwnershipMiddleware: s.taskOwnershipMiddleware(),
+		AdminMiddleware:     s.adminMiddleware(),
+		SendCode:            s.handleSendCode,
+		Register:            s.handleRegister,
+		Login:               s.handleLogin,
+		GuestLogin:          s.handleGuestLogin,
+		SetPassword:         s.handleSetPassword,
+		Logout:              s.handleLogout,
+		Me:                  s.handleMe,
+		Message:             s.handleMessage,
+		CreatePlanDraft:     s.handleCreatePlanDraft,
+		ListPlanDrafts:      s.handleListPlanDrafts,
+		GetPlanDraft:        s.handleGetPlanDraft,
+		CreateTask:          s.handleCreateTask,
+		StartTask:           s.handleStartConversationTask,
+		GetTask:             s.handleGetTask,
+		ListTasks:           s.handleListTasks,
+		StreamTask:          s.handleStreamTask,
+		DownloadFile:        s.handleDownloadFile,
+		Thumbnail:           s.handleThumbnail,
+		CancelTask:          s.handleCancelTask,
+		SaveTaskFeedback:    s.handleSaveTaskFeedback,
+		DeleteTask:          s.handleDeleteTask,
+		ContinueTask:        s.handleContinueTask,
+		GetConversation:     s.handleGetConversation,
+		GetRuntimeEvent:     s.handleGetRuntimeEvent,
+		GetUserAPIKey:       s.handleGetUserAPIKey,
+		UpdateUserAPIKey:    s.handleUpdateUserAPIKey,
+		DeleteUserAPIKey:    s.handleDeleteUserAPIKey,
+		ListLayouts:         s.handleListLayouts,
+		AdminStats:          s.handleAdminStats,
+		AdminUsers:          s.handleAdminUsers,
+		AdminTasks:          s.handleAdminTasks,
+		AdminFeedback:       s.handleAdminFeedback,
+		HealthCheck:         s.handleHealthCheck,
+		Metrics:             promhttp.Handler(),
+		NoRoute: func(c *gin.Context) {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "api route not found"})
+				return
+			}
+			serveStatic(c, frontendDir)
+		},
 	})
 
 	return s

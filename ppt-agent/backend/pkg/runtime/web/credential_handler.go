@@ -3,7 +3,6 @@ package web
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
-	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	webservice "github.com/cloudwego/ppt-agent/pkg/runtime/web/service"
 )
 
 func (s *Server) handleGetUserAPIKey(c *gin.Context) {
@@ -91,96 +90,27 @@ func (s *Server) handleDeleteUserAPIKey(c *gin.Context) {
 type modelCredential = webmodel.ModelCredential
 
 func userModelCredential(userID int) modelCredential {
-	provider := defaultModelProvider()
-	accountKey := ""
-	if userID > 0 && db.DB != nil {
-		key, err := db.GetUserAPIKey(uint(userID))
-		if err != nil {
-			logger.Warn("user_api_key_lookup_failed", "user_id", userID, "error", err.Error())
-		} else if key != nil {
-			provider = modelcompat.NormalizeProvider(key.Provider)
-			accountKey = key.APIKey
-		}
-	}
-	return modelCredential{
-		Provider: string(provider),
-		APIKey:   modelcompat.ResolveProviderAPIKey(provider, accountKey),
-	}
+	return webservice.ResolveUserModelCredential(userID)
 }
 
 func defaultModelProvider() modelcompat.Provider {
-	for _, entry := range strings.Split(os.Getenv("MODEL_CHAIN"), ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		entryKey := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(entry, "-", "_"), " ", "_"))
-		if provider := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_PROVIDER")); provider != "" {
-			return modelcompat.NormalizeProvider(provider)
-		}
-	}
-	if provider := strings.TrimSpace(os.Getenv("MODEL_PRIMARY_PROVIDER")); provider != "" {
-		return modelcompat.NormalizeProvider(provider)
-	}
-	return modelcompat.NormalizeProvider(os.Getenv("MODEL_PROVIDER"))
+	return webservice.DefaultModelProvider()
 }
 
 func systemProviderKeyConfigured(provider modelcompat.Provider) bool {
-	provider = modelcompat.NormalizeProvider(string(provider))
-	if modelcompat.ResolveProviderAPIKey(provider, "") != "" {
-		return true
-	}
-	for _, entry := range append(strings.Split(os.Getenv("MODEL_CHAIN"), ","), "primary", "text", "qa") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		entryKey := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(entry, "-", "_"), " ", "_"))
-		entryProvider := modelcompat.NormalizeProvider(firstNonEmpty(
-			os.Getenv("MODEL_"+entryKey+"_PROVIDER"),
-			os.Getenv("MODEL_PROVIDER"),
-		))
-		if entryProvider != provider {
-			continue
-		}
-		if strings.TrimSpace(os.Getenv("MODEL_"+entryKey+"_API_KEY")) != "" {
-			return true
-		}
-		if keyEnv := strings.TrimSpace(os.Getenv("MODEL_" + entryKey + "_API_KEY_ENV")); keyEnv != "" && strings.TrimSpace(os.Getenv(keyEnv)) != "" {
-			return true
-		}
-	}
-	return false
+	return webservice.SystemProviderKeyConfigured(provider)
 }
 
 func isSupportedAccountProvider(provider modelcompat.Provider) bool {
-	switch modelcompat.NormalizeProvider(string(provider)) {
-	case modelcompat.ProviderArk, modelcompat.ProviderOpenAI, modelcompat.ProviderOpenAICompat,
-		modelcompat.ProviderSiliconFlow, modelcompat.ProviderDeepSeek, modelcompat.ProviderQwen:
-		return true
-	default:
-		return false
-	}
+	return webservice.IsSupportedAccountProvider(provider)
 }
 
 func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
+	return webservice.FirstNonEmpty(values...)
 }
 
 func maskAPIKey(apiKey string) string {
-	apiKey = strings.TrimSpace(apiKey)
-	runes := []rune(apiKey)
-	if len(runes) <= 8 {
-		return strings.Repeat("*", len(runes))
-	}
-	prefix := string(runes[:4])
-	suffix := string(runes[len(runes)-4:])
-	return prefix + strings.Repeat("*", 8) + suffix
+	return webservice.MaskAPIKey(apiKey)
 }
 
 func runtimeEventFromRecord(record db.RuntimeEventRecord, includeMetadata bool) agentutils.RuntimeEvent {

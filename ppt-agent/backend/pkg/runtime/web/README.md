@@ -1,9 +1,17 @@
-# Web handlers
+# Web layer
 
-Web 代码按业务职责导航。所有实现文件都在当前目录并属于同一 Go package，以保留 `Server` 未导出依赖；不要创建只有 README 的子目录。
+Web 层现在按请求边界分为三个 package，顶层 `web` 只保留兼容性的
+`Server` 装配入口和既有 handler 实现：
 
-- `auth/`：登录、注册、会话鉴权
-- `task/`：任务创建、查询、取消、反馈
-- `conversation/`：对话与继续任务
-- `delivery/`：SSE、下载、缩略图
-- `admin/`：凭据、日志分析、管理接口
+| Package | 责任 | 入口 |
+| --- | --- | --- |
+| `web/router` | Gin 路由表、分组、中间件挂载和 HTTP handler 适配 | `router.Register` |
+| `web/service` | 任务创建、会话任务启动、重复请求抑制和大纲校验 | `service.NewTaskService` |
+| `web/model` | 请求、响应、路由结果和健康检查 DTO；不依赖 Gin | 结构体与契约常量 |
+
+`web.NewServer` 仍是对外兼容入口：它创建运行时依赖，将 handler 函数注入
+`router.Handlers`，再由 `router.Register` 注册完整 API。旧包级类型通过 type
+alias 指向 `web/model`，因此 API、SSE 事件和现有测试无需迁移。
+
+依赖方向固定为 `router → service/model`，`service → model/task`；`model`
+不反向依赖 `web`，避免循环依赖和把 Gin 类型渗透到业务层。

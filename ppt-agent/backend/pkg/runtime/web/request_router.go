@@ -17,23 +17,23 @@ import (
 )
 
 const (
-	messageIntentChat   = "chat"
-	messageIntentCreate = "create"
-	messageIntentPlan   = "plan"
-	messageIntentFix    = "fix"
+	messageIntentChat   = webmodel.IntentChat
+	messageIntentCreate = webmodel.IntentCreate
+	messageIntentPlan   = webmodel.IntentPlan
+	messageIntentFix    = webmodel.IntentFix
 
-	messageModeChat     = "chat"
-	messageModePPTAgent = "pptagent"
+	messageModeChat     = webmodel.ModeChat
+	messageModePPTAgent = webmodel.ModePPTAgent
 
-	messageActionReply            = "reply"
-	messageActionPrepareCreate    = "prepare_create"
-	messageActionSavePlan         = "save_plan"
-	messageActionUpdateTask       = "update_task"
-	messageActionAskClarification = "ask_clarification"
+	messageActionReply            = webmodel.ActionReply
+	messageActionPrepareCreate    = webmodel.ActionPrepareCreate
+	messageActionSavePlan         = webmodel.ActionSavePlan
+	messageActionUpdateTask       = webmodel.ActionUpdateTask
+	messageActionAskClarification = webmodel.ActionAskClarification
 
-	createIntentPPT         = messageIntentCreate
+	createIntentPPT          = messageIntentCreate
 	createIntentFixExisting  = messageIntentFix
-	createIntentClarifyTopic = "clarify_topic"
+	createIntentClarifyTopic = webmodel.IntentClarifyTopic
 	createIntentChat         = messageIntentChat
 )
 

@@ -1465,7 +1465,7 @@
 | `onFileReady` | `func(taskID string, workDir string, filename string)` | `` | 承载 onFileReady 的 func(taskID string, workDir string, filename string) 值；业务上下文见本 struct 的源码包。 |
 | `onAssistantTurn` | `func(taskID string, workDir string, content string)` | `` | 承载 onAssistantTurn 的 func(taskID string, workDir string, content string) 值；业务上下文见本 struct 的源码包。 |
 
-## `adminTaskResponse` — `pkg/runtime/web/admin_handler.go:57`
+## `AdminTaskResponse` — `pkg/runtime/web/model/admin.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1485,7 +1485,7 @@
 | `CreatedAt` | `time.Time` | ``json:"created_at"`` | 创建时间。 |
 | `UpdatedAt` | `time.Time` | ``json:"updated_at"`` | 最近更新时间。 |
 
-## `ChatBenchmarkSearchResult` — `pkg/runtime/web/benchmark_chat.go:18`
+## `ChatBenchmarkSearchResult` — `pkg/runtime/web/model/benchmark.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1494,7 +1494,7 @@
 | `Description` | `string` | ``json:"description"`` | 承载 Description 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Source` | `string` | ``json:"source,omitempty"`` | 承载 Source 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `ChatBenchmarkImageResult` — `pkg/runtime/web/benchmark_chat.go:25`
+## `ChatBenchmarkImageResult` — `pkg/runtime/web/model/benchmark.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1505,7 +1505,7 @@
 | `PhotographerURL` | `string` | ``json:"photographer_url"`` | 承载 PhotographerURL 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Attribution` | `string` | ``json:"attribution"`` | 承载 Attribution 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `ChatBenchmarkInput` — `pkg/runtime/web/benchmark_chat.go:37`
+## `ChatBenchmarkInput` — `pkg/runtime/web/model/benchmark.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1517,7 +1517,7 @@
 | `WebSearchError` | `string` | ``json:"web_search_error,omitempty"`` | 失败原因或错误详情。 |
 | `ImageSearchError` | `string` | ``json:"image_search_error,omitempty"`` | 失败原因或错误详情。 |
 
-## `BenchmarkCreateRouteResult` — `pkg/runtime/web/benchmark_router.go:17`
+## `BenchmarkCreateRouteResult` — `pkg/runtime/web/model/benchmark.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1528,7 +1528,7 @@
 | `ClarificationQuestion` | `string` | ``json:"clarification_question,omitempty"`` | 承载 ClarificationQuestion 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Confidence` | `float64` | ``json:"confidence,omitempty"`` | 承载 Confidence 的 float64 值；业务上下文见本 struct 的源码包。 |
 
-## `BenchmarkMessageRouteResult` — `pkg/runtime/web/benchmark_router.go:29`
+## `BenchmarkMessageRouteResult` — `pkg/runtime/web/model/benchmark.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1546,7 +1546,7 @@
 | --- | --- | --- | --- |
 | `inner` | `einomodel.ToolCallingChatModel` | `` | 承载 inner 的 einomodel.ToolCallingChatModel 值；业务上下文见本 struct 的源码包。 |
 
-## `RouteResult` — `pkg/runtime/web/continuation_handler.go:275`
+## `RouteResult` — `pkg/runtime/web/model/route.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1560,7 +1560,7 @@
 | `RegenerateScope` | `[]int` | ``json:"regenerate_scope,omitempty"`` | 承载 RegenerateScope 的 []int 值；业务上下文见本 struct 的源码包。 |
 | `SuggestFix` | `bool` | ``json:"suggest_fix,omitempty"`` | 承载 SuggestFix 的 bool 值；业务上下文见本 struct 的源码包。 |
 
-## `FixDetails` — `pkg/runtime/web/continuation_handler.go:306`
+## `FixDetails` — `pkg/runtime/web/model/route.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1568,21 +1568,21 @@
 | `Detail` | `string` | ``json:"detail"`` | 承载 Detail 的 string 值；业务上下文见本 struct 的源码包。 |
 | `TargetElements` | `string` | ``json:"target_elements,omitempty"`` | 承载 TargetElements 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `modelCredential` — `pkg/runtime/web/credential_handler.go:93`
+## `ModelCredential` — `pkg/runtime/web/model/route.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Provider` | `string` | `` | 承载 Provider 的 string 值；业务上下文见本 struct 的源码包。 |
 | `APIKey` | `string` | `` | 承载 APIKey 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `HealthStatus` — `pkg/runtime/web/health.go:33`
+## `HealthStatus` — `pkg/runtime/web/model/health.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Status` | `string` | ``json:"status"`` | 当前生命周期或处理状态。 |
 | `Message` | `string` | ``json:"message,omitempty"`` | 承载 Message 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `HealthReport` — `pkg/runtime/web/health.go:39`
+## `HealthReport` — `pkg/runtime/web/model/health.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1628,7 +1628,7 @@
 | `Error` | `string` | `` | 失败原因或错误详情。 |
 | `Preview` | `map[string]any` | `` | 承载 Preview 的 map[string]any 值；业务上下文见本 struct 的源码包。 |
 
-## `planDraftResponse` — `pkg/runtime/web/plan_draft.go:14`
+## `PlanDraftResponse` — `pkg/runtime/web/model/admin.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1643,7 +1643,7 @@
 | `CreatedAt` | `time.Time` | ``json:"created_at"`` | 创建时间。 |
 | `UpdatedAt` | `time.Time` | ``json:"updated_at"`` | 最近更新时间。 |
 
-## `createRequestRoute` — `pkg/runtime/web/request_router.go:40`
+## `CreateRequestRoute` — `pkg/runtime/web/model/route.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1652,7 +1652,7 @@
 | `ClarificationQuestion` | `string` | ``json:"clarification_question,omitempty"`` | 承载 ClarificationQuestion 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Confidence` | `float64` | ``json:"confidence,omitempty"`` | 承载 Confidence 的 float64 值；业务上下文见本 struct 的源码包。 |
 
-## `MessageRouteResult` — `pkg/runtime/web/request_router.go:47`
+## `MessageRouteResult` — `pkg/runtime/web/model/route.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1671,7 +1671,7 @@
 | `Streaming` | `bool` | ``json:"streaming,omitempty"`` | 承载 Streaming 的 bool 值；业务上下文见本 struct 的源码包。 |
 | `AfterEventID` | `uint64` | ``json:"after_event_id,omitempty"`` | 承载 AfterEventID 的 uint64 值；业务上下文见本 struct 的源码包。 |
 
-## `TaskCandidate` — `pkg/runtime/web/request_router.go:64`
+## `TaskCandidate` — `pkg/runtime/web/model/route.go`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -2100,4 +2100,3 @@
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `HTML` | `string` | ``json:"html"`` | 承载 HTML 的 string 值；业务上下文见本 struct 的源码包。 |
-

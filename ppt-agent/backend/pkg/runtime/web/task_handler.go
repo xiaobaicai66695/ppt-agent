@@ -2,11 +2,10 @@ package web
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
+	webservice "github.com/cloudwego/ppt-agent/pkg/runtime/web/service"
 	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
@@ -51,26 +51,20 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 	}
 
 	taskID := s.taskIDGen()
-	cfg := s.makeTaskConfig(taskID)
-	cfg.Query = req.Query
-	cfg.UserID = uid
-	cfg.ModelAPIKey = credential.APIKey
-	cfg.ModelProvider = credential.Provider
-	cfg.Intent = messageIntentCreate
-	cfg.ConversationID = taskID
-
-	// 如果有 outline，先做服务端兜底校验/补齐；TaskManager 只将其写入规划草稿。
-	if req.Outline != nil && len(req.Outline.Slides) > 0 {
-		outline, err := s.prepareOutline(c.Request.Context(), req.Query, req.Outline)
-		if err != nil {
+	info, err := s.taskApplication().Create(c.Request.Context(), webmodel.TaskCreateInput{
+		TaskID:         taskID,
+		Query:          req.Query,
+		UserID:         uid,
+		Credential:     credential,
+		Intent:         messageIntentCreate,
+		ConversationID: taskID,
+		Outline:        req.Outline,
+	})
+	if err != nil {
+		if errors.Is(err, webservice.ErrInvalidOutline) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "outline 处理失败: " + err.Error()})
 			return
 		}
-		cfg.Outline = outline
-	}
-
-	info, err := s.tasks.CreateTask(c.Request.Context(), req.Query, uid, s.agentFactory, cfg)
-	if err != nil {
 		code := http.StatusInternalServerError
 		if err == task.ErrTaskAlreadyRunning {
 			code = http.StatusConflict
@@ -79,38 +73,11 @@ func (s *Server) handleCreateTask(c *gin.Context) {
 		return
 	}
 
-	// 初始化会话（消息会自动写入数据库）
-	sess := s.sessionManager.GetOrCreate(taskID, info.WorkDir)
-	if err := sess.AddUserMessage(req.Query); err != nil {
-		logger.Error("initial_user_message_persist_failed", "task_id", taskID, "error", err.Error())
-		// Do not leave a generation running without its durable user input.
-		s.tasks.CancelTask(taskID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存会话消息失败"})
-		return
-	}
-
 	c.JSON(http.StatusCreated, info)
 }
 
 func (s *Server) findRecentDuplicateTask(uid int, query string) *task.TaskInfo {
-	queryKey := normalizeMessageKey(query)
-	if queryKey == "" || s.tasks == nil {
-		return nil
-	}
-	deadline := time.Now().Add(-2 * time.Minute)
-	for _, info := range s.tasks.ListTasks(uid) {
-		if info.CreatedAt.Before(deadline) {
-			continue
-		}
-		if info.Status == task.TaskStatusCancelled || info.Status == task.TaskStatusFailed {
-			continue
-		}
-		if normalizeMessageKey(info.Query) == queryKey {
-			copy := info
-			return &copy
-		}
-	}
-	return nil
+	return s.taskApplication().FindRecentDuplicate(uid, query)
 }
 
 func (s *Server) handleStartConversationTask(c *gin.Context) {
@@ -129,15 +96,12 @@ func (s *Server) handleStartConversationTask(c *gin.Context) {
 	sess := s.sessionManager.GetOrCreate(taskID, info.WorkDir)
 	query := taskGenerationQuery(sess, info.Query)
 	credential := userModelCredential(uid)
-	cfg := s.makeTaskConfig(taskID)
-	cfg.Query = query
-	cfg.UserID = uid
-	cfg.ModelAPIKey = credential.APIKey
-	cfg.ModelProvider = credential.Provider
-	cfg.Intent = messageIntentCreate
-	cfg.ConversationID = taskID
-
-	started, err := s.tasks.StartConversationTask(c.Request.Context(), taskID, query, uid, s.agentFactory, cfg)
+	started, err := s.taskApplication().StartConversation(c.Request.Context(), webmodel.StartConversationInput{
+		TaskID:     taskID,
+		Query:      query,
+		UserID:     uid,
+		Credential: credential,
+	})
 	if err != nil {
 		code := http.StatusInternalServerError
 		if err == task.ErrTaskAlreadyRunning {
@@ -315,24 +279,7 @@ func (s *Server) handleListLayouts(c *gin.Context) {
 }
 
 func (s *Server) prepareOutline(_ context.Context, query string, outline *ppt.TaskOutline) (*ppt.TaskOutline, error) {
-	if outline == nil || len(outline.Slides) == 0 {
-		return outline, nil
-	}
-	if strings.TrimSpace(outline.Title) == "" {
-		outline.Title = strings.TrimSpace(query)
-	}
-	outline.ContentMode = ppt.OutlineContentModeUserOutline
-
-	for i := range outline.Slides {
-		slide := &outline.Slides[i]
-		slide.Title = strings.TrimSpace(slide.Title)
-		slide.ContentType = strings.TrimSpace(slide.ContentType)
-		if s.templateLoader.GetLayout(slide.ContentType) == nil {
-			return nil, fmt.Errorf("第%d页 content_type=%q 不存在", i+1, slide.ContentType)
-		}
-	}
-
-	return outline, nil
+	return s.taskApplication().PrepareOutline(query, outline)
 }
 
 func (s *Server) handleDeleteTask(c *gin.Context) {

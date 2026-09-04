@@ -17,9 +17,11 @@
 ```mermaid
 flowchart LR
   U["用户"] --> F["frontend<br/>Compose / Dashboard"]
-  F --> W["backend/pkg/runtime/web<br/>REST + SSE"]
+  F --> W["backend/pkg/runtime/web/router<br/>REST + SSE"]
+  W --> WS["backend/pkg/runtime/web/service<br/>application services"]
+  W --> WM["backend/pkg/runtime/web/model<br/>transport DTOs"]
   W --> TM["backend/pkg/runtime/task<br/>TaskManager"]
-  W --> CR["request_router<br/>创建入口意图分类"]
+  WS --> CR["request_router<br/>创建入口意图分类"]
   CR --> TM
   TM --> PL["backend/pkg/agent/ppt<br/>PPTPlanner"]
   PL --> D["tasks.draft.json<br/>规划草稿"]
@@ -39,7 +41,7 @@ flowchart LR
 | 层级 | 主要路径 | 职责 | 后续改动边界 |
 | --- | --- | --- | --- |
 | Web 入口 | `ppt-agent/backend/main.go` | 读取 `.env`、初始化 logger/callback/skill/backend/db，组装 web/cli 两种启动模式 | 改服务启动、模型工厂、skill 路径、输出目录时看这里 |
-| HTTP API | `ppt-agent/backend/pkg/runtime/web` | Gin 路由、认证、创建入口意图分类、任务接口、模板接口、SSE、缩略图、继续对话 | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时看这里 |
+| HTTP API | `ppt-agent/backend/pkg/runtime/web/{router,service,model}` | router 注册 Gin 路由；service 承担任务应用操作；model 定义请求/响应 DTO；兼容入口仍在 `web.NewServer` | 改前后端接口、任务创建、模板展示、下载/预览、继续生成时先看对应边界 |
 | 任务生命周期 | `ppt-agent/backend/pkg/runtime/task` | 创建任务、工作目录、运行态、SSE 事件缓存、DB 持久化、取消/删除、进度轮询 | 改状态机、并发限制、任务恢复、事件结构、持久化字段时看这里 |
 | 规划与渲染编排 | `ppt-agent/backend/pkg/agent/ppt` | `PPTPlanner`、`TaskPlanReviewer`、`PPTFixer`、manifest 草稿/提交、规划恢复、按页渲染 workflow | 改生成主流程、任务清单契约、规划质量门、继续修复或 Agent prompt 时看这里 |
 | Prompt 模板 | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立指令 | 改模型行为、工具使用规则、字段语义、生成质量约束时必须同步这里 |
@@ -58,7 +60,7 @@ flowchart LR
 - `runWebMode` 将输出目录设为 `ppt-agent/weboutput`。
 - `skillsDir` 指向 `ppt-agent/skills`，供 Eino skill backend、prompt 和 Python 生成器共同使用。
 - `agentFactory` 为每个任务创建新的 `ppt.NewPPTPlannerAgent`，注入 `WorkDir`、`TaskID`、`Operator`、`SkillsDir`、`RuntimeMeta`、模型工厂和并发数。
-- `web.NewServer` 负责路由、创建入口意图分类、模板 loader、任务管理器和日志分析服务。
+- `web.NewServer` 负责依赖装配；`web/router` 注册路由，`web/service` 承担任务应用操作，`web/model` 保持 JSON 契约。
 
 ### 3.2 智能规划 / 自定义编排到任务创建
 
