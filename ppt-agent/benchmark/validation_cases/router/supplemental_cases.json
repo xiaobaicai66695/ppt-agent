@@ -1,0 +1,4 @@
+[
+  {"id":"router_validation_create_005","name":"创建社区健康宣教","input":{"user_message":"为社区医生准备 6 页慢病管理宣教 PPT","has_existing_task":false,"conversation_context":[]},"expected":{"intent":"create_deck","target_agent":"PPTPlanner","must_extract":{"topic":"慢病管理宣教","audience":"社区医生","page_count":6}},"judge_focus":["识别独立新建请求","提取受众"]},
+  {"id":"router_validation_continue_fix_002","name":"已有演示的范围收窄","input":{"user_message":"保留前两页，只重做客户案例那一页","has_existing_task":true,"conversation_context":["任务为 SaaS 客户成功案例分享，共五页。"]},"expected":{"intent":"fix","target_agent":"PPTFixer","must_extract":{"scope":"客户案例页"}},"judge_focus":["识别范围受限的修订","不创建新演示"]}
+]
