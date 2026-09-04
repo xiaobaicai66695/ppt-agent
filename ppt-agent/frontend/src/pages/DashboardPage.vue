@@ -11,7 +11,7 @@ import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetch
 import type { AuthUser, TaskInfo } from '../types'
 import { shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent } from '../utils/taskStream'
-import { appendExecutionStep, appendTimelineMessage, appendToolInvocation, beginObservablePhase, completeObservablePhase, hideCompletedToolTraces, resetConversationTimeline, resolveToolInvocation, toggleToolInvocation, type ConversationTimelineItem, type ExecutionState, type ToolPreview } from '../utils/conversationTimeline'
+import { appendExecutionStep, appendTimelineMessage, appendToolInvocation, beginObservablePhase, completeObservablePhase, finishToolPhase, hideCompletedToolTraces, prepareToolBoundary, resetConversationTimeline, resolveToolInvocation, toggleToolInvocation, type ConversationTimelineItem, type ExecutionState, type ToolPreview } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -33,6 +33,10 @@ const thumbnailRevision = ref(0)
 const feedbackDialogOpen = ref(false)
 const pendingDeletion = ref<TaskInfo>()
 let source: EventSource | undefined
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+let streamCursor = 0
+let reconnectAttempts = 0
+let streamGeneration = 0
 
 const activeTitle = computed(() => selected.value?.query || '新的创作会话')
 const sorted = computed(() => [...tasks.value].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)))
@@ -43,8 +47,11 @@ const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图�
 const executionLabel = (state: ExecutionState) => ({ running: '执行中', success: '已完成', error: '失败' } as Record<ExecutionState, string>)[state]
 
 function closeStream() {
+  streamGeneration += 1
   source?.close()
   source = undefined
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = undefined
 }
 
 function addExecution(label: string, detail = '', state: ExecutionState = 'running') {
@@ -60,6 +67,15 @@ function stickToLatestMessage() {
 
 function appendAssistantChunk(content: string) {
   if (!content) return
+  // A tool result starts a new visible assistant segment.  Without closing
+  // the previous phase here, the next model delta is appended to the text
+  // above the tool card instead of appearing after it in the timeline.
+  if (!streamingMessageID.value && activePhaseID.value) {
+    if (finishToolPhase(timeline.value, activePhaseID.value)) {
+      activePhaseID.value = undefined
+      activePhase.value = ''
+    }
+  }
   const item = timeline.value.find((candidate): candidate is Extract<ConversationTimelineItem, { type: 'message' }> => candidate.type === 'message' && candidate.id === streamingMessageID.value)
   if (item?.message.role === 'assistant') {
     item.message.content += content
@@ -94,18 +110,34 @@ async function select(task: TaskInfo) {
 
 function openStream(id: string, after = 0) {
   closeStream()
+  const generation = streamGeneration
+  streamCursor = after
+  reconnectAttempts = 0
   busy.value = true
-  source = new EventSource(`/api/tasks/${id}/stream${after ? `?after_id=${after}` : ''}`)
-  const receive = (event: MessageEvent) => consume(event.data)
+  const connect = () => {
+    if (generation !== streamGeneration || selected.value?.id !== id) return
+    source = new EventSource(`/api/tasks/${id}/stream${streamCursor ? `?after_id=${streamCursor}` : ''}`)
+    const receive = (event: MessageEvent) => {
+      const numericID = Number(event.lastEventId)
+      if (Number.isFinite(numericID) && numericID > streamCursor) streamCursor = numericID
+      reconnectAttempts = 0
+      consume(event.data)
+    }
   for (const name of ['answer', 'answer_end', 'system_step', 'tool_call', 'tool_result', 'progress', 'runtime_event', 'file_ready', 'thumbnail_ready', 'error', 'complete', 'continue_complete', 'continue_queued', 'conversation_complete']) {
-    source.addEventListener(name, receive)
+      source?.addEventListener(name, receive)
+    }
+    source.onerror = () => {
+      source?.close()
+      source = undefined
+      if (generation !== streamGeneration || selected.value?.id !== id) return
+      const delay = Math.min(10000, 500 * 2 ** reconnectAttempts++)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined
+        connect()
+      }, delay)
+    }
   }
-  source.onerror = () => {
-    closeStream()
-    busy.value = false
-    addExecution('连接已结束', '已从会话快照恢复', 'success')
-    void refreshSelected(true)
-  }
+  connect()
 }
 
 function startPhase(phase: string, detail: string) {
@@ -147,6 +179,10 @@ function consume(raw: string) {
     } else if (data.type === 'system_step') {
       startPhase(data.phase || 'system', data.phase_detail || data.message || '正在推进')
     } else if (data.type === 'tool_call') {
+      // A tool call is a hard segment boundary: finish the preceding model
+      // text and place the observable phase after it before adding the tool.
+      streamingMessageID.value = undefined
+      prepareToolBoundary(timeline.value, activePhaseID.value)
       ensureAnalysisPhase()
       appendToolInvocation(timeline.value, activePhaseID.value, data.tool_name || 'unknown', toolLabel(data.tool_name), data.phase_detail || data.message || '正在调用', data.tool_preview)
       void nextTick(stickToLatestMessage)

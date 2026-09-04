@@ -59,6 +59,25 @@ function findPhase(items: ConversationTimelineItem[], phaseID?: string) {
   return [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'phase' }> => item.type === 'phase')
 }
 
+// A tool boundary closes the current model-text segment.  Keep the phase
+// after that text so the rendered order is: thought -> tool call -> next text.
+export function prepareToolBoundary(items: ConversationTimelineItem[], phaseID?: string) {
+  const phase = findPhase(items, phaseID)
+  if (!phase) return
+  const index = items.indexOf(phase)
+  if (index >= 0 && index < items.length - 1) {
+    items.splice(index, 1)
+    items.push(phase)
+  }
+}
+
+export function finishToolPhase(items: ConversationTimelineItem[], phaseID?: string) {
+  const phase = findPhase(items, phaseID)
+  if (!phase || phase.tools.length === 0) return false
+  phase.state = 'success'
+  return true
+}
+
 export function appendToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', preview?: ToolPreview) {
   const phase = findPhase(items, phaseID)
   if (!phase) return undefined

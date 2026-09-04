@@ -4,7 +4,9 @@ import {
   appendToolInvocation,
   beginObservablePhase,
   completeObservablePhase,
+  finishToolPhase,
   hideCompletedToolTraces,
+  prepareToolBoundary,
   resetConversationTimeline,
   resolveToolInvocation,
   toggleToolInvocation,
@@ -68,5 +70,19 @@ describe('conversation timeline', () => {
     appendTimelineMessage(items, { role: 'assistant', content: '完成', timestamp: '' })
     hideCompletedToolTraces(items)
     expect(items.map(item => item.type)).toEqual(['message', 'message'])
+  })
+
+  it('keeps a tool phase after the preceding assistant segment', () => {
+    const items = resetConversationTimeline([{ role: 'user', content: '查资料', timestamp: '' }])
+    const phaseID = beginObservablePhase(items, 'analysis', '分析请求')
+    appendTimelineMessage(items, { role: 'assistant', content: '我先查一下。', timestamp: '' })
+    prepareToolBoundary(items, phaseID)
+    appendToolInvocation(items, phaseID, 'search', '联网检索')
+
+    expect(items.map(item => item.type === 'message' ? item.message.role : item.type)).toEqual(['user', 'assistant', 'phase'])
+    expect(finishToolPhase(items, phaseID)).toBe(true)
+    expect(items[2]).toMatchObject({ type: 'phase', state: 'success' })
+    appendTimelineMessage(items, { role: 'assistant', content: '查到了一些资料。', timestamp: '' })
+    expect(items.map(item => item.type === 'message' ? item.message.role : item.type)).toEqual(['user', 'assistant', 'phase', 'assistant'])
   })
 })
