@@ -1,6 +1,6 @@
 # Unsplash 图片 CLI
 
-本 CLI 是 `ppt-deck-planner` skill 的 Agent 侧图片搜索与下载入口。`ppt-agent` 的 Planner 不直接调用图片工具；它只输出视觉意图，再由审查后的确定性素材物化层执行搜索、下载与路径回填。
+本 CLI 是 `ppt-deck-planner` skill 的**通用 Agent**图片搜索与下载入口。`ppt-agent` 项目内的闲聊 Agent 改用 `search_images` Tool 展示图片候选；PPTPlanner 不直接调用 CLI 或图片 Tool，只输出视觉意图，再由审查后的确定性素材物化层执行搜索、下载与路径回填。
 
 ## 图片工具优先级
 
@@ -50,7 +50,7 @@ accessToken（输入后不会回显）:
 
 ## 下载已规划的图片
 
-先查看顶层 `visual_policy`：默认必须为 `mode="required"`，每一页都必须拥有可下载的背景 `visual_intent`；`mode="none"` 只有在 `user_declined_background:true` 和 `decline_reason` 记录了用户明确拒绝背景图片时才可完全跳过认证和下载。`fetch` 会先下载所有背景，也会扫描 `components[].type="image"` 前景图。
+先查看顶层 `visual_policy`：默认必须为 `mode="required"`，每一页都必须拥有可下载的背景 `visual_intent`；`mode="none"` 只有在 `user_declined_background:true` 和 `decline_reason` 记录了用户明确拒绝背景图片时才可完全跳过认证和下载。**同一 `content_type` 的背景必须先规划同一个 `asset_query`，最终必须复用同一个本地图片路径。** `fetch` 会为每种页面类型只解析一张背景，并把路径、来源和署名回写到该类型的全部页面；它不会按页轮换背景。前景 `components[].type="image"` 仍按组件自身语义独立处理。
 
 需要图片时，先在 `visual_intent` 或 `image` 组件中填写 `asset_purpose`、`asset_query`、`asset_subject`、`composition` 与 `orientation`，再运行：
 

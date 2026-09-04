@@ -69,6 +69,7 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
     image_page_count = 0
     required_visual_page_count = 0
     planned_but_unmaterialized = 0
+    backgrounds_by_content_type: dict[str, list[tuple[str, str]]] = {}
     for index, task in enumerate(tasks):
         if not isinstance(task, dict):
             continue
@@ -115,6 +116,22 @@ def validate_visual_manifest_file(manifest_path: Path, work_dir: Path, min_image
         if content_type in IMAGE_REQUIRED_CONTENT_TYPES and not task_has_materialized_image:
             add_error(errors, task_path, "missing_required_slide_image", f"{content_type} requires a materialized local image")
 
+        background_paths = materialized_background_paths(task, work_dir)
+        if background_paths:
+            backgrounds_by_content_type.setdefault(content_type, []).append((task_path, background_paths[0]))
+
+    for content_type, entries in backgrounds_by_content_type.items():
+        unique_paths = {path for _, path in entries}
+        if len(unique_paths) <= 1:
+            continue
+        for task_path, _ in entries:
+            add_error(
+                errors,
+                task_path,
+                "background_not_reused_by_content_type",
+                f"all {content_type} pages in one deck must reuse one materialized background image",
+            )
+
     required_min = min_image_pages
     if required_min is None and mode == "required" and isinstance(policy, dict):
         required_min = policy.get("min_image_pages")
@@ -145,7 +162,28 @@ def collect_visual_items(task: dict[str, Any], task_path: str) -> list[tuple[str
 
 
 def is_background_visual(item: dict[str, Any]) -> bool:
-    return clean(item.get("role")) == "background" or clean(item.get("asset_purpose")) == "background"
+    return (
+        clean(item.get("role")) in {"background", "hero_photo"}
+        or clean(item.get("asset_purpose")) == "background"
+        or clean(item.get("image_position")) == "background"
+    )
+
+
+def materialized_background_paths(task: dict[str, Any], work_dir: Path) -> list[str]:
+    paths: list[str] = []
+    for _, item in collect_visual_items(task, ""):
+        if not is_background_visual(item):
+            continue
+        value = first_path_value(item)
+        if not value:
+            continue
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            candidate = work_dir / candidate
+        normalized = str(candidate.resolve())
+        if normalized not in paths:
+            paths.append(normalized)
+    return paths
 
 
 def is_visual_component(component: dict[str, Any]) -> bool:

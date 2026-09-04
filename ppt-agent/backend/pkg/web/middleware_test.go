@@ -62,6 +62,7 @@ func TestUserAPIKeyRoutesAreRegistered(t *testing.T) {
 		routes = append(routes, route.Method+" "+route.Path)
 	}
 	for _, want := range []string{
+		"POST /api/auth/register",
 		"GET /api/users/me/api-key",
 		"PUT /api/users/me/api-key",
 		"DELETE /api/users/me/api-key",

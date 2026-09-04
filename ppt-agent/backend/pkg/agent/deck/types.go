@@ -56,8 +56,20 @@ type PPTTaskConfig struct {
 	ConversationID    string
 	SourceMessageID   string
 	ParentTaskID      string
+	// OnFixerTriggered records each actual Fixer run. It is a runtime-only
+	// callback owned by the task layer, so it is never written to DeckSpec.
+	OnFixerTriggered func()
 
 	UserID int // 用户ID
+}
+
+// NotifyFixerTriggered reports that this task is about to execute the Fixer.
+// Keep the counter at the task boundary so automatic asset repairs and
+// user-requested repairs use one consistent definition.
+func (c *PPTTaskConfig) NotifyFixerTriggered() {
+	if c != nil && c.OnFixerTriggered != nil {
+		c.OnFixerTriggered()
+	}
 }
 
 // CompressorOption 定义上下文压缩中间件的配置

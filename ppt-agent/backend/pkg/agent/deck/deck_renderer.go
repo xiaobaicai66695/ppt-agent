@@ -143,6 +143,7 @@ func reviseBackgroundSearchTermsWithFixer(ctx context.Context, deck *deckRenderC
 		return err
 	}
 	input := fmt.Sprintf("系统素材修订：Unsplash 背景图片搜索返回 HTTP 410，说明当前 asset_query 不适合素材服务。仅修改授权页面的背景 visual_intent.asset_query 或背景 image 组件的 asset_query。必须改成与原词不同、可搜索的简洁英文视觉主体词（2-5 个词）；不要重复原词、不要下载图片、不要改正文、标题、版式或其他字段。\n目标页面：%v\n失败搜索词：%v", pageIndexes, queries)
+	deck.Config.NotifyFixerTriggered()
 	if err := RunPPTFixerWithCallback(fixerCtx, fixer, input, func(event AgentEvent) {
 		if event.Type == AgentEventProgress {
 			emitRenderEvent(deck.Callback, DeckRenderEvent{Type: "asset_query_revision", Detail: event.PhaseDetail})

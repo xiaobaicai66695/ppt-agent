@@ -1,5 +1,15 @@
 import type { AtomicLayout, AuthUser, ConversationSession, RuntimeEvent, TaskInfo, TaskOutline } from './types'
 
+export type MessageMode = 'chat' | 'pptagent'
+
+export interface MessageRoute {
+  task_id: string
+  intent: string
+  mode: string
+  reply?: string
+  after_event_id?: number
+}
+
 const tokenKey = 'ppt_agent_token'
 export const getToken = () => localStorage.getItem(tokenKey)
 export function setToken(token: string) {
@@ -47,7 +57,7 @@ export const cancelTask = (id: string) => request<TaskInfo>(`/api/tasks/${id}/ca
 export const startTask = (id: string) => request<TaskInfo>(`/api/tasks/${id}/start`, { method: 'POST' })
 export const fetchConversation = (id: string) => request<ConversationSession>(`/api/tasks/${id}/conversation`)
 export const fetchRuntimeEvent = (id: string, eventId: number) => request<RuntimeEvent>(`/api/tasks/${id}/runtime-events/${eventId}`)
-export const routeMessage = (message: string, selectedTaskId = '', manualMode: 'chat' | 'pptagent' = 'chat', webSearch = false, imageSearch = false) => request<{ task_id: string; intent: string; mode: string; reply?: string; after_event_id?: number }>('/api/messages', { method: 'POST', body: JSON.stringify({ message, selected_task_id: selectedTaskId, manual_mode: manualMode, web_search: webSearch, image_search: imageSearch }) })
+export const routeMessage = (message: string, selectedTaskId = '', manualMode: MessageMode = 'chat', webSearch = false, imageSearch = false) => request<MessageRoute>('/api/messages', { method: 'POST', body: JSON.stringify({ message, selected_task_id: selectedTaskId, manual_mode: manualMode, web_search: webSearch, image_search: imageSearch }) })
 export const continueTask = (id: string, message: string) => request<{ task_id: string; after_event_id?: number }>(`/api/tasks/${id}/continue`, { method: 'POST', body: JSON.stringify({ message }) })
 export const fetchLayouts = async () => (await request<{ layouts?: AtomicLayout[] }>('/api/templates/layouts')).layouts || []
 export const createTaskWithOutline = (query: string, outline: TaskOutline) => request<TaskInfo>('/api/tasks', { method: 'POST', body: JSON.stringify({ query, outline }) })
@@ -58,6 +68,22 @@ export interface UserApiKeyStatus { configured: boolean; provider: string; defau
 export const fetchUserApiKeyStatus = () => request<UserApiKeyStatus>('/api/users/me/api-key')
 export const updateUserApiKey = (apiKey: string, provider = 'ark') => request<UserApiKeyStatus>('/api/users/me/api-key', { method: 'PUT', body: JSON.stringify({ provider, api_key: apiKey }) })
 export const deleteUserApiKey = () => request('/api/users/me/api-key', { method: 'DELETE' })
-export const fetchAdminStats = () => request<{ user_count: number; task_count: number; running_count: number }>('/api/admin/stats')
-export const fetchAdminUsers = () => request<{ users?: Array<{ id: number; email: string; is_admin: boolean; created_at: string }> }>('/api/admin/users').then(data => data.users || [])
-export const fetchAdminTasks = () => request<{ tasks?: Array<{ id: string; user_email?: string; query: string; status: string; done_count: number; total_count: number; created_at: string }> }>('/api/admin/tasks').then(data => data.tasks || [])
+export interface AdminStats {
+  user_count: number; task_count: number; running_count: number
+  registered_user_count: number; non_root_registered_user_count: number
+  ppt_active_user_count: number; custom_api_key_user_count: number
+  ppt_generation_count: number; non_root_ppt_generation_count: number
+  feedback_count: number; feedback_suggestion_count: number
+}
+export interface AdminUser { id: number; email: string; is_admin: boolean; created_at: string; ppt_generation_count: number; custom_api_key_configured: boolean }
+export interface AdminTask {
+  id: string; user_id: number; user_email?: string; query: string; status: string; done_count: number; total_count: number
+  duration?: string; generation_started_at?: string; generation_finished_at?: string; generation_duration_ms: number; fixer_run_count: number
+  error?: string; created_at: string; updated_at?: string
+}
+export interface AdminFeedback { task_id: string; user_id: number; user_email?: string; task_query?: string; rating: number; suggestion?: string; created_at?: string; updated_at?: string }
+
+export const fetchAdminStats = () => request<AdminStats>('/api/admin/stats')
+export const fetchAdminUsers = () => request<{ users?: AdminUser[] }>('/api/admin/users').then(data => data.users || [])
+export const fetchAdminTasks = () => request<{ tasks?: AdminTask[] }>('/api/admin/tasks').then(data => data.tasks || [])
+export const fetchAdminFeedback = () => request<{ feedback?: AdminFeedback[] }>('/api/admin/feedback?limit=100').then(data => data.feedback || [])

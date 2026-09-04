@@ -43,6 +43,7 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	db.DB = nil
 	t.Cleanup(func() { db.DB = previousDB })
 
+	routerCalled := false
 	server := &Server{
 		tasks:          task.NewTaskManager(t.TempDir(), nil, nil, nil),
 		sessionManager: session.NewSessionManager(),
@@ -50,6 +51,7 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 		textModelFactory: func(context.Context) (interface {
 			Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
 		}, error) {
+			routerCalled = true
 			return fakeCreateRouteModel{response: `{"intent":"plan","mode":"pptagent","action":"save_plan","needs_confirmation":true,"confidence":0.95,"reply":"普通回答"}`}, nil
 		},
 	}
@@ -69,6 +71,9 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	}
 	if route.Intent != messageIntentCreate || route.Mode != messageModePPTAgent || route.Action != messageActionPrepareCreate || route.NeedsConfirmation || route.Reply != "" {
 		t.Fatalf("manual PPT route = %#v, want create/pptagent/prepare_create", route)
+	}
+	if !routerCalled {
+		t.Fatal("manual PPT mode must still run intent recognition before applying the create override")
 	}
 }
 
@@ -118,7 +123,16 @@ func TestHandleMessageStreamsChatTurnOverTaskTimeline(t *testing.T) {
 		for _, event := range events {
 			types[event.Type] = true
 		}
+		answerContent := ""
+		for _, event := range events {
+			if event.Type == "answer" {
+				answerContent += event.Content
+			}
+		}
 		if done && types["answer"] && types["answer_end"] && types["conversation_complete"] {
+			if strings.TrimSpace(answerContent) == "" {
+				t.Fatalf("chat timeline emitted answer events without visible content: %#v", events)
+			}
 			messages := sessions.Get(route.TaskID).GetRecentMessages(0)
 			assistantCount := 0
 			for _, message := range messages {

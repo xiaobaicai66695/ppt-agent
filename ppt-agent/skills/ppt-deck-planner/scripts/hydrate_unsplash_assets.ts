@@ -33,6 +33,14 @@ interface VisualIntent extends JsonObject {
   search_status?: string;
 }
 
+interface PlannedVisual {
+  taskLabel: string;
+  contentType: string;
+  intent: VisualIntent;
+}
+
+type MaterializedAsset = Pick<VisualIntent, "local_path" | "image_url" | "preview_url" | "source_url" | "attribution" | "provider" | "search_status">;
+
 interface UnsplashPhoto {
   id: string;
   width: number;
@@ -228,6 +236,68 @@ async function hasResolvedImage(intent: VisualIntent, workDir: string): Promise<
   }
 }
 
+function isBackgroundIntent(intent: VisualIntent): boolean {
+  const purpose = String(intent.asset_purpose || "").trim().toLowerCase();
+  const role = String(intent.role || "").trim().toLowerCase();
+  const position = String(intent.image_position || "").trim().toLowerCase();
+  return purpose === "background" || role === "background" || role === "hero_photo" || position === "background";
+}
+
+function contentTypeKey(task: JsonObject): string {
+  const contentType = String(task.content_type || "").trim().toLowerCase();
+  return contentType || "content_slide";
+}
+
+function materializedAsset(intent: VisualIntent): MaterializedAsset {
+  return {
+    local_path: intent.local_path,
+    image_url: intent.image_url,
+    preview_url: intent.preview_url,
+    source_url: intent.source_url,
+    attribution: intent.attribution,
+    provider: intent.provider,
+    search_status: intent.search_status,
+  };
+}
+
+function applySharedBackground(intent: VisualIntent, source: VisualIntent): void {
+  Object.assign(intent, materializedAsset(source), {
+    asset_query: source.asset_query,
+    orientation: source.orientation,
+  });
+}
+
+async function hydrateSharedBackgroundGroup(group: PlannedVisual[], workDir: string, key: string, perPage: number, completed: string[]): Promise<void> {
+  const reusable = await findResolvedVisual(group, workDir);
+  const source = reusable ?? group[0];
+  if (!reusable) {
+    const accessToken = await readAccessToken();
+    const photo = await searchPhoto(source.intent, accessToken, perPage);
+    Object.assign(source.intent, await downloadPhoto(photo, workDir, accessToken), {
+      provider: "unsplash",
+      search_status: "resolved",
+    });
+    completed.push(`${source.taskLabel}: 已下载 unsplash_${photo.id}（${key} 共享背景）`);
+  } else {
+    completed.push(`${source.taskLabel}: 已存在（${key} 共享背景）`);
+  }
+  for (const target of group) {
+    applySharedBackground(target.intent, source.intent);
+    if (target !== source) {
+      completed.push(`${target.taskLabel}: 复用 ${source.taskLabel} 的 ${key} 背景`);
+    }
+  }
+}
+
+async function findResolvedVisual(group: PlannedVisual[], workDir: string): Promise<PlannedVisual | null> {
+  for (const planned of group) {
+    if (await hasResolvedImage(planned.intent, workDir)) {
+      return planned;
+    }
+  }
+  return null;
+}
+
 export async function hydrateUnsplashAssets(argv: string[]): Promise<void> {
   const options = parseArgs(argv);
   const manifestPath = join(options.workDir, "tasks.json");
@@ -239,7 +309,7 @@ export async function hydrateUnsplashAssets(argv: string[]): Promise<void> {
   }
   if (!Array.isArray(manifest.tasks) || !manifest.tasks.length) fail("tasks.json 必须包含非空 tasks 数组。");
 
-  const plannedVisuals: Array<{ taskLabel: string; intent: VisualIntent }> = [];
+  const plannedVisuals: PlannedVisual[] = [];
   const skipped: string[] = [];
   for (let index = 0; index < manifest.tasks.length; index += 1) {
     const task = asObject(manifest.tasks[index], `tasks[${index}]`);
@@ -250,22 +320,34 @@ export async function hydrateUnsplashAssets(argv: string[]): Promise<void> {
       continue;
     }
     allowedAssetPurpose(intent.asset_purpose, `tasks[${index}](${taskLabel})`);
-    plannedVisuals.push({ taskLabel, intent });
+    plannedVisuals.push({ taskLabel, contentType: contentTypeKey(task), intent });
   }
   if (!plannedVisuals.length) {
     console.log(JSON.stringify({ ok: true, work_dir: options.workDir, assets: [], skipped_no_visual_intent: skipped }, null, 2));
     return;
   }
 
-  const key = await readAccessToken();
   const completed: string[] = [];
+  const backgroundGroups = new Map<string, PlannedVisual[]>();
+  for (const planned of plannedVisuals) {
+    if (!isBackgroundIntent(planned.intent)) continue;
+    const group = backgroundGroups.get(planned.contentType) ?? [];
+    group.push(planned);
+    backgroundGroups.set(planned.contentType, group);
+  }
+  for (const [contentType, group] of backgroundGroups) {
+    await hydrateSharedBackgroundGroup(group, options.workDir, contentType, options.perPage, completed);
+  }
+
   for (const { taskLabel, intent } of plannedVisuals) {
+    if (isBackgroundIntent(intent)) continue;
     if (await hasResolvedImage(intent, options.workDir)) {
       completed.push(`${taskLabel}: 已存在`);
       continue;
     }
-    const photo = await searchPhoto(intent, key, options.perPage);
-    Object.assign(intent, await downloadPhoto(photo, options.workDir, key), {
+    const accessToken = await readAccessToken();
+    const photo = await searchPhoto(intent, accessToken, options.perPage);
+    Object.assign(intent, await downloadPhoto(photo, options.workDir, accessToken), {
       provider: "unsplash",
       search_status: "resolved",
     });

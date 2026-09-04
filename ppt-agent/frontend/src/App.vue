@@ -18,7 +18,7 @@ a { color: inherit; text-decoration: none; }
 :focus-visible { outline: 2px solid #65e5cb; outline-offset: 3px; }
 
 html[data-theme='light'] body{background:#edf2f0;color:#163841}
-html[data-theme='light'] .studio-shell,html[data-theme='light'] .studio-main,html[data-theme='light'] .canvas,html[data-theme='light'] .compose{background:#eaf0ee!important;color:#153842}
+html[data-theme='light'] .studio-shell,html[data-theme='light'] .studio-main,html[data-theme='light'] .canvas,html[data-theme='light'] .compose,html[data-theme='light'] .composer{background:#eaf0ee!important;color:#153842}
 html[data-theme='light'] .studio-nav,html[data-theme='light'] .conversations{background:#f9fbf7!important;border-color:#cfddd8!important}
 html[data-theme='light'] .studio-header,html[data-theme='light'] .canvas-head,html[data-theme='light'] .slide-list,html[data-theme='light'] .delivery{border-color:#cfddd8!important}
 html[data-theme='light'] .studio-header h1,html[data-theme='light'] .canvas-head h2,html[data-theme='light'] .nav-brand,html[data-theme='light'] .identity b,html[data-theme='light'] .editor h2{color:#183943!important}
@@ -26,6 +26,11 @@ html[data-theme='light'] nav a,html[data-theme='light'] .quiet-action,html[data-
 html[data-theme='light'] .task-row.selected,html[data-theme='light'] .task-row:hover{background:#dceae5!important;color:#173e45!important}
 html[data-theme='light'] .activity{background:#dcebe7!important;color:#355b62!important}
 html[data-theme='light'] .modebar button.on,html[data-theme='light'] .compose-link{background:#d4eae4!important;color:#13535a!important}
+html[data-theme='light'] .composer{border-color:#cfddd8!important}
+html[data-theme='light'] .modebar button,html[data-theme='light'] .modebar label{color:#52737a!important}
+html[data-theme='light'] .composer-input{background:#ffffff!important;box-shadow:0 8px 22px rgba(35,74,72,.08)}
+html[data-theme='light'] .composer-input textarea{color:#183943!important}
+html[data-theme='light'] .composer-input button{background:#176f72!important;color:#f7fffc!important}
 html[data-theme='light'] .slide-row.selected{background:#d7e9e4!important;color:#143e47!important}
 html[data-theme='light'] .message.user{background:#cce5e2!important;color:#123b45!important}
 html[data-theme='light'] .home-nav,html[data-theme='light'] .how{border-color:#c8d8d3!important}

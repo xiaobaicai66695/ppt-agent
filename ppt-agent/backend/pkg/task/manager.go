@@ -61,27 +61,31 @@ const sseReplayEventLimit = 1024
 
 // TaskInfo 是任务的公开可见摘要。
 type TaskInfo struct {
-	ID                  string     `json:"id"`
-	UserID              int        `json:"user_id"`
-	Query               string     `json:"query"`
-	Status              TaskStatus `json:"status"`
-	WorkDir             string     `json:"work_dir"`
-	CreatedAt           time.Time  `json:"created_at"`
-	DoneCount           int        `json:"done_count"`
-	TotalCount          int        `json:"total_count"`
-	Duration            string     `json:"duration,omitempty"`
-	Error               string     `json:"error,omitempty"`
-	Files               []string   `json:"files,omitempty"`
-	PromptTokens        int64      `json:"prompt_tokens"`
-	CompletionTokens    int64      `json:"completion_tokens"`
-	TotalTokens         int64      `json:"total_tokens"`
-	ConversationContent string     `json:"conversation_content,omitempty"` // 拼接后的对话内容
-	FullAnswer          string     `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
-	Intent              string     `json:"intent,omitempty"`
-	ConversationID      string     `json:"conversation_id,omitempty"`
-	SourceMessageID     string     `json:"source_message_id,omitempty"`
-	ParentTaskID        string     `json:"parent_task_id,omitempty"`
-	Feedback            *DeliveryFeedback `json:"feedback,omitempty"`
+	ID                   string            `json:"id"`
+	UserID               int               `json:"user_id"`
+	Query                string            `json:"query"`
+	Status               TaskStatus        `json:"status"`
+	WorkDir              string            `json:"work_dir"`
+	CreatedAt            time.Time         `json:"created_at"`
+	DoneCount            int               `json:"done_count"`
+	TotalCount           int               `json:"total_count"`
+	Duration             string            `json:"duration,omitempty"`
+	Error                string            `json:"error,omitempty"`
+	Files                []string          `json:"files,omitempty"`
+	PromptTokens         int64             `json:"prompt_tokens"`
+	CompletionTokens     int64             `json:"completion_tokens"`
+	TotalTokens          int64             `json:"total_tokens"`
+	ConversationContent  string            `json:"conversation_content,omitempty"` // 拼接后的对话内容
+	FullAnswer           string            `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
+	Intent               string            `json:"intent,omitempty"`
+	ConversationID       string            `json:"conversation_id,omitempty"`
+	SourceMessageID      string            `json:"source_message_id,omitempty"`
+	ParentTaskID         string            `json:"parent_task_id,omitempty"`
+	GenerationStartedAt  *time.Time        `json:"generation_started_at,omitempty"`
+	GenerationFinishedAt *time.Time        `json:"generation_finished_at,omitempty"`
+	GenerationDurationMS int64             `json:"generation_duration_ms,omitempty"`
+	FixerRunCount        int               `json:"fixer_run_count"`
+	Feedback             *DeliveryFeedback `json:"feedback,omitempty"`
 }
 
 // DeliveryFeedback is the task owner's evaluation, intentionally separate from revision messages.
@@ -123,6 +127,31 @@ type TaskState struct {
 // Persist 将任务状态持久化到数据库。
 func (ts *TaskState) Persist() {
 	ts.persist()
+}
+
+// RecordFixerRun records every actual Fixer execution, including attempts
+// that fail before producing a patch.
+func (ts *TaskState) RecordFixerRun() {
+	if ts == nil {
+		return
+	}
+	ts.Mu.Lock()
+	ts.Info.FixerRunCount++
+	ts.Mu.Unlock()
+	ts.persist()
+}
+
+func (ts *TaskState) finishGeneration() {
+	if ts == nil {
+		return
+	}
+	now := time.Now()
+	ts.Mu.Lock()
+	if ts.Info.GenerationStartedAt != nil {
+		ts.Info.GenerationFinishedAt = &now
+		ts.Info.GenerationDurationMS = now.Sub(*ts.Info.GenerationStartedAt).Milliseconds()
+	}
+	ts.Mu.Unlock()
 }
 
 // FullAnswer 返回已累积的完整 LLM 回答内容。
@@ -396,7 +425,38 @@ func shouldInsertASCIIWordSpace(left, right string) bool {
 	if !ok || !isASCIIWordRune(last) {
 		return false
 	}
+	// A protocol can be split immediately after the opening `](`, before the
+	// complete `http://` marker exists. Treat that partial Markdown destination
+	// as URL content too; otherwise `](h` + `ttps://…` becomes `](h ttps://…`.
+	if trailingHTTPURL(left) || trailingMarkdownHTTPPrefix(left) {
+		return false
+	}
 	return true
+}
+
+func trailingHTTPURL(value string) bool {
+	lower := strings.ToLower(value)
+	start := strings.LastIndex(lower, "https://")
+	if start < 0 {
+		start = strings.LastIndex(lower, "http://")
+	}
+	if start < 0 {
+		return false
+	}
+	return !strings.ContainsAny(value[start:], " \t\r\n")
+}
+
+func trailingMarkdownHTTPPrefix(value string) bool {
+	lower := strings.ToLower(value)
+	start := strings.LastIndex(lower, "](")
+	if start < 0 {
+		return false
+	}
+	candidate := strings.TrimSpace(lower[start+2:])
+	if candidate == "" || strings.ContainsAny(candidate, " \t\r\n)") {
+		return false
+	}
+	return strings.HasPrefix("http://", candidate) || strings.HasPrefix("https://", candidate)
 }
 
 func firstRune(value string) (rune, bool) {
@@ -532,26 +592,30 @@ func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) 
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(DeduplicateOutputFiles(info.Files))
 	return &db.TaskRecord{
-		ID:                  info.ID,
-		UserID:              uint(info.UserID),
-		Query:               mysqlSafeText(info.Query),
-		Status:              string(info.Status),
-		WorkDir:             info.WorkDir,
-		DoneCount:           info.DoneCount,
-		TotalCount:          info.TotalCount,
-		Duration:            info.Duration,
-		Error:               mysqlSafeText(info.Error),
-		Files:               mysqlSafeText(string(filesJSON)),
-		PromptTokens:        info.PromptTokens,
-		CompletionTokens:    info.CompletionTokens,
-		TotalTokens:         info.TotalTokens,
-		ConversationContent: mysqlSafeText(info.ConversationContent),
-		FullAnswer:          mysqlSafeText(info.FullAnswer),
-		Intent:              mysqlSafeText(info.Intent),
-		ConversationID:      mysqlSafeText(info.ConversationID),
-		SourceMessageID:     mysqlSafeText(info.SourceMessageID),
-		ParentTaskID:        mysqlSafeText(info.ParentTaskID),
-		CreatedAt:           info.CreatedAt,
+		ID:                   info.ID,
+		UserID:               uint(info.UserID),
+		Query:                mysqlSafeText(info.Query),
+		Status:               string(info.Status),
+		WorkDir:              info.WorkDir,
+		DoneCount:            info.DoneCount,
+		TotalCount:           info.TotalCount,
+		Duration:             info.Duration,
+		Error:                mysqlSafeText(info.Error),
+		Files:                mysqlSafeText(string(filesJSON)),
+		PromptTokens:         info.PromptTokens,
+		CompletionTokens:     info.CompletionTokens,
+		TotalTokens:          info.TotalTokens,
+		ConversationContent:  mysqlSafeText(info.ConversationContent),
+		FullAnswer:           mysqlSafeText(info.FullAnswer),
+		Intent:               mysqlSafeText(info.Intent),
+		ConversationID:       mysqlSafeText(info.ConversationID),
+		SourceMessageID:      mysqlSafeText(info.SourceMessageID),
+		ParentTaskID:         mysqlSafeText(info.ParentTaskID),
+		GenerationStartedAt:  info.GenerationStartedAt,
+		GenerationFinishedAt: info.GenerationFinishedAt,
+		GenerationDurationMS: info.GenerationDurationMS,
+		FixerRunCount:        info.FixerRunCount,
+		CreatedAt:            info.CreatedAt,
 	}
 }
 
@@ -587,26 +651,30 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		files = []string{}
 	}
 	return &TaskInfo{
-		ID:                  r.ID,
-		UserID:              int(r.UserID),
-		Query:               r.Query,
-		Status:              TaskStatus(r.Status),
-		WorkDir:             r.WorkDir,
-		DoneCount:           r.DoneCount,
-		TotalCount:          r.TotalCount,
-		Duration:            r.Duration,
-		Error:               r.Error,
-		Files:               files,
-		CreatedAt:           r.CreatedAt,
-		PromptTokens:        r.PromptTokens,
-		CompletionTokens:    r.CompletionTokens,
-		TotalTokens:         r.TotalTokens,
-		ConversationContent: r.ConversationContent,
-		FullAnswer:          r.FullAnswer,
-		Intent:              r.Intent,
-		ConversationID:      r.ConversationID,
-		SourceMessageID:     r.SourceMessageID,
-		ParentTaskID:        r.ParentTaskID,
+		ID:                   r.ID,
+		UserID:               int(r.UserID),
+		Query:                r.Query,
+		Status:               TaskStatus(r.Status),
+		WorkDir:              r.WorkDir,
+		DoneCount:            r.DoneCount,
+		TotalCount:           r.TotalCount,
+		Duration:             r.Duration,
+		Error:                r.Error,
+		Files:                files,
+		CreatedAt:            r.CreatedAt,
+		PromptTokens:         r.PromptTokens,
+		CompletionTokens:     r.CompletionTokens,
+		TotalTokens:          r.TotalTokens,
+		ConversationContent:  r.ConversationContent,
+		FullAnswer:           r.FullAnswer,
+		Intent:               r.Intent,
+		ConversationID:       r.ConversationID,
+		SourceMessageID:      r.SourceMessageID,
+		ParentTaskID:         r.ParentTaskID,
+		GenerationStartedAt:  r.GenerationStartedAt,
+		GenerationFinishedAt: r.GenerationFinishedAt,
+		GenerationDurationMS: r.GenerationDurationMS,
+		FixerRunCount:        r.FixerRunCount,
 	}
 }
 
@@ -618,21 +686,25 @@ func (ts *TaskState) persist() {
 	r := taskInfoToRecord(&ts.Info)
 	ts.Mu.Unlock()
 	if err := db.UpdateTaskRecord(r.ID, map[string]any{
-		"status":               r.Status,
-		"done_count":           r.DoneCount,
-		"total_count":          r.TotalCount,
-		"duration":             r.Duration,
-		"error":                r.Error,
-		"files":                r.Files,
-		"prompt_tokens":        r.PromptTokens,
-		"completion_tokens":    r.CompletionTokens,
-		"total_tokens":         r.TotalTokens,
-		"conversation_content": r.ConversationContent,
-		"full_answer":          r.FullAnswer,
-		"intent":               r.Intent,
-		"conversation_id":      r.ConversationID,
-		"source_message_id":    r.SourceMessageID,
-		"parent_task_id":       r.ParentTaskID,
+		"status":                 r.Status,
+		"done_count":             r.DoneCount,
+		"total_count":            r.TotalCount,
+		"duration":               r.Duration,
+		"error":                  r.Error,
+		"files":                  r.Files,
+		"prompt_tokens":          r.PromptTokens,
+		"completion_tokens":      r.CompletionTokens,
+		"total_tokens":           r.TotalTokens,
+		"conversation_content":   r.ConversationContent,
+		"full_answer":            r.FullAnswer,
+		"intent":                 r.Intent,
+		"conversation_id":        r.ConversationID,
+		"source_message_id":      r.SourceMessageID,
+		"parent_task_id":         r.ParentTaskID,
+		"generation_started_at":  r.GenerationStartedAt,
+		"generation_finished_at": r.GenerationFinishedAt,
+		"generation_duration_ms": r.GenerationDurationMS,
+		"fixer_run_count":        r.FixerRunCount,
 	}); err != nil {
 		logger.Error("db_persist_failed", "task_id", r.ID, "error", err.Error())
 	}
@@ -711,28 +783,31 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		return nil, err
 	}
 
-	createdAt := time.Now()
+	startedAt := time.Now()
+	createdAt := startedAt
 	if existing := tm.GetTask(cfg.TaskID); existing != nil && !existing.CreatedAt.IsZero() {
 		createdAt = existing.CreatedAt
 	}
 	ts := &TaskState{
 		Info: TaskInfo{
-			ID:              cfg.TaskID,
-			UserID:          userID,
-			Query:           query,
-			Status:          TaskStatusRunning,
-			WorkDir:         workDir,
-			CreatedAt:       createdAt,
-			Intent:          cfg.Intent,
-			ConversationID:  cfg.ConversationID,
-			SourceMessageID: cfg.SourceMessageID,
-			ParentTaskID:    cfg.ParentTaskID,
+			ID:                  cfg.TaskID,
+			UserID:              userID,
+			Query:               query,
+			Status:              TaskStatusRunning,
+			WorkDir:             workDir,
+			CreatedAt:           createdAt,
+			Intent:              cfg.Intent,
+			ConversationID:      cfg.ConversationID,
+			SourceMessageID:     cfg.SourceMessageID,
+			ParentTaskID:        cfg.ParentTaskID,
+			GenerationStartedAt: &startedAt,
 		},
 		listeners:       make(map[string]chan SSERichEvent),
 		reportedFiles:   make(map[string]bool),
 		runtimeMeta:     runtimeMeta,
 		assistantTurnFn: tm.onAssistantTurn,
 	}
+	cfg.OnFixerTriggered = ts.RecordFixerRun
 	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
 		persistRuntimeEvent(event)
 		// Assistant output is already delivered as answer SSE. Re-broadcasting an
@@ -876,6 +951,8 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			ts.Info.Status = TaskStatusFailed
 			ts.Info.Error = fmt.Sprintf("agent internal panic: %v", r)
 			ts.Mu.Unlock()
+			ts.finishGeneration()
+			ts.persist()
 			ts.Broadcast(SSERichEvent{
 				Type:   "complete",
 				Status: ts.Info.Status,
@@ -1038,6 +1115,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 
 	// 将累积的完整 LLM 回答写入持久化字段
 	ts.Info.FullAnswer = ts.fullAnswer.String()
+	ts.finishGeneration()
 
 	ts.persist()
 

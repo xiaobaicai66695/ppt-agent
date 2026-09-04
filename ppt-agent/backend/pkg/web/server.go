@@ -239,6 +239,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		admin.GET("/stats", s.handleAdminStats)
 		admin.GET("/users", s.handleAdminUsers)
 		admin.GET("/tasks", s.handleAdminTasks)
+		admin.GET("/feedback", s.handleAdminFeedback)
 		admin.GET("/log-analyses", s.handleAdminLogAnalyses)
 		admin.DELETE("/log-analyses/:id", s.handleAdminDeleteLogAnalysis)
 	}

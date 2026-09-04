@@ -63,7 +63,7 @@ cd ppt-agent/backend
 
 这把 key 只在 benchmark 的模型初始化中使用：`-p model` 初始化 Planner/Reviewer/Fixer/Router，`-p judge` 初始化 Judge；不会进入生产服务、上线配置或其它测试。
 
-Planner benchmark 会显式禁用图片下载工具，不依赖 `UNSPLASH_ACCESS_KEY`、网络状态或本地图片落盘。评分只看是否规划了合理的 `visual_policy`、`asset_query`、`asset_subject`、`composition` 和 `search_status="planned"`，不要求出现 `local_path`。生产主流程不受此限制：配置 `UNSPLASH_ACCESS_KEY` 后仍会在 Planner 中挂载 `search_images(download=true)`。
+Planner benchmark 不执行图片下载，不依赖 `UNSPLASH_ACCESS_KEY`、网络状态或本地图片落盘。评分只看是否规划了合理的 `visual_policy`、`asset_query`、`asset_subject`、`composition` 和 `search_status="planned"`，不要求出现 `local_path`。同一 Deck 内相同 `content_type` 的页面必须规划相同的背景 `asset_query`；生产物化层与 skill CLI 会把它们收敛为同一张本地背景图。
 
 如果模型额度、Key、Provider 配置异常，输出会显式写入 `agent_error` 或 `judge_error`，不会被隐藏成成功。
 

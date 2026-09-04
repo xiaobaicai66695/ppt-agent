@@ -26,7 +26,8 @@ description: 规划可执行的 PPT DeckSpec/tasks.json，并用组件化 Python
 
 - 在本 skill 目录或 `ppt-agent` 项目中处理 PPT 请求时，本 skill 负责 DeckSpec、素材路线、校验和渲染；先读取本文件并完成素材预检，再调用通用 PPT 或图像生成能力。
 - **默认先搜索图片，且不得因页面可由文本、图表或卡片表达而跳过。** 除用户明确要求纯文字/无图片、页面被明确标记为 `clean_text_only`，或图片服务实际返回可报告的配置、鉴权、网络或无结果错误外，不得无图降级。
-- 默认素材路线：Agent 侧图片搜索统一使用本 skill 的 Unsplash CLI；`ppt-agent` 后端的确定性素材物化层负责在审查后执行同等的搜索与下载，不再向 Planner 暴露图片搜索工具。成功搜索后应下载，并将真实 `local_path`、`source_url`、`attribution`、`provider` 与 `search_status` 写入 `visual_intent` 或 `image` 组件。
+- 默认素材路线按宿主区分：**通用 Agent**（Codex、Claude Code、OpenCode、Pi 等）使用本 skill 的 Unsplash CLI；**`ppt-agent` 项目 Agent** 中，闲聊 Agent 使用 `search_images` Tool 向用户展示候选图，PPTPlanner 不注册图片 Tool，只提交视觉意图，由后端确定性素材物化层在审查后搜索、下载并回填。成功物化后应将真实 `local_path`、`source_url`、`attribution`、`provider` 与 `search_status` 写入 `visual_intent` 或 `image` 组件。
+- **背景复用规则：同一任务内，所有相同 `content_type` 的页面必须使用同一张已物化背景图。** 规划时先为该类型确定一个共享的背景 `asset_query`；下载后这些页面的背景 `local_path`、来源和署名必须一致。不同 `content_type` 才可使用不同背景，以形成有节制的版式节奏。
 - 仅在上述豁免或实际失败发生后，文本、图表、流程和浅色面板才可作为无图页的交付方案；必须在任务记录或最终说明中写明豁免理由或失败类型，禁止静默 fallback。
 - 不要为了绕过搜图认证、下载失败或素材缺失而自动改用通用 AI 图像生成。只有用户明确要求 AI 生成配图，或明确同意切换该路线时，才可以使用它。
 - 若用户要求“配图不可用即停止”，任一选定素材路线失败后都必须在渲染前停止，并说明失败的工具或服务、失败类型，以及可用的替代路线；不得静默降级或切换路线。
@@ -71,7 +72,13 @@ Planner 应尽力一次性填写完整 DeckSpec 内容字段，包括：
 
 图片默认是必需的视觉素材，而不是可选增强。只有“执行优先级与素材预检”中列明的豁免或实际素材失败，才可使用无图页；一旦规划图片，则 `local_path`、`image_path`、`asset_path` 必须指向真实可读的本地文件，禁止虚构路径或旧 `asset:` id。经图片服务解析的背景还必须保留实际 `provider` 与 `search_status:"resolved"`/`"downloaded"`，以便渲染前校验其来源链路。具体素材路线遵循上面的“执行优先级与素材预检”。
 
-需要由 Agent 搜图时，必须使用本 skill `scripts/` 下的 Unsplash CLI，例如 Codex、Claude Code、OpenCode、Pi 等通用 Agent。`ppt-agent` 的 Planner 不直接调用图片工具：它只规划视觉意图，后端会在审查后通过确定性素材物化层下载图片并回填字段。
+背景不是按页轮换的装饰素材：每个 `content_type` 在一套 deck 内只选定一张背景。若同类型页已有不同背景路径，必须在渲染前统一为该类型的一个已解析背景；`validate_deck.py` 会拒绝这种不一致的任务清单。
+
+需要由 Agent 搜图时，按以下边界执行：
+
+- **通用 Agent**：必须使用本 skill `scripts/` 下的 Unsplash CLI，例如 Codex、Claude Code、OpenCode、Pi 等。CLI 负责搜索并下载可用于本次 DeckSpec 的本地素材。
+- **`ppt-agent` 闲聊 Agent**：使用项目内 `search_images` Tool 搜索 Unsplash 候选，并将预览、来源页和摄影师署名回显给用户；不要要求闲聊 Agent 调用 skill CLI，也不要下载到 PPT 任务目录。
+- **`ppt-agent` PPTPlanner / Reviewer / Fixer**：不调用 `search_images` Tool，也不调用 CLI；它们只规划或修正 `visual_intent`。后端确定性素材物化层负责后续下载和字段回填。
 
 独立 Agent 首次使用时，在 skill 根目录以 Node.js 22+ 执行一次 `npm link`，即可注册本机 `unsplash` 命令。需要图片时，在 `content_plan.visual_intent` 中规划 `asset_purpose`、`asset_query`、`asset_subject`、`composition` 与 `orientation`：
 

@@ -2,11 +2,14 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -36,6 +39,7 @@ type jwtClaims struct {
 
 // SendCode 生成6位验证码，存储并发送邮件
 func SendCode(email string) error {
+	email = normalizeEmail(email)
 	if email == "" || !looksLikeEmail(email) {
 		return errors.New("请输入有效的邮箱地址")
 	}
@@ -65,41 +69,86 @@ func SendCode(email string) error {
 	return nil
 }
 
-// LoginWithCode 验证验证码并返回 JWT 令牌
-// 如果用户不存在则自动注册
-func LoginWithCode(email, code string) (token string, user *db.User, isNew bool, err error) {
+// LoginWithCode 验证已注册用户的邮箱验证码并返回 JWT 令牌。
+// 注册和登录必须分开，不能再通过登录路径隐式创建无密码账号。
+func LoginWithCode(email, code string) (token string, user *db.User, err error) {
+	email = normalizeEmail(email)
 	if email == "" || code == "" {
-		return "", nil, false, errors.New("邮箱和验证码不能为空")
+		return "", nil, errors.New("邮箱和验证码不能为空")
 	}
-
-	var vc db.VerificationCode
-	if err := db.DB.Where("email = ? AND code = ? AND used = false AND expires_at > ?",
-		email, code, time.Now()).Order("id DESC").First(&vc).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", nil, false, errors.New("验证码错误或已过期")
-		}
-		return "", nil, false, fmt.Errorf("验证失败: %w", err)
-	}
-
-	db.DB.Model(&vc).Update("used", true)
 
 	u := &db.User{}
-	err = db.DB.Where("email = ?", email).First(u).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		u = &db.User{Email: email}
-		if err := db.DB.Create(u).Error; err != nil {
-			return "", nil, false, fmt.Errorf("创建用户失败: %w", err)
+	if err := db.DB.Where("email = ?", email).First(u).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil, errors.New("该邮箱尚未注册，请先注册账号")
 		}
-		isNew = true
-	} else if err != nil {
-		return "", nil, false, fmt.Errorf("查询用户失败: %w", err)
+		return "", nil, fmt.Errorf("查询用户失败: %w", err)
 	}
-
+	if err := consumeVerificationCode(db.DB, email, code); err != nil {
+		return "", nil, err
+	}
 	token, err = createToken(u)
 	if err != nil {
-		return "", nil, false, fmt.Errorf("创建会话失败: %w", err)
+		return "", nil, fmt.Errorf("创建会话失败: %w", err)
 	}
-	return token, u, isNew, nil
+	return token, u, nil
+}
+
+// Register verifies an email code and creates an account with a compliant
+// password. The verification code is consumed only when the account is
+// successfully created.
+func Register(email, code, password string) (token string, user *db.User, err error) {
+	email = normalizeEmail(email)
+	if !looksLikeEmail(email) || code == "" {
+		return "", nil, errors.New("邮箱和验证码不能为空")
+	}
+	if err := ValidatePassword(password); err != nil {
+		return "", nil, err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", nil, fmt.Errorf("密码加密失败: %w", err)
+	}
+	u := &db.User{Email: email, Password: string(hash)}
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		var existing db.User
+		if err := tx.Where("email = ?", email).First(&existing).Error; err == nil {
+			return errors.New("该邮箱已注册，请直接登录")
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("查询用户失败: %w", err)
+		}
+		if err := consumeVerificationCode(tx, email, code); err != nil {
+			return err
+		}
+		if err := tx.Create(u).Error; err != nil {
+			return fmt.Errorf("创建用户失败: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	token, err = createToken(u)
+	if err != nil {
+		return "", nil, fmt.Errorf("创建会话失败: %w", err)
+	}
+	return token, u, nil
+}
+
+func consumeVerificationCode(database *gorm.DB, email, code string) error {
+	var vc db.VerificationCode
+	if err := database.Where("email = ? AND code = ? AND used = false AND expires_at > ?",
+		email, code, time.Now()).Order("id DESC").First(&vc).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("验证码错误或已过期")
+		}
+		return fmt.Errorf("验证失败: %w", err)
+	}
+	if err := database.Model(&vc).Update("used", true).Error; err != nil {
+		return fmt.Errorf("更新验证码状态失败: %w", err)
+	}
+	return nil
 }
 
 // GuestLoginEnabled keeps the validation-stage entry point easy to turn off
@@ -112,7 +161,7 @@ func GuestLoginEnabled() bool {
 
 // LoginAsGuest creates an isolated, non-recoverable account for the current
 // browser. Guest tasks keep normal owner checks and never share a task list.
-func LoginAsGuest() (token string, user *db.User, err error) {
+func LoginAsGuest(clientIP string) (token string, user *db.User, err error) {
 	if !GuestLoginEnabled() {
 		return "", nil, errors.New("访客体验暂未开放")
 	}
@@ -123,7 +172,7 @@ func LoginAsGuest() (token string, user *db.User, err error) {
 	if _, err := rand.Read(entropy); err != nil {
 		return "", nil, fmt.Errorf("创建访客会话失败: %w", err)
 	}
-	user = &db.User{Email: "guest-" + hex.EncodeToString(entropy) + "@guest.local"}
+	user = &db.User{Email: "guest-" + hex.EncodeToString(entropy) + "@guest.local", GuestIPHash: guestIPFingerprint(clientIP)}
 	if err := db.DB.Create(user).Error; err != nil {
 		return "", nil, fmt.Errorf("创建访客会话失败: %w", err)
 	}
@@ -132,6 +181,23 @@ func LoginAsGuest() (token string, user *db.User, err error) {
 		return "", nil, fmt.Errorf("创建访客会话失败: %w", err)
 	}
 	return token, user, nil
+}
+
+// guestIPFingerprint is an HMAC, never the source IP. The optional secret is
+// deployment-owned; the fallback keeps validation instances functional while
+// still avoiding raw IP persistence.
+func guestIPFingerprint(value string) string {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	if ip == nil {
+		return ""
+	}
+	secret := strings.TrimSpace(os.Getenv("GUEST_IP_HASH_SECRET"))
+	if secret == "" {
+		secret = "deckform-guest-identity-v1"
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(ip.String()))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func IsGuestEmail(email string) bool {
@@ -180,6 +246,7 @@ func ValidateSession(tokenString string) (*db.User, error) {
 
 // LoginWithPassword 使用邮箱和密码登录
 func LoginWithPassword(email, password string) (token string, user *db.User, err error) {
+	email = normalizeEmail(email)
 	if email == "" || password == "" {
 		return "", nil, errors.New("邮箱和密码不能为空")
 	}
@@ -191,7 +258,7 @@ func LoginWithPassword(email, password string) (token string, user *db.User, err
 		return "", nil, fmt.Errorf("查询用户失败: %w", err)
 	}
 	if u.Password == "" {
-		return "", nil, errors.New("该账号未设置密码，请使用验证码登录后设置密码")
+		return "", nil, errors.New("该账号尚未设置密码，请使用验证码登录")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
 		return "", nil, errors.New("邮箱或密码错误")
@@ -205,8 +272,8 @@ func LoginWithPassword(email, password string) (token string, user *db.User, err
 
 // SetPassword 为用户设置或更改密码
 func SetPassword(userID int, password string) error {
-	if len(password) < 4 {
-		return errors.New("密码长度不能少于 4 个字符")
+	if err := ValidatePassword(password); err != nil {
+		return err
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -311,6 +378,34 @@ func generateCode(digits int) string {
 
 func looksLikeEmail(s string) bool {
 	return len(s) > 5 && containsRune(s, '@') && containsRune(s, '.')
+}
+
+// ValidatePassword is shared by registration and later password changes.
+// Keeping the policy here means clients may provide early feedback, while the
+// server remains the source of truth.
+func ValidatePassword(password string) error {
+	if len(password) < 8 || len(password) > 64 {
+		return errors.New("密码需为 8–64 位")
+	}
+	var hasLower, hasUpper, hasDigit bool
+	for _, r := range password {
+		switch {
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasLower || !hasUpper || !hasDigit {
+		return errors.New("密码需同时包含大写字母、小写字母和数字")
+	}
+	return nil
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func containsRune(s string, r rune) bool {

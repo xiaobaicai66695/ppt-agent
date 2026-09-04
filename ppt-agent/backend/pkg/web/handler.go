@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -113,7 +114,7 @@ func (s *Server) handleRegister(c *gin.Context) {
 }
 
 func (s *Server) handleGuestLogin(c *gin.Context) {
-	token, user, err := auth.LoginAsGuest()
+	token, user, err := auth.LoginAsGuest(guestRemoteIP(c))
 	if err != nil {
 		status := http.StatusInternalServerError
 		if !auth.GuestLoginEnabled() {
@@ -125,6 +126,17 @@ func (s *Server) handleGuestLogin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"token": token, "id": user.ID, "email": user.Email, "is_guest": true, "is_admin": false,
 	})
+}
+
+func guestRemoteIP(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(c.Request.RemoteAddr))
+	if err == nil {
+		return host
+	}
+	return strings.TrimSpace(c.Request.RemoteAddr)
 }
 
 func (s *Server) handleSetPassword(c *gin.Context) {
@@ -359,6 +371,14 @@ func (s *Server) startConversationChat(taskID string, uid int, message, fallback
 	ctx := auth.WithUser(context.Background(), &db.User{ID: uint(uid)})
 	s.streamChatReply(ctx, message, fallback, conversationContext, forceWebSearch, forceImageSearch, func(content string) {
 		ts.Broadcast(task.SSERichEvent{Type: "answer", Content: content})
+	}, func(event chatTraceEvent) {
+		ts.Broadcast(task.SSERichEvent{
+			Type:        event.Type,
+			Phase:       event.Phase,
+			PhaseDetail: event.Detail,
+			ToolName:    event.ToolName,
+			Error:       event.Error,
+		})
 	})
 }
 
@@ -502,27 +522,53 @@ func (s *Server) handleListTasks(c *gin.Context) {
 		tasks = []task.TaskInfo{}
 	}
 	if !isAdminGin(c) {
-		for index := range tasks { s.attachTaskFeedback(&tasks[index], userIDGin(c)) }
+		for index := range tasks {
+			s.attachTaskFeedback(&tasks[index], userIDGin(c))
+		}
 	}
 	c.JSON(http.StatusOK, tasks)
 }
 
 func (s *Server) attachTaskFeedback(info *task.TaskInfo, userID int) {
-	if info == nil || info.UserID != userID || userID <= 0 { return }
+	if info == nil || info.UserID != userID || userID <= 0 {
+		return
+	}
 	feedback, err := s.tasks.GetDeliveryFeedback(info.ID, userID)
-	if err != nil { logger.Warn("task_feedback_load_failed", "task_id", info.ID, "error", err.Error()); return }
+	if err != nil {
+		logger.Warn("task_feedback_load_failed", "task_id", info.ID, "error", err.Error())
+		return
+	}
 	info.Feedback = feedback
 }
 
 func (s *Server) handleSaveTaskFeedback(c *gin.Context) {
-	var req struct { Rating int `json:"rating"`; Suggestion string `json:"suggestion"` }
-	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "无效的反馈请求"}); return }
-	if _, err := task.ValidateDeliveryFeedback(req.Rating, req.Suggestion); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+	var req struct {
+		Rating     int    `json:"rating"`
+		Suggestion string `json:"suggestion"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的反馈请求"})
+		return
+	}
+	if _, err := task.ValidateDeliveryFeedback(req.Rating, req.Suggestion); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	info := s.tasks.GetTask(c.Param("id"))
-	if info == nil { c.JSON(http.StatusNotFound, gin.H{"error": "task not found"}); return }
-	if info.Status != task.TaskStatusCompleted { c.JSON(http.StatusConflict, gin.H{"error": "PPT 尚未交付，暂不能评分"}); return }
+	if info == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+	if info.Status != task.TaskStatusCompleted {
+		c.JSON(http.StatusConflict, gin.H{"error": "PPT 尚未交付，暂不能评分"})
+		return
+	}
 	feedback, err := s.tasks.SaveDeliveryFeedback(info.ID, userIDGin(c), req.Rating, req.Suggestion)
-	if err != nil { logger.Error("task_feedback_save_failed", "task_id", info.ID, "error", err.Error()); c.JSON(http.StatusServiceUnavailable, gin.H{"error": "反馈暂时无法保存，请稍后重试"}); return }
+	if err != nil {
+		logger.Error("task_feedback_save_failed", "task_id", info.ID, "error", err.Error())
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "反馈暂时无法保存，请稍后重试"})
+		return
+	}
 	info.Feedback = feedback
 	c.JSON(http.StatusOK, info)
 }
@@ -1101,20 +1147,22 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		if len(allowedTaskIDs) > 0 {
 			beforeFix, _ := manifest.MustMarshalJSON()
 			fixerCfg := &deck.PPTTaskConfig{
-				WorkDir:       ts.Info.WorkDir,
-				TaskID:        taskID,
-				Query:         ts.Info.Query,
-				SkillsDir:     s.skillDir,
-				Operator:      s.operator,
-				UserID:        ts.Info.UserID,
-				ModelAPIKey:   credential.APIKey,
-				ModelProvider: credential.Provider,
+				WorkDir:          ts.Info.WorkDir,
+				TaskID:           taskID,
+				Query:            ts.Info.Query,
+				SkillsDir:        s.skillDir,
+				Operator:         s.operator,
+				UserID:           ts.Info.UserID,
+				OnFixerTriggered: ts.RecordFixerRun,
+				ModelAPIKey:      credential.APIKey,
+				ModelProvider:    credential.Provider,
 			}
 			fixerCtx, cancelFixer := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancelFixer()
 			fixer, fixerErr := deck.NewPPTFixerAgentForTasks(fixerCtx, fixerCfg, allowedTaskIDs)
 			if fixerErr == nil {
 				fixerInput := fmt.Sprintf("用户要求：%s\n允许修改的任务 ID：%v\n允许修改的页面：%v\n结构化修复提示：%s", continueMessage, allowedTaskIDs, allowedPageIndexes, instruction)
+				fixerCfg.NotifyFixerTriggered()
 				fixerErr = deck.RunPPTFixerWithCallback(fixerCtx, fixer, fixerInput, func(event deck.AgentEvent) {
 					switch event.Type {
 					case deck.AgentEventAnswer:
@@ -1755,7 +1803,7 @@ func (s *Server) onTaskContinue(taskID string) {
 // ── 管理员 API ───────────────────────────────────────────────────────────
 
 func (s *Server) handleAdminUsers(c *gin.Context) {
-	users, err := db.ListAllUsers()
+	users, err := db.ListAdminUserMetrics()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询用户列表失败: " + err.Error()})
 		return
@@ -1764,17 +1812,21 @@ func (s *Server) handleAdminUsers(c *gin.Context) {
 }
 
 type adminTaskResponse struct {
-	ID         string    `json:"id"`
-	UserID     uint      `json:"user_id"`
-	UserEmail  string    `json:"user_email"`
-	Query      string    `json:"query"`
-	Status     string    `json:"status"`
-	DoneCount  int       `json:"done_count"`
-	TotalCount int       `json:"total_count"`
-	Duration   string    `json:"duration"`
-	Error      string    `json:"error"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                   string     `json:"id"`
+	UserID               uint       `json:"user_id"`
+	UserEmail            string     `json:"user_email"`
+	Query                string     `json:"query"`
+	Status               string     `json:"status"`
+	DoneCount            int        `json:"done_count"`
+	TotalCount           int        `json:"total_count"`
+	Duration             string     `json:"duration"`
+	GenerationStartedAt  *time.Time `json:"generation_started_at,omitempty"`
+	GenerationFinishedAt *time.Time `json:"generation_finished_at,omitempty"`
+	GenerationDurationMS int64      `json:"generation_duration_ms"`
+	FixerRunCount        int        `json:"fixer_run_count"`
+	Error                string     `json:"error"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 func (s *Server) handleAdminTasks(c *gin.Context) {
@@ -1797,17 +1849,21 @@ func (s *Server) handleAdminTasks(c *gin.Context) {
 	result := make([]adminTaskResponse, 0, len(tasks))
 	for _, task := range tasks {
 		result = append(result, adminTaskResponse{
-			ID:         task.ID,
-			UserID:     task.UserID,
-			UserEmail:  emails[task.UserID],
-			Query:      task.Query,
-			Status:     task.Status,
-			DoneCount:  task.DoneCount,
-			TotalCount: task.TotalCount,
-			Duration:   task.Duration,
-			Error:      task.Error,
-			CreatedAt:  task.CreatedAt,
-			UpdatedAt:  task.UpdatedAt,
+			ID:                   task.ID,
+			UserID:               task.UserID,
+			UserEmail:            emails[task.UserID],
+			Query:                task.Query,
+			Status:               task.Status,
+			DoneCount:            task.DoneCount,
+			TotalCount:           task.TotalCount,
+			Duration:             task.Duration,
+			GenerationStartedAt:  task.GenerationStartedAt,
+			GenerationFinishedAt: task.GenerationFinishedAt,
+			GenerationDurationMS: task.GenerationDurationMS,
+			FixerRunCount:        task.FixerRunCount,
+			Error:                task.Error,
+			CreatedAt:            task.CreatedAt,
+			UpdatedAt:            task.UpdatedAt,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"tasks": result})
@@ -1823,25 +1879,45 @@ func (s *Server) handleAdminLogAnalyses(c *gin.Context) {
 }
 
 func (s *Server) handleAdminStats(c *gin.Context) {
-	if db.DB == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"user_count":    0,
-			"task_count":    0,
-			"running_count": 0,
-		})
+	metrics, err := db.GetAdminMetrics(rootAccountEmail())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询运营统计失败: " + err.Error()})
 		return
 	}
-
-	var userCount, taskCount, runningCount int64
-	db.DB.Model(&db.User{}).Count(&userCount)
-	db.DB.Model(&db.TaskRecord{}).Count(&taskCount)
-	db.DB.Model(&db.TaskRecord{}).Where("status = ?", "running").Count(&runningCount)
-
+	var runningCount int64
+	if db.DB != nil {
+		db.DB.Model(&db.TaskRecord{}).Where("status = ?", "running").Count(&runningCount)
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"user_count":    userCount,
-		"task_count":    taskCount,
-		"running_count": runningCount,
+		"user_count":                     metrics.RegisteredUserCount,
+		"task_count":                     metrics.PPTGenerationCount,
+		"running_count":                  runningCount,
+		"registered_user_count":          metrics.RegisteredUserCount,
+		"non_root_registered_user_count": metrics.NonRootRegisteredUserCount,
+		"ppt_active_user_count":          metrics.PPTActiveUserCount,
+		"custom_api_key_user_count":      metrics.CustomAPIKeyUserCount,
+		"ppt_generation_count":           metrics.PPTGenerationCount,
+		"non_root_ppt_generation_count":  metrics.NonRootPPTGenerationCount,
+		"feedback_count":                 metrics.FeedbackCount,
+		"feedback_suggestion_count":      metrics.FeedbackSuggestionCount,
 	})
+}
+
+func (s *Server) handleAdminFeedback(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	feedback, err := db.ListAdminTaskFeedback(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询用户反馈失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"feedback": feedback})
+}
+
+func rootAccountEmail() string {
+	if email := strings.TrimSpace(os.Getenv("ROOT_EMAIL")); email != "" {
+		return email
+	}
+	return "root@qq.com"
 }
 
 func (s *Server) handleAdminDeleteLogAnalysis(c *gin.Context) {

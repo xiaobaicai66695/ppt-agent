@@ -37,8 +37,8 @@ Planner 应尽力填写完整 DeckSpec 内容字段，但不写 `task_id`、`out
 通用 skill 不规定图片保存目录；在 `ppt-agent` 后端中，图片下载、去重、路径写回和背景收敛由后端适配层负责。
 
 - 图片搜索是默认执行步骤：除用户明确要求无图、页面明确标记 `clean_text_only` 或素材服务返回已记录的实际失败外，每页都必须通过后端既有素材链路搜索、下载并写回 `local_path`、`provider` 和 `search_status`。
-- Planner 不注册或调用 `search_images` 等图片 Agent 工具；它只提交视觉意图。需要在服务器上手工运行 skill CLI 时，使用 `unsplash auth --from-env` 从服务 `.env` 的 `UNSPLASH_ACCESS_KEY` 完成无交互认证；后端进程也必须保留该环境变量，供素材物化层访问 Unsplash API。
-- 背景可以按 `content_type` 收敛，减少同类页面视觉节奏漂移；默认背景图缺失应阻断无理由交付，只有已记录豁免或素材失败才可继续无图渲染；图片必填组件始终须有有效本地图片路径。
+- `search_images` Tool 仅供项目内闲聊 Agent 搜索并展示 Unsplash 图片候选，不下载 PPT 素材；Planner、Reviewer 与 Fixer 均不注册或调用它，只提交视觉意图。通用 Agent 需要处理独立 DeckSpec 时使用本 skill CLI。需要在服务器上手工运行 CLI 时，使用 `unsplash auth --from-env` 从服务 `.env` 的 `UNSPLASH_ACCESS_KEY` 完成无交互认证；后端进程也必须保留该环境变量，供闲聊 Tool 与素材物化层访问 Unsplash API。
+- 同一任务内相同 `content_type` 的页面必须收敛到同一张背景图：共享 `asset_query`、`local_path`、来源和署名；只有不同 `content_type` 才可使用不同背景。默认背景图缺失应阻断无理由交付，只有已记录豁免或素材失败才可继续无图渲染；图片必填组件始终须有有效本地图片路径。
 
 ## Benchmark 含义
 

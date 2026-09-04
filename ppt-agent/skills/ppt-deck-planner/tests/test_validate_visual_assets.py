@@ -115,6 +115,50 @@ class ValidateVisualAssetsTest(unittest.TestCase):
 
         self.assertTrue(result["ok"], result)
 
+    def test_same_content_type_must_reuse_one_materialized_background(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp)
+            image_dir = work_dir / "assets" / "images"
+            image_dir.mkdir(parents=True)
+            (image_dir / "one.png").write_bytes(PNG_1X1)
+            (image_dir / "two.png").write_bytes(PNG_1X1)
+            manifest_path = work_dir / "tasks.json"
+            manifest_path.write_text(json.dumps({
+                "title": "背景复用",
+                "tasks": [
+                    {
+                        "page_index": 1,
+                        "content_type": "content_slide",
+                        "content_plan": {"visual_intent": {
+                            "asset_purpose": "background", "local_path": "assets/images/one.png",
+                            "provider": "unsplash", "search_status": "resolved"
+                        }}
+                    },
+                    {
+                        "page_index": 2,
+                        "content_type": "content_slide",
+                        "content_plan": {"visual_intent": {
+                            "asset_purpose": "background", "local_path": "assets/images/two.png",
+                            "provider": "unsplash", "search_status": "resolved"
+                        }}
+                    },
+                    {
+                        "page_index": 3,
+                        "content_type": "chart_slide",
+                        "content_plan": {"visual_intent": {
+                            "asset_purpose": "background", "local_path": "assets/images/two.png",
+                            "provider": "unsplash", "search_status": "resolved"
+                        }}
+                    }
+                ]
+            }, ensure_ascii=False), encoding="utf-8")
+
+            result = validate_visual_manifest_file(manifest_path, work_dir)
+
+        self.assertFalse(result["ok"])
+        reuse_errors = [error for error in result["errors"] if error["code"] == "background_not_reused_by_content_type"]
+        self.assertEqual(2, len(reuse_errors), reuse_errors)
+
 
 if __name__ == "__main__":
     unittest.main()

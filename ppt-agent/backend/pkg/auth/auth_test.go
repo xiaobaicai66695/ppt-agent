@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
@@ -65,5 +66,43 @@ func TestIsGuestEmail(t *testing.T) {
 	}
 	if IsGuestEmail("member@example.com") {
 		t.Fatal("regular address must not be recognized as guest")
+	}
+}
+
+func TestGuestIPFingerprintIsStableAndDoesNotExposeIPAddress(t *testing.T) {
+	t.Setenv("GUEST_IP_HASH_SECRET", "test-only-secret")
+	first := guestIPFingerprint("203.0.113.24")
+	if first == "" || first != guestIPFingerprint("203.0.113.24") {
+		t.Fatalf("guestIPFingerprint should be stable, got %q", first)
+	}
+	if first == guestIPFingerprint("203.0.113.25") {
+		t.Fatal("different IPs must not produce the same fingerprint")
+	}
+	if strings.Contains(first, "203.0.113.24") {
+		t.Fatalf("fingerprint must not contain the raw IP: %q", first)
+	}
+	if got := guestIPFingerprint("not-an-ip"); got != "" {
+		t.Fatalf("invalid address fingerprint = %q, want empty", got)
+	}
+}
+
+func TestValidatePassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{name: "compliant", password: "Deckform2026", wantErr: false},
+		{name: "too short", password: "Deck1a", wantErr: true},
+		{name: "missing uppercase", password: "deckform2026", wantErr: true},
+		{name: "missing lowercase", password: "DECKFORM2026", wantErr: true},
+		{name: "missing digit", password: "DeckformPassword", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidatePassword(tt.password); (err != nil) != tt.wantErr {
+				t.Fatalf("ValidatePassword(%q) error = %v, wantErr %v", tt.password, err, tt.wantErr)
+			}
+		})
 	}
 }

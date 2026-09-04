@@ -104,7 +104,7 @@ Planner benchmark 只评首稿，不看 Reviewer 后结果。常见失败：
 - 把坐标、字号、颜色、margin 等生成器职责写进 DeckSpec。
 - 用户给的事实、数字、页数、受众没有进入页面规划。
 
-Planner benchmark 显式禁用图片下载工具，只评估图片语义规划。`search_status="planned"` 且有可执行英文 `asset_query`、`asset_subject`、`composition` 时是可接受输出；不要因为缺少 `local_path` 去修 Planner。生产主流程是否能下载图片取决于 `UNSPLASH_ACCESS_KEY` 和网络状态。
+Planner benchmark 不执行图片下载，只评估图片语义规划。`search_status="planned"` 且有可执行英文 `asset_query`、`asset_subject`、`composition` 时是可接受输出；不要因为缺少 `local_path` 去修 Planner。对一个 Deck 内重复的 `content_type`，背景 `asset_query` 必须完全一致，避免通用 Agent 在同类型模板页中轮换背景；生产主流程与 skill CLI 会将该组物化为同一张图片。生产主流程是否能下载图片取决于 `UNSPLASH_ACCESS_KEY` 和网络状态。
 
 优先修改：
 

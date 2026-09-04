@@ -26,13 +26,15 @@
   "expected": {
     "must_have_slide_roles": ["封面", "结论摘要", "KPI 总览", "区域对比", "问题归因", "行动计划"],
     "must_use_content_types": ["title_slide", "content_slide", "kpi_dashboard", "chart_slide", "card_grid"],
-    "must_include_data_points": ["新增线索 12800", "同比增长 18%", "付费转化率 6.4%", "环比下降 0.8 个百分点", "华东 112%", "华南 87%"]
+    "must_include_data_points": ["新增线索 12800", "同比增长 18%", "付费转化率 6.4%", "环比下降 0.8 个百分点", "华东 112%", "华南 87%"],
+    "background_reuse_by_content_type": true
   },
   "judge_focus": [
     "是否覆盖用户意图",
     "页面结构是否合理",
     "tasks.draft.json 字段是否尽力完整",
     "图表/KPI 是否结构化",
-    "是否没有把生成器/skill 才该处理的坐标字号颜色写进 Planner"
+    "是否没有把生成器/skill 才该处理的坐标字号颜色写进 Planner",
+    "重复 content_type 的背景 asset_query 是否保持一致，而非逐页轮换"
   ]
 }

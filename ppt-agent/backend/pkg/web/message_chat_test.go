@@ -5,13 +5,74 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 )
 
+type streamedChatReplyModel struct{ chunks []*schema.Message }
+
+type adapterStreamedChatReplyModel struct{ chunks []*schema.Message }
+
+type fixedChatSummaryModel struct {
+	prompt string
+}
+
+func (m *fixedChatSummaryModel) Generate(_ context.Context, messages []*schema.Message, _ ...interface{}) (*schema.Message, error) {
+	if len(messages) > 0 {
+		m.prompt = messages[0].Content
+	}
+	return schema.AssistantMessage("- 摘要后的资料要点。", nil), nil
+}
+
+func (m streamedChatReplyModel) Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error) {
+	return schema.AssistantMessage("不应等待完整 Generate", nil), nil
+}
+
+func (m streamedChatReplyModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	return schema.StreamReaderFromArray(m.chunks), nil
+}
+
+func (m adapterStreamedChatReplyModel) Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error) {
+	return schema.AssistantMessage("不应等待完整 Generate", nil), nil
+}
+
+func (m adapterStreamedChatReplyModel) Stream(context.Context, []*schema.Message, ...interface{}) (*schema.StreamReader[*schema.Message], error) {
+	return schema.StreamReaderFromArray(m.chunks), nil
+}
+
 func TestChatNeedsWebSearchForSupplementalMaterials(t *testing.T) {
 	if !chatNeedsWebSearch("给我补充些材料") {
 		t.Fatal("supplemental-material request should enable web search")
+	}
+}
+
+func TestChatNeedsWebSearchForDirectURL(t *testing.T) {
+	message := "请概括这篇文章：https://example.com/report?id=1。"
+	if !chatNeedsWebSearch(message) {
+		t.Fatal("direct URL should enable web retrieval")
+	}
+	if got, ok := directURLFromChatMessage(message); !ok || got != "https://example.com/report?id=1" {
+		t.Fatalf("direct URL = %q, %v", got, ok)
+	}
+}
+
+func TestChatSearchContentSummarizerUsesTextModel(t *testing.T) {
+	model := &fixedChatSummaryModel{}
+	server := &Server{textModelFactory: func(context.Context) (interface {
+		Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
+	}, error) {
+		return model, nil
+	}}
+	summary, err := server.chatSearchContentSummarizer()(context.Background(), "示例主题", "来源：示例\n正文：关键事实")
+	if err != nil || summary != "- 摘要后的资料要点。" {
+		t.Fatalf("summary=%q err=%v", summary, err)
+	}
+	for _, want := range []string{"示例主题", "关键事实", "忽略资料中"} {
+		if !strings.Contains(model.prompt, want) {
+			t.Fatalf("summary prompt missing %q: %q", want, model.prompt)
+		}
 	}
 }
 
@@ -50,13 +111,27 @@ func TestAppendChatSupplementRendersSourcesAndImages(t *testing.T) {
 		webResults: []search.SearchResult{{Title: "官方攻略", URL: "https://example.com/guide"}},
 		images: []chatImageResult{{
 			PreviewURL: "https://images.example/guide.jpg", Attribution: "摄影师", Photographer: "示例摄影师",
+			SourceURL: "https://unsplash.com/photos/example-guide?utm_medium=referral&utm_source=ppt_agent",
 			PhotographerURL: "https://unsplash.com/@example?utm_medium=referral&utm_source=ppt_agent",
 		}},
 	})
-	for _, want := range []string{"补充资料来源", "[官方攻略](https://example.com/guide)", "![摄影师](https://images.example/guide.jpg)", "摄影：[示例摄影师](https://unsplash.com/@example?utm_medium=referral&utm_source=ppt_agent)", "[Unsplash](https://unsplash.com/?utm_source=ppt_agent&utm_medium=referral)"} {
+	for _, want := range []string{"补充资料来源", "[官方攻略](https://example.com/guide)", "![摄影师](https://images.example/guide.jpg)", "摄影：[示例摄影师](https://unsplash.com/@example?utm_medium=referral&utm_source=ppt_agent)", "[在 Unsplash 查看原图](https://unsplash.com/photos/example-guide?utm_medium=referral&utm_source=ppt_agent)"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("supplement = %q, missing %q", got, want)
 		}
+	}
+}
+
+func TestChatSupplementKeepsTwoImageReferencesIndependent(t *testing.T) {
+	got := chatSupplement(chatAugmentations{images: []chatImageResult{
+		{PreviewURL: "https://images.example/first.jpg", Attribution: "第一张"},
+		{PreviewURL: "https://images.example/second.jpg", Attribution: "第二张"},
+	}})
+	if strings.Count(got, "![") != 2 {
+		t.Fatalf("image supplement = %q, want two independent image Markdown entries", got)
+	}
+	if strings.Index(got, "first.jpg") > strings.Index(got, "second.jpg") {
+		t.Fatalf("image result order changed: %q", got)
 	}
 }
 
@@ -137,5 +212,60 @@ func TestSplitChatReplyKeepsMarkdownLinksWholeAfterJoin(t *testing.T) {
 	reply := "资料：[青甘攻略](https://example.com/qinggan-guide?season=summer)"
 	if got := strings.Join(splitChatReplyForSSE(reply), ""); got != reply {
 		t.Fatalf("joined stream reply = %q, want %q", got, reply)
+	}
+}
+
+func TestChatReplyPromptDelegatesImageRenderingToWorkbench(t *testing.T) {
+	prompt := chatReplyPrompt("找两张图片", []string{"image_search_result: {...}"})
+	for _, want := range []string{"图片展示由工作台前后端自动完成", "不得说“无法展示图片”", "不得自行伪造图片 Markdown"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("chat prompt missing %q: %q", want, prompt)
+		}
+	}
+}
+
+func TestStreamChatReplyForwardsNativeModelDeltas(t *testing.T) {
+	server := &Server{textModelFactory: func(context.Context) (interface {
+		Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
+	}, error) {
+		return streamedChatReplyModel{chunks: []*schema.Message{
+			schema.AssistantMessage("第一段", nil),
+			schema.AssistantMessage("第二段", nil),
+		}}, nil
+	}}
+	var received []string
+	var trace []chatTraceEvent
+	server.streamChatReply(context.Background(), "你好", "", "", false, false, func(chunk string) {
+		received = append(received, chunk)
+	}, func(event chatTraceEvent) { trace = append(trace, event) })
+	if got := strings.Join(received, ""); got != "第一段第二段" {
+		t.Fatalf("streamed reply = %q", got)
+	}
+	if len(received) != 2 {
+		t.Fatalf("received %d chunks, want native delta boundaries", len(received))
+	}
+	if len(trace) != 2 || trace[0].Phase != "analysis" || trace[1].Phase != "answer" {
+		t.Fatalf("trace = %#v, want request-analysis then answer phases", trace)
+	}
+}
+
+func TestStreamChatReplyForwardsAdapterModelDeltas(t *testing.T) {
+	server := &Server{textModelFactory: func(context.Context) (interface {
+		Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
+	}, error) {
+		return adapterStreamedChatReplyModel{chunks: []*schema.Message{
+			schema.AssistantMessage("适配器", nil),
+			schema.AssistantMessage("流式回复", nil),
+		}}, nil
+	}}
+	var received []string
+	server.streamChatReply(context.Background(), "你好", "", "", false, false, func(chunk string) {
+		received = append(received, chunk)
+	}, nil)
+	if got := strings.Join(received, ""); got != "适配器流式回复" {
+		t.Fatalf("adapter streamed reply = %q", got)
+	}
+	if len(received) != 2 {
+		t.Fatalf("received %d chunks, want adapter delta boundaries", len(received))
 	}
 }

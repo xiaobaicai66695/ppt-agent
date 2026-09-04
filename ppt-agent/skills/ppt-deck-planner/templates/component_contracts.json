@@ -109,7 +109,7 @@
     "purpose_values": ["background", "scene", "evidence", "decorative"],
     "query_rule": "When an independent Agent needs Unsplash images, asset_query should describe a concrete visible subject, action and environment. Generators do not execute searches or resolve query-only plans.",
     "local_path_rule": "Before validation/rendering, every image that should appear in the deck must be written as a real local_path/image_path/asset_path value that exists on disk.",
-    "query_contract": "asset_query is optional planning metadata; asset_subject records the visual proxy; composition records semantic framing constraints. Any materialized background resolved through an image provider must retain its provider and search_status=resolved/downloaded.",
+    "query_contract": "asset_query is optional planning metadata; asset_subject records the visual proxy; composition records semantic framing constraints. Within one deck, every page with the same content_type must plan and materialize the same background asset_query/local_path; different content_types may use different backgrounds. Any materialized background resolved through an image provider must retain its provider and search_status=resolved/downloaded.",
     "hydration_command": "unsplash fetch --work-dir <work-dir> (run npm link once in the skill root first)",
     "provider": "unsplash (skill CLI; backend materialization adapter)",
     "missing_key_behavior": "The CLI directs the user to run unsplash auth; servers may use unsplash auth --from-env with UNSPLASH_ACCESS_KEY. The Planner only plans visual intent and never invokes an image-search tool.",
