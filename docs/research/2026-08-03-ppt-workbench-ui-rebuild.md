@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | [Gamma](https://gamma.app/) | prompt-first 创建、生成过程持续反馈、结果以内容画布为中心 | 首页直接提供主题输入和模板入口；Dashboard 以进度和幻灯片结果为主 |
 | [Canva Presentations](https://www.canva.com/create/presentations/) | 工具栏、页面缩略图、主画布和属性区职责稳定 | Compose 使用资源栏、页面轨道、属性面板三段结构，窄屏改为抽屉 |
-| [Pitch](https://pitch.com/) | workspace/deck 组织、演示文稿封面优先、团队生产工具的高信息密度 | 最近任务和模板使用真实 16:9 预览，减少纯文字卡片 |
+| [Pitch](https://pitch.com/) | workspace/ppt 组织、演示文稿封面优先、团队生产工具的高信息密度 | 最近任务和模板使用真实 16:9 预览，减少纯文字卡片 |
 | [Linear](https://linear.app/) | 窄导航、克制层级、紧凑列表、命令优先 | 全局使用窄侧栏和紧凑顶栏，主操作保持单一且位置稳定 |
 | [Notion](https://www.notion.com/product) | 内容优先、渐进披露、低装饰表面 | RuntimeMeta、Timeline、高级参数继续折叠，不抢占生成和预览区域 |
 

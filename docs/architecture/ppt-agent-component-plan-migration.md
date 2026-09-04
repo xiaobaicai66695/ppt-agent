@@ -2,19 +2,19 @@
 
 ## 背景
 
-当前快速迭代目标是把生成前置规划做重，而不是继续让渲染阶段猜测自然语言描述。生成器仍按页执行，但 `DeckSpec/tasks.json` 开始承载可执行的页内组件计划。
+当前快速迭代目标是把生成前置规划做重，而不是继续让渲染阶段猜测自然语言描述。生成器仍按页执行，但 `PPTSpec/tasks.json` 开始承载可执行的页内组件计划。
 
 ## 新主线
 
 ```text
 用户输入
 → 创建入口意图分类
-→ Deck Planner：整套 PPT 叙事规划
+→ PPT Planner：整套 PPT 叙事规划
 → Content Planner：页级内容规划
 → Component Planner：页内组件编排
 → Plan Reviewer：审查结构、密度、场景匹配、模板容量
 → Plan Refiner：按审查意见重写规划，最多 3 轮
-→ Validator：硬校验 DeckSpec
+→ Validator：硬校验 PPTSpec
 → 逐页渲染
 → 视觉 QA / 局部修复
 → 交付

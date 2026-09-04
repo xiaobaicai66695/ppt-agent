@@ -6,8 +6,8 @@ import (
 )
 
 func TestBenchmarkCreateRouteUsesStableEvaluationVocabulary(t *testing.T) {
-	got := benchmarkCreateRoute(createRequestRoute{Intent: createIntentDeck, Reason: "明确新建"}, "帮我做一份市场分析 PPT")
-	if got.Intent != "create_deck" || got.TargetAgent != "PPTPlanner" {
+	got := benchmarkCreateRoute(createRequestRoute{Intent: createIntentPPT, Reason: "明确新建"}, "帮我做一份市场分析 PPT")
+	if got.Intent != "create_ppt" || got.TargetAgent != "PPTPlanner" {
 		t.Fatalf("benchmark route = %#v", got)
 	}
 	if got.NormalizedRequest != "帮我做一份市场分析 PPT" {
@@ -30,7 +30,7 @@ func TestClassifyTaskMessageForBenchmarkKeepsConversationTask(t *testing.T) {
 		"用户：我想做个青甘大环线的旅游项目介绍\n助手：请补充主题和风格，或授权我决定。",
 		"",
 	)
-	if got.Intent != "create_deck" || got.TargetAgent != "PPTPlanner" || got.TaskID != "task-qinggan" || got.Action != messageActionPrepareCreate {
+	if got.Intent != "create_ppt" || got.TargetAgent != "PPTPlanner" || got.TaskID != "task-qinggan" || got.Action != messageActionPrepareCreate {
 		t.Fatalf("benchmark contextual route = %#v", got)
 	}
 }

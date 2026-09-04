@@ -8,7 +8,7 @@ import (
 )
 
 func TestComponentContractsSeparateTargetDensityFromRenderLimit(t *testing.T) {
-	contractPath := filepath.Join("..", "..", "..", "skills", "ppt-deck-planner", "templates", "component_contracts.json")
+	contractPath := filepath.Join("..", "..", "..", "skills", "ppt-planner", "templates", "component_contracts.json")
 	raw, err := os.ReadFile(contractPath)
 	if err != nil {
 		t.Fatal(err)

@@ -26,11 +26,11 @@ OpenSpec：`openspec/changes/refactor-runtime-module-boundaries/`。
 在拆分前运行：
 
 ```text
-go test ./pkg/runtime/web ./pkg/runtime/task ./pkg/runtime/model ./pkg/agent/deck
+go test ./pkg/runtime/web ./pkg/runtime/task ./pkg/runtime/model ./pkg/agent/ppt
 ok   github.com/cloudwego/ppt-agent/pkg/web
 ok   github.com/cloudwego/ppt-agent/pkg/task
 ok   github.com/cloudwego/ppt-agent/pkg/agent/utils
-ok   github.com/cloudwego/ppt-agent/pkg/agent/deck
+ok   github.com/cloudwego/ppt-agent/pkg/agent/ppt
 ```
 
 ## 文件边界约定

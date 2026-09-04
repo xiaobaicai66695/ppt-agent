@@ -40,6 +40,19 @@ describe('conversation timeline', () => {
     ] })
   })
 
+  it('resolves repeated tool names by provider call id', () => {
+    const items = resetConversationTimeline([])
+    const phaseID = beginObservablePhase(items, 'analysis', '分析请求')
+    appendToolInvocation(items, phaseID, 'search', '联网检索', '第一次', undefined, 'call-1')
+    appendToolInvocation(items, phaseID, 'search', '联网检索', '第二次', undefined, 'call-2')
+    resolveToolInvocation(items, phaseID, 'search', '联网检索', '第一次完成', 'success', undefined, 'call-1')
+
+    expect(items[0]).toMatchObject({ type: 'phase', tools: [
+      { callID: 'call-1', resultDetail: '第一次完成', state: 'success' },
+      { callID: 'call-2', state: 'running' },
+    ] })
+  })
+
   it('lets each tool invocation independently expand or collapse', () => {
     const items = resetConversationTimeline([])
     const analysisID = beginObservablePhase(items, 'analysis', '分析请求')

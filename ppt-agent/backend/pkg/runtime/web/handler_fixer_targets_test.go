@@ -4,11 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 )
 
 func TestResolveRouteTaskIDsUsesCurrentManifestIdentity(t *testing.T) {
-	manifest := &deck.TasksManifest{Tasks: []*deck.TaskItem{
+	manifest := &ppt.TasksManifest{Tasks: []*ppt.TaskItem{
 		{TaskID: "task-intro", PageIndex: 1, Title: "引言"},
 		{TaskID: "task-metrics", PageIndex: 2, Title: "指标"},
 	}}
@@ -19,7 +19,7 @@ func TestResolveRouteTaskIDsUsesCurrentManifestIdentity(t *testing.T) {
 }
 
 func TestResolveRouteTaskIDsOnlyAttachesIDsForFix(t *testing.T) {
-	manifest := &deck.TasksManifest{Tasks: []*deck.TaskItem{{TaskID: "task-1", PageIndex: 1}}}
+	manifest := &ppt.TasksManifest{Tasks: []*ppt.TaskItem{{TaskID: "task-1", PageIndex: 1}}}
 	route := resolveRouteTaskIDs(RouteResult{Intent: "regenerate", TargetPages: []int{1}}, manifest)
 	if len(route.TargetTaskIDs) != 0 {
 		t.Fatalf("non-fix route should not carry task ids: %#v", route.TargetTaskIDs)

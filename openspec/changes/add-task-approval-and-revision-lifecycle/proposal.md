@@ -16,7 +16,7 @@ PPT Agent 在生成完成后可以继续执行局部修复，但用户无法在�
 ### New Capabilities
 
 - `ppt-task-approval-lifecycle`: 定义用户可选的任务审批策略、可解释中断和恢复决策。
-- `ppt-deck-revision-control`: 定义候选版本、确认、拒绝、历史版本和回滚的交付行为。
+- `ppt-revision-control`: 定义候选版本、确认、拒绝、历史版本和回滚的交付行为。
 
 ### Modified Capabilities
 
@@ -26,6 +26,6 @@ PPT Agent 在生成完成后可以继续执行局部修复，但用户无法在�
 
 ## Impact
 
-- 后端：`pkg/task` 任务状态与持久化模型、`pkg/web` 继续任务/审批/版本 API、`pkg/agent/deck` 运行事件和交付版本目录。
+- 后端：`pkg/task` 任务状态与持久化模型、`pkg/web` 继续任务/审批/版本 API、`pkg/agent/ppt` 运行事件和交付版本目录。
 - 前端：任务创建审批模式、Dashboard 审批面板、候选修改确认与版本历史入口。
 - 数据兼容性：旧任务缺少审批和版本字段时保持既有 completed/failed/cancelled 行为；不迁入页面级 QA 状态。

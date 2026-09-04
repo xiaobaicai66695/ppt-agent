@@ -2,7 +2,7 @@
 
 - ID: 20260826-visual-mix-background-policy
 - Type: fix/deployment
-- Scope: Planner/Reviewer prompt, deterministic plan review, Deck Planner contract, background and foreground image planning
+- Scope: Planner/Reviewer prompt, deterministic plan review, PPT Planner contract, background and foreground image planning
 - Completed: 2026-08-26 11:18 Asia/Shanghai
 - Changes:
   - 将背景策略收敛为整套 PPT 只使用 2 个浅色主题背景查询，并按页面轮换；更多真实图片必须进入 `image` 组件并使用 `scene/evidence` 用途，作为图文混排素材。
@@ -10,9 +10,9 @@
   - 在 Go 审查中新增确定性质量门：拦截整套背景查询超过 2 个、叙事页图文混排不足、`image_text` 缺少页内示例图片组件、连续图文页 `layout_variant` 单一。
   - 修正 `component_contracts.json`：`image_text` 明确暴露三种已实现 variants，`title_slide/content_slide/agenda` 不再误标图文 variants。
 - Verification:
-  - Local: `go test ./pkg/agent/deck ./pkg/prompts` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/prompts` passed.
   - Local: `go build ./...` passed.
-  - Local: `python -m json.tool skills/ppt-deck-planner/templates/component_contracts.json` passed.
+  - Local: `python -m json.tool skills/ppt-planner/templates/component_contracts.json` passed.
   - Online: `/api/health` returned `{"status":"ok"}`.
   - Online: `/api/templates/layouts` returned HTTP 200; response contains `image_text` and `image_top_band`.
   - Online: deployed contract reports `title_slide_variants=[]`, `content_slide_variants=[]`, `image_text_variants=["image_left","image_right","image_top_band"]`.
@@ -23,10 +23,10 @@
   - Backend restarted from PID `3226031` to PID `3409972`, working directory `/ppt/ppt-agent/backend`, listening on `:8080`.
   - Rollback copy retained at `/ppt/ppt-agent/deploy-backup-20260826111653-visual-mix`.
 - Cleanup:
-  - Removed remote staged files `/tmp/ppt-agent-linux-visual-mix`, `/tmp/ppt-deck-planner-SKILL-visual-mix.md`, `/tmp/component_contracts-visual-mix.json`, `/tmp/generators-visual-mix.md`, and `/tmp/layouts-visual-mix.json`.
+  - Removed remote staged files `/tmp/ppt-agent-linux-visual-mix`, `/tmp/ppt-planner-SKILL-visual-mix.md`, `/tmp/component_contracts-visual-mix.json`, `/tmp/generators-visual-mix.md`, and `/tmp/layouts-visual-mix.json`.
   - No model-generation smoke task was created; validation used health, layouts contract and binary/contract probes to avoid unnecessary model/image-search cost.
 - Residual Risk:
-  - This validates the deterministic gate and deployed contract, not full LLM behavior on a fresh user deck. A future low-cost 2-4 page generation smoke can confirm Planner compliance end to end when model spend is acceptable.
+  - This validates the deterministic gate and deployed contract, not full LLM behavior on a fresh user ppt. A future low-cost 2-4 page generation smoke can confirm Planner compliance end to end when model spend is acceptable.
 
 ---
 
@@ -42,7 +42,7 @@
   - 在 fallback ChatModel 的 `Stream()` 出口合并 tool call delta：普通 assistant 文本 chunk 继续实时进入 SSE，工具调用参数延迟到 EOF 后合并成完整消息，避免 ToolNode 收到半截 JSON。
   - 保留本轮同时进入 binary 的 Planner manifest header 兜底：模型未写 `theme/template` 时默认使用 `ocean_soft/generic`，降低 `update_tasks_manifest` 因缺少 header 反复失败的概率。
 - Verification:
-  - Local: `go test ./pkg/agent/deck ./pkg/agent/utils ./pkg/task ./pkg/web` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/agent/utils ./pkg/task ./pkg/web` passed.
   - Local: `go build ./...` passed.
   - Online: `/api/health` returned `{"status":"ok"}`.
   - Online: `/health/ready` returned `status=ok` with MySQL, Python and LibreOffice ready.
@@ -58,15 +58,15 @@
   - Smoke task was deleted after streaming evidence was captured; workdir `/ppt/ppt-agent/weboutput/1-917193f8-f2d1-48dd-b39d-e3639c3af1b8` no longer exists.
   - Removed remote staged transfer files `/tmp/ppt-agent-linux.zip` and `/tmp/ppt-agent-unpack`.
 - Residual Risk:
-  - Smoke intentionally stopped after verifying streaming chunks, so the task cancellation produced expected `context canceled` log lines. This validates model init order and streaming delivery, not full PPT completion quality for DeepSeek on a fresh deck.
+  - Smoke intentionally stopped after verifying streaming chunks, so the task cancellation produced expected `context canceled` log lines. This validates model init order and streaming delivery, not full PPT completion quality for DeepSeek on a fresh ppt.
 
 ---
 
-# 2026-08-26 PPT Agent 首轮 DeckSpec 质量增强上线记录
+# 2026-08-26 PPT Agent 首轮 PPTSpec 质量增强上线记录
 
 - ID: 20260826-first-draft-quality-gate
 - Type: fix/deployment
-- Scope: Planner first-draft prompt, update_tasks_manifest preflight, Deck Planner contract
+- Scope: Planner first-draft prompt, update_tasks_manifest preflight, PPT Planner contract
 - Completed: 2026-08-26 14:08 Asia/Shanghai
 - Changes:
   - Planner 首轮提示前置 `agenda`、`stat_slide`、`argument_block` 和顶层 `theme/template` 的硬约束，减少工具返回问题后多轮自修。
@@ -74,8 +74,8 @@
   - `argument_block` 字数问题的审查消息增加当前估算字数，避免 Planner 不知道还差多少导致二次扩写。
   - `component_contracts.json` 对齐：`agenda.max_components=6` 且推荐 `insight/key_point/toc_item`；`stat_slide` 推荐组件加入 `insight`。
 - Verification:
-  - Local: `python -m json.tool ppt-agent/skills/ppt-deck-planner/templates/component_contracts.json` passed.
-  - Local: `go test ./pkg/agent/deck ./pkg/prompts` passed.
+  - Local: `python -m json.tool ppt-agent/skills/ppt-planner/templates/component_contracts.json` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/prompts` passed.
   - Local: `go build ./...` passed.
   - Online: `/api/health` returned `{"status":"ok"}`.
   - Online: `/health/ready` returned `status=ok` with MySQL, Python and LibreOffice ready.
@@ -90,7 +90,7 @@
   - Removed local transfer zip `ppt-agent/ppt-agent-linux.zip`.
   - Removed remote staged files `/tmp/component_contracts.json`, `/tmp/ppt-agent-linux-first-draft.zip`, and `/tmp/ppt-agent-first-draft-unpack`.
 - Residual Risk:
-  - This validates deterministic normalization and deployed contract. It does not run a full-cost fresh 10+ page international affairs deck; that should be a targeted smoke only when model/image-search spend is acceptable.
+  - This validates deterministic normalization and deployed contract. It does not run a full-cost fresh 10+ page international affairs ppt; that should be a targeted smoke only when model/image-search spend is acceptable.
 
 ---
 
@@ -106,7 +106,7 @@
   - 过滤内部上下文压缩摘要 JSON，包含 `user_intent_summary` 且包含 `progress_summary` 或 `conversation_summary` 的消息不再作为 `answer` SSE 事件进入前端会话。
   - 流式输出遇到疑似 JSON/code fence 开头时先缓存到消息结束后判断；普通文本仍按 chunk 实时输出，普通 Planner JSON 输出保留可见。
 - Verification:
-  - Local: `go test ./pkg/agent/deck` passed.
+  - Local: `go test ./pkg/agent/ppt` passed.
   - Local: `go test ./pkg/agent/utils ./pkg/task ./pkg/web` passed.
   - Local: `go build ./...` passed.
   - Online: `/api/health` returned `{"status":"ok"}`.
@@ -139,7 +139,7 @@
 - Verification:
   - Local: `go test ./pkg/tools/image ./pkg/agent/utils` passed.
   - Local: `npm test -- --run src/utils/workbench.test.ts` passed.
-  - Local: `go test ./pkg/agent/deck ./pkg/agent/utils ./pkg/tools/image ./pkg/task ./pkg/web` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/agent/utils ./pkg/tools/image ./pkg/task ./pkg/web` passed.
   - Local: `go build ./...` passed.
   - Local: `npm run build` passed.
   - Online: `/api/health` returned `{"status":"ok"}`.

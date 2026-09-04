@@ -19,7 +19,7 @@
 ```text
 HTTP 请求 / 外部工具载荷
         ↓
-Web 路由 DTO ──→ Router Agent ──→ DeckSpec / Plan
+Web 路由 DTO ──→ Router Agent ──→ PPTSpec / Plan
         ↓                              ↓
 TaskInfo / TaskState ──→ 渲染、修复、交付、SSE
         ↓

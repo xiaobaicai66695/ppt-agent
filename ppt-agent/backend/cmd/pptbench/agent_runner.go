@@ -9,7 +9,7 @@ import (
 	"time"
 
 	agentcommand "github.com/cloudwego/ppt-agent/pkg/agent/command"
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/web"
 )
 
@@ -51,19 +51,19 @@ func runRouterCase(ctx context.Context, out *agentOutput, input caseInput) {
 
 func runPlannerCase(ctx context.Context, out *agentOutput, c benchCase, input caseInput, opt options, caseDir string) {
 	query := plannerQuery(input)
-	events := []deck.AgentEvent{}
+	events := []ppt.AgentEvent{}
 	cfg := taskConfig(caseDir, c.ID, query, opt)
-	agent, err := deck.NewPPTPlannerAgent(ctx, cfg)
+	agent, err := ppt.NewPPTPlannerAgent(ctx, cfg)
 	if err != nil {
 		out.Error = err.Error()
 		return
 	}
-	manifest, result, err := deck.RunPPTPlannerDraftWithCallback(ctx, agent, cfg, query, func(e deck.AgentEvent) { events = append(events, e) })
+	manifest, result, err := ppt.RunPPTPlannerDraftWithCallback(ctx, agent, cfg, query, func(e ppt.AgentEvent) { events = append(events, e) })
 	out.Events = events
 	out.Error = firstEventError(events)
 	out.Output = manifest
 	if manifest != nil {
-		out.DeterministicReview = deck.ReviewTasksManifest(manifest, "planner_draft", 1)
+		out.DeterministicReview = ppt.ReviewTasksManifest(manifest, "planner_draft", 1)
 		out.ContentQuality = assessContentQuality(manifest)
 	}
 	if result != nil && out.DurationMS == 0 {
@@ -79,37 +79,37 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 		out.Error = "reviewer case missing input.draft_tasks"
 		return
 	}
-	if err := deck.WriteTasksDraftManifest(caseDir, input.DraftTasks); err != nil {
+	if err := ppt.WriteTasksDraftManifest(caseDir, input.DraftTasks); err != nil {
 		out.Error = err.Error()
 		return
 	}
 	before := cloneManifest(input.DraftTasks)
-	report := deck.ReviewTasksManifest(input.DraftTasks, "case_draft", 1)
+	report := ppt.ReviewTasksManifest(input.DraftTasks, "case_draft", 1)
 	if len(input.ReviewIssues) > 0 {
 		report.Issues = mergeReviewerIssues(input.ReviewIssues, report.Issues)
 		report.IssueCount = len(report.Issues)
 		report.Passed = false
 		report.Summary = "benchmark case supplied review issues merged with deterministic quality gates"
 	}
-	inputText, allowed, err := deck.BuildPlanReviewRevisionInput(caseDir, 1, report)
+	inputText, allowed, err := ppt.BuildPlanReviewRevisionInput(caseDir, 1, report)
 	if err != nil {
 		out.Error = err.Error()
 		return
 	}
-	events := []deck.AgentEvent{}
+	events := []ppt.AgentEvent{}
 	cfg := taskConfig(caseDir, c.ID, firstNonEmpty(input.UserRequest, input.UserMessage), opt)
-	agent, err := deck.NewTaskPlanReviewerAgent(ctx, cfg, allowed)
+	agent, err := ppt.NewTaskPlanReviewerAgent(ctx, cfg, allowed)
 	if err != nil {
 		out.Error = err.Error()
 		return
 	}
-	if err := deck.RunTaskPlanReviewerWithCallback(ctx, agent, inputText, func(e deck.AgentEvent) { events = append(events, e) }); err != nil {
+	if err := ppt.RunTaskPlanReviewerWithCallback(ctx, agent, inputText, func(e ppt.AgentEvent) { events = append(events, e) }); err != nil {
 		out.Error = err.Error()
 	}
 	if out.Error == "" {
 		out.Error = firstEventError(events)
 	}
-	after, err := deck.ReadTasksDraftManifest(caseDir)
+	after, err := ppt.ReadTasksDraftManifest(caseDir)
 	if err != nil && out.Error == "" {
 		out.Error = err.Error()
 	}
@@ -117,7 +117,7 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 	out.After = after
 	out.Events = events
 	if after != nil {
-		out.DeterministicReview = deck.ReviewTasksManifest(after, "reviewer_after", 2)
+		out.DeterministicReview = ppt.ReviewTasksManifest(after, "reviewer_after", 2)
 		out.ContentQuality = assessContentQuality(after)
 	}
 }
@@ -126,10 +126,10 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 // retaining any current deterministic hard gate on the same draft. Production
 // Reviewer runs always receive the deterministic review report; replacing it in
 // the benchmark would let a case hide an additional blocker from the agent.
-func mergeReviewerIssues(targeted, detected []deck.PlanReviewIssue) []deck.PlanReviewIssue {
-	merged := make([]deck.PlanReviewIssue, 0, len(targeted)+len(detected))
+func mergeReviewerIssues(targeted, detected []ppt.PlanReviewIssue) []ppt.PlanReviewIssue {
+	merged := make([]ppt.PlanReviewIssue, 0, len(targeted)+len(detected))
 	seen := make(map[string]struct{}, len(targeted)+len(detected))
-	appendUnique := func(issue deck.PlanReviewIssue) {
+	appendUnique := func(issue ppt.PlanReviewIssue) {
 		key := strings.ToLower(strings.TrimSpace(issue.Code)) + ":" + strconv.Itoa(issue.PageIndex) + ":" + strings.TrimSpace(issue.ComponentID)
 		if _, ok := seen[key]; ok {
 			return
@@ -151,7 +151,7 @@ func runFixerCase(ctx context.Context, out *agentOutput, c benchCase, input case
 		out.Error = "fixer case missing input.base_tasks"
 		return
 	}
-	if err := deck.WriteTasksManifest(caseDir, input.BaseTasks); err != nil {
+	if err := ppt.WriteTasksManifest(caseDir, input.BaseTasks); err != nil {
 		out.Error = err.Error()
 		return
 	}
@@ -159,21 +159,21 @@ func runFixerCase(ctx context.Context, out *agentOutput, c benchCase, input case
 	if len(allowed) == 0 {
 		allowed = inferAllowedPages(firstNonEmpty(input.UserRequest, input.UserMessage))
 	}
-	events := []deck.AgentEvent{}
+	events := []ppt.AgentEvent{}
 	cfg := taskConfig(caseDir, c.ID, firstNonEmpty(input.UserRequest, input.UserMessage), opt)
-	agent, err := deck.NewPPTFixerAgent(ctx, cfg, allowed)
+	agent, err := ppt.NewPPTFixerAgent(ctx, cfg, allowed)
 	if err != nil {
 		out.Error = err.Error()
 		return
 	}
 	before := cloneManifest(input.BaseTasks)
-	if err := deck.RunPPTFixerWithCallback(ctx, agent, firstNonEmpty(input.UserRequest, input.UserMessage), func(e deck.AgentEvent) { events = append(events, e) }); err != nil {
+	if err := ppt.RunPPTFixerWithCallback(ctx, agent, firstNonEmpty(input.UserRequest, input.UserMessage), func(e ppt.AgentEvent) { events = append(events, e) }); err != nil {
 		out.Error = err.Error()
 	}
 	if out.Error == "" {
 		out.Error = firstEventError(events)
 	}
-	after, err := deck.ReadTasksManifest(caseDir)
+	after, err := ppt.ReadTasksManifest(caseDir)
 	if err != nil && out.Error == "" {
 		out.Error = err.Error()
 	}
@@ -182,11 +182,11 @@ func runFixerCase(ctx context.Context, out *agentOutput, c benchCase, input case
 	out.Events = events
 }
 
-func taskConfig(workDir, caseID, query string, opt options) *deck.PPTTaskConfig {
+func taskConfig(workDir, caseID, query string, opt options) *ppt.PPTTaskConfig {
 	operator := &agentcommand.LocalOperator{}
 	ctx := operator.SetWorkDir(context.Background(), workDir)
 	_ = ctx
-	return &deck.PPTTaskConfig{
+	return &ppt.PPTTaskConfig{
 		WorkDir:       workDir,
 		TaskID:        "bench-" + safePathName(caseID),
 		Query:         query,

@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
@@ -44,10 +45,7 @@ func (s *Server) handleGetUserAPIKey(c *gin.Context) {
 }
 
 func (s *Server) handleUpdateUserAPIKey(c *gin.Context) {
-	var req struct {
-		Provider string `json:"provider"`
-		APIKey   string `json:"api_key"`
-	}
+	var req webmodel.UpdateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return
@@ -90,10 +88,7 @@ func (s *Server) handleDeleteUserAPIKey(c *gin.Context) {
 	})
 }
 
-type modelCredential struct {
-	Provider string
-	APIKey   string
-}
+type modelCredential = webmodel.ModelCredential
 
 func userModelCredential(userID int) modelCredential {
 	provider := defaultModelProvider()

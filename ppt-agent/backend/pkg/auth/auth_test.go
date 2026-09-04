@@ -92,11 +92,11 @@ func TestValidatePassword(t *testing.T) {
 		password string
 		wantErr  bool
 	}{
-		{name: "compliant", password: "Deckform2026", wantErr: false},
-		{name: "too short", password: "Deck1a", wantErr: true},
-		{name: "missing uppercase", password: "deckform2026", wantErr: true},
-		{name: "missing lowercase", password: "DECKFORM2026", wantErr: true},
-		{name: "missing digit", password: "DeckformPassword", wantErr: true},
+		{name: "compliant", password: "PPTform2026", wantErr: false},
+		{name: "too short", password: "PPT1a", wantErr: true},
+		{name: "missing uppercase", password: "pptform2026", wantErr: true},
+		{name: "missing lowercase", password: "PPTFORM2026", wantErr: true},
+		{name: "missing digit", password: "PPTformPassword", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1,6 +1,6 @@
 # PPT Agent 智能演示文稿生成系统
 
-PPT Agent 是一个面向中文演示文稿生产的多智能体系统。后端使用 Go 与 CloudWeGo Eino ADK，前端使用 Vue 3、TypeScript 与 Vite，PPT 生成器使用 Python 和 `python-pptx`。系统围绕意图识别、DeckSpec 规划、规划审查润色、按页渲染、素材管理、缩略图预览、会话记录和运行观测构建，目标是稳定生成结构清晰、风格统一、可交付的 PPT。
+PPT Agent 是一个面向中文演示文稿生产的多智能体系统。后端使用 Go 与 CloudWeGo Eino ADK，前端使用 Vue 3、TypeScript 与 Vite，PPT 生成器使用 Python 和 `python-pptx`。系统围绕意图识别、PPTSpec 规划、规划审查润色、按页渲染、素材管理、缩略图预览、会话记录和运行观测构建，目标是稳定生成结构清晰、风格统一、可交付的 PPT。
 
 本文档尽量使用中文描述。代码标识、环境变量、命令、文件名、接口路径和第三方库名称保留原文，避免影响复制执行和模型识别。
 
@@ -13,7 +13,7 @@ ppt-agent/
 │   ├── go.mod                       # Go 依赖
 │   └── pkg/
 │       ├── agent/                   # 智能体编排与任务规划
-│       │   ├── deck/                # DeckSpec 规划、任务清单和并发渲染编排
+│       │   ├── ppt/                # PPTSpec 规划、任务清单和并发渲染编排
 │       │   ├── intent/              # 用户意图识别与模板/背景推荐
 │       │   ├── learning/            # 用户偏好学习
 │       │   ├── router/              # 路由决策
@@ -21,7 +21,6 @@ ppt-agent/
 │       ├── auth/                    # 登录、验证码、令牌校验
 │       ├── callback/                # 工具调用和模型调用观测
 │       ├── db/                      # 数据库访问
-│       ├── log_analysis/            # 后台日志分析
 │       ├── prompts/                 # 内嵌提示词模板
 │       ├── session/                 # 会话消息管理
 │       ├── style/                   # 风格画像与提取
@@ -36,7 +35,7 @@ ppt-agent/
 │   │   └── components/              # 侧边栏、进度、预览和运行事件组件
 │   └── public/                      # 前端静态资源
 ├── skills/
-│   └── ppt-deck-planner/             # PPT Deck Planner：组件规划契约与生成器
+│   └── ppt-planner/             # PPT Planner：组件规划契约与生成器
 │       ├── SKILL.md                 # 规划约束和生成契约
 │       ├── generators/              # Python 单页生成器
 │       ├── templates/               # component_contracts.json
@@ -56,11 +55,11 @@ ppt-agent/
   ↓
 意图识别与模板推荐
   ↓
-Planner 规划 DeckSpec / tasks.json
+Planner 规划 PPTSpec / tasks.json
   ↓
 Plan Reviewer / Refiner 审查并润色结构化计划
   ↓
-DeckRenderWorkflow 按页并发生成 PPTX
+PPTRenderWorkflow 按页并发生成 PPTX
   ↓
 任务管理器校验产物与缩略图
   ↓
@@ -88,9 +87,9 @@ DeckRenderWorkflow 按页并发生成 PPTX
 - 任务页：展示生成进度、缩略图、文件下载、会话和运行事件。
 - 管理页：查看用户、任务和日志分析信息。
 
-### PPT Deck Planner
+### PPT Planner
 
-`skills/ppt-deck-planner` 是 PPT 质量的核心契约层。它主要约束 Planner 如何填充 DeckSpec / `tasks.json`，并规定生成器如何消费结构化计划。字号、坐标、颜色、边距等底层绘制细节由 Python generator 和模板 contract 控制，不应交给 LLM 在 prompt 中直接决定。
+`skills/ppt-planner` 是 PPT 质量的核心契约层。它主要约束 Planner 如何填充 PPTSpec / `tasks.json`，并规定生成器如何消费结构化计划。字号、坐标、颜色、边距等底层绘制细节由 Python generator 和模板 contract 控制，不应交给 LLM 在 prompt 中直接决定。
 
 它规定：
 
@@ -114,7 +113,7 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 
 ## 任务清单契约
 
-`tasks.json` 是 Planner、规划审查/润色和渲染工作池之间的核心契约。Planner 只通过 `update_tasks_manifest` 初始化或更新任务清单，避免并发覆盖整个文件。目标态会把它升级为更强的 DeckSpec：页级计划之外，还包含组件级内容计划和容量提示。
+`tasks.json` 是 Planner、规划审查/润色和渲染工作池之间的核心契约。Planner 只通过 `update_tasks_manifest` 初始化或更新任务清单，避免并发覆盖整个文件。目标态会把它升级为更强的 PPTSpec：页级计划之外，还包含组件级内容计划和容量提示。
 
 单页任务的关键字段：
 
@@ -170,7 +169,7 @@ kpi_dashboard、chart_slide、image_text、quote_slide、summary_slide
 
 ## 规划质量门
 
-目标主流程中，Planner 输出不会直接进入渲染。Plan Reviewer 先检查 DeckSpec，Plan Refiner 根据问题结构化修订，直到通过质量门或达到循环上限。
+目标主流程中，Planner 输出不会直接进入渲染。Plan Reviewer 先检查 PPTSpec，Plan Refiner 根据问题结构化修订，直到通过质量门或达到循环上限。
 
 质量门重点检查：
 
@@ -236,11 +235,11 @@ npm run dev
 ### Python 生成器
 
 ```bash
-python -m compileall -q skills/ppt-deck-planner/generators
-python skills/ppt-deck-planner/generators/validate_deck.py --work-dir skills/ppt-deck-planner/examples/minimal --skills-dir skills
-python skills/ppt-deck-planner/generators/render_deck.py --work-dir skills/ppt-deck-planner/examples/minimal --skills-dir skills --output deck.pptx
-python skills/ppt-deck-planner/generators/render_task.py --help
-python -m unittest discover -s skills/ppt-deck-planner/tests -v
+python -m compileall -q skills/ppt-planner/generators
+python skills/ppt-planner/generators/validate_ppt.py --work-dir skills/ppt-planner/examples/minimal --skills-dir skills
+python skills/ppt-planner/generators/render_ppt.py --work-dir skills/ppt-planner/examples/minimal --skills-dir skills --output ppt.pptx
+python skills/ppt-planner/generators/render_task.py --help
+python -m unittest discover -s skills/ppt-planner/tests -v
 ```
 
 生成器依赖 `python-pptx`。缩略图和 QA 渲染链路依赖 LibreOffice 与 Poppler。
@@ -251,7 +250,7 @@ python -m unittest discover -s skills/ppt-deck-planner/tests -v
 
 ```bash
 cd backend
-go test ./pkg/web ./pkg/task ./pkg/agent/deck
+go test ./pkg/web ./pkg/task ./pkg/agent/ppt
 go build ./...
 ```
 
@@ -278,8 +277,6 @@ npm run build
 | `STREAM_TIMEOUT` | 单次流式调用超时 | `3m` |
 | `PYTHON_BIN` | Python 可执行文件 | `/root/pptx_env/bin/python` |
 | `MYSQL_DSN` | MySQL 数据源 | 可选 |
-| `LOG_FILE` | 日志文件路径 | 可选 |
-| `LOG_ANALYSIS_IDLE_INTERVAL` | 空闲日志分析间隔 | `0` |
 | `COZELOOP_API_TOKEN` | CozeLoop 令牌 | 可选 |
 | `COZELOOP_WORKSPACE_ID` | CozeLoop 工作区 | 可选 |
 

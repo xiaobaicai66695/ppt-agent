@@ -14,8 +14,8 @@
 
 - `go test ./...`、`go build ./...`（`ppt-agent/backend`）通过。
 - `npm run build`（`ppt-agent/frontend`）通过。
-- `python -m unittest discover -s skills/ppt-deck-planner/tests -v`：31 项通过。
-- Python generator 编译、独立 DeckSpec 预检与 1 页 PPTX 实际渲染通过；临时验证文件已清理。
+- `python -m unittest discover -s skills/ppt-planner/tests -v`：31 项通过。
+- Python generator 编译、独立 PPTSpec 预检与 1 页 PPTX 实际渲染通过；临时验证文件已清理。
 
 ## 部署状态
 

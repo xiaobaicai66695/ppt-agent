@@ -1,18 +1,18 @@
 # ppt-agent-chunked-planning Specification
 
 ## Purpose
-TBD - created by archiving change chunked-deck-planning-and-context-compression. Update Purpose after archive.
+TBD - created by archiving change chunked-ppt-planning-and-context-compression. Update Purpose after archive.
 ## Requirements
-### Requirement: Deck generation uses chunked first-draft planning for larger decks
-The system SHALL construct larger initial deck drafts through a blueprint phase, one or more section-planning shards, deterministic merge, and one final Task Reviewer quality gate.
+### Requirement: PPT generation uses chunked first-draft planning for larger ppts
+The system SHALL construct larger initial ppt drafts through a blueprint phase, one or more section-planning shards, deterministic merge, and one final Task Reviewer quality gate.
 
-#### Scenario: Larger deck starts planning
-- **WHEN** a user creates a deck whose target page count is above the chunking threshold
+#### Scenario: Larger ppt starts planning
+- **WHEN** a user creates a ppt whose target page count is above the chunking threshold
 - **THEN** the system creates a blueprint that fixes page indexes, section boundaries, page titles and content types before detailed page content is generated
 - **AND** section planners only fill detailed content for their assigned page ranges
 
-#### Scenario: Short deck starts planning
-- **WHEN** a user creates a deck whose target page count is at or below the chunking threshold
+#### Scenario: Short ppt starts planning
+- **WHEN** a user creates a ppt whose target page count is at or below the chunking threshold
 - **THEN** the system MAY use a single section shard or the existing monolithic planner path
 - **AND** the final output still conforms to the same `tasks.json` contract
 
@@ -33,11 +33,11 @@ The system SHALL merge section-planner outputs into one draft manifest without a
 The system SHALL preserve enough section and evidence metadata in each planned page to support later page-level or section-level fixes.
 
 #### Scenario: User requests one page revision
-- **WHEN** a completed deck receives a fix request targeting one page
+- **WHEN** a completed ppt receives a fix request targeting one page
 - **THEN** the system can identify the page's `section_id`, page purpose and evidence references without reading unrelated generated pages
 
 #### Scenario: User requests section revision
-- **WHEN** a completed deck receives a fix request targeting a named section
+- **WHEN** a completed ppt receives a fix request targeting a named section
 - **THEN** the system can select only pages in that section for semantic repair
 
 ### Requirement: Chunked planning remains a single user-facing generation action

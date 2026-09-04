@@ -4,10 +4,10 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 )
 
-func assessContentQuality(manifest *deck.TasksManifest) *contentQualityReport {
+func assessContentQuality(manifest *ppt.TasksManifest) *contentQualityReport {
 	if manifest == nil {
 		return nil
 	}
@@ -26,8 +26,8 @@ func assessContentQuality(manifest *deck.TasksManifest) *contentQualityReport {
 		report.PageClaims = append(report.PageClaims, contentPageClaim{
 			PageIndex: task.PageIndex, Title: task.Title, ContentType: task.ContentType, Claim: claim,
 		})
-		if task.ContentType == "title_slide" && report.DeckClaim == "" {
-			report.DeckClaim = claim
+		if task.ContentType == "title_slide" && report.PPTClaim == "" {
+			report.PPTClaim = claim
 		}
 		if requiresBenchmarkPageClaim(task.ContentType) && claim == "" {
 			report.MissingClaimPages = append(report.MissingClaimPages, task.PageIndex)
@@ -62,7 +62,7 @@ func assessContentQuality(manifest *deck.TasksManifest) *contentQualityReport {
 	return report
 }
 
-func assessAgendaSubtitles(task *deck.TaskItem, report *contentQualityReport) {
+func assessAgendaSubtitles(task *ppt.TaskItem, report *contentQualityReport) {
 	if task == nil || report == nil || strings.TrimSpace(task.ContentType) != "agenda" || task.ContentPlan == nil {
 		return
 	}
@@ -89,7 +89,7 @@ func assessAgendaSubtitles(task *deck.TaskItem, report *contentQualityReport) {
 	}
 }
 
-func extractPageClaim(task *deck.TaskItem) string {
+func extractPageClaim(task *ppt.TaskItem) string {
 	if task == nil || task.ContentPlan == nil {
 		return ""
 	}

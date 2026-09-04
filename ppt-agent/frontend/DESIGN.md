@@ -1,6 +1,6 @@
 ---
 version: alpha
-name: "Deckform PPT Agent"
+name: "PPTform PPT Agent"
 description: "面向创作者的深色/浅色 PPT 生产工作台，以可核验的生成状态和真实交付文件为核心。"
 colors:
   primary: "#6ce5ca"
@@ -41,7 +41,7 @@ components:
     rounded: "{rounded.signature}"
 ---
 
-# Deckform PPT Agent Design System
+# PPTform PPT Agent Design System
 
 ## Overview
 

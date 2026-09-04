@@ -5,7 +5,7 @@ const terminalStreamEvents = new Set([
 ])
 
 // `answer_end` only terminates the planner's text response. A PPT task keeps
-// streaming while its DeckSpec is rendered and delivery files are prepared.
+// streaming while its PPTSpec is rendered and delivery files are prepared.
 export function isTerminalTaskStreamEvent(type?: string) {
   return Boolean(type && terminalStreamEvents.has(type))
 }

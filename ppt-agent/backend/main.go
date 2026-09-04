@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,16 +25,16 @@ import (
 	"github.com/coze-dev/cozeloop-go"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
-	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
 	"github.com/cloudwego/ppt-agent/pkg/chattrace"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/human"
-	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/web"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 func main() {
@@ -67,11 +69,11 @@ func main() {
 	}
 
 	skillsDir := filepath.Join(pwd, "..", "skills")
-	if _, err := os.Stat(filepath.Join(skillsDir, "ppt-deck-planner", "SKILL.md")); err != nil {
-		logger.Error("deck_planner_skill_missing", "dir", skillsDir, "error", err.Error())
+	if _, err := os.Stat(filepath.Join(skillsDir, "ppt-planner", "SKILL.md")); err != nil {
+		logger.Error("ppt_planner_skill_missing", "dir", skillsDir, "error", err.Error())
 		return
 	}
-	logger.Info("deck_planner_skill_ready", "dir", skillsDir)
+	logger.Info("ppt_planner_skill_ready", "dir", skillsDir)
 
 	// MySQL 初始化
 	dsn := os.Getenv("MYSQL_DSN")
@@ -85,6 +87,17 @@ func main() {
 		rootEmail := getEnvDefault("ROOT_EMAIL", "root@qq.com")
 		rootPass := getEnvDefault("ROOT_PASSWORD", "root")
 		auth.SeedRootUser(rootEmail, rootPass)
+	}
+	var instanceLock *db.InstanceLock
+	if *modeFlag == "web" && db.DB != nil {
+		lockName := getEnvDefault("PPT_AGENT_INSTANCE_LOCK", "ppt-agent-web-single-writer")
+		instanceLock, err = db.AcquireInstanceLock(context.Background(), lockName)
+		if err != nil {
+			logger.Error("instance_lock_acquire_failed", "error", err.Error())
+			return
+		}
+		defer instanceLock.Release(context.Background())
+		logger.Info("instance_lock_acquired", "name", lockName)
 	}
 
 	switch *modeFlag {
@@ -128,7 +141,7 @@ func runWebMode(pwd, skillsDir, addr string) {
 	}
 
 	// Agent factory: creates a fresh agent per task with the right WorkDir/TaskID.
-	agentFactory := func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error) {
+	agentFactory := func(ctx context.Context, cfg *ppt.PPTTaskConfig) (adk.Agent, error) {
 		if cfg.ModelAPIKey == "" && cfg.UserID > 0 {
 			credential := resolveUserModelCredential(uint(cfg.UserID))
 			cfg.ModelAPIKey = credential.APIKey
@@ -137,17 +150,7 @@ func runWebMode(pwd, skillsDir, addr string) {
 		cfg.Concurrency = concurrency
 		cfg.Operator = operator
 		cfg.SkillsDir = skillsDir
-		return deck.NewPPTPlannerAgent(ctx, cfg)
-	}
-
-	logAnalysisModelFactory := func(ctx context.Context) (model.ToolCallingChatModel, error) {
-		return agentutils.NewFallbackToolCallingChatModel(ctx,
-			agentutils.WithMaxTokens(8192),
-			agentutils.WithTemperature(0),
-		)
-	}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("LOG_ANALYSIS_ENABLED")), "false") {
-		logAnalysisModelFactory = nil
+		return ppt.NewPPTPlannerAgent(ctx, cfg)
 	}
 
 	srv := web.NewServer(&web.ServerConfig{
@@ -157,8 +160,8 @@ func runWebMode(pwd, skillsDir, addr string) {
 		SkillsDir:    skillsDir,
 		Operator:     operator,
 		AgentFactory: agentFactory,
-		MakeTaskConfig: func(taskID string) *deck.PPTTaskConfig {
-			return &deck.PPTTaskConfig{
+		MakeTaskConfig: func(taskID string) *ppt.PPTTaskConfig {
+			return &ppt.PPTTaskConfig{
 				TaskID: taskID,
 			}
 		},
@@ -198,9 +201,7 @@ func runWebMode(pwd, skillsDir, addr string) {
 			}
 			return &aiModelAdapter{model: m}, nil
 		},
-		LogAnalysisModelFactory: logAnalysisModelFactory,
-		LogAnalysisIdleInterval: parseDurationEnv("LOG_ANALYSIS_IDLE_INTERVAL", 5*time.Minute),
-		ChatTraceStore:          chatTraceStore,
+		ChatTraceStore: chatTraceStore,
 	})
 
 	logger.Info("server_starting", "mode", "web", "addr", addr, "concurrency", concurrency)
@@ -213,7 +214,9 @@ func runWebMode(pwd, skillsDir, addr string) {
 	web.Version = buildVersion
 	web.StartTime = time.Now()
 
-	if err := srv.Start(); err != nil {
+	serverCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := srv.StartContext(serverCtx); err != nil {
 		logger.Error("server_error", "error", err.Error())
 	}
 }
@@ -266,7 +269,7 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	logger.Info("cli_planner_config", "concurrency", concurrency)
 
 	logger.Info("planner_creating")
-	agent, err := deck.NewPPTPlannerAgent(ctx, &deck.PPTTaskConfig{
+	agent, err := ppt.NewPPTPlannerAgent(ctx, &ppt.PPTTaskConfig{
 		WorkDir:     outputDir,
 		TaskID:      taskID,
 		Concurrency: concurrency,
@@ -279,17 +282,17 @@ func runPlannerCLI(ctx context.Context, userQuery, taskID, outputDir string,
 	}
 	logger.Info("planner_created")
 
-	cfg := &deck.PPTTaskConfig{
+	cfg := &ppt.PPTTaskConfig{
 		WorkDir:  outputDir,
 		TaskID:   taskID,
 		Operator: operator,
 	}
 
-	var result *deck.PPTTaskResult
+	var result *ppt.PPTTaskResult
 	if interactive && hm != nil {
-		result, err = deck.RunPPTPlannerWithHuman(ctx, agent, cfg, userQuery, hm)
+		result, err = ppt.RunPPTPlannerWithHuman(ctx, agent, cfg, userQuery, hm)
 	} else {
-		result, err = deck.RunPPTPlanner(ctx, agent, cfg, userQuery)
+		result, err = ppt.RunPPTPlanner(ctx, agent, cfg, userQuery)
 	}
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)

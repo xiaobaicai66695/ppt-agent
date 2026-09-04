@@ -15,7 +15,7 @@ Plan-Execute-Replan 串行规划执行
   ↓
 Planner-Compiler-Renderer 工作流
   ↓
-Planner-Reviewer-Refiner + Component DeckSpec
+Planner-Reviewer-Refiner + Component PPTSpec
 ```
 
 这条路径不是简单追逐某个 Agent 框架，而是在逐步回答一个问题：**PPT 生成中哪些部分应该交给 LLM，哪些部分应该交给代码和工具链？**
@@ -128,7 +128,7 @@ SlideExecutor 子 Agent 读取单页任务
   ↓
 意图分类与路由：识别领域、复杂度、页数、模板/配色建议和并发策略
   ↓
-Planner：生成 DeckSpec / tasks.json
+Planner：生成 PPTSpec / tasks.json
   ↓
 Asset Planner：转换搜索词，搜索事实、案例和背景/实景图片候选，并把可用图片下载到任务工作区
   ↓
@@ -220,7 +220,7 @@ Planner-Compiler-Renderer 把生成阶段稳定下来了，但仍然留下一个
   ↓
 创建入口意图分类
   ↓
-Deck Planner：整套 PPT 叙事规划
+PPT Planner：整套 PPT 叙事规划
   ↓
 Content Planner：页级内容规划
   ↓
@@ -228,11 +228,11 @@ Component Planner：页内组件编排
   ↓
 Plan Reviewer：审查结构、密度、场景匹配、模板容量
   ↓
-Plan Refiner：按审查意见修订 DeckSpec
+Plan Refiner：按审查意见修订 PPTSpec
   ↓
-通过质量门后锁定 DeckSpec
+通过质量门后锁定 PPTSpec
   ↓
-DeckRenderWorkflow：仍按页并发渲染
+PPTRenderWorkflow：仍按页并发渲染
   ↓
 Visual QA / 局部修复 / 交付
 ```
@@ -247,9 +247,9 @@ Visual QA / 局部修复 / 交付
 - `content_type`、`layout_variant` 和组件计划是否匹配。
 - 图表、KPI、案例页是否缺必要数据、来源或事实。
 
-Refiner 也不是简单润色文案，而是结构化修订 DeckSpec。它应根据 Reviewer issues 做拆页、合并、换布局、补组件、缩短组件内容或增加事实来源。
+Refiner 也不是简单润色文案，而是结构化修订 PPTSpec。它应根据 Reviewer issues 做拆页、合并、换布局、补组件、缩短组件内容或增加事实来源。
 
-### 7.1 组件级 DeckSpec
+### 7.1 组件级 PPTSpec
 
 当前基线中，`content_plan` 应直接使用组件级计划，不再把泛化 `summary + elements` 作为可维护契约：
 
@@ -257,7 +257,7 @@ Refiner 也不是简单润色文案，而是结构化修订 DeckSpec。它应根
 {
   "slide_id": "3",
   "title": "三层能力矩阵支撑端到端交付",
-  "role_in_deck": "说明产品能力结构",
+  "role_in_ppt": "说明产品能力结构",
   "content_type": "card_grid",
   "layout_variant": "featured_card_plus_grid",
   "density": "normal",

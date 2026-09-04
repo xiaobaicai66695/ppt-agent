@@ -10,17 +10,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 func (s *Server) handleCreateTask(c *gin.Context) {
-	var req struct {
-		Query   string            `json:"query"`
-		Outline *deck.TaskOutline `json:"outline,omitempty"`
-	}
+	var req webmodel.CreateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Query) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
 		return
@@ -208,10 +206,7 @@ func (s *Server) attachTaskFeedback(info *task.TaskInfo, userID int) {
 }
 
 func (s *Server) handleSaveTaskFeedback(c *gin.Context) {
-	var req struct {
-		Rating     int    `json:"rating"`
-		Suggestion string `json:"suggestion"`
-	}
+	var req webmodel.TaskFeedbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的反馈请求"})
 		return
@@ -313,14 +308,14 @@ func (s *Server) handleListLayouts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"layouts": layouts})
 }
 
-func (s *Server) prepareOutline(_ context.Context, query string, outline *deck.TaskOutline) (*deck.TaskOutline, error) {
+func (s *Server) prepareOutline(_ context.Context, query string, outline *ppt.TaskOutline) (*ppt.TaskOutline, error) {
 	if outline == nil || len(outline.Slides) == 0 {
 		return outline, nil
 	}
 	if strings.TrimSpace(outline.Title) == "" {
 		outline.Title = strings.TrimSpace(query)
 	}
-	outline.ContentMode = deck.OutlineContentModeUserOutline
+	outline.ContentMode = ppt.OutlineContentModeUserOutline
 
 	for i := range outline.Slides {
 		slide := &outline.Slides[i]

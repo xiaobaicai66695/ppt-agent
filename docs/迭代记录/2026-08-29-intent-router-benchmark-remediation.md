@@ -10,7 +10,7 @@
 Router benchmark 首次复跑显示测试集 `4.00/5`（3/4 通过）；独立 validation 集显示 `2.875/5`（3/8 通过）。根因有两项：
 
 1. 创建入口把模型标记的 `page_count`、`audience`、`style` 等可选生成参数当成必须澄清，阻断了主题已经明确的新建请求。
-2. benchmark validation 保留 `create_deck` / `fix_existing` 的稳定评测词汇，而线上 HTTP 消息契约已简化为 `create` / `fix`；同时成功创建响应错误地复用了 `clarification_question` 字段承载可选缺项，导致 Judge 将正确路由判为澄清。
+2. benchmark validation 保留 `create_ppt` / `fix_existing` 的稳定评测词汇，而线上 HTTP 消息契约已简化为 `create` / `fix`；同时成功创建响应错误地复用了 `clarification_question` 字段承载可选缺项，导致 Judge 将正确路由判为澄清。
 
 修复内容：
 
@@ -22,7 +22,7 @@ Router benchmark 首次复跑显示测试集 `4.00/5`（3/4 通过）；独立 v
 
 ## 本地验证
 
-- `go test ./cmd/pptbench ./pkg/web ./pkg/agent/deck`：通过。
+- `go test ./cmd/pptbench ./pkg/web ./pkg/agent/ppt`：通过。
 - `go build ./...`：通过。
 - `go run ./cmd/pptbench -s router -p all`：测试集 `4.75/5`，4/4 通过。
 - `go run ./cmd/pptbench --dataset validation -s router -p all`：`4.875/5`，8/8 通过。

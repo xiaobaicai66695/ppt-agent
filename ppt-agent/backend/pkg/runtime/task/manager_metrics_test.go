@@ -1,17 +1,42 @@
 package task
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
+func TestBroadcastCombinesToolCallAndResult(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolCallID: "call-1", ToolName: "search", ToolArgs: `{"query":"PPT"}`})
+	if len(ts.Events) != 0 {
+		t.Fatalf("tool call must wait for result, got %#v", ts.Events)
+	}
+	merged := ts.Broadcast(SSERichEvent{Type: "tool_result", ToolCallID: "call-1", ToolName: "search", PhaseDetail: "找到 3 条资料"})
+	if merged.Type != "tool_call" || merged.ToolStatus != "success" || merged.ToolResult != "找到 3 条资料" {
+		t.Fatalf("merged event = %#v", merged)
+	}
+	if len(ts.Events) != 1 || ts.Events[0].ID == 0 || ts.Events[0].ToolCallID != "call-1" {
+		t.Fatalf("replay event = %#v", ts.Events)
+	}
+}
+
+func TestBroadcastCombinesToolFailure(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "search_images"})
+	merged := ts.Broadcast(SSERichEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索不可用"})
+	if merged.Type != "tool_call" || merged.ToolStatus != "error" || !strings.Contains(merged.ToolResult, "不可用") {
+		t.Fatalf("merged failure = %#v", merged)
+	}
+}
+
 func TestTaskGenerationMetricsRoundTrip(t *testing.T) {
 	started := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
 	finished := started.Add(42*time.Second + 17*time.Millisecond)
 	info := TaskInfo{
-		ID:                   "deck-metrics",
+		ID:                   "ppt-metrics",
 		UserID:               9,
 		Intent:               "create",
 		GenerationStartedAt:  &started,
@@ -46,7 +71,7 @@ func TestTaskGenerationMetricsRoundTrip(t *testing.T) {
 }
 
 func TestRecordFixerRunCountsAttempts(t *testing.T) {
-	state := &TaskState{Info: TaskInfo{ID: "deck-fixer"}}
+	state := &TaskState{Info: TaskInfo{ID: "ppt-fixer"}}
 	state.RecordFixerRun()
 	state.RecordFixerRun()
 	if state.Info.FixerRunCount != 2 {

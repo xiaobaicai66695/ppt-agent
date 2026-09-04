@@ -54,7 +54,7 @@ benchmark/runs/<run>/reviewer/<case-id>/model_output.json
 
 优先把失败分成四类：
 
-- Case 问题：输入 fixture 本身不符合当前 DeckSpec 契约，或一个 case 混入多个无关缺陷。
+- Case 问题：输入 fixture 本身不符合当前 PPTSpec 契约，或一个 case 混入多个无关缺陷。
 - Agent 问题：模型输出没有满足任务目标，例如 Planner 首稿漏字段、Reviewer 没修目标 error、Fixer 越权修改。
 - Judge 问题：评分理由和 `model_output.json` 明显不一致，或 rubric 表述导致误判。
 - 环境问题：模型 key、provider、额度、网络、超时导致 `error`，不是能力低分。
@@ -73,7 +73,7 @@ model_output.json -> output.intent / output.reason / target_pages / fix_details
 
 常见失败：
 
-- 新建 PPT 请求没有走 `create_deck`。
+- 新建 PPT 请求没有走 `create_ppt`。
 - 创建入口里的已有页面修改请求没有走 `fix_existing`。
 - 继续任务中局部修改没有走 `fix`。
 - 全部重做没有走 `regenerate_all`。
@@ -101,17 +101,17 @@ Planner benchmark 只评首稿，不看 Reviewer 后结果。常见失败：
 - `content_type` 非法。
 - `content_plan.components` 缺失或组件类型非法。
 - KPI/chart/table 等结构化数据不完整。
-- 把坐标、字号、颜色、margin 等生成器职责写进 DeckSpec。
+- 把坐标、字号、颜色、margin 等生成器职责写进 PPTSpec。
 - 用户给的事实、数字、页数、受众没有进入页面规划。
 
-Planner benchmark 不执行图片下载，只评估图片语义规划。`search_status="planned"` 且有可执行英文 `asset_query`、`asset_subject`、`composition` 时是可接受输出；不要因为缺少 `local_path` 去修 Planner。对一个 Deck 内重复的 `content_type`，背景 `asset_query` 必须完全一致，避免通用 Agent 在同类型模板页中轮换背景；生产主流程与 skill CLI 会将该组物化为同一张图片。生产主流程是否能下载图片取决于 `UNSPLASH_ACCESS_KEY` 和网络状态。
+Planner benchmark 不执行图片下载，只评估图片语义规划。`search_status="planned"` 且有可执行英文 `asset_query`、`asset_subject`、`composition` 时是可接受输出；不要因为缺少 `local_path` 去修 Planner。对一个 PPT 内重复的 `content_type`，背景 `asset_query` 必须完全一致，避免通用 Agent 在同类型模板页中轮换背景；生产主流程与 skill CLI 会将该组物化为同一张图片。生产主流程是否能下载图片取决于 `UNSPLASH_ACCESS_KEY` 和网络状态。
 
 优先修改：
 
 - Planner prompt：`backend/pkg/prompts/planner/master_instruction.tmpl`
-- Planner manifest 工具约束：`backend/pkg/agent/deck/manifest_tool.go`
-- 硬校验和首稿质量门：`backend/pkg/agent/deck/plan_review_tool.go`
-- 组件契约：`skills/ppt-deck-planner/templates/component_contracts.json`
+- Planner manifest 工具约束：`backend/pkg/agent/ppt/manifest_tool.go`
+- 硬校验和首稿质量门：`backend/pkg/agent/ppt/plan_review_tool.go`
+- 组件契约：`skills/ppt-planner/templates/component_contracts.json`
 
 不要修改 Reviewer 来掩盖 Planner 首稿问题。
 
@@ -138,9 +138,9 @@ case.json -> expected.allowed_change_pages / must_not_change_pages
 优先修改：
 
 - Reviewer prompt：`backend/pkg/prompts/reviewer/master_instruction.tmpl`
-- Reviewer 切片输入：`backend/pkg/agent/deck/plan_review_revision.go`
-- 草稿 patch 工具：`backend/pkg/agent/deck/fixer_manifest_tool.go`
-- 审查规则：`backend/pkg/agent/deck/plan_review_tool.go`
+- Reviewer 切片输入：`backend/pkg/agent/ppt/plan_review_revision.go`
+- 草稿 patch 工具：`backend/pkg/agent/ppt/fixer_manifest_tool.go`
+- 审查规则：`backend/pkg/agent/ppt/plan_review_tool.go`
 
 如果 `before` 本身有很多非目标错误，优先修 case fixture，而不是调 Reviewer。
 
@@ -160,13 +160,13 @@ case.json -> expected.must_change / must_not_change_pages
 - 没执行用户明确修改。
 - 改了未授权页面。
 - 改了未授权字段，例如用户只改标题但同时改了 `content_plan`。
-- 为了局部修改重写整套 DeckSpec。
+- 为了局部修改重写整套 PPTSpec。
 - 破坏了被修改页的基本结构，例如清空标题、组件列表或写入不可解析字段。
 
 优先修改：
 
 - Fixer prompt：`backend/pkg/prompts/fixer/master_instruction.tmpl`
-- 选页 patch 工具：`backend/pkg/agent/deck/fixer_manifest_tool.go`
+- 选页 patch 工具：`backend/pkg/agent/ppt/fixer_manifest_tool.go`
 - 继续任务路由和页码识别：`backend/pkg/web/handler.go`
 
 Fixer case 应尽量显式写 `allowed_page_indexes`，避免把页码推断问题混入 Fixer 能力评测。不要把 Reviewer 或 `ReviewTasksManifest` 接入 Fixer benchmark；Fixer 的职责是局部追改，不承担全量质量门修复。
@@ -249,7 +249,7 @@ go run ./cmd/pptbench --dataset validation -s planner -p all -o ../benchmark/run
 修改 Go benchmark 或 Agent 入口后，至少运行：
 
 ```powershell
-go test ./cmd/pptbench ./pkg/agent/deck ./pkg/web
+go test ./cmd/pptbench ./pkg/agent/ppt ./pkg/web
 go run ./cmd/pptbench -s router -p model -l 1
 ```
 

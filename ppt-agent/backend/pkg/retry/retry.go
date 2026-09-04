@@ -19,7 +19,7 @@ const (
 	OperationModelFallback   Operation = "model_fallback"
 	OperationModelStreamRead Operation = "model_stream_read"
 	OperationQAModelInit     Operation = "qa_model_init"
-	OperationDeckSpecReview  Operation = "deck_spec_review"
+	OperationPPTSpecReview  Operation = "ppt_spec_review"
 )
 
 type Policy struct {
@@ -316,7 +316,7 @@ var defaultFactory = NewFactory(
 	TransientModelRetryStrategy{},
 	ModelStreamReadFallbackStrategy{},
 	FixedAttemptStrategy{Operation: OperationQAModelInit, StrategyName: "qa_model_initialization", MaxAttempts: 3},
-	FixedAttemptStrategy{Operation: OperationDeckSpecReview, StrategyName: "deck_spec_reviewer", MaxAttempts: 3},
+	FixedAttemptStrategy{Operation: OperationPPTSpecReview, StrategyName: "ppt_spec_reviewer", MaxAttempts: 3},
 )
 
 // Default is the one registry used by all current retrying runtime phases.

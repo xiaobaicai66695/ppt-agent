@@ -2,7 +2,7 @@
 
 ## 迭代目标
 
-修复生成 PPT 中章节页与内容页配色体系分裂，以及实际 PPTX/JPG 已生成但前端显示“缩略图转换失败”的问题。本次事项登记为 `PPT-QUALITY-002`，进入 OpenSpec change：`openspec/changes/ppt-agent-deck-style-and-thumbnail-reliability/`。
+修复生成 PPT 中章节页与内容页配色体系分裂，以及实际 PPTX/JPG 已生成但前端显示“缩略图转换失败”的问题。本次事项登记为 `PPT-QUALITY-002`，进入 OpenSpec change：`openspec/changes/ppt-agent-ppt-style-and-thumbnail-reliability/`。
 
 ## 根因
 
@@ -22,9 +22,9 @@
 
 ## 验证与部署
 
-- `go test ./pkg/prompts ./pkg/agent/deck ./pkg/task ./pkg/web` 通过。
+- `go test ./pkg/prompts ./pkg/agent/ppt ./pkg/task ./pkg/web` 通过。
 - `go build ./...`、`npm test -- --run`、`npm run build` 通过。
-- `openspec validate ppt-agent-deck-style-and-thumbnail-reliability --strict` 通过。
+- `openspec validate ppt-agent-ppt-style-and-thumbnail-reliability --strict` 通过。
 - 远端聚焦 Go 测试和 Linux 构建通过；服务 PID `4094435`，健康检查 200。
 - 第 6、9 页缩略图接口均返回 `200 image/jpeg`；文件为有效 JFIF JPEG，分辨率 2000×1125。
 
@@ -35,7 +35,7 @@
 ## 关联内容
 
 - `docs/issues/todo.md`
-- `openspec/changes/ppt-agent-deck-style-and-thumbnail-reliability/`
+- `openspec/changes/ppt-agent-ppt-style-and-thumbnail-reliability/`
 - `ppt-agent/backend/pkg/prompts/planner/*.tmpl`
-- `ppt-agent/backend/pkg/agent/deck/types.go`
+- `ppt-agent/backend/pkg/agent/ppt/types.go`
 - `ppt-agent/frontend/src/utils/workbench.ts`

@@ -20,22 +20,22 @@
 
 字段规则：Web DTO 应只带调用方需要的状态、ID、展示摘要和安全化数据；密钥、完整日志、原始模型载荷不可直接进入响应。
 
-## 路由、DeckSpec、PPT 规划与渲染
+## 路由、PPTSpec、PPT 规划与渲染
 
 | 源码 | struct | 使用场景与字段职责 |
 | --- | --- | --- |
 | `pkg/agent/router/agent.go` | `Input`、`Result`、`ContinuationInput`、`ContinuationResult`、`FixDetails`、`Agent` | 统一请求分类、续办判断、修复信息及 Router Agent 依赖。 |
-| `pkg/agent/deck/types.go` | `PPTTaskConfig`、`TasksManifest`、`VisualPolicy`、`TaskItem`、`ManifestValidationReport` | 任务工作目录、Deck manifest、视觉政策、单页任务与校验报告。 |
-| 同上 | `TaskOutline`、`DeckSection`、`PlanComponent`、`PlanReviewIssue` | 用户大纲、章节、组件级内容规划与 Reviewer 问题项。 |
+| `pkg/agent/ppt/types.go` | `PPTTaskConfig`、`TasksManifest`、`VisualPolicy`、`TaskItem`、`ManifestValidationReport` | 任务工作目录、PPT manifest、视觉政策、单页任务与校验报告。 |
+| 同上 | `TaskOutline`、`PPTSection`、`PlanComponent`、`PlanReviewIssue` | 用户大纲、章节、组件级内容规划与 Reviewer 问题项。 |
 | 同上 | `ContentPlan`、`VisualIntent`、`SlideOutline`、`PPTTaskStart`、`PPTTaskResult` | 每页内容容量、图片/背景意图、页级大纲、启动参数和交付结果。 |
-| `pkg/agent/deck/run.go` | `reviewCheckpoint`、`AgentEvent` | 审查检查点与 Planner/Reviewer/Fixer 的运行事件。 |
-| `pkg/agent/deck/deck_renderer.go` | `DeckRenderEvent`、`deckRenderInput`、`deckRenderContext` | 单页渲染进度、渲染输入与共享上下文。 |
-| `pkg/agent/deck/manifest_tool.go` | `manifestTaskPatch`、`manifestToolInput`、`manifestToolRawInput`、`manifestTool`、`plannerManifestTool` | Agent 对 manifest 的受控 patch 协议与工具状态。 |
-| `pkg/agent/deck/fixer_manifest_tool.go` | `draftTasksPatchTool`、`selectedTasksPatchTool` | Fixer 可修改的草稿/选中页 manifest 工具。 |
-| `pkg/agent/deck/plan_review_tool.go` | `PlanReviewReport` | 审查器输出的结构化通过/问题报告。 |
-| `pkg/agent/deck/plan_review_revision.go` | `planReviewRevisionPayload`、`planReviewScope`、`planReviewTask` | 审查后修订的请求、范围和单页任务。 |
-| `pkg/agent/deck/planner_recovery.go` | `recoveredThought`、`recoveredSlideSpec` | 从中断运行恢复 Planner 思路与页规格。 |
-| `pkg/agent/deck/background_assets.go` | `plannedBackgroundTarget`、`assetQueryRevisionRequest`、`assetQueryRevisionError`、`resolvedBackgroundAsset`、`plannedImageAssetTarget`、`MaterializedDeckAssetCounts` | 背景/图片检索词、改写失败、落盘素材与素材计数。 |
+| `pkg/agent/ppt/run.go` | `reviewCheckpoint`、`AgentEvent` | 审查检查点与 Planner/Reviewer/Fixer 的运行事件。 |
+| `pkg/agent/ppt/ppt_renderer.go` | `PPTRenderEvent`、`pptRenderInput`、`pptRenderContext` | 单页渲染进度、渲染输入与共享上下文。 |
+| `pkg/agent/ppt/manifest_tool.go` | `manifestTaskPatch`、`manifestToolInput`、`manifestToolRawInput`、`manifestTool`、`plannerManifestTool` | Agent 对 manifest 的受控 patch 协议与工具状态。 |
+| `pkg/agent/ppt/fixer_manifest_tool.go` | `draftTasksPatchTool`、`selectedTasksPatchTool` | Fixer 可修改的草稿/选中页 manifest 工具。 |
+| `pkg/agent/ppt/plan_review_tool.go` | `PlanReviewReport` | 审查器输出的结构化通过/问题报告。 |
+| `pkg/agent/ppt/plan_review_revision.go` | `planReviewRevisionPayload`、`planReviewScope`、`planReviewTask` | 审查后修订的请求、范围和单页任务。 |
+| `pkg/agent/ppt/planner_recovery.go` | `recoveredThought`、`recoveredSlideSpec` | 从中断运行恢复 Planner 思路与页规格。 |
+| `pkg/agent/ppt/background_assets.go` | `plannedBackgroundTarget`、`assetQueryRevisionRequest`、`assetQueryRevisionError`、`resolvedBackgroundAsset`、`plannedImageAssetTarget`、`MaterializedPPTAssetCounts` | 背景/图片检索词、改写失败、落盘素材与素材计数。 |
 | `pkg/agent/command/operator.go` | `WorkDirBackend`、`LocalOperator` | Agent 文件与命令操作的工作目录边界。 |
 | `pkg/templates/loader.go` | `LayoutInfo`、`LayoutContract`、`Field`、`componentContractsFile`、`Loader` | 模板布局、组件字段契约、加载后的索引和资源路径。 |
 
@@ -100,6 +100,6 @@
 
 1. 新增数据库字段：更新 `internal/model`、`internal/schema.Migrate`、相关仓储 select/update、持久化模型文档。
 2. 新增 Web DTO：明确 JSON tag、权限边界、错误字段和前端消费者。
-3. 新增 DeckSpec 字段：同步 Planner prompt、Reviewer 规则、生成器契约与前端标签。
+3. 新增 PPTSpec 字段：同步 Planner prompt、Reviewer 规则、生成器契约与前端标签。
 4. 新增外部 API 载荷：将上游原始字段与系统标准字段分开，避免凭据或不可信正文穿透到用户接口。
 5. 新增内部状态：说明并发归属、生命周期和是否可安全持久化；避免将 mutex、channel、context 直接序列化。

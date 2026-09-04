@@ -26,7 +26,7 @@
     "must_use_content_types": ["title_slide", "agenda", "content_slide", "card_grid", "timeline"],
     "must_include_data_points": ["61%", "48%", "23%", "37%", "56%", "六周"],
     "content_quality": {
-      "deck_thesis": "首周激活下滑的主要矛盾集中在支付和权益理解，先投入三个可控环节可在六周内恢复关键体验指标。",
+      "ppt_thesis": "首周激活下滑的主要矛盾集中在支付和权益理解，先投入三个可控环节可在六周内恢复关键体验指标。",
       "required_narrative_chain": ["体验风险判断", "问题证据", "优先级取舍", "六周行动", "管理层决策"],
       "max_consecutive_same_layout": 2,
       "agenda_subtitles": {

@@ -1,7 +1,7 @@
 # ppt-agent-context-compression-visibility Specification
 
 ## Purpose
-TBD - created by archiving change chunked-deck-planning-and-context-compression. Update Purpose after archive.
+TBD - created by archiving change chunked-ppt-planning-and-context-compression. Update Purpose after archive.
 ## Requirements
 ### Requirement: Context compression triggers before planning calls exceed the safe window
 The system SHALL run context compression before model calls when message count or estimated token usage exceeds the configured safe threshold for planning models.

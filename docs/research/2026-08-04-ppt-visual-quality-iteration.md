@@ -43,7 +43,7 @@
 - 缺少 `layout_variant` 概念：同一个 `content_type` 只有一种主要排法。
 - 缺少主题图片资产层：当前背景多为泛主题图，不足以支撑地域、行业、人物、产品类主题。
 - 缺少视觉素材规划字段：`content_plan` 不能稳定表达 image role、image query、crop、caption、where to place。
-- 缺少 deck-level 视觉节奏规则：没有控制“连续 3 页不能同构”“章节开头必须强主题图”“内容页图文比例”。
+- 缺少 ppt-level 视觉节奏规则：没有控制“连续 3 页不能同构”“章节开头必须强主题图”“内容页图文比例”。
 - 缺少本地视觉 QA 指标：目前主要看文件交付，缺少对重复度、背景命中、占位残留、图文比例的自动检查。
 
 ## 公开产品/研究方案实现路径
@@ -52,12 +52,12 @@
 
 | 方案 | 公开资料体现的实现路径 | 对当前系统的借鉴 |
 | --- | --- | --- |
-| Gamma | 从 prompt 或文档生成 presentation/document，使用 themes、templates、smart templates/blocks，支持导出 PPT/PDF，并允许后续编辑和主题切换。Gamma 的模板页也按 Company、Consulting、Education、Marketing、Sales、Strategy 等场景组织。资料：[Gamma](https://gamma.app/)、[Gamma templates](https://gamma.app/templates)、[Gamma presentations](https://gamma.app/products/presentations) | 借鉴“内容与视觉主题分离”：主 Agent 先生成 deck brief / style plan，再由模板块和主题系统渲染。当前不宜让 prompt 直接写底层 python-pptx，应把 `layout_variant`、`visual_theme`、`asset_role` 作为中间层。 |
+| Gamma | 从 prompt 或文档生成 presentation/document，使用 themes、templates、smart templates/blocks，支持导出 PPT/PDF，并允许后续编辑和主题切换。Gamma 的模板页也按 Company、Consulting、Education、Marketing、Sales、Strategy 等场景组织。资料：[Gamma](https://gamma.app/)、[Gamma templates](https://gamma.app/templates)、[Gamma presentations](https://gamma.app/products/presentations) | 借鉴“内容与视觉主题分离”：主 Agent 先生成 ppt brief / style plan，再由模板块和主题系统渲染。当前不宜让 prompt 直接写底层 python-pptx，应把 `layout_variant`、`visual_theme`、`asset_role` 作为中间层。 |
 | Beautiful.ai | 核心卖点是 Smart Slides：编辑内容时自动对齐、缩放和重排；DesignerBot/Create with AI 先让用户确认 outline，再生成设计；支持 brand controls、slide-level AI panel、替代版本、图片库和 PowerPoint add-in。资料：[Beautiful.ai](https://www.beautiful.ai/)、[AI presentation maker](https://www.beautiful.ai/presentation-maker)、[Smart Slides/templates](https://www.beautiful.ai/template-category/popular)、[DesignerBot](https://www.beautiful.ai/blog/introducing-designerbot-ai-presentations)、[Create with AI workflow](https://www.beautiful.ai/blog/introducing-the-create-with-ai-workflow) | 借鉴“智能布局而非静态模板”：generator 应按内容容量自动增删卡片、调整字号/列数/图文比例；Fixer 更适合修 generator 参数或变体选择，而不是直接手改最终 PPT。 |
 | Canva Magic Design | Magic Design for Presentations 可根据 idea、outline、slides 或 content 生成 customized presentation templates；生成后仍在 Canva 编辑器中继续应用品牌、素材和 AI 工具。资料：[Canva AI presentations](https://www.canva.com/create/ai-presentations/)、[Magic Design](https://www.canva.com/magic-design/)、[Canva Help: using Magic Presentations](https://www.canva.com/help/using-magic-presentations/) | 借鉴“模板库 + 素材库 + 可编辑工作台”：不要只增加几张背景图，应建设可检索的主题照片、图标、色板和页面模板组合，并在前端暴露更清晰的模板/主题选择。 |
 | Microsoft Copilot in PowerPoint | 支持从 Word/file/prompt 创建演示文稿；官方建议 Word Styles 帮助 Copilot 理解结构，会尝试使用文档中的相关图片；可从文件加单页、用 Copilot 编辑、保持品牌模板/Brand Kit，并可插入 stock/brand/AI-generated images。资料：[Create a new presentation with Copilot](https://support.microsoft.com/en-us/powerpoint/copilot/create-a-new-presentation-with-copilot-in-powerpoint)、[Prepare your presentation](https://support.microsoft.com/en-us/microsoft-365-copilot/prepare-your-presentation-with-microsoft-365-copilot)、[Keep your presentation on-brand](https://support.microsoft.com/en-us/powerpoint/copilot/keep-your-presentation-on-brand-with-copilot)、[Add an image](https://support.microsoft.com/en-us/powerpoint/copilot/add-an-image-to-your-presentation-with-copilot-in-powerpoint) | 借鉴“结构化输入优先”：如果用户给 outline/文档，先保留标题层级、图片、来源和章节边界，再规划页面。图片应进入 `visual_assets`，不是事后随便补背景。 |
 | Plus AI | 作为 PowerPoint/Google Slides add-in 工作；从 prompt 或上传文件生成大纲和可编辑 PPT/Slides；支持 Insert、Rewrite、Remix、Custom instructions、Preset library，能添加 images/icons/charts/tables，提供 hundreds of layouts。资料：[Plus AI](https://plusai.com/)、[AI PowerPoint maker](https://plusai.com/ai-powerpoint-maker/)、[AI for Google Slides](https://plusai.com/google-slides-ai/)、[Remix](https://plusai.com/features/reformat-slides-with-remix/) | 借鉴“局部 Remix 能力”：当前可以先实现 slide-level regenerate/variant switch，而不是每次整套重跑。后续前端可让用户对某页选择“换版式/换图片/压缩文字/改成图表”。 |
-| Presentations.AI | 从 topic、URL、document 生成 on-brand deck，包含 slide copy、layouts、PPTX export；有品牌 colors/logos/fonts 自动应用和 500+ slide templates。资料：[Presentations.AI](https://www.presentations.ai/)、[AI presentation maker](https://www.presentations.ai/ai-presentation-maker)、[Slide templates](https://www.presentations.ai/slide-templates)、[Brand customization FAQ](https://www.presentations.ai/presentation-templates/case-study-presentation) | 借鉴“品牌/主题约束贯穿全局”：`deck_style_plan` 应包含色板、字体、图片风格、图标风格和页面节奏，不能只在单页 generator 内临时决定。 |
+| Presentations.AI | 从 topic、URL、document 生成 on-brand ppt，包含 slide copy、layouts、PPTX export；有品牌 colors/logos/fonts 自动应用和 500+ slide templates。资料：[Presentations.AI](https://www.presentations.ai/)、[AI presentation maker](https://www.presentations.ai/ai-presentation-maker)、[Slide templates](https://www.presentations.ai/slide-templates)、[Brand customization FAQ](https://www.presentations.ai/presentation-templates/case-study-presentation) | 借鉴“品牌/主题约束贯穿全局”：`ppt_style_plan` 应包含色板、字体、图片风格、图标风格和页面节奏，不能只在单页 generator 内临时决定。 |
 | PPTAgent 论文/开源项目 | 将生成定义为两阶段 edit-based workflow：先分析参考 PPT，做 slide clustering 和 schema extraction；再生成 outline，给每页选择 reference slide 和文档片段，通过有限编辑 API 迭代修改参考页，并用执行反馈自修正；PPTEval 从 Content、Design、Coherence 三维评估。资料：[arXiv: PPTAgent](https://arxiv.org/abs/2501.03936)、[arXiv HTML](https://arxiv.org/html/2501.03936v1)、[GitHub](https://github.com/icip-cas/PPTAgent) | 借鉴“参考页/模板 schema 化”：我们已有 single-page JSON 和 generator，可以进一步把真实优秀 PPT/模板抽成 variant schema，减少人工写模板的成本；QA 也应覆盖内容、设计、连贯性三维，而不只是文件是否存在。 |
 
 ### 行业共性架构
@@ -65,7 +65,7 @@
 从这些方案看，成熟 PPT 生成系统通常不是一条“prompt -> PPTX”的直线，而是分层流水线：
 
 1. **输入理解**：prompt、文档、URL、已有 PPT、品牌资产进入系统，先提取主题、受众、目标、章节、事实、图片和品牌约束。
-2. **Deck planning**：生成 deck brief、章节叙事、页面数量、每页 message、内容密度和素材需求。
+2. **PPT planning**：生成 ppt brief、章节叙事、页面数量、每页 message、内容密度和素材需求。
 3. **Template/layout retrieval**：按页面意图选择模板或变体，而不是只按 `content_type` 固定走一个布局。
 4. **Visual asset retrieval/generation**：按主题和页面角色选择照片、图标、图表、品牌图片；必要时再调用图片生成。
 5. **Constraint-based rendering**：由受控 renderer/generator 自动处理对齐、容量、字号、留白、裁剪、蒙层、品牌色。
@@ -77,13 +77,13 @@
 
 当前系统已经有多 Agent 编排、任务 manifest、single-page 模板 JSON、Python generator、本地背景资源和前端工作台，基础路线是对的。需要补的不是“让模型更会设计”，而是把行业方案里的几个中间层补齐：
 
-- 用 `deck_style_plan` 对齐 Gamma/Presentations.AI/Copilot 的全局主题和品牌约束。
+- 用 `ppt_style_plan` 对齐 Gamma/Presentations.AI/Copilot 的全局主题和品牌约束。
 - 用 `layout_variant` 对齐 Beautiful.ai/Plus AI 的多布局和 Remix 能力。
 - 用 `visual_intent` 与 `visual_assets` 对齐 Canva/Copilot 的素材驱动生成。
 - 用模板 schema / 参考页分析对齐 PPTAgent 论文，后续可从优秀 PPT 反向抽取变体，而不是手工堆 24 类模板。
 - 用 `visual_quality_report.json` 对齐 PPTEval 思路，把 QA 从“有没有文件”升级到“内容、设计、连贯性是否成立”。
 
-这也解释了豆包样例观感更好的原因：它看起来不是单页 generator 重复填充，而像是有“主题照片资产 + 页面类型变体 + deck 级节奏控制”。下一轮应优先补这些系统层能力。
+这也解释了豆包样例观感更好的原因：它看起来不是单页 generator 重复填充，而像是有“主题照片资产 + 页面类型变体 + ppt 级节奏控制”。下一轮应优先补这些系统层能力。
 
 ## 技术方向
 
@@ -117,7 +117,7 @@
 风险：
 
 - 变体过多会增加 generator 复杂度。
-- 如果没有 deck-level 选择策略，模型可能随机乱选，反而不统一。
+- 如果没有 ppt-level 选择策略，模型可能随机乱选，反而不统一。
 
 ### 方向 B：建立主题视觉资产层
 
@@ -188,7 +188,7 @@
 - SlideExecutor 不需要猜图片和布局。
 - 后续 QA 能检查“规划要求照片，但实际没图”的偏差。
 
-### 方向 D：增加 deck-level 视觉节奏控制
+### 方向 D：增加 ppt-level 视觉节奏控制
 
 豆包样例不是每页都很复杂，而是节奏更像人工设计：
 
@@ -198,7 +198,7 @@
 - 章节页统一但有区别
 - KPI/案例/生态照片页穿插
 
-建议新增 `deck_style_plan`：
+建议新增 `ppt_style_plan`：
 
 ```json
 {
@@ -241,7 +241,7 @@
 
 任务：
 
-- 新增 `deck_style_plan`：主题、受众、色板、图片风格、图标风格、页面节奏、品牌限制。
+- 新增 `ppt_style_plan`：主题、受众、色板、图片风格、图标风格、页面节奏、品牌限制。
 - 新增 `layout_variant`：同一 `content_type` 下的具体排法。
 - 新增 `visual_intent`：图片/图标/图表/地图/大数字/对比等页面视觉意图。
 - 新增 `visual_assets`：本地图片、图标、品牌素材、来源和 license。
@@ -249,7 +249,7 @@
 
 验证：
 
-- 只生成 manifest，不生成 PPT，也能看出整套 deck 的视觉计划。
+- 只生成 manifest，不生成 PPT，也能看出整套 ppt 的视觉计划。
 - 大兴安岭样例中，封面/章节页/旅游页/生态页应明确使用森林、河谷、湿地、路线或地图类视觉资产。
 
 ### 第 1 阶段：选择器和高频变体，不大改全部生成器
@@ -285,7 +285,7 @@
 
 验证：
 
-- 生成 12-18 页大兴安岭 deck。
+- 生成 12-18 页大兴安岭 ppt。
 - contact sheet 肉眼检查。
 - 至少 30%-40% 页面具备主题照片或明确视觉资产。
 
@@ -328,7 +328,7 @@
 
 任务：
 
-- 选取 20-50 套高质量可授权 PPT 模板或内部优秀 deck。
+- 选取 20-50 套高质量可授权 PPT 模板或内部优秀 ppt。
 - 渲染缩略图，按功能页/内容页做聚类。
 - 抽取每类的 schema：元素角色、位置比例、容量、图片角色、标题层级、适用场景。
 - 将 schema 转为 `templates/single-page/*.json` 的 `variants` 候选，人工审核后进入生成器。
@@ -343,7 +343,7 @@
 - 不建议为每种页面类型复制出大量新 `content_type`，会破坏现有稳定契约。
 - 不建议直接让模型在线搜图并随意插图，版权、裁剪、稳定性和成本都不可控。
 - 不建议一次重写所有 generator，应该从封面/章节/图文/卡片四个高感知页面开始。
-- 不建议让背景图片反向改写全局 palette；全局主题色应仍由 deck 统一控制。
+- 不建议让背景图片反向改写全局 palette；全局主题色应仍由 ppt 统一控制。
 
 ## 结论
 
@@ -351,7 +351,7 @@
 
 结合公开产品和 PPTAgent 论文，推荐路线调整为：
 
-1. 先补 `deck_style_plan`、`layout_variant`、`visual_intent`、`visual_assets` 这四个中间契约。
+1. 先补 `ppt_style_plan`、`layout_variant`、`visual_intent`、`visual_assets` 这四个中间契约。
 2. 给高频页面类型加多版式变体元数据和 variant selector。
 3. 先实现封面、章节、图文、卡片 4 类 generator 的照片/变体能力，并支持单页 Remix。
 4. 建立本地主题照片资产库，先覆盖自然/地域类主题，同时记录来源、license、主体位置和推荐角色。

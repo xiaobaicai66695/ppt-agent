@@ -1,8 +1,8 @@
-# 002 PPT Deck Planner 与 PPT 视觉质量决策
+# 002 PPT Planner 与 PPT 视觉质量决策
 
 ## 当前决策
 
-PPT Deck Planner 的长期方向是“组件级规划 + 生成器兜底视觉质量”。LLM 负责选择 `content_type`、控制内容容量、填写 `description/content_plan/layout_variant/source`，并把图片素材写入 `visual_intent.local_path` 或 `image.local_path`；具体字号、文本框、蒙版、图片解析、卡片和图表绘制由 Python generators 与 `base.py` 负责。
+PPT Planner 的长期方向是“组件级规划 + 生成器兜底视觉质量”。LLM 负责选择 `content_type`、控制内容容量、填写 `description/content_plan/layout_variant/source`，并把图片素材写入 `visual_intent.local_path` 或 `image.local_path`；具体字号、文本框、蒙版、图片解析、卡片和图表绘制由 Python generators 与 `base.py` 负责。
 
 ## 执行准则
 

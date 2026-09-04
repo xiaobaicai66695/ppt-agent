@@ -21,7 +21,7 @@
 //	├── prompts.go                       # 本文件，通用加载函数
 //	├── planner/                         # PPT Planner 模板
 //	│   └── master_instruction.tmpl
-//	└── reviewer/                        # DeckSpec Reviewer 模板
+//	└── reviewer/                        # PPTSpec Reviewer 模板
 //
 // 每个模板通过 Render*(data) 系列函数加载并渲染。
 package prompts
@@ -34,7 +34,7 @@ import (
 	"text/template"
 )
 
-//go:embed planner/*.tmpl reviewer/*.tmpl fixer/*.tmpl log_analysis/*.tmpl
+//go:embed planner/*.tmpl reviewer/*.tmpl fixer/*.tmpl
 var FS embed.FS
 
 // templateFuncs 提供给所有模板的函数映射。
@@ -82,7 +82,7 @@ func RenderPlanner(name string, data *TemplateData) (string, error) {
 	return Render("planner/"+name, data)
 }
 
-// RenderReviewer 渲染 DeckSpec Reviewer 模板。
+// RenderReviewer 渲染 PPTSpec Reviewer 模板。
 func RenderReviewer(name string, data *TemplateData) (string, error) {
 	return Render("reviewer/"+name, data)
 }
@@ -90,24 +90,4 @@ func RenderReviewer(name string, data *TemplateData) (string, error) {
 // RenderFixer 渲染生成后定点修复模板。
 func RenderFixer(name string, data *TemplateData) (string, error) {
 	return Render("fixer/"+name, data)
-}
-
-// RenderLogAnalysis 渲染日志分析模板。
-func RenderLogAnalysis(name string, data *LogAnalysisData) (string, error) {
-	tmpl, err := parseWithFuncs("log_analysis/" + name + ".tmpl")
-	if err != nil {
-		return "", fmt.Errorf("prompts: parse log_analysis/%s.tmpl: %w", name, err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("prompts: execute log_analysis/%s.tmpl: %w", name, err)
-	}
-
-	return buf.String(), nil
-}
-
-// LogAnalysisData 日志分析模板数据结构
-type LogAnalysisData struct {
-	SkillsDir string // skills 目录的绝对路径，用于告知 LLM 可读取的文件路径
 }

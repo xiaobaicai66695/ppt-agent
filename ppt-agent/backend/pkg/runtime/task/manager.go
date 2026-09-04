@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/model"
@@ -46,10 +47,13 @@ type SSERichEvent struct {
 	ToolPreview      map[string]any      `json:"tool_preview,omitempty"`
 	Type             string              `json:"type"`
 	Content          string              `json:"content,omitempty"`
+	ToolCallID       string              `json:"tool_call_id,omitempty"`
 	ToolName         string              `json:"tool_name,omitempty"`
 	ToolArgs         string              `json:"tool_args,omitempty"`
+	ToolResult       string              `json:"tool_result,omitempty"`
+	ToolStatus       string              `json:"tool_status,omitempty"`
 	Error            string              `json:"error,omitempty"`
-	Tasks            []*deck.TaskItem    `json:"tasks,omitempty"`
+	Tasks            []*ppt.TaskItem     `json:"tasks,omitempty"`
 	Done             int                 `json:"done,omitempty"`
 	Total            int                 `json:"total,omitempty"`
 	Files            []string            `json:"files,omitempty"`
@@ -84,6 +88,7 @@ type TaskInfo struct {
 	TotalTokens          int64             `json:"total_tokens"`
 	ConversationContent  string            `json:"conversation_content,omitempty"` // 拼接后的对话内容
 	FullAnswer           string            `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
+	AssistantTurns       []string          `json:"assistant_turns,omitempty"`      // 按 answer_end 分隔的助手回答段
 	Intent               string            `json:"intent,omitempty"`
 	ConversationID       string            `json:"conversation_id,omitempty"`
 	SourceMessageID      string            `json:"source_message_id,omitempty"`
@@ -110,7 +115,7 @@ type TaskState struct {
 	turnEventID   uint64
 	listeners     map[string]chan SSERichEvent
 	cancel        context.CancelFunc
-	result        *deck.PPTTaskResult
+	result        *ppt.PPTTaskResult
 	reportedFiles map[string]bool
 	runtimeMeta   *utils.RuntimeMeta
 	delivery      DeliverySnapshot
@@ -129,6 +134,8 @@ type TaskState struct {
 	fullAnswer      strings.Builder
 	answerTurn      strings.Builder
 	assistantTurnFn func(taskID, workDir, content string)
+	done            chan struct{}
+	pendingTools    []SSERichEvent
 }
 
 // Persist 将任务状态持久化到数据库。
@@ -228,12 +235,30 @@ func (ts *TaskState) SnapshotInfo() TaskInfo {
 
 // ReportedFiles 返回已上报文件的集合。
 func (ts *TaskState) ReportedFiles() map[string]bool {
-	return ts.reportedFiles
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	copy := make(map[string]bool, len(ts.reportedFiles))
+	for name, reported := range ts.reportedFiles {
+		copy[name] = reported
+	}
+	return copy
 }
 
 // SetReportedFile 将文件标记为已上报。
 func (ts *TaskState) SetReportedFile(name string) {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	ts.reportedFiles[name] = true
+}
+
+func (ts *TaskState) MarkReportedFile(name string) bool {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	if ts.reportedFiles[name] {
+		return false
+	}
+	ts.reportedFiles[name] = true
+	return true
 }
 
 // HasPendingContinueMsg 检查是否有等待处理的消息。
@@ -266,6 +291,17 @@ func (ts *TaskState) SetPendingContinueMsg(msg string) bool {
 	return true
 }
 
+// TryBeginContinuation atomically transitions a terminal task into running.
+func (ts *TaskState) TryBeginContinuation() bool {
+	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
+	if ts.Info.Status == TaskStatusRunning {
+		return false
+	}
+	ts.Info.Status = TaskStatusRunning
+	return true
+}
+
 // IsPendingContinueMsgFirst 检查当前等待消息是否为第一条（即之前没有排队）。
 func (ts *TaskState) IsPendingContinueMsgFirst() bool {
 	ts.Mu.Lock()
@@ -292,6 +328,54 @@ func (ts *TaskState) RemoveListener(id string) {
 
 func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 	ts.Mu.Lock()
+	// Collapse the provider's call/result pair into one observable event. The
+	// call is held briefly and is only appended to the replay buffer once its
+	// result arrives, so clients never render duplicate tool rows.
+	if event.Type == "tool_call" {
+		ts.pendingTools = append(ts.pendingTools, event)
+		ts.Mu.Unlock()
+		return event
+	}
+	if event.Type == "tool_result" {
+		match := -1
+		for index := len(ts.pendingTools) - 1; index >= 0; index-- {
+			pending := ts.pendingTools[index]
+			if (event.ToolCallID != "" && pending.ToolCallID == event.ToolCallID) || (event.ToolCallID == "" && pending.ToolName == event.ToolName) {
+				match = index
+				break
+			}
+		}
+		if match >= 0 {
+			merged := ts.pendingTools[match]
+			ts.pendingTools = append(ts.pendingTools[:match], ts.pendingTools[match+1:]...)
+			merged.ToolResult = event.Error
+			if merged.ToolResult == "" {
+				merged.ToolResult = event.ToolResult
+			}
+			if merged.ToolResult == "" {
+				merged.ToolResult = event.PhaseDetail
+			}
+			merged.ToolStatus = "success"
+			if event.Error != "" {
+				merged.ToolStatus = "error"
+			}
+			if event.ToolPreview != nil {
+				merged.ToolPreview = event.ToolPreview
+			}
+			event = merged
+			event.Type = "tool_call"
+		} else {
+			event.Type = "tool_call"
+			event.ToolStatus = "error"
+			if event.Error == "" {
+				event.ToolStatus = "success"
+			}
+			event.ToolResult = event.Error
+			if event.ToolResult == "" {
+				event.ToolResult = event.PhaseDetail
+			}
+		}
+	}
 	if event.ID == 0 {
 		ts.nextEventID++
 		event.ID = ts.nextEventID
@@ -317,6 +401,9 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 	isTurnBoundary := event.Type == "answer_end" || event.Type == "complete" || event.Type == "continue_complete"
 	if isTurnBoundary {
 		completedTurn = strings.TrimSpace(ts.answerTurn.String())
+		if completedTurn != "" {
+			ts.Info.AssistantTurns = append(ts.Info.AssistantTurns, completedTurn)
+		}
 		ts.answerTurn.Reset()
 	}
 	for listenerID, ch := range ts.listeners {
@@ -531,8 +618,10 @@ func (ts *TaskState) Replay(listenerCh chan SSERichEvent) {
 // TaskManager 管理所有 PPT 生成任务的生命周期。
 type TaskManager struct {
 	mu              sync.RWMutex
+	lifecycleMu     sync.Mutex
 	tasks           map[string]*TaskState
 	baseDir         string
+	baseCtx         context.Context
 	onTaskComplete  func(userID int, workDir string, query string)
 	onTaskFailed    func(taskID string)
 	onTaskContinue  func(taskID string) // 任务完成且有待处理消息时触发
@@ -553,10 +642,20 @@ func NewTaskManager(baseDir string, onTaskComplete func(userID int, workDir stri
 	return &TaskManager{
 		tasks:          make(map[string]*TaskState),
 		baseDir:        baseDir,
+		baseCtx:        context.Background(),
 		onTaskComplete: onTaskComplete,
 		onTaskFailed:   onTaskFailed,
 		onTaskContinue: onTaskContinue,
 	}
+}
+
+func (tm *TaskManager) SetBaseContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tm.mu.Lock()
+	tm.baseCtx = ctx
+	tm.mu.Unlock()
 }
 
 // SetFileReadyCallback 注册单页 PPTX 落盘后的异步处理回调。
@@ -599,6 +698,7 @@ func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) 
 
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(DeduplicateOutputFiles(info.Files))
+	turnsJSON, _ := json.Marshal(sanitizeAssistantTurns(info.AssistantTurns))
 	return &db.TaskRecord{
 		ID:                   info.ID,
 		UserID:               uint(info.UserID),
@@ -615,6 +715,7 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		TotalTokens:          info.TotalTokens,
 		ConversationContent:  mysqlSafeText(info.ConversationContent),
 		FullAnswer:           mysqlSafeText(info.FullAnswer),
+		AssistantTurns:       mysqlSafeText(string(turnsJSON)),
 		Intent:               mysqlSafeText(info.Intent),
 		ConversationID:       mysqlSafeText(info.ConversationID),
 		SourceMessageID:      mysqlSafeText(info.SourceMessageID),
@@ -625,6 +726,19 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		FixerRunCount:        info.FixerRunCount,
 		CreatedAt:            info.CreatedAt,
 	}
+}
+
+func sanitizeAssistantTurns(turns []string) []string {
+	if len(turns) == 0 {
+		return nil
+	}
+	clean := make([]string, 0, len(turns))
+	for _, turn := range turns {
+		if value := mysqlSafeText(turn); value != "" {
+			clean = append(clean, value)
+		}
+	}
+	return clean
 }
 
 func mysqlSafeText(value string) string {
@@ -654,6 +768,10 @@ func isEmojiSymbol(r rune) bool {
 func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 	var files []string
 	json.Unmarshal([]byte(r.Files), &files)
+	var assistantTurns []string
+	if strings.TrimSpace(r.AssistantTurns) != "" {
+		_ = json.Unmarshal([]byte(r.AssistantTurns), &assistantTurns)
+	}
 	files = DeduplicateOutputFiles(files)
 	if files == nil {
 		files = []string{}
@@ -675,6 +793,7 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		TotalTokens:          r.TotalTokens,
 		ConversationContent:  r.ConversationContent,
 		FullAnswer:           r.FullAnswer,
+		AssistantTurns:       assistantTurns,
 		Intent:               r.Intent,
 		ConversationID:       r.ConversationID,
 		SourceMessageID:      r.SourceMessageID,
@@ -705,6 +824,7 @@ func (ts *TaskState) persist() {
 		"total_tokens":           r.TotalTokens,
 		"conversation_content":   r.ConversationContent,
 		"full_answer":            r.FullAnswer,
+		"assistant_turns":        r.AssistantTurns,
 		"intent":                 r.Intent,
 		"conversation_id":        r.ConversationID,
 		"source_message_id":      r.SourceMessageID,
@@ -719,7 +839,7 @@ func (ts *TaskState) persist() {
 }
 
 // AgentFactory 为特定任务配置创建 agent。
-type AgentFactory func(ctx context.Context, cfg *deck.PPTTaskConfig) (adk.Agent, error)
+type AgentFactory func(ctx context.Context, cfg *ppt.PPTTaskConfig) (adk.Agent, error)
 
 // ErrTaskAlreadyRunning is retained for API compatibility with older handlers.
 // New tasks are no longer rejected globally; model calls are limited per upstream resource.
@@ -752,7 +872,7 @@ func (tm *TaskManager) HasRunningTasks() bool {
 // CreateTask 创建一个新任务，启动 agent 执行（在一个 goroutine 中），
 // 并返回任务信息。
 func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
-	factory AgentFactory, cfg *deck.PPTTaskConfig) (*TaskInfo, error) {
+	factory AgentFactory, cfg *ppt.PPTTaskConfig) (*TaskInfo, error) {
 
 	workDir := filepath.Join(tm.baseDir, fmt.Sprintf("%d-%s", userID, cfg.TaskID))
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -771,7 +891,10 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	runtimeMeta.RecordEvent("task_created", "task", "ok", query, map[string]any{
 		"user_id": userID,
 	})
-	agentCtx, tokenTracker := utils.WithTokenTracker(context.Background())
+	tm.mu.RLock()
+	baseCtx := tm.baseCtx
+	tm.mu.RUnlock()
+	agentCtx, tokenTracker := utils.WithTokenTracker(baseCtx)
 	agentCtx = utils.WithRuntimeMeta(agentCtx, runtimeMeta)
 	agentCtx, cancel := context.WithCancel(agentCtx)
 	cfg.CompressorTracker = tokenTracker
@@ -781,12 +904,12 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	// Planner 补全、Task Reviewer 审查和 Go commit 后才能发布 tasks.json。
 	if cfg.Outline != nil && len(cfg.Outline.Slides) > 0 {
 		manifest := outlineToManifest(cfg.Outline, workDir)
-		if err := deck.WriteTasksDraftManifest(workDir, manifest); err != nil {
+		if err := ppt.WriteTasksDraftManifest(workDir, manifest); err != nil {
 			return nil, fmt.Errorf("写入大纲失败: %w", err)
 		}
 	}
 
-	agent, err := factory(ctx, cfg)
+	agent, err := factory(agentCtx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -814,6 +937,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		reportedFiles:   make(map[string]bool),
 		runtimeMeta:     runtimeMeta,
 		assistantTurnFn: tm.onAssistantTurn,
+		done:            make(chan struct{}),
 	}
 	cfg.OnFixerTriggered = ts.RecordFixerRun
 	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
@@ -897,7 +1021,9 @@ func (tm *TaskManager) CreateConversationTask(taskID, query string, userID int) 
 // remain associated with taskID and are used by the caller to build the planner
 // input.
 func (tm *TaskManager) StartConversationTask(ctx context.Context, taskID, query string, userID int,
-	factory AgentFactory, cfg *deck.PPTTaskConfig) (*TaskInfo, error) {
+	factory AgentFactory, cfg *ppt.PPTTaskConfig) (*TaskInfo, error) {
+	tm.lifecycleMu.Lock()
+	defer tm.lifecycleMu.Unlock()
 	current := tm.GetTask(taskID)
 	if current == nil || current.UserID != userID {
 		return nil, os.ErrNotExist
@@ -925,7 +1051,7 @@ func firstRuntimeDetail(values ...string) string {
 }
 
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,
-	cfg *deck.PPTTaskConfig, query string) {
+	cfg *ppt.PPTTaskConfig, query string) {
 	startedAt := time.Now()
 	if ts.runtimeMeta != nil {
 		ts.runtimeMeta.RecordPhase("preparing", "初始化任务运行环境")
@@ -982,8 +1108,13 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		cancelRun(errDeliveryMetadataComplete)
 	})
 
-	result, err := deck.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event deck.AgentEvent) {
-		if event.Type == deck.AgentEventProgress {
+	// ADK exposes tool calls from assistant messages, but some providers do not
+	// emit a separate tool-result callback. Track calls for this run so every
+	// visible invocation receives a deterministic terminal event below.
+	type pendingTool struct{ id, name string }
+	var pendingTools []pendingTool
+	result, err := ppt.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event ppt.AgentEvent) {
+		if event.Type == ppt.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
 				Type:        "progress",
 				Phase:       event.Phase,
@@ -992,6 +1123,9 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			return
 		}
 		if event.Type == "tool_call" || event.Type == "token_usage" {
+			if event.Type == "tool_call" && strings.TrimSpace(event.ToolName) != "" {
+				pendingTools = append(pendingTools, pendingTool{id: event.ToolCallID, name: event.ToolName})
+			}
 			// 从 tool_call 推断阶段
 			detectAndBroadcastPhase(ts, event)
 			return
@@ -1004,10 +1138,17 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			Error:    event.Error,
 		})
 	})
+	for _, tool := range pendingTools {
+		resultEvent := SSERichEvent{Type: "tool_result", ToolCallID: tool.id, ToolName: tool.name, PhaseDetail: "工具调用已完成"}
+		if err != nil {
+			resultEvent.Error = "工具调用未完成"
+		}
+		ts.Broadcast(resultEvent)
+	}
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
 	if err == nil && ctx.Err() == nil {
-		renderResult, renderErr := deck.RenderPPT(ctx, cfg, func(event deck.DeckRenderEvent) {
+		renderResult, renderErr := ppt.RenderPPT(ctx, cfg, func(event ppt.PPTRenderEvent) {
 			switch event.Type {
 			case "workflow_start":
 				ts.Broadcast(SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail})
@@ -1088,7 +1229,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 	if delivery.Total > 0 {
 		if result == nil {
-			result = &deck.PPTTaskResult{Duration: time.Since(startedAt)}
+			result = &ppt.PPTTaskResult{Duration: time.Since(startedAt)}
 		}
 		result.TotalSlides = delivery.Total
 		result.DoneSlides = delivery.Done
@@ -1247,7 +1388,7 @@ func persistRuntimeEvent(event utils.RuntimeEvent) {
 }
 
 // detectAndBroadcastPhase 从 Planner 工具事件推断当前阶段并广播进度事件。
-func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
+func detectAndBroadcastPhase(ts *TaskState, event ppt.AgentEvent) {
 	detail := event.PhaseDetail
 	if detail == "" {
 		detail = event.ToolArgs
@@ -1259,7 +1400,7 @@ func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
 	switch {
 	case event.ToolName == "update_tasks_manifest":
 		phase = "planning"
-		phaseDetail = "Planner 正在一次性写入 DeckSpec 草稿"
+		phaseDetail = "Planner 正在一次性写入 PPTSpec 草稿"
 	case event.ToolName == "patch_tasks_draft":
 		phase = "reviewing"
 		phaseDetail = "Task Reviewer 正在批量修正规划问题"
@@ -1289,6 +1430,16 @@ func detectAndBroadcastPhase(ts *TaskState, event deck.AgentEvent) {
 		Phase:       phase,
 		PhaseDetail: phaseDetail,
 	})
+	if strings.TrimSpace(event.ToolName) != "" {
+		ts.Broadcast(SSERichEvent{
+			Type:        "tool_call",
+			ToolCallID:  event.ToolCallID,
+			ToolName:    event.ToolName,
+			ToolArgs:    event.ToolArgs,
+			Phase:       phase,
+			PhaseDetail: phaseDetail,
+		})
+	}
 }
 
 func extractToolStringArg(raw, key string) string {
@@ -1356,7 +1507,7 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 			}
 		}
 
-		manifest, err := deck.ReconcileTasksManifestOutputFiles(workDir)
+		manifest, err := ppt.ReconcileTasksManifestOutputFiles(workDir)
 		if err != nil || manifest == nil {
 			continue
 		}
@@ -1373,11 +1524,11 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 			if !isCompletedSlideStatus(item.Status) && item.OutputFile != "" {
 				pendingFiles = append(pendingFiles, item.OutputFile)
 			}
-			if currentSlide == nil && item.Status == deck.StatusGenerating {
+			if currentSlide == nil && item.Status == ppt.StatusGenerating {
 				slide := runtimePlanSlide(item)
 				currentSlide = &slide
 			}
-			if nextPendingSlide == nil && item.Status == deck.StatusPending {
+			if nextPendingSlide == nil && item.Status == ppt.StatusPending {
 				slide := runtimePlanSlide(item)
 				nextPendingSlide = &slide
 			}
@@ -1411,7 +1562,11 @@ func (tm *TaskManager) pollProgress(ctx context.Context, ts *TaskState, workDir 
 }
 
 func (tm *TaskManager) cleanupTask(ts *TaskState) {
+	if ts.done != nil {
+		defer close(ts.done)
+	}
 	ts.Mu.Lock()
+	defer ts.Mu.Unlock()
 	for _, ch := range ts.listeners {
 		close(ch)
 	}
@@ -1489,6 +1644,7 @@ func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
 		reportedFiles:   make(map[string]bool),
 		assistantTurnFn: tm.onAssistantTurn,
 	}
+	ts.fullAnswer.WriteString(info.FullAnswer)
 	tm.mu.Lock()
 	tm.tasks[info.ID] = ts
 	tm.mu.Unlock()
@@ -1502,9 +1658,10 @@ func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
 
 	tm.mu.RLock()
 	for _, ts := range tm.tasks {
-		if ts.Info.UserID == userID {
-			result = append(result, ts.Info)
-			seen[ts.Info.ID] = true
+		info := ts.SnapshotInfo()
+		if info.UserID == userID {
+			result = append(result, info)
+			seen[info.ID] = true
 		}
 	}
 	tm.mu.RUnlock()
@@ -1519,7 +1676,7 @@ func (tm *TaskManager) ListTasks(userID int) []TaskInfo {
 			}
 		}
 	}
-
+	sort.SliceStable(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
 	return result
 }
 
@@ -1531,8 +1688,9 @@ func (tm *TaskManager) ListAllTasks() []TaskInfo {
 
 	tm.mu.RLock()
 	for _, ts := range tm.tasks {
-		result = append(result, ts.Info)
-		seen[ts.Info.ID] = true
+		info := ts.SnapshotInfo()
+		result = append(result, info)
+		seen[info.ID] = true
 	}
 	tm.mu.RUnlock()
 
@@ -1546,7 +1704,7 @@ func (tm *TaskManager) ListAllTasks() []TaskInfo {
 			}
 		}
 	}
-
+	sort.SliceStable(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
 	return result
 }
 
@@ -1572,12 +1730,25 @@ func (tm *TaskManager) CancelTask(id string) bool {
 // 删除前会先取消运行中的任务。
 func (tm *TaskManager) DeleteTask(id string) error {
 	ts := tm.GetTaskState(id)
+	workDir := ""
+	if ts != nil {
+		workDir = ts.SnapshotInfo().WorkDir
+	} else if db.DB != nil {
+		if r, err := db.GetTaskRecord(id); err == nil {
+			workDir = r.WorkDir
+		}
+	}
 
 	// 如果正在运行，先取消。
-	if ts != nil && ts.Info.Status == TaskStatusRunning {
+	if ts != nil && ts.SnapshotInfo().Status == TaskStatusRunning {
 		tm.CancelTask(id)
-		// 短暂等待，让 goroutine 关闭。
-		time.Sleep(100 * time.Millisecond)
+		if ts.done != nil {
+			select {
+			case <-ts.done:
+			case <-time.After(10 * time.Second):
+				return fmt.Errorf("等待任务停止超时")
+			}
+		}
 	}
 
 	// 从内存 map 中移除。
@@ -1600,17 +1771,6 @@ func (tm *TaskManager) DeleteTask(id string) error {
 	}
 
 	// 删除输出目录。
-	var workDir string
-	if ts != nil {
-		workDir = ts.Info.WorkDir
-	} else {
-		// 任务不在内存中（例如服务器重启了）。从数据库查找。
-		if db.DB != nil {
-			if r, err := db.GetTaskRecord(id); err == nil {
-				workDir = r.WorkDir
-			}
-		}
-	}
 	if workDir != "" {
 		if err := os.RemoveAll(workDir); err != nil {
 			logger.Error("delete_workdir_failed", "path", workDir, "error", err.Error())
@@ -1622,56 +1782,56 @@ func (tm *TaskManager) DeleteTask(id string) error {
 }
 
 // ReadTasksManifestFile 读取并返回任务的 tasks.json。
-func (tm *TaskManager) ReadTasksManifestFile(id string) (*deck.TasksManifest, error) {
+func (tm *TaskManager) ReadTasksManifestFile(id string) (*ppt.TasksManifest, error) {
 	ts := tm.GetTaskState(id)
 	if ts == nil {
 		return nil, os.ErrNotExist
 	}
-	return deck.ReadTasksManifest(ts.Info.WorkDir)
+	return ppt.ReadTasksManifest(ts.Info.WorkDir)
 }
 
 // TaskFilesAsJSON 返回任务的 tasks.json 作为原始 JSON 字节。
 func (tm *TaskManager) TaskFilesAsJSON(workDir string) ([]byte, error) {
 	return json.Marshal(struct {
-		Tasks []*deck.TaskItem `json:"tasks"`
+		Tasks []*ppt.TaskItem `json:"tasks"`
 	}{
 		Tasks: nil,
 	})
 }
 
 // outlineToManifest 将用户编排的 outline 转换为 TasksManifest
-func outlineToManifest(outline *deck.TaskOutline, workDir string) *deck.TasksManifest {
-	tasks := make([]*deck.TaskItem, 0, len(outline.Slides))
+func outlineToManifest(outline *ppt.TaskOutline, workDir string) *ppt.TasksManifest {
+	tasks := make([]*ppt.TaskItem, 0, len(outline.Slides))
 	for i, slide := range outline.Slides {
 		safeTitle := sanitizeFilename(slide.Title)
 		if strings.TrimSpace(safeTitle) == "" {
 			safeTitle = fmt.Sprintf("slide-%d", i+1)
 		}
-		item := &deck.TaskItem{
+		item := &ppt.TaskItem{
 			TaskID:      fmt.Sprintf("slide-%d", i+1),
 			PageIndex:   i + 1,
 			Title:       slide.Title,
 			ContentType: slide.ContentType,
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", i+1, safeTitle),
-			Status:      deck.StatusPending,
+			Status:      ppt.StatusPending,
 		}
 		// Carry through content_plan if present
 		if slide.ContentPlan != nil {
 			copiedPlan := *slide.ContentPlan
 			if slide.ContentPlan.Components != nil {
-				copiedPlan.Components = append([]deck.PlanComponent(nil), slide.ContentPlan.Components...)
+				copiedPlan.Components = append([]ppt.PlanComponent(nil), slide.ContentPlan.Components...)
 			}
 			item.ContentPlan = &copiedPlan
 		}
 		tasks = append(tasks, item)
 	}
-	return &deck.TasksManifest{
+	return &ppt.TasksManifest{
 		Title: outline.Title,
 		Tasks: tasks,
 	}
 }
 
-func runtimePlanSlides(items []*deck.TaskItem) []utils.PlanSlide {
+func runtimePlanSlides(items []*ppt.TaskItem) []utils.PlanSlide {
 	slides := make([]utils.PlanSlide, 0, len(items))
 	for _, item := range items {
 		if item != nil {
@@ -1681,7 +1841,7 @@ func runtimePlanSlides(items []*deck.TaskItem) []utils.PlanSlide {
 	return slides
 }
 
-func runtimePlanSlide(item *deck.TaskItem) utils.PlanSlide {
+func runtimePlanSlide(item *ppt.TaskItem) utils.PlanSlide {
 	return utils.PlanSlide{
 		PageIndex: item.PageIndex, TaskID: item.TaskID, Title: item.Title,
 		ContentType: item.ContentType, OutputFile: CanonicalOutputFile(item.OutputFile), Status: item.Status,
@@ -1689,7 +1849,7 @@ func runtimePlanSlide(item *deck.TaskItem) utils.PlanSlide {
 }
 
 func isCompletedSlideStatus(status string) bool {
-	return status == deck.StatusDone || status == deck.StatusQADone || status == deck.StatusFixed
+	return status == ppt.StatusDone || status == ppt.StatusQADone || status == ppt.StatusFixed
 }
 
 func compactRequestSummary(query string, limit int) string {
@@ -1725,7 +1885,7 @@ func (ts *TaskState) persistConversationContent() {
 		logger.Warn("load_conversation_messages_failed", "task_id", info.ID, "error", err.Error())
 	}
 
-	manifest, manifestErr := deck.ReadTasksManifest(info.WorkDir)
+	manifest, manifestErr := ppt.ReadTasksManifest(info.WorkDir)
 
 	var b strings.Builder
 	b.WriteString("## 任务信息\n")
@@ -1787,7 +1947,7 @@ func (tm *TaskManager) BuildContinueContext(taskID string, lastMessages int) str
 	}
 
 	// tasks.json 快照
-	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
+	manifest, err := ppt.ReadTasksManifest(ts.Info.WorkDir)
 	if err == nil && manifest != nil {
 		b.WriteString("\n## 当前页面列表\n")
 		b.WriteString("| # | 标题 | 类型 | 状态 |\n")

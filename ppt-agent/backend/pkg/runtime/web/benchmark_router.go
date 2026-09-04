@@ -8,33 +8,13 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 )
 
-// BenchmarkCreateRouteResult is the stable evaluation vocabulary used by
-// pptbench. It records the production route's downstream handoff explicitly,
-// so benchmark cases remain comparable when the HTTP API uses shorter intent
-// names such as "create" and "fix".
-type BenchmarkCreateRouteResult struct {
-	Intent                string  `json:"intent"`
-	TargetAgent           string  `json:"target_agent,omitempty"`
-	NormalizedRequest     string  `json:"normalized_request,omitempty"`
-	Reason                string  `json:"reason"`
-	ClarificationQuestion string  `json:"clarification_question,omitempty"`
-	Confidence            float64 `json:"confidence,omitempty"`
-}
-
-// BenchmarkMessageRouteResult records the route selected for a persistent
-// workbench conversation. Every first message receives a task ID before its
-// intent is resolved, so this result keeps that identity observable.
-type BenchmarkMessageRouteResult struct {
-	Intent            string  `json:"intent"`
-	TargetAgent       string  `json:"target_agent,omitempty"`
-	TaskID            string  `json:"task_id"`
-	NormalizedRequest string  `json:"normalized_request,omitempty"`
-	Action            string  `json:"action,omitempty"`
-	Reason            string  `json:"reason"`
-	Confidence        float64 `json:"confidence,omitempty"`
-}
+// Benchmark response models are owned by web/model. Aliases preserve the
+// historical web package API used by cmd/pptbench.
+type BenchmarkCreateRouteResult = webmodel.BenchmarkCreateRouteResult
+type BenchmarkMessageRouteResult = webmodel.BenchmarkMessageRouteResult
 
 // ClassifyCreateRequestForBenchmark runs the same create-entry router used by
 // the HTTP task creation path. The API key is benchmark-only configuration and
@@ -62,7 +42,7 @@ func ClassifyTaskMessageForBenchmark(ctx context.Context, message, taskID, conve
 	}
 	switch route.Intent {
 	case messageIntentCreate:
-		result.Intent = "create_deck"
+		result.Intent = "create_ppt"
 		result.TargetAgent = "PPTPlanner"
 	case messageIntentPlan:
 		result.TargetAgent = "PPTPlanner (planning only)"
@@ -78,7 +58,7 @@ func ClassifyTaskMessageForBenchmark(ctx context.Context, message, taskID, conve
 
 // ClassifyContinueIntentForBenchmark runs the same continuation router prompt
 // used by the task continue path. The API key is benchmark-only configuration.
-// tasksSummary should describe the current deck in the same concise form that
+// tasksSummary should describe the current ppt in the same concise form that
 // production builds from tasks.json.
 func ClassifyContinueIntentForBenchmark(ctx context.Context, message string, tasksSummary string, apiKey string) RouteResult {
 	for _, kw := range []string{"再加", "添加", "新增", "加一页", "加两页", "再加一页", "再加几页"} {
@@ -114,8 +94,8 @@ func benchmarkCreateRoute(route createRequestRoute, query string) BenchmarkCreat
 		NormalizedRequest:     strings.TrimSpace(query),
 	}
 	switch route.Intent {
-	case createIntentDeck:
-		result.Intent = "create_deck"
+	case createIntentPPT:
+		result.Intent = "create_ppt"
 		result.TargetAgent = "PPTPlanner"
 	case createIntentFixExisting:
 		result.Intent = "fix_existing"

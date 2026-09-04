@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,18 +14,13 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 func (s *Server) handleMessage(c *gin.Context) {
-	var req struct {
-		Message        string `json:"message"`
-		SelectedTaskID string `json:"selected_task_id,omitempty"`
-		ManualMode     string `json:"manual_mode,omitempty"`
-		WebSearch      bool   `json:"web_search,omitempty"`
-		ImageSearch    bool   `json:"image_search,omitempty"`
-	}
+	var req webmodel.MessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Message) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "message is required"})
 		return
@@ -55,7 +49,7 @@ func (s *Server) handleMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存会话消息失败"})
 		return
 	}
-	// A conversation task receives an ID before routing but has no DeckSpec to
+	// A conversation task receives an ID before routing but has no PPTSpec to
 	// repair. Keep that ID out of RouterAgent's repair target until the task
 	// actually contains slides, so “修改第 2 页” cannot be misrouted to an
 	// empty conversation.
@@ -73,7 +67,7 @@ func (s *Server) handleMessage(c *gin.Context) {
 			Reason:            "用户手动选择 PPT Agent，按创建准备处理",
 		}
 	} else {
-		if hasEditableDeck(info) {
+		if hasEditablePPT(info) {
 			routeTargetID = taskID
 		}
 		credential := userModelCredential(uid)
@@ -122,7 +116,7 @@ func (s *Server) handleMessage(c *gin.Context) {
 	c.JSON(http.StatusOK, route)
 }
 
-func hasEditableDeck(info *task.TaskInfo) bool {
+func hasEditablePPT(info *task.TaskInfo) bool {
 	return info != nil && info.TotalCount > 0
 }
 
@@ -132,7 +126,7 @@ func (s *Server) startConversationChat(taskID string, uid int, message, fallback
 		ts.FinishConversationStream()
 		ts.Broadcast(task.SSERichEvent{Type: "conversation_complete"})
 	}()
-	ctx := auth.WithUser(context.Background(), &db.User{ID: uint(uid)})
+	ctx := auth.WithUser(s.runtimeContext(), &db.User{ID: uint(uid)})
 	segmentID := ""
 	s.streamChatReply(ctx, message, fallback, conversationContext, forceWebSearch, forceImageSearch, func(content string) {
 		ts.Broadcast(task.SSERichEvent{Type: "answer", Content: content})
@@ -150,9 +144,11 @@ func (s *Server) startConversationChat(taskID string, uid int, message, fallback
 			Error:           event.Error,
 			ToolPreview:     event.Preview,
 		})
-		if s.chatTrace != nil && (event.Type == "tool_call" || event.Type == "tool_result") {
-			if err := s.chatTrace.Append(ctx, taskID, chattrace.Event{ID: rich.ID, SegmentID: segmentID, Type: event.Type, Phase: event.Phase, ToolName: event.ToolName, Detail: event.Detail, Error: event.Error, Preview: event.Preview, CreatedAt: time.Now()}); err != nil {
-				logger.Warn("chat_trace_redis_append_failed", "task_id", taskID, "type", event.Type, "error", err.Error())
+		// TaskState combines tool_call/tool_result into one terminal tool_call.
+		// The initial call has no replay id yet, so persist only the merged event.
+		if s.chatTrace != nil && rich.Type == "tool_call" && rich.ID > 0 {
+			if err := s.chatTrace.Append(ctx, taskID, chattrace.Event{ID: rich.ID, SegmentID: segmentID, Type: rich.Type, Phase: event.Phase, ToolName: rich.ToolName, Detail: rich.ToolResult, Error: event.Error, Preview: rich.ToolPreview, CreatedAt: time.Now()}); err != nil {
+				logger.Warn("chat_trace_redis_append_failed", "task_id", taskID, "type", rich.Type, "error", err.Error())
 			}
 		}
 		if event.Type == "tool_result" {

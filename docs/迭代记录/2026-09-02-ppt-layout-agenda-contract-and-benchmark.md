@@ -2,7 +2,7 @@
 
 ## 目标
 
-针对图文页正文偏小、章节分隔页保留旧蓝色编号侧栏、目录卡片只有章节名且显得空的问题，统一调整独立 `ppt-deck-planner` skill 的渲染和规划契约；同时把目录副标题纳入 `tasks.json` 与 Planner benchmark 的内容质量检查。
+针对图文页正文偏小、章节分隔页保留旧蓝色编号侧栏、目录卡片只有章节名且显得空的问题，统一调整独立 `ppt-planner` skill 的渲染和规划契约；同时把目录副标题纳入 `tasks.json` 与 Planner benchmark 的内容质量检查。
 
 ## 交付
 
@@ -15,18 +15,18 @@
 
 ## 验证
 
-- `go test ./cmd/pptbench ./pkg/agent/deck` 通过。
-- `python -m unittest discover -s skills/ppt-deck-planner/tests -v`：37 项通过；生成器逐文件 `py_compile` 通过。
-- `validate_deck.py` 对 6 页目录/章节/图文回归 fixture 通过（仅 7 条现有素材 attribution 警告，无错误）。
+- `go test ./cmd/pptbench ./pkg/agent/ppt` 通过。
+- `python -m unittest discover -s skills/ppt-planner/tests -v`：37 项通过；生成器逐文件 `py_compile` 通过。
+- `validate_ppt.py` 对 6 页目录/章节/图文回归 fixture 通过（仅 7 条现有素材 attribution 警告，无错误）。
 - 真实 Planner benchmark：`planner_agenda_navigation_001` 运行 `model + judge`，总分 `5.00/5`；首稿质量报告为 `agenda_toc_items=4`、`agenda_toc_subtitles=4`、无 `agenda_subtitle_issues`。
 - 本地渲染验收：目录为带副标题的双列导航，章节页无蓝色侧栏，图文正文放大且未重复副标题。
 
 ## 上线与冒烟
 
-- 运行时 skill 已同步至 `remote-dev:/ppt/ppt-agent/skills/ppt-deck-planner`；共享路径 `/ppt/skills/ppt-deck-planner` 与项目路径内容一致。
+- 运行时 skill 已同步至 `remote-dev:/ppt/ppt-agent/skills/ppt-planner`；共享路径 `/ppt/skills/ppt-planner` 与项目路径内容一致。
 - 本轮微调随 2026-09-02 功能发布一并部署。服务从 `/ppt/ppt-agent/backend` 以 `ppt-agent-linux -mode web -addr :8080` 重启，最终 PID `1688027`，监听 `:8080`。
 - 线上内网与公网 `http://124.220.22.162:8080/api/health` 均返回 `200`；`/health/ready` 的 MySQL、LibreOffice、Python 组件均为 `ok`。
-- 线上 skill fixture 预检通过，6 页 `render_deck.py` 冒烟成功；临时 smoke 目录和误启动 CLI 所产生的空任务输出已清理。完整发布证据见 `docs/迭代记录/2026-09-02-benchmark-feedback-release.md`。
+- 线上 skill fixture 预检通过，6 页 `render_ppt.py` 冒烟成功；临时 smoke 目录和误启动 CLI 所产生的空任务输出已清理。完整发布证据见 `docs/迭代记录/2026-09-02-benchmark-feedback-release.md`。
 
 ## 遗留
 
@@ -40,7 +40,7 @@
 
 ## 背景图片默认强制
 
-- 新 DeckSpec 缺少 `visual_policy`、使用 `optional`、任一页面没有背景 `visual_intent`，或背景未记录 provider 与 `search_status=resolved/downloaded`，都会被预检拒绝。
+- 新 PPTSpec 缺少 `visual_policy`、使用 `optional`、任一页面没有背景 `visual_intent`，或背景未记录 provider 与 `search_status=resolved/downloaded`，都会被预检拒绝。
 - `mode="none"` 只允许用户明确表示不需要背景图片，且必须在顶层写 `user_declined_background:true` 和 `decline_reason`；不再允许用单页 `clean_text_only` 规避搜索。
-- 独立 Unsplash CLI 会拒绝缺少每页背景视觉意图的 required deck；只有本地路径、Unsplash provider、搜索状态、来源和署名完整时才视为已完成，否则会执行搜索下载。
+- 独立 Unsplash CLI 会拒绝缺少每页背景视觉意图的 required ppt；只有本地路径、Unsplash provider、搜索状态、来源和署名完整时才视为已完成，否则会执行搜索下载。
 - 验证：39 项 skill 单测、skill quick validation、严格 fixture 预检、6 页本地 PPTX→PDF→PNG 渲染以及远端单页严格预检/渲染 smoke 均通过。线上同步至 `/ppt/ppt-agent/skills` 和 `/ppt/skills`；新进程 PID `1745224`，内网和公网 health 均 200，临时 smoke 文件已清理。

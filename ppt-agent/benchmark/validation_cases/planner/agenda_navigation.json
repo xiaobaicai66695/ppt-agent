@@ -26,7 +26,7 @@
     "must_use_content_types": ["title_slide", "agenda", "chart_slide", "comparison_table", "summary_slide"],
     "must_include_data_points": ["1820 万千瓦时", "63%", "11%", "96 万千瓦时", "380 万元", "3.2 年"],
     "content_quality": {
-      "deck_thesis": "优先批准空调空转治理和停车场智能调光，能以可量化节能和 3.2 年回收周期形成年度改造抓手。",
+      "ppt_thesis": "优先批准空调空转治理和停车场智能调光，能以可量化节能和 3.2 年回收周期形成年度改造抓手。",
       "required_narrative_chain": ["能耗问题", "可避免损耗", "方案比较", "年度优先级", "审批结论"],
       "max_consecutive_same_layout": 2,
       "agenda_subtitles": {

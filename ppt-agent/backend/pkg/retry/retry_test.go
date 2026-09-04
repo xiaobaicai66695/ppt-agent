@@ -46,7 +46,7 @@ func TestDefaultFactoryContainsSharedAttemptBounds(t *testing.T) {
 	if got := Default().MaxAttempts(OperationQAModelInit); got != 3 {
 		t.Fatalf("QA retry budget = %d, want 3", got)
 	}
-	if got := Default().MaxAttempts(OperationDeckSpecReview); got != 3 {
+	if got := Default().MaxAttempts(OperationPPTSpecReview); got != 3 {
 		t.Fatalf("review retry budget = %d, want 3", got)
 	}
 	decision, ok := Default().Select(OperationModelFallback, errors.New("HTTP 429 rate limit"))

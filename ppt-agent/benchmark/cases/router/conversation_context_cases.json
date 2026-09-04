@@ -11,7 +11,7 @@
       ]
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "task_id": "benchmark-conversation-task",
       "action": "prepare_create",

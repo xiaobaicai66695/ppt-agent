@@ -42,7 +42,7 @@ export ENABLE_QA="false"           # 是否启用生成后 Visual QA；web 主�
 
 ### 执行模式
 
-当前默认链路是 `AGENT_MODE=planner`：由 `PPTPlanner` 基于用户输入生成 `tasks.json` / DeckSpec，目标态会通过 Plan Reviewer / Plan Refiner 做渲染前质量门，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
+当前默认链路是 `AGENT_MODE=planner`：由 `PPTPlanner` 基于用户输入生成 `tasks.json` / PPTSpec，目标态会通过 Plan Reviewer / Plan Refiner 做渲染前质量门，最后由 Eino workflow 的 renderer worker pool 按 `task_id` 并发调用 Python 生成器。系统不再使用 prebuilt 多子代理架构，也不再保留串行 plan-execute-replan 作为运行路径。
 
 ### QA 质检开关
 
@@ -53,10 +53,10 @@ export ENABLE_QA="false"           # 是否启用生成后 Visual QA；web 主�
 
 相关代码：
 - `.env` 文件中的 `ENABLE_QA` 配置
-- `pkg/agent/deck/types.go` 中的 `PPTTaskConfig.EnableQA` 字段
+- `pkg/agent/ppt/types.go` 中的 `PPTTaskConfig.EnableQA` 字段
 - `pkg/prompts/planner/master_instruction.tmpl` 中的 Planner 阶段约束
 
-渲染前 Plan Reviewer / Plan Refiner 与生成后 Visual QA 分工不同：前者审查 DeckSpec 的结构、容量和组件计划；后者检查已生成 PPTX 的视觉结果。
+渲染前 Plan Reviewer / Plan Refiner 与生成后 Visual QA 分工不同：前者审查 PPTSpec 的结构、容量和组件计划；后者检查已生成 PPTX 的视觉结果。
 
 ### 模型 Fallback 链
 
@@ -86,7 +86,7 @@ pending → generating → done → qa_done → fixed
 
 `TasksManifest` 上的辅助方法（`NeedsFix()`、`PendingTasks()`、`DoneTasks()`）驱动编排循环。QA 结果存储在每个任务的 `qa_report` 字段中。每张幻灯片最多修复 2 次。
 
-状态常量定义在 `pkg/agent/deck/types.go`。`WriteTasksManifest` 函数合并新任务与现有状态（写入不覆盖进行中的状态）。
+状态常量定义在 `pkg/agent/ppt/types.go`。`WriteTasksManifest` 函数合并新任务与现有状态（写入不覆盖进行中的状态）。
 
 ### Visual QA 流水线
 
@@ -116,25 +116,11 @@ Skills 从 `skills/` 目录（`SKILL.md` 文件）通过 `LoadSkillsFromDir` →
 
 Planner prompt 位于 `pkg/prompts/planner/master_instruction.tmpl`。Prompt 要保持结构化、短路径、少歧义，避免把具体坐标、字号、颜色和底层绘制细节交给 LLM。后续主流程优化应让 LLM 负责组件级语义计划和审查润色，底层视觉执行继续交给 generator。
 
-### 后台日志分析
+### 运行时日志
 
-后台服务 (`pkg/log_analysis/service.go`) 监控系统日志和任务失败：
+服务只保留结构化运行日志，不再启动后台日志分析器，也不会读取或上传历史日志文件。
 
-- **空闲分析**：当没有任务运行时（可通过 `LOG_ANALYSIS_IDLE_INTERVAL` 配置间隔），从 `LOG_FILE` 读取最后 300 行并发送给 LLM 分析。
-- **失败分析**：任务失败时立即读取最后 300 行并触发 LLM 分析。
-
-结果存储在 `task_error_analyses` DB 表中（`pkg/db/db.go`），包含字段：`analysis`（LLM 摘要）、`root_cause`、`suggestion`。通过以下接口查询：
-```
-GET /api/log-analyses              # 最近 50 条分析
-GET /api/log-analyses/task/:task_id  # 特定任务的分析
-```
-
-LLM 分析器使用 `read_file` 工具动态读取相关 prompt 模板和 Python 生成器源码，工具路径由 `prompts/log_analysis/analyzer_instruction.tmpl` 中的 `{{ .SkillsDir }}` 占位符指定。LLM 通过 ReAct 循环自主决定何时调用 `read_file` 工具获取额外上下文。
-
-必需的环境变量（配置在 `.env` 中）：
-- `LOG_FILE`：要读取的日志文件路径（例如 `./logs/app.log`）
-- `LOG_ANALYSIS_IDLE_INTERVAL`：空闲分析间隔（例如 `5m`，`0` 禁用）
-- `STREAM_TIMEOUT`：单次 LLM 流式调用可阻塞的最长时间（例如 `3m`，`0` 禁用）。超时时任务退出并返回超时错误，以便取消和恢复。
+`STREAM_TIMEOUT`：单次 LLM 流式调用可阻塞的最长时间（例如 `3m`，`0` 禁用）。
 
 ### 用户风格输入
 

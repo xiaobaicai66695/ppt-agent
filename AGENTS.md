@@ -22,7 +22,7 @@
   - `docs`：PPT Agent 统一文档目录，包含 architecture、research、decisions、issues、workflows、eval 和 `迭代记录`。
   - `ppt-agent/backend`：Go 后端服务、Agent 编排、Web API、任务管理、模型 fallback、prompt 模板。
   - `ppt-agent/frontend`：Vue 3 + TypeScript + Vite 前端。
-  - `ppt-agent/skills/ppt-deck-planner`：PPT Deck Planner skill、组件契约、Python `python-pptx` 生成器和参考文档。
+  - `ppt-agent/skills/ppt-planner`：PPT Planner skill、组件契约、Python `python-pptx` 生成器和参考文档。
   - `ppt-agent/test`、`ppt-agent/scripts`：测试和辅助脚本。
   - `ppt-plugin/skills`：插件/skill 分发相关内容。
 - 文档只维护在工作区根目录 `docs/` 下；不要再向 `ppt-agent/docs/` 新增 research、issues、architecture、decisions 或迭代记录。发现旧路径文档时，应迁入根目录对应分类并删除旧入口。
@@ -42,7 +42,7 @@
 - 后端技术栈：Go、Gin、CloudWeGo Eino ADK、MySQL/本地任务状态、SSE 流式事件。
 - 入口：`ppt-agent/backend/main.go`。
 - 主要模块：
-  - `pkg/agent/deck`：PPTPlanner、TaskPlanReviewer、PPTFixer、DeckSpec 草稿/审查/提交和并发渲染 workflow。
+  - `pkg/agent/ppt`：PPTPlanner、TaskPlanReviewer、PPTFixer、PPTSpec 草稿/审查/提交和并发渲染 workflow。
   - `pkg/prompts/planner`、`pkg/prompts/reviewer`、`pkg/prompts/fixer`：三个 Agent 的独立职责提示词。
   - `pkg/runtime/web`：HTTP API、任务创建、模板接口、文件下载、缩略图生成。
   - `pkg/runtime/task`：任务生命周期管理。
@@ -72,13 +72,13 @@
 - 主要操作文案应和业务一致，例如 PPT 生成按钮不要写成“开始翻译”。
 - 大页面改动时优先拆分可复用组件、composable 或局部工具函数，避免继续膨胀单文件页面。
 
-## PPT Deck Planner 与生成器约定
+## PPT Planner 与生成器约定
 
-- 核心目录：`ppt-agent/skills/ppt-deck-planner`。
+- 核心目录：`ppt-agent/skills/ppt-planner`。
 - 修改 Python 生成器前，应先阅读：
-  - `skills/ppt-deck-planner/SKILL.md`
-  - `skills/ppt-deck-planner/references/generators.md`
-  - `skills/ppt-deck-planner/templates/component_contracts.json`
+  - `skills/ppt-planner/SKILL.md`
+  - `skills/ppt-planner/references/generators.md`
+  - `skills/ppt-planner/templates/component_contracts.json`
   - 相关 `generators/*_generator.py`
 - 所有单页 PPT 生成应复用 `generators` 包和 `base.py` helper，避免在 Agent 生成代码中手写底层 `python-pptx` 绘制逻辑。
 - 生成器质量优先级：
@@ -116,7 +116,7 @@
 
 ```powershell
 go test ./...
-go test ./pkg/runtime/web ./pkg/runtime/task ./pkg/agent/deck
+go test ./pkg/runtime/web ./pkg/runtime/task ./pkg/agent/ppt
 go build ./...
 ```
 
@@ -127,11 +127,11 @@ npm run build
 npm run dev
 ```
 
-Python 生成器在 `ppt-agent` 或 `ppt-agent/skills/ppt-deck-planner` 相关目录运行，按改动选择：
+Python 生成器在 `ppt-agent` 或 `ppt-agent/skills/ppt-planner` 相关目录运行，按改动选择：
 
 ```powershell
-python -m py_compile skills/ppt-deck-planner/generators/*.py
-python skills/ppt-deck-planner/generators/generator.py
+python -m py_compile skills/ppt-planner/generators/*.py
+python skills/ppt-planner/generators/generator.py
 ```
 
 
@@ -213,7 +213,7 @@ python skills/ppt-deck-planner/generators/generator.py
 
 - [组件级规划迁移](./docs/architecture/ppt-agent-component-plan-migration.md)
 
-- [Planner、Task Reviewer 与 PPT Fixer 职责边界](./docs/architecture/deckspec-planner-reviewer-fixer-boundary.md)
+- [Planner、Task Reviewer 与 PPT Fixer 职责边界](./docs/architecture/pptspec-planner-reviewer-fixer-boundary.md)
 
 - [长期迭代方向](./docs/issues/todo.md)
 

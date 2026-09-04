@@ -50,7 +50,7 @@ type componentContractsFile struct {
 		RecommendedComponents []string       `json:"recommended_components"`
 		Capacity              map[string]any `json:"capacity"`
 		Variants              []string       `json:"variants"`
-		DeckRule              string         `json:"deck_rule"`
+		PPTRule              string         `json:"ppt_rule"`
 	} `json:"content_types"`
 }
 

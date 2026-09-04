@@ -7,13 +7,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	agentrouter "github.com/cloudwego/ppt-agent/pkg/agent/router"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 )
 
 const (
@@ -31,49 +31,24 @@ const (
 	messageActionUpdateTask       = "update_task"
 	messageActionAskClarification = "ask_clarification"
 
-	createIntentDeck         = messageIntentCreate
+	createIntentPPT         = messageIntentCreate
 	createIntentFixExisting  = messageIntentFix
 	createIntentClarifyTopic = "clarify_topic"
 	createIntentChat         = messageIntentChat
 )
 
-type createRequestRoute struct {
-	Intent                string  `json:"intent"`
-	Reason                string  `json:"reason"`
-	ClarificationQuestion string  `json:"clarification_question,omitempty"`
-	Confidence            float64 `json:"confidence,omitempty"`
-}
-
-type MessageRouteResult struct {
-	Intent            string          `json:"intent"`
-	Mode              string          `json:"mode"`
-	Confidence        float64         `json:"confidence"`
-	NeedsConfirmation bool            `json:"needs_confirmation"`
-	NormalizedRequest string          `json:"normalized_request"`
-	TaskID            string          `json:"task_id"`
-	DraftID           string          `json:"draft_id,omitempty"`
-	MissingFields     []string        `json:"missing_fields"`
-	Action            string          `json:"action"`
-	Reason            string          `json:"reason,omitempty"`
-	Reply             string          `json:"reply,omitempty"`
-	TaskCandidates    []TaskCandidate `json:"task_candidates,omitempty"`
-	Streaming         bool            `json:"streaming,omitempty"`
-	AfterEventID      uint64          `json:"after_event_id,omitempty"`
-}
-
-type TaskCandidate struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// Transport models live in web/model. These aliases retain source
+// compatibility for callers that still import the historical web package.
+type createRequestRoute = webmodel.CreateRequestRoute
+type MessageRouteResult = webmodel.MessageRouteResult
+type TaskCandidate = webmodel.TaskCandidate
 
 var existingPageRefPattern = regexp.MustCompile(`(?i)(第?\s*\d+\s*(页|张|slide)|封面|目录|标题页|最后一页)`)
 
 func (s *Server) routeCreateRequest(ctx context.Context, query string, hasOutline bool, credentials ...modelCredential) createRequestRoute {
 	query = strings.TrimSpace(query)
 	if hasOutline {
-		return createRequestRoute{Intent: createIntentDeck, Reason: "用户已提供结构化大纲"}
+		return createRequestRoute{Intent: createIntentPPT, Reason: "用户已提供结构化大纲"}
 	}
 	if query == "" {
 		return createRequestRoute{Intent: createIntentClarifyTopic, Reason: "缺少用户输入", ClarificationQuestion: "请补充要制作的 PPT 主题、受众或使用场景。"}
@@ -88,7 +63,7 @@ func (s *Server) routeCreateRequest(ctx context.Context, query string, hasOutlin
 			if route.NeedsConfirmation || route.Action == messageActionAskClarification {
 				return createRequestRoute{Intent: createIntentClarifyTopic, Reason: route.Reason, ClarificationQuestion: firstCreateRouteText(route.Reply, "请补充 PPT 主题、受众、页数或你想讲清楚的核心结论。"), Confidence: route.Confidence}
 			}
-			return createRequestRoute{Intent: createIntentDeck, Reason: route.Reason, Confidence: route.Confidence}
+			return createRequestRoute{Intent: createIntentPPT, Reason: route.Reason, Confidence: route.Confidence}
 		case messageIntentFix:
 			return createRequestRoute{Intent: createIntentFixExisting, Reason: route.Reason, ClarificationQuestion: "请先选择要修改的任务，再继续发送这条修复要求。", Confidence: route.Confidence}
 		case messageIntentPlan:
@@ -149,14 +124,14 @@ func fallbackCreateRequestRoute(query string) createRequestRoute {
 	if looksLikeSmallTalk(query) {
 		return createRequestRoute{Intent: createIntentChat, Reason: "用户输入不是 PPT 生成任务", ClarificationQuestion: "请描述要制作的 PPT 主题、受众、页数和交付场景。"}
 	}
-	if looksLikeVagueDeckRequest(query) {
+	if looksLikeVaguePPTRequest(query) {
 		return createRequestRoute{
 			Intent:                createIntentClarifyTopic,
 			Reason:                "用户想创建 PPT，但主题信息不足",
 			ClarificationQuestion: "请补充 PPT 主题、受众、页数或你想讲清楚的核心结论。",
 		}
 	}
-	return createRequestRoute{Intent: createIntentDeck, Reason: "按明确生成请求创建 PPT"}
+	return createRequestRoute{Intent: createIntentPPT, Reason: "按明确生成请求创建 PPT"}
 }
 
 func fallbackMessageRoute(query, selectedTaskID string) MessageRouteResult {
@@ -184,7 +159,7 @@ func fallbackMessageRoute(query, selectedTaskID string) MessageRouteResult {
 			Reason: "用户要求先规划或收敛主题", Reply: draftPlanReply(query),
 		}
 	}
-	if looksLikeSmallTalk(query) || !mentionsDeck(strings.ToLower(query)) {
+	if looksLikeSmallTalk(query) || !mentionsPPT(strings.ToLower(query)) {
 		return MessageRouteResult{
 			Intent: messageIntentChat, Mode: messageModeChat, Confidence: 0.78,
 			NormalizedRequest: strings.TrimSpace(query), Action: messageActionReply,
@@ -200,7 +175,7 @@ func fallbackMessageRoute(query, selectedTaskID string) MessageRouteResult {
 	// A named PPT request may omit audience, page count or style; these are
 	// Planner defaults, not a reason to keep the user in chat. Only a truly
 	// content-free request needs a clarification in the deterministic fallback.
-	if looksLikeVagueDeckRequest(query) {
+	if looksLikeVaguePPTRequest(query) {
 		result.NeedsConfirmation = true
 		result.Action = messageActionAskClarification
 		result.Reply = "已识别为 PPT 创建意图，但信息还不完整。建议补充受众、页数、风格或核心结论。"
@@ -214,7 +189,7 @@ func fallbackMessageRoute(query, selectedTaskID string) MessageRouteResult {
 // 风格吧" is a request to proceed with that presentation rather than an
 // unrelated chat turn.
 func fallbackTaskMessageRoute(query, selectedTaskID, conversationContext string) MessageRouteResult {
-	if hasConversationTopic(conversationContext) && looksLikeDelegatedDeckDecision(query) {
+	if hasConversationTopic(conversationContext) && looksLikeDelegatedPPTDecision(query) {
 		return MessageRouteResult{
 			Intent:            messageIntentCreate,
 			Mode:              messageModePPTAgent,
@@ -229,7 +204,7 @@ func fallbackTaskMessageRoute(query, selectedTaskID, conversationContext string)
 }
 
 func finalizeContextualDelegatedCreate(route MessageRouteResult, query, conversationContext string) MessageRouteResult {
-	if route.Intent != messageIntentCreate || !hasConversationTopic(conversationContext) || !looksLikeDelegatedDeckDecision(query) {
+	if route.Intent != messageIntentCreate || !hasConversationTopic(conversationContext) || !looksLikeDelegatedPPTDecision(query) {
 		return route
 	}
 	// The user has explicitly delegated the optional topic/style choices. Do not
@@ -255,7 +230,7 @@ func hasConversationTopic(conversationContext string) bool {
 	return false
 }
 
-func looksLikeDelegatedDeckDecision(query string) bool {
+func looksLikeDelegatedPPTDecision(query string) bool {
 	lower := strings.ToLower(strings.TrimSpace(query))
 	delegations := []string{"你决定", "你来定", "你定", "按你说的", "就按你的", "你安排", "帮我定"}
 	for _, delegation := range delegations {
@@ -372,7 +347,7 @@ func looksLikeExistingTaskEdit(query string) bool {
 func looksLikePlanRequest(query string) bool {
 	normalized := strings.TrimSpace(strings.ToLower(query))
 	for _, keyword := range []string{
-		"先规划", "规划一下", "先帮我规划", "大纲", "结构", "deckspec", "deck spec",
+		"先规划", "规划一下", "先帮我规划", "大纲", "结构", "pptspec", "ppt spec",
 		"不要生成", "先不生成", "只规划", "只要规划", "outline", "plan first",
 	} {
 		if strings.Contains(normalized, keyword) {
@@ -411,9 +386,9 @@ func looksLikeSmallTalk(query string) bool {
 		strings.Contains(normalized, "怎么使用")
 }
 
-func looksLikeVagueDeckRequest(query string) bool {
+func looksLikeVaguePPTRequest(query string) bool {
 	normalized := strings.TrimSpace(strings.ToLower(query))
-	if !mentionsDeck(normalized) {
+	if !mentionsPPT(normalized) {
 		return false
 	}
 	runes := []rune(normalized)
@@ -440,8 +415,8 @@ func firstCreateRouteText(values ...string) string {
 	return ""
 }
 
-func mentionsDeck(query string) bool {
-	for _, keyword := range []string{"ppt", "演示", "幻灯片", "汇报", "路演", "presentation", "deck"} {
+func mentionsPPT(query string) bool {
+	for _, keyword := range []string{"ppt", "演示", "幻灯片", "汇报", "路演", "presentation", "ppt"} {
 		if strings.Contains(query, keyword) {
 			return true
 		}

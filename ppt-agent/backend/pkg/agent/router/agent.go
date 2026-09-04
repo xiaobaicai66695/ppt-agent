@@ -45,13 +45,13 @@ type Result struct {
 }
 
 // ContinuationInput is the current user request plus the bounded manifest
-// summary for an already generated deck.
+// summary for an already generated ppt.
 type ContinuationInput struct {
 	Message      string
 	TasksSummary string
 }
 
-// ContinuationResult is the detailed route required by the existing-deck
+// ContinuationResult is the detailed route required by the existing-ppt
 // workflow. Page-to-task authorization remains a server-side responsibility.
 type ContinuationResult struct {
 	Intent                string      `json:"intent"`
@@ -107,7 +107,7 @@ func (a *Agent) Route(ctx context.Context, input Input) (Result, error) {
 	return result, nil
 }
 
-// RouteContinuation classifies a request against an existing deck. It is kept
+// RouteContinuation classifies a request against an existing ppt. It is kept
 // in RouterAgent so a page edit and a first-message route use the same model
 // boundary, while web retains authorization and rerender side effects.
 func (a *Agent) RouteContinuation(ctx context.Context, input ContinuationInput) (ContinuationResult, error) {
@@ -160,7 +160,7 @@ func prompt(input Input) string {
 可选 intent：
 - chat：闲聊、普通问题、能力咨询、解释概念；保持对话模式。
 - create：用户明确要求新建 PPT/演示/汇报；交给 PPTPlanner 准备创建。
-- plan：用户要求先规划、大纲、结构、DeckSpec 或明确不要生成文件；交给 PPTPlanner 规划，但不渲染。
+- plan：用户要求先规划、大纲、结构、PPTSpec 或明确不要生成文件；交给 PPTPlanner 规划，但不渲染。
 - fix：用户要求修复、调整、重做已有 PPT 或某页；只有“当前选中任务 ID”非空时才可更新任务，否则询问用户先选择任务。
 
 action 只能是 reply、prepare_create、save_plan、update_task、ask_clarification。

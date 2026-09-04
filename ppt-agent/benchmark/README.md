@@ -10,10 +10,10 @@
 
 当前覆盖 4 个 suite：
 
-- `router`：评估创建入口和继续任务的意图识别，确认请求进入正确链路。评测输出使用稳定词汇 `create_deck`、`fix_existing`、`fix`、`regenerate_all`；创建入口 HTTP API 内部的 `create`、`fix` 会在 benchmark 适配层映射为前两者，并保留实际下游 Agent 和原始请求。
+- `router`：评估创建入口和继续任务的意图识别，确认请求进入正确链路。评测输出使用稳定词汇 `create_ppt`、`fix_existing`、`fix`、`regenerate_all`；创建入口 HTTP API 内部的 `create`、`fix` 会在 benchmark 适配层映射为前两者，并保留实际下游 Agent 和原始请求。
 - `planner`：只评估 Planner 首稿 `tasks.draft.json`，不让 Reviewer 修补后再评分；benchmark 中不挂载图片下载工具，只评价图片语义规划。
 - `reviewer`：用带缺陷的 draft 和 review issue 评估 Reviewer 是否精准修补。
-- `fixer`：用真实用户追改请求评估 Fixer 是否只改授权页面和必要字段；不运行 Reviewer 或全量 DeckSpec review。
+- `fixer`：用真实用户追改请求评估 Fixer 是否只改授权页面和必要字段；不运行 Reviewer 或全量 PPTSpec review。
 
 旧的 `backend/test/plan_benchmark` 只保留为低成本契约 smoke。Agent 效果评测以本目录和 `cmd/pptbench` 为主。
 
@@ -63,7 +63,7 @@ cd ppt-agent/backend
 
 这把 key 只在 benchmark 的模型初始化中使用：`-p model` 初始化 Planner/Reviewer/Fixer/Router，`-p judge` 初始化 Judge；不会进入生产服务、上线配置或其它测试。
 
-Planner benchmark 不执行图片下载，不依赖 `UNSPLASH_ACCESS_KEY`、网络状态或本地图片落盘。评分只看是否规划了合理的 `visual_policy`、`asset_query`、`asset_subject`、`composition` 和 `search_status="planned"`，不要求出现 `local_path`。同一 Deck 内相同 `content_type` 的页面必须规划相同的背景 `asset_query`；生产物化层与 skill CLI 会把它们收敛为同一张本地背景图。
+Planner benchmark 不执行图片下载，不依赖 `UNSPLASH_ACCESS_KEY`、网络状态或本地图片落盘。评分只看是否规划了合理的 `visual_policy`、`asset_query`、`asset_subject`、`composition` 和 `search_status="planned"`，不要求出现 `local_path`。同一 PPT 内相同 `content_type` 的页面必须规划相同的背景 `asset_query`；生产物化层与 skill CLI 会把它们收敛为同一张本地背景图。
 
 如果模型额度、Key、Provider 配置异常，输出会显式写入 `agent_error` 或 `judge_error`，不会被隐藏成成功。
 
@@ -215,13 +215,13 @@ Hard failure 最高只能 2 分，包括：
 
 ## Case 编写要点
 
-`planner` case 应评估首稿质量，不写“Reviewer 可以补齐”的期待。重点看页面结构、事实覆盖、字段完整度、图片语义规划和 DeckSpec 合法性。Planner benchmark 不测图片下载，所以不要把缺少 `local_path` 作为失败条件。
+`planner` case 应评估首稿质量，不写“Reviewer 可以补齐”的期待。重点看页面结构、事实覆盖、字段完整度、图片语义规划和 PPTSpec 合法性。Planner benchmark 不测图片下载，所以不要把缺少 `local_path` 作为失败条件。
 
 `reviewer` case 应只放一个或少数明确缺陷，避免混入无关错误。否则无法判断 Reviewer 到底修复了目标问题，还是被其它问题干扰。
 
 `fixer` case 必须写清授权页面和禁止改动范围。推荐在 `input.allowed_page_indexes` 明确授权页，避免 benchmark 依赖页码推断。
 
-`router` case 应区分创建入口和继续任务。`has_existing_task=false` 表示创建入口；`has_existing_task=true` 表示已有任务上的继续请求。每轮全量评测应覆盖四个核心意图：`create_deck`、`fix_existing`、`fix`、`regenerate_all`。
+`router` case 应区分创建入口和继续任务。`has_existing_task=false` 表示创建入口；`has_existing_task=true` 表示已有任务上的继续请求。每轮全量评测应覆盖四个核心意图：`create_ppt`、`fix_existing`、`fix`、`regenerate_all`。
 
 ## 开发集与验证集
 
@@ -266,7 +266,7 @@ go run ./cmd/pptbench -s planner --case planner_business_kpi_001 -p model
 修改 `pptbench` 或 benchmark 入口后，至少运行：
 
 ```powershell
-go test ./cmd/pptbench ./pkg/agent/deck ./pkg/web
+go test ./cmd/pptbench ./pkg/agent/ppt ./pkg/web
 go run ./cmd/pptbench -s router -p model -l 1
 ```
 

@@ -14,13 +14,13 @@
   - The standalone slide saver reused image parts from the source package without a normalization pass; LibreOffice could open the package yet omit its bottom image during conversion.
   - Batch thumbnail generation copied only shape XML into a merged PPTX and did not copy image relationships, so the Dashboard preview retained the first slide's background but dropped backgrounds from later slides.
 - Changes:
-  - Added `materialize_background_assets` between DeckSpec validation and worker rendering. It groups identical queries, searches/downloads with bounded concurrency, writes attribution/source metadata, mutates the manifest only after all downloads succeed, and persists `tasks.json` atomically.
-  - Added `hydrate-deck-assets` for safe backfill of completed query-only tasks; missing Unsplash configuration remains a non-fatal query plan, while configured provider failures stop rendering instead of silently producing incomplete backgrounds.
+  - Added `materialize_background_assets` between PPTSpec validation and worker rendering. It groups identical queries, searches/downloads with bounded concurrency, writes attribution/source metadata, mutates the manifest only after all downloads succeed, and persists `tasks.json` atomically.
+  - Added `hydrate-ppt-assets` for safe backfill of completed query-only tasks; missing Unsplash configuration remains a non-fatal query plan, while configured provider failures stop rendering instead of silently producing incomplete backgrounds.
   - Changed Reviewer content-plan application to merge fields and preserve downloaded visual metadata when a patch omits it.
   - Baked readability lightening into the raster with adaptive luminance, appended a near-transparent LibreOffice compositor trigger after page content, and normalized standalone packages once after relationship cloning.
   - Replaced shape-only PPTX merging in the QA converter with a single multi-input LibreOffice conversion followed by PDF merge, preserving every source PPTX's image/chart relationships without N cold starts.
 - Verification:
-  - Local Go: `go test ./pkg/agent/deck ./pkg/prompts ./pkg/task ./pkg/web ./cmd/hydrate-deck-assets` and `go build ./...` passed.
+  - Local Go: `go test ./pkg/agent/ppt ./pkg/prompts ./pkg/task ./pkg/web ./cmd/hydrate-ppt-assets` and `go build ./...` passed.
   - Local Python: generator compile checks passed; `test_render_task_components.py` passed with 20 tests.
   - Existing online task: `4abffe33-be96-4165-b8b1-f54a4549b951` changed from `local_path=0/13` to `13/13`; every referenced asset exists, every PPTX contains media, and batch conversion produced 13 thumbnails with no errors. Full contact-sheet inspection confirmed visible backgrounds on title, agenda, section, KPI, card, image-text, case, deep-dive, summary and end layouts.
   - Online no-model smoke: one query-only title page materialized one background, rendered one PPTX with one media part, and generated one JPG with zero conversion errors.
@@ -69,18 +69,18 @@
 - Changes:
   - Added an explicit Planner first-draft gate for external background plans, narrative anchors, component IDs/content, `section_marker.text`, capacity hints, and 440-840-character `argument_block` usage.
   - Made `update_tasks_manifest(initialize)` run the same deterministic checks before writing `tasks.draft.json`; failed preflight returns per-page issues and requires the Planner to resubmit the complete array in the same turn.
-  - Added explicit `visual_intent.role=clean_text_only` for user-requested no-image decks.
+  - Added explicit `visual_intent.role=clean_text_only` for user-requested no-image ppts.
   - Reused Reviewer checks as the preflight source, accepted executable `asset_query` without duplicating a missing-`local_path` warning, and aligned the argument minimum to 440 characters.
   - Instructed TaskPlanReviewer to avoid pre-tool read narration and per-issue reasoning dumps, then give only a short post-tool summary.
 - Verification:
-  - Local: `go test ./pkg/agent/deck ./pkg/prompts ./pkg/task ./pkg/web` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/prompts ./pkg/task ./pkg/web` passed.
   - Local: `go build ./...` passed; component contract JSON parsed successfully.
-  - Online: one-page AI governance cover included a downloaded background and `insight/deck_title/subheadline` anchors; Reviewer passed round 1 with zero issues; task completed 1/1.
+  - Online: one-page AI governance cover included a downloaded background and `insight/ppt_title/subheadline` anchors; Reviewer passed round 1 with zero issues; task completed 1/1.
   - Online health returned 200 and deployed binary SHA-256 was `0061784ed3fd16ecbd7092813707b4a4e36ebb65aa0c657a4a16c838ba26efb4`.
 - Deployment:
   - Target: `remote-dev:/ppt/ppt-agent`.
   - Backend process restarted from PID `3151968` to PID `3182890`, working directory `/ppt/ppt-agent/backend`, listening on `:8080`.
-  - Deployed the backend binary plus runtime `ppt-deck-planner/SKILL.md` and `component_contracts.json`; rollback copy retained at `/ppt/ppt-agent/deploy-backup-20260825193807`.
+  - Deployed the backend binary plus runtime `ppt-planner/SKILL.md` and `component_contracts.json`; rollback copy retained at `/ppt/ppt-agent/deploy-backup-20260825193807`.
 - Cleanup:
   - Deleted the online smoke task and verified its work directory was removed.
   - Removed local Linux build output and this deployment's remote `/tmp` binaries, skill files, contract file, auth material, and probe outputs.
@@ -111,16 +111,16 @@
 
 - ID: 20260825-planner-reviewer-fixer-workflow
 - Type: refactor/fix/deployment
-- Scope: DeckSpec planning agents, bounded review workflow, targeted PPT repair
+- Scope: PPTSpec planning agents, bounded review workflow, targeted PPT repair
 - Completed: 2026-08-25 14:22 Asia/Shanghai
 - Changes:
   - Split the planning path into `PPTPlanner` and `TaskPlanReviewer`; kept `PPTFixer` exclusively for backend-authorized page fixes after generation.
   - Made outline input seed `tasks.draft.json` instead of bypassing planning, then moved review rounds, recovery, fingerprint checks, atomic commit, retry bounds, and fallback into Go.
   - Restricted Planner to initialize, Reviewer to draft patching, and Fixer to selected task IDs without runtime identity changes.
-  - Kept image/background planning in `ppt-deck-planner`; removed color-priority and failure-recovery responsibilities from prompts.
+  - Kept image/background planning in `ppt-planner`; removed color-priority and failure-recovery responsibilities from prompts.
   - Hardened manifest parsing for native task arrays, JSON-array strings, and two observed model serialization defects. Repairs are accepted only when the normalized value decodes as a complete task array; unknown trailing content remains invalid.
 - Verification:
-  - Local: `go test ./pkg/agent/deck ./pkg/task ./pkg/web` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/task ./pkg/web` passed.
   - Local: `go build ./...` passed.
   - Local full test residual: `pkg/tools/qa` still depends on `pdftoppm` being available in `PATH`.
   - Online outline smoke: Planner initialized one slide, Go review requested refinement, Reviewer passed the plan in round 3, the reviewed fingerprint was committed, and rendering completed `1/1`.
@@ -143,10 +143,10 @@
   - Kept `cover` as the default so backgrounds fill the slide with permitted edge cropping; retained internal `contain` support for explicit full-image use cases.
   - Added light blur to every image-background slide and stronger blur to title/section slides, while retaining the existing readability overlay.
   - Replaced the duplicate native background plus native-size picture behavior with one canvas-sized bottom image anchor, preventing real shape overflow and viewer-dependent scaling.
-  - Updated `ppt-deck-planner` instructions and generator reference documentation with the new background contract.
+  - Updated `ppt-planner` instructions and generator reference documentation with the new background contract.
 - Verification:
-  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed with 19 tests.
-  - Local: regenerated and rendered a 10-slide deck; structural inspection returned `out_of_bounds_shapes=[]`.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-planner/tests` passed with 19 tests.
+  - Local: regenerated and rendered a 10-slide ppt; structural inspection returned `out_of_bounds_shapes=[]`.
   - Local: `quick_validate.py` could not run because its runtime lacks `PyYAML`; frontmatter and unfinished placeholders were checked manually.
   - Online: one-slide 4:3 background smoke generated a 1920x1080 PPT background with `anchor_within_canvas=true`.
 - Deployment:
@@ -185,12 +185,12 @@
 - Completed: 2026-08-24 23:40 Asia/Shanghai
 - Changes:
   - Fixed `update_tasks_manifest` so `tasks` accepts either a real JSON array or a valid JSON-array string produced by the model/tool-call layer.
-  - Kept strict current DeckSpec rules: invalid strings still fail, and no legacy `background` / `elements` / loose object extraction was restored.
+  - Kept strict current PPTSpec rules: invalid strings still fail, and no legacy `background` / `elements` / loose object extraction was restored.
 - Root Cause:
   - Commit `ba0fd36` removed the old raw-input parser while cleaning historical compatibility. The deployed tool then tried to unmarshal `tasks` directly into `[]manifestTaskPatch`.
   - The Planner's actual tool call encoded `tasks` as a string containing a JSON array, causing `json: cannot unmarshal string into Go struct field manifestToolInput.tasks`.
 - Verification:
-  - Local: `go test ./pkg/agent/deck` passed.
+  - Local: `go test ./pkg/agent/ppt` passed.
   - Local: `go build ./...` passed.
   - Online: deployed binary contains the new `tasks JSON array string` parser error text.
   - Online: `GET http://127.0.0.1:8080/api/health` returned 200 with `{"status":"ok"}`.
@@ -203,22 +203,22 @@
   - Removed local hotfix Linux binary artifact.
   - Removed remote `/tmp/ppt-agent-linux-0feec40`.
 
-- ID: 20260824-deck-planning-visuals-account-controls-deploy
+- ID: 20260824-ppt-planning-visuals-account-controls-deploy
 - Type: feature/fix/deployment
-- Scope: account API key, admin task visibility, frontend light UI, component-first DeckSpec, image visual planning, agenda numbering
+- Scope: account API key, admin task visibility, frontend light UI, component-first PPTSpec, image visual planning, agenda numbering
 - Completed: 2026-08-24 21:35 Asia/Shanghai
 - Changes:
   - Deployed commit `ba0fd36` to `remote-dev:/ppt/ppt-agent`.
   - Kept account API key priority as database key first, then environment fallback; exposed account API key settings in the frontend.
   - Exposed admin task listing for the default administrator account, including task owner email in the task payload and UI.
-  - Removed legacy top-level DeckSpec `background` / `elements` planning fields from active backend, frontend API types, tests, and gold DeckSpecs; current image planning uses `visual_intent` or `image` components with downloaded `local_path`.
+  - Removed legacy top-level PPTSpec `background` / `elements` planning fields from active backend, frontend API types, tests, and gold PPTSpecs; current image planning uses `visual_intent` or `image` components with downloaded `local_path`.
   - Strengthened Planner/skill guidance for more image-text mixed layouts, title/section background blur masks, no perspective-heavy title backgrounds, and agenda numbering by section order instead of slide page index.
 - Verification:
-  - Local: `go test ./pkg/agent/deck ./pkg/web ./pkg/task ./pkg/agent/utils ./pkg/agent/intent` passed.
-  - Local: `go test ./test/plan_benchmark -run TestGoldDeckSpecsPassReviewer` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/web ./pkg/task ./pkg/agent/utils ./pkg/agent/intent` passed.
+  - Local: `go test ./test/plan_benchmark -run TestGoldPPTSpecsPassReviewer` passed.
   - Local: `go test` for all backend packages except `pkg/tools/qa` passed; `pkg/tools/qa` remains blocked by missing local `pdftoppm` in PATH.
   - Local: `go build ./...` passed.
-  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed with 17 tests.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-planner/tests` passed with 17 tests.
   - Local: `npm run build` passed.
 - Deployment:
   - Target: `remote-dev:/ppt/ppt-agent`
@@ -232,21 +232,21 @@
   - Removed remote `/tmp/ppt-agent-src-ba0fd36.tar`, `/tmp/ppt-agent-frontend-dist-ba0fd36.tar`, `/tmp/ppt-agent-linux-ba0fd36`.
   - Removed remote historical backup directories `/ppt/deploy-backups`, `/ppt/ppt-agent/backups`, `/ppt/ppt-agent/deploy_backups`, plus old backend `.env.bak.*` and probe binary temp files.
 
-- ID: 20260824-rename-visual-designer-to-deck-planner
+- ID: 20260824-rename-visual-designer-to-ppt-planner
 - Type: refactor/cleanup
 - Scope: skill naming, component-first template loading, legacy asset/background cleanup
 - Completed: 2026-08-24 17:30 Asia/Shanghai
 - Changes:
-  - Renamed the misleading `visual_designer` skill concept to `ppt-deck-planner`, with the skill frontmatter, backend skill path, prompts, docs, tests, scripts, and frontend references aligned to the new name.
-  - Reframed the skill as the DeckSpec/tasks.json planning contract plus generator handoff layer, rather than a direct LLM visual-design surface.
-  - Removed obsolete offline asset/background/template baggage from the active skill tree, including old `assets`, `background_templates`, `templates/full-decks`, `templates/single-page`, palette reference, and unused maintenance scripts.
+  - Renamed the misleading `visual_designer` skill concept to `ppt-planner`, with the skill frontmatter, backend skill path, prompts, docs, tests, scripts, and frontend references aligned to the new name.
+  - Reframed the skill as the PPTSpec/tasks.json planning contract plus generator handoff layer, rather than a direct LLM visual-design surface.
+  - Removed obsolete offline asset/background/template baggage from the active skill tree, including old `assets`, `background_templates`, `templates/full-ppts`, `templates/single-page`, palette reference, and unused maintenance scripts.
   - Switched template loading to the component-first loader backed by `templates/component_contracts.json` and built-in preset metadata; legacy local backgrounds now return empty/no-op compatibility responses.
   - Updated planner, recommendation, README, and AGENTS guidance so new plans keep top-level `background` empty and use external image search `local_path` metadata in `visual_intent` or `image` components.
 - Verification:
-  - Local: `go test ./pkg/templates ./pkg/web ./pkg/agent/deck ./pkg/agent/intent ./pkg/log_analysis` passed.
+  - Local: `go test ./pkg/templates ./pkg/web ./pkg/agent/ppt ./pkg/agent/intent ./pkg/log_analysis` passed.
   - Local: `go build ./...` passed.
-  - Local: `python -m compileall -q skills\ppt-deck-planner\generators` passed.
-  - Local: bundled Python `-m unittest discover -s skills\ppt-deck-planner\tests` passed with 17 tests.
+  - Local: `python -m compileall -q skills\ppt-planner\generators` passed.
+  - Local: bundled Python `-m unittest discover -s skills\ppt-planner\tests` passed with 17 tests.
   - Local: `npm run build` passed.
   - Skill validator blocked because the local Python environment lacks `yaml` / PyYAML.
 - Deployment:
@@ -264,7 +264,7 @@
   - Corrected the online startup working directory to `/ppt/ppt-agent/backend`, restoring `skills_loaded count=1` and valid slide-type discovery.
 - Verification:
   - Local: `npm run test -- workbench` passed with 22 tests; `npm run build` passed.
-  - Local: focused Go tests for deck, runtime metadata, DB, web, search, image search, and Unsplash passed; `go build ./...` passed.
+  - Local: focused Go tests for ppt, runtime metadata, DB, web, search, image search, and Unsplash passed; `go build ./...` passed.
   - Online API probe: the configured primary model returned HTTP 200 to a minimal completion request, ruling out API-key, balance, permission, and rate-limit status errors at verification time.
   - Online task replay: conversation summary returned 5 readable sources; four image calls exposed `[0, 0, 2, 2]` previews, with no call above 2 and no raw JSON leakage; the event-detail endpoint returned all 5 search results.
   - The first smoke task reached Planner review but the prior 5-minute idle guard paused one upstream stream with no output; the effective guard was then increased to 15 minutes as requested.
@@ -288,7 +288,7 @@
 - Verification:
   - Local: `npm run test -- workbench` passed with 22 tests.
   - Local: `npm run build` passed.
-  - Local: `go test ./pkg/agent/utils ./pkg/agent/deck` passed.
+  - Local: `go test ./pkg/agent/utils ./pkg/agent/ppt` passed.
   - Local: `go build ./...` passed.
 - Deployment:
   - Target: `remote-dev:/ppt/ppt-agent`
@@ -311,8 +311,8 @@
 - Verification:
   - Local: `npm run test -- workbench` passed with 21 tests.
   - Local: `npm run build` passed.
-  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed with 17 tests.
-  - Local: `go test ./pkg/agent/contentplan ./pkg/web ./pkg/agent/deck` passed.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-planner/tests` passed with 17 tests.
+  - Local: `go test ./pkg/agent/contentplan ./pkg/web ./pkg/agent/ppt` passed.
   - Local: `go build ./...` passed.
 - Deployment:
   - Target: `remote-dev:/ppt/ppt-agent`
@@ -327,7 +327,7 @@
 
 - ID: 20260823-reflexion-plan-review-gate
 - Type: feature/fix
-- Scope: DeckSpec planning, manifest commit gate, image-background planning quality
+- Scope: PPTSpec planning, manifest commit gate, image-background planning quality
 - Completed: 2026-08-23 21:22 Asia/Shanghai
 - Changes:
   - Added `review_tasks_manifest` as a deterministic Reflexion-style planner review tool for `tasks.draft.json`.
@@ -335,8 +335,8 @@
   - Updated Planner instructions to run `initialize/patch -> review -> refine -> review -> commit`, with up to 3 review rounds.
   - Added a planning quality gate that prefers every slide to have an executable background image plan, using downloaded `local_path` when image search is available.
 - Verification:
-  - Local: `go test ./pkg/agent/deck` passed.
-  - Local: `go test ./pkg/agent/deck ./pkg/tools/image ./pkg/agent/utils` passed.
+  - Local: `go test ./pkg/agent/ppt` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/tools/image ./pkg/agent/utils` passed.
   - Local: `go build ./...` passed.
 - Deployment:
   - Target: `remote-dev:/ppt/ppt-agent/backend`
@@ -379,8 +379,8 @@
   - Rendered local image assets from task work dir into `image_text` and `image_hero` PPT slides instead of placeholder text.
   - Expanded `argument_block` and image-text narrative target length in planner/skill/component contracts.
 - Verification:
-  - Local: `go test ./pkg/agent/deck ./pkg/agent/utils ./pkg/tools/image` passed.
-  - Local: bundled Python `-m unittest discover -s skills/ppt-deck-planner/tests` passed.
+  - Local: `go test ./pkg/agent/ppt ./pkg/agent/utils ./pkg/tools/image` passed.
+  - Local: bundled Python `-m unittest discover -s skills/ppt-planner/tests` passed.
   - Local: `npm run build` passed.
   - Local: `go build ./...` passed.
   - Local full `go test ./...` blocked only by missing local `pdftoppm` in `pkg/tools/qa`.

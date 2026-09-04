@@ -34,7 +34,7 @@ web.handleCreateTask
   |   直接把基础用户画像写入 cfg.StyleContext
   |
   v
-task.CreateTask / deck.ProcessUserIntent
+task.CreateTask / ppt.ProcessUserIntent
   |-- learning.Engine.ProcessTask(query, userID)
   |   |-- intent.Classifier 得到 Domain / SuggestedTemplates / SuggestedTheme / SuggestedPageCount
   |   |-- profileStore.GetEnhanced(userID)
@@ -42,7 +42,7 @@ task.CreateTask / deck.ProcessUserIntent
   |       把历史模板、主题、典型页数合入分类结果
   |
   v
-deck.enhanceStyleContextWithProfile()
+ppt.enhanceStyleContextWithProfile()
   再把增强画像写入 StyleContext
   |
   v
@@ -62,8 +62,8 @@ master_instruction.tmpl
 - `ppt-agent/backend/pkg/web/handler.go:163` 在任务创建时直接注入 `UserProfile.BuildStyleContext()`。
 - `ppt-agent/backend/pkg/style/profile.go:412` 的 `BuildStyleContext()` 会输出“请在生成PPT时遵循上述偏好”，对当前任务没有相关性判断。
 - `ppt-agent/backend/pkg/agent/router/engine.go:198` 的 `EnhanceWithProfile()` 会把 `GetPreferredTemplates()` 前置到 `SuggestedTemplates`，并用历史典型页数影响当前页数。
-- `ppt-agent/backend/pkg/agent/deck/agent.go:244` 会把推荐模板、推荐配色、推荐页数继续写入 `StyleContext`。
-- `ppt-agent/backend/pkg/agent/deck/agent.go:304` 的 `enhanceStyleContextWithProfile()` 会再次注入历史配色、布局、模板风格、成功经验等高敏感字段。
+- `ppt-agent/backend/pkg/agent/ppt/agent.go:244` 会把推荐模板、推荐配色、推荐页数继续写入 `StyleContext`。
+- `ppt-agent/backend/pkg/agent/ppt/agent.go:304` 的 `enhanceStyleContextWithProfile()` 会再次注入历史配色、布局、模板风格、成功经验等高敏感字段。
 - `ppt-agent/backend/pkg/style/profile.go:149` 的 `GetPreferredTemplates()` 会从全局成功模式和 `ContentTypes` 推断模板，未按当前领域过滤。
 - `ppt-agent/backend/pkg/agent/learning/updater.go:230` 要求 LLM 对画像字段做追加式更新，`applyProfileUpdates()` 对 themes/colors/layout/content_types/domain_preferences 也是追加或累加。
 - `docs/architecture/ppt-agent-preference-memory-boundary.md` 已经将用户画像边界收敛为显式画像、意图路由和只读推荐，后续偏好能力应以该文档为准。
@@ -107,7 +107,7 @@ master_instruction.tmpl
 | Canva | Brand Kit 集中管理 logos、colors、fonts、assets、Brand Templates 和 guidelines；Canva AI / Magic Design 可在设计生成后或生成过程中应用 Brand Kit。Canva 还支持从网站或 PDF 自动创建 Brand Kit。参考：[Set up Brand Kits](https://www.canva.com/help/brand-kit/)、[Generate on-brand designs with Brand Templates and Brand Kits](https://www.canva.com/help/create-on-brand-designs/)、[Set up your Brand Kit automatically](https://www.canva.com/help/brand-kit-builder/)。 | 品牌偏好是结构化资产库，不是自然语言长备注；多品牌/多项目时要隔离，不应把 A 场景品牌污染到 B 场景。 |
 | Gamma | 用 custom theme 表达整体视觉风格，包含 colors、fonts、slide styles、accent images；workspace 内共享 custom themes，用户可在生成/编辑后切换或定制 theme。参考：[Can I add my own colors and fonts to Gamma?](https://help.gamma.app/en/articles/11029150-can-i-add-my-own-colors-and-fonts-to-gamma)、[How do I change my Gamma theme?](https://help.gamma.app/en/articles/10262646-how-do-i-change-my-gamma-theme)、[Teams and business options](https://help.gamma.app/en/articles/11594955-what-options-does-gamma-offer-for-teams-and-business)。 | 将“偏好”收敛为可命名、可选择、可共享的 theme，比把历史偏好散落在 prompt 中更稳定。 |
 | Beautiful.ai | 强调 guided workflow、Smart Slides 和 Brand Control：先从 prompt 到 outline，再设计和 refine；Smart Slides 负责自动处理 spacing、alignment、hierarchy、chart layout；Teams/Enterprise 可定义 fonts、colors、logos、layouts，并锁定设计元素和管理权限。参考：[Beautiful.ai](https://www.beautiful.ai/)、[Customizable AI Presentation Slide Templates](https://www.beautiful.ai/slide-templates)、[AI Design Doesn't Replace Brand Control](https://www.beautiful.ai/blog/ai-design-doesnt-replace-brand-control-it-strengthens-it)。 | 成熟产品把“结构规划”和“视觉约束”拆开，并用版式系统兜住质量；偏好不直接决定内容 JSON，而是约束可编辑设计系统。 |
-| Pitch | Pitch Agent 从 prompt、模板和附件生成 deck；官方介绍称其从真实模板生成，使用 custom layouts 反映品牌模式。新团队可输入网站域名，让 Agent 基于 website 生成 branded template，包括 colors、fonts、logo、image style；workspace library 管理 templates、videos、images、custom fonts。参考：[Pitch Agent](https://pitch.com/blog/introducing-pitch-agent)、[Create on-brand decks with Pitch's AI presentation maker](https://pitch.com/use-cases/ai-presentation-maker)、[Create a template](https://help.pitch.com/en/articles/3752837-create-a-template)、[Workspace Library](https://help.pitch.com/en/articles/6010928-organize-your-workspace-library)。 | 当前任务可用的 template/附件/域名比历史行为更重要；品牌可从当前项目来源抽取，并在进入生成前让用户确认。 |
+| Pitch | Pitch Agent 从 prompt、模板和附件生成 ppt；官方介绍称其从真实模板生成，使用 custom layouts 反映品牌模式。新团队可输入网站域名，让 Agent 基于 website 生成 branded template，包括 colors、fonts、logo、image style；workspace library 管理 templates、videos、images、custom fonts。参考：[Pitch Agent](https://pitch.com/blog/introducing-pitch-agent)、[Create on-brand ppts with Pitch's AI presentation maker](https://pitch.com/use-cases/ai-presentation-maker)、[Create a template](https://help.pitch.com/en/articles/3752837-create-a-template)、[Workspace Library](https://help.pitch.com/en/articles/6010928-organize-your-workspace-library)。 | 当前任务可用的 template/附件/域名比历史行为更重要；品牌可从当前项目来源抽取，并在进入生成前让用户确认。 |
 | Presentations.AI | 官方称可从 topic、URL、document 生成 on-brand PPTX，也声明 AI 会学习用户的 structure、messaging、visual preferences，并从用户 refine/edit 中继续学习。它同时强调 website URL 可建立 rigid Brand Kit，管理员控制核心 themes。参考：[AI Presentation Maker](https://www.presentations.ai/ai-presentation-maker)、[Features and Capabilities](https://www.presentations.ai/features)、[Marketing solution](https://www.presentations.ai/solutions/marketing)。 | 少数产品会宣传“学习偏好”，但仍把 brand kit、URL、document、admin-controlled themes 作为硬约束。对 PPT Agent 来说，学习结果应低于当前输入和显式品牌资产。 |
 
 ### 共性模式
@@ -183,7 +183,7 @@ PPT Agent 目前更接近“隐式历史画像强注入”，而成熟产品更�
 
 补一组后端单测和最小离线样例：
 
-- 用户历史 5 次 `business`，当前 query 为 `academic`：不应推荐 `pitch-deck`、`charcoal_light` 作为首选。
+- 用户历史 5 次 `business`，当前 query 为 `academic`：不应推荐 `pitch-ppt`、`charcoal_light` 作为首选。
 - 用户历史 5 次 `business`，当前 query 仍为 `business`：可复用历史模板/配色。
 - 用户历史页数为 16，当前 query 明确“做 6 页短分享”：页数应尊重当前 query。
 - 用户历史有“深色背景” special note，当前 query 为“儿童课程活泼课件”：不应注入深色背景。
@@ -202,7 +202,7 @@ PPT Agent 目前更接近“隐式历史画像强注入”，而成熟产品更�
   },
   "domain_profiles": {
     "business": {
-      "templates": {"pitch-deck": 4},
+      "templates": {"pitch-ppt": 4},
       "themes": {"charcoal_light": 3},
       "layout_preferences": {"kpi_dashboard": 3}
     },

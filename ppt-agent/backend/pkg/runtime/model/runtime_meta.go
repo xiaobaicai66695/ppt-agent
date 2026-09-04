@@ -256,7 +256,7 @@ func (m *RuntimeMeta) FreezePlan(slides []PlanSlide) {
 	}
 	m.PlanSlides = clonePlanSlides(slides)
 	m.AlignmentStatus = "aligned"
-	m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(slides)), map[string]any{
+	m.recordEventLocked("ppt_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(slides)), map[string]any{
 		"slide_count": len(m.PlanSlides),
 		"slides":      m.PlanSlides,
 	})
@@ -285,7 +285,7 @@ func (m *RuntimeMeta) ComparePlan(observed []PlanSlide, missingFiles []string) {
 	if len(m.PlanSlides) == 0 {
 		m.PlanSlides = clonePlanSlides(observed)
 		m.AlignmentStatus = "aligned"
-		m.recordEventLocked("deck_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{
+		m.recordEventLocked("ppt_spec_frozen", "tasks.json", "ok", fmt.Sprintf("%d slides", len(observed)), map[string]any{
 			"slide_count": len(m.PlanSlides),
 			"slides":      m.PlanSlides,
 		})
@@ -306,7 +306,7 @@ func (m *RuntimeMeta) ComparePlan(observed []PlanSlide, missingFiles []string) {
 	if len(warnings) > 0 {
 		status = "warning"
 	}
-	m.recordEventLocked("deck_spec_alignment", "plan_vs_render", status, fmt.Sprintf("%d deviations", len(warnings)), map[string]any{
+	m.recordEventLocked("ppt_spec_alignment", "plan_vs_render", status, fmt.Sprintf("%d deviations", len(warnings)), map[string]any{
 		"warnings": warnings,
 	})
 }
@@ -651,7 +651,7 @@ func (m *RuntimeMeta) RecordManifestValidation(done, total int, missingFiles, pe
 	} else if len(pendingTasks) > 0 {
 		detail += fmt.Sprintf("，还有 %d 页待生成", len(pendingTasks))
 	}
-	m.recordEventLocked("deck_spec_validated", "tasks.json", status, detail, map[string]any{
+	m.recordEventLocked("ppt_spec_validated", "tasks.json", status, detail, map[string]any{
 		"done":  done,
 		"total": total,
 	})

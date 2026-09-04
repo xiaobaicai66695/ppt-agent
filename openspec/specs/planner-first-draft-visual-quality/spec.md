@@ -22,7 +22,7 @@ The backend Planner SHALL create complete visual asset semantics according to th
 
 ### Requirement: Planner first-draft visual quality regression evidence
 
-The project SHALL maintain automated first-draft quality checks that verify the Planner instruction retains the skill visual policy and that representative gold DeckSpecs satisfy deterministic review.
+The project SHALL maintain automated first-draft quality checks that verify the Planner instruction retains the skill visual policy and that representative gold PPTSpecs satisfy deterministic review.
 
 #### Scenario: Prompt contract changes
 

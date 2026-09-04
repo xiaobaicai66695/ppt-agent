@@ -18,7 +18,7 @@ async function signOut() { await logout(); clearToken(); router.push('/') }
 <template>
   <div class="studio-shell" :class="{ 'nav-closed': !open }">
     <aside class="studio-nav">
-      <div class="nav-brand"><span class="brand-mark"><FileStack :size="18" /></span><span>Deckform</span></div>
+      <div class="nav-brand"><span class="brand-mark"><FileStack :size="18" /></span><span>PPTform</span></div>
       <button class="nav-create" @click="emit('new')"><Plus :size="18" />新建创作</button>
       <nav>
         <RouterLink to="/dashboard"><LayoutDashboard :size="18" />工作台</RouterLink>

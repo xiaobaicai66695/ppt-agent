@@ -60,10 +60,10 @@ Planner
 
 - 客户端：`ppt-agent/backend/pkg/assets/unsplash`
 - Tool：`ppt-agent/backend/pkg/tools/image`
-- Planner 注册：`ppt-agent/backend/pkg/agent/deck/agent.go`
+- Planner 注册：`ppt-agent/backend/pkg/agent/ppt/agent.go`
 - Go 客户端探针：`go run ./cmd/unsplash_probe -query drone`
 - Tool 探针：`go run ./cmd/unsplash_tool_probe -query drone`
-- 单测：`go test ./pkg/assets/unsplash ./pkg/tools/image ./pkg/agent/deck ./pkg/prompts`
+- 单测：`go test ./pkg/assets/unsplash ./pkg/tools/image ./pkg/agent/ppt ./pkg/prompts`
 - 规划契约回归：`TestPlanComponentUnmarshalKeepsImagePlanningContract`、`TestMainAgentPromptAdvertisesImageSearchOnlyWhenConfigured`
 
 ## 风险与后续

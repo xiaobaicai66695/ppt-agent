@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
@@ -221,7 +221,7 @@ func TestTaskStateTelemetryDoesNotEnterAssistantTurn(t *testing.T) {
 	}
 
 	ts.Broadcast(SSERichEvent{Type: "system_step", Content: "【步骤1/2】任务输入"})
-	ts.Broadcast(SSERichEvent{Type: "progress", Phase: "planning", PhaseDetail: "正在写入 DeckSpec"})
+	ts.Broadcast(SSERichEvent{Type: "progress", Phase: "planning", PhaseDetail: "正在写入 PPTSpec"})
 	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "read_file", ToolArgs: `{"path":"template.json"}`})
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 	ts.Broadcast(SSERichEvent{Type: "complete"})
@@ -400,11 +400,11 @@ func TestShouldSyncDeliveryAfterRunSkipsPlannerFailureWithoutManifest(t *testing
 
 func TestPollProgressSignalsMetadataCompletion(t *testing.T) {
 	workDir := t.TempDir()
-	manifest := &deck.TasksManifest{Tasks: []*deck.TaskItem{{
+	manifest := &ppt.TasksManifest{Tasks: []*ppt.TaskItem{{
 		TaskID: "1", PageIndex: 1, Title: "封面", ContentType: "title_slide",
-		OutputFile: "1_封面.pptx", Status: deck.StatusPending,
+		OutputFile: "1_封面.pptx", Status: ppt.StatusPending,
 	}}}
-	if err := deck.WriteTasksManifest(workDir, manifest); err != nil {
+	if err := ppt.WriteTasksManifest(workDir, manifest); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workDir, "1_封面.pptx"), []byte("pptx"), 0600); err != nil {

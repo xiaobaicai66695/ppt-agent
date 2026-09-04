@@ -92,8 +92,8 @@ func TestRouteCreateRequestDoesNotClarifyOptionalCreateFields(t *testing.T) {
 	}
 
 	got := server.routeCreateRequest(context.Background(), "帮我做一份新能源汽车出海趋势分析报告", false)
-	if got.Intent != createIntentDeck {
-		t.Fatalf("intent = %q, want %q; route=%#v", got.Intent, createIntentDeck, got)
+	if got.Intent != createIntentPPT {
+		t.Fatalf("intent = %q, want %q; route=%#v", got.Intent, createIntentPPT, got)
 	}
 	if got.ClarificationQuestion != "" {
 		t.Fatalf("successful create must not carry a clarification question: %#v", got)
@@ -177,10 +177,10 @@ func TestRouteCreateRequestRuleFallback(t *testing.T) {
 		outline bool
 		want    string
 	}{
-		{name: "outline always creates", query: "随便", outline: true, want: createIntentDeck},
-		{name: "clear deck request", query: "为产品委员会做一份 8 页季度复盘 PPT", want: createIntentDeck},
+		{name: "outline always creates", query: "随便", outline: true, want: createIntentPPT},
+		{name: "clear ppt request", query: "为产品委员会做一份 8 页季度复盘 PPT", want: createIntentPPT},
 		{name: "existing page edit", query: "把第2页标题字体调大一点", want: createIntentFixExisting},
-		{name: "vague deck request", query: "帮我做个PPT", want: createIntentClarifyTopic},
+		{name: "vague ppt request", query: "帮我做个PPT", want: createIntentClarifyTopic},
 		{name: "topic setup", query: "我还没想好主题，帮我确定主题", want: createIntentClarifyTopic},
 		{name: "small talk", query: "你好", want: createIntentChat},
 	}

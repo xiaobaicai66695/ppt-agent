@@ -10,12 +10,13 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	agentrouter "github.com/cloudwego/ppt-agent/pkg/agent/router"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
@@ -23,9 +24,7 @@ import (
 func (s *Server) handleContinueTask(c *gin.Context) {
 	taskID := c.Param("id")
 
-	var req struct {
-		Message string `json:"message"`
-	}
+	var req webmodel.ContinueTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Message) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "message is required"})
 		return
@@ -73,16 +72,18 @@ func (s *Server) handleContinueTask(c *gin.Context) {
 
 	// 允许继续已完成的或已取消的任务
 	afterEventID := ts.LatestEventID()
+	if !ts.TryBeginContinuation() {
+		c.JSON(http.StatusConflict, gin.H{"error": "任务正在处理中，请稍后再试"})
+		return
+	}
 	sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 	if err := sess.AddUserMessage(req.Message); err != nil {
+		ts.Mu.Lock()
+		ts.Info.Status = task.TaskStatusFailed
+		ts.Mu.Unlock()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存会话消息失败"})
 		return
 	}
-
-	// 重新初始化任务为运行状态
-	ts.Mu.Lock()
-	ts.Info.Status = task.TaskStatusRunning
-	ts.Mu.Unlock()
 	ts.Persist()
 
 	if s.continueStarter != nil {
@@ -119,7 +120,7 @@ func (s *Server) startContinue(taskID string, ts *task.TaskState, message string
 func (s *Server) runContinue(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession, ch chan task.SSERichEvent) {
 	defer close(ch)
 
-	ctx := auth.WithUser(context.Background(), &db.User{ID: uint(uid)})
+	ctx := auth.WithUser(s.runtimeContext(), &db.User{ID: uint(uid)})
 
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在分析您的请求...\n"}
 	if resumed, err := s.resumeDraftCheckpoint(taskID, ts, ch); resumed {
@@ -161,7 +162,7 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 	if ts == nil || strings.TrimSpace(ts.Info.WorkDir) == "" {
 		return false, nil
 	}
-	if manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir); err == nil {
+	if manifest, err := ppt.ReadTasksManifest(ts.Info.WorkDir); err == nil {
 		// handleContinueTask switches the task back to running before opening
 		// SSE. Preserve the retryable marker in Error so the render checkpoint
 		// remains distinguishable from an ordinary completed-task edit.
@@ -170,7 +171,7 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 		}
 		ch <- task.SSERichEvent{Type: "answer", Content: "检测到可恢复的渲染检查点，正在继续未完成页面。\n"}
 		credential := userModelCredential(ts.Info.UserID)
-		cfg := &deck.PPTTaskConfig{
+		cfg := &ppt.PPTTaskConfig{
 			WorkDir:       ts.Info.WorkDir,
 			TaskID:        taskID,
 			Query:         ts.Info.Query,
@@ -182,13 +183,13 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 			ModelAPIKey:   credential.APIKey,
 			ModelProvider: credential.Provider,
 		}
-		if _, err := deck.RenderPPT(context.Background(), cfg, func(event deck.DeckRenderEvent) {
-			ch <- deckRenderSSE(event)
+		if _, err := ppt.RenderPPT(s.runtimeContext(), cfg, func(event ppt.PPTRenderEvent) {
+			ch <- pptRenderSSE(event)
 		}); err != nil {
 			markTaskFailed(ts, err.Error())
 			return true, fmt.Errorf("从渲染检查点恢复失败: %w", err)
 		}
-		updated, readErr := deck.ReadTasksManifest(ts.Info.WorkDir)
+		updated, readErr := ppt.ReadTasksManifest(ts.Info.WorkDir)
 		if readErr == nil && updated != nil {
 			manifest = updated
 		}
@@ -202,7 +203,7 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 	} else if !os.IsNotExist(err) {
 		return true, fmt.Errorf("读取正式任务清单失败: %w", err)
 	}
-	draft, err := deck.ReadTasksDraftManifest(ts.Info.WorkDir)
+	draft, err := ppt.ReadTasksDraftManifest(ts.Info.WorkDir)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -216,7 +217,7 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 	ch <- task.SSERichEvent{Type: "answer", Content: "检测到规划审查中断，正在从已保存的草稿继续，不会重新规划。\n"}
 	credential := userModelCredential(ts.Info.UserID)
 	runtimeMeta := agentutils.NewRuntimeMeta(taskID, ts.Info.WorkDir)
-	cfg := &deck.PPTTaskConfig{
+	cfg := &ppt.PPTTaskConfig{
 		WorkDir:          ts.Info.WorkDir,
 		TaskID:           taskID,
 		Query:            ts.Info.Query,
@@ -229,13 +230,13 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 		ModelAPIKey:      credential.APIKey,
 		ModelProvider:    credential.Provider,
 	}
-	if _, err := deck.ResumePPTPlannerFromDraftWithCallback(context.Background(), cfg, func(event deck.AgentEvent) {
+	if _, err := ppt.ResumePPTPlannerFromDraftWithCallback(s.runtimeContext(), cfg, func(event ppt.AgentEvent) {
 		switch event.Type {
-		case deck.AgentEventAnswer:
+		case ppt.AgentEventAnswer:
 			ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
-		case deck.AgentEventProgress:
+		case ppt.AgentEventProgress:
 			ch <- task.SSERichEvent{Type: "progress", Phase: event.Phase, PhaseDetail: event.PhaseDetail}
-		case deck.AgentEventError:
+		case ppt.AgentEventError:
 			ch <- task.SSERichEvent{Type: "error", Error: event.Error}
 		}
 	}); err != nil {
@@ -243,15 +244,15 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 		return true, fmt.Errorf("从规划审查检查点恢复失败: %w", err)
 	}
 
-	if _, err := deck.RenderPPT(context.Background(), cfg, func(event deck.DeckRenderEvent) {
-		ch <- deckRenderSSE(event)
+	if _, err := ppt.RenderPPT(s.runtimeContext(), cfg, func(event ppt.PPTRenderEvent) {
+		ch <- pptRenderSSE(event)
 	}); err != nil {
 		markTaskFailed(ts, err.Error())
 		return true, fmt.Errorf("恢复后的幻灯片生成失败: %w", err)
 	}
 
 	s.refreshFileList(ts, ch)
-	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
+	manifest, err := ppt.ReadTasksManifest(ts.Info.WorkDir)
 	if err != nil || manifest == nil {
 		return true, fmt.Errorf("恢复后读取任务清单失败")
 	}
@@ -271,47 +272,10 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 	return true, nil
 }
 
-// RouteResult 保存意图分类的结果。
-type RouteResult struct {
-	Intent string `json:"intent"` // "fix" | "regenerate" | "regenerate_all" | "add_page" | "needs_clarification" | "unknown"
-
-	// Reason 描述选择此意图的原因。
-	Reason string `json:"reason"`
-
-	// TargetPages 包含用户提到的页面索引（从 1 开始）。
-	TargetPages []int `json:"target_pages,omitempty"`
-
-	// TargetTaskIDs 是服务端依据当前 manifest 从 TargetPages 解析出的稳定任务 ID。
-	// 仅 fix 链路使用，作为 Fixer 的上下文切片和工具授权边界；LLM 不负责生成此字段。
-	TargetTaskIDs []string `json:"target_task_ids,omitempty"`
-
-	// NeedsClarification 当用户意图模糊时为 true。
-	NeedsClarification bool `json:"needs_clarification,omitempty"`
-
-	// ClarificationQuestion 当 NeedsClarification 为 true 时要询问用户的问题。
-	ClarificationQuestion string `json:"clarification_question,omitempty"`
-
-	// FixDetails 当意图为 "fix" 时设置。描述要修复的内容。
-	// 例如：{"aspect": "font_size", "value": "smaller", "pages": [2]}
-	FixDetails *FixDetails `json:"fix_details,omitempty"`
-
-	// RegenerateScope 为 "all" 或页面索引列表。
-	RegenerateScope []int `json:"regenerate_scope,omitempty"`
-
-	// SuggestFix 指示尽管需要澄清，但用户可能想要修复（而不是重新生成）。
-	SuggestFix bool `json:"suggest_fix,omitempty"`
-}
-
-// FixDetails 描述用户想要调整的视觉属性。
-type FixDetails struct {
-	// Aspect 是要修复的视觉属性："font_size"、"color"、"alignment"、
-	// "spacing"、"layout"、"position"、"text_content"、"style"、"other"。
-	Aspect string `json:"aspect"`
-	// Detail 是具体的调整："更大"、"红色"、"居中"、"加粗" 等。
-	Detail string `json:"detail"`
-	// TargetElements 描述页面上的哪些元素："标题"、"正文"、"所有文字"、"图表" 等。
-	TargetElements string `json:"target_elements,omitempty"`
-}
+// RouteResult and FixDetails are transport models owned by web/model. Keep
+// aliases here so existing callers and tests remain source-compatible.
+type RouteResult = webmodel.RouteResult
+type FixDetails = webmodel.FixDetails
 
 // routeContinueIntent 是意图路由的主入口点。
 // 它始终委托给 LLM 分类以获得细致、结构化的结果。
@@ -332,7 +296,7 @@ func (s *Server) routeContinueIntent(ctx context.Context, message string, workDi
 
 	// ── LLM 分类 ──────────────────────────────────────────────────
 	var tasksSummary string
-	manifest, err := deck.ReadTasksManifest(workDir)
+	manifest, err := ppt.ReadTasksManifest(workDir)
 	if err == nil && manifest != nil && len(manifest.Tasks) > 0 {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("当前 PPT 共 %d 页：\n", len(manifest.Tasks)))
@@ -360,7 +324,7 @@ func (s *Server) routeContinueIntent(ctx context.Context, message string, workDi
 // resolveRouteTaskIDs 把 LLM 的展示层页码绑定到当前正式 manifest 的稳定 task_id。
 // 只有 fix 使用该绑定，避免将模型生成的页码直接当作 Fixer 的授权依据。
 
-func resolveRouteTaskIDs(route RouteResult, manifest *deck.TasksManifest) RouteResult {
+func resolveRouteTaskIDs(route RouteResult, manifest *ppt.TasksManifest) RouteResult {
 	if route.Intent != "fix" {
 		return route
 	}
@@ -368,7 +332,7 @@ func resolveRouteTaskIDs(route RouteResult, manifest *deck.TasksManifest) RouteR
 	return route
 }
 
-func resolveManifestTargets(manifest *deck.TasksManifest, pageIndexes []int) ([]int, []string) {
+func resolveManifestTargets(manifest *ppt.TasksManifest, pageIndexes []int) ([]int, []string) {
 	if manifest == nil {
 		return nil, nil
 	}

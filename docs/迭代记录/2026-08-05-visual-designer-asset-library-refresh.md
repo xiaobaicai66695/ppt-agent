@@ -33,7 +33,7 @@ Visual Designer 原有素材量偏少，图标语义覆盖集中在工程概念�
 - `python -m unittest discover -s tests -p "test_asset_library.py" -v`：9 项通过。
 - Visual Designer 全量 generator 与同步脚本 `py_compile` 通过。
 - `go test ./pkg/prompts/...` 通过。
-- 生成右图、左图、横向条带 3 页 smoke deck，并通过 LibreOffice 转 PDF、Poppler 转 PNG 全页检查。
+- 生成右图、左图、横向条带 3 页 smoke ppt，并通过 LibreOffice 转 PDF、Poppler 转 PNG 全页检查。
 - 3 页均只有 1 个可替换图片对象；画布越界、文本互相重叠、文本与图片重叠均为 0。
 - 14 张分类内容图和代表性图标/背景 contact sheet 已人工检查语义与裁切。
 

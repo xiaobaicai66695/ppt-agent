@@ -8,7 +8,7 @@
       "conversation_context": []
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "must_extract": {
         "topic": "新能源汽车出海趋势",

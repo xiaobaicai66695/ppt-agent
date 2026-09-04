@@ -50,8 +50,8 @@ MODEL_TIMEOUT_SECONDS=600
 
 - `go test ./pkg/agent/modelcompat ./pkg/agent/utils`
 - `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task`
-- `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/agent/deck`
-- `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task ./pkg/agent/deck ./pkg/web`
+- `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/agent/ppt`
+- `go test ./pkg/agent/modelcompat ./pkg/agent/utils ./pkg/task ./pkg/agent/ppt ./pkg/web`
 - `go build ./...`
 
 ## 上线记录
@@ -98,7 +98,7 @@ MODEL_TIMEOUT_SECONDS=600
     - `ppt-agent/backend/pkg/agent/utils/runtime_meta.go`
     - `ppt-agent/backend/pkg/task/manager.go`
     - `ppt-agent/backend/pkg/web/handler.go`
-    - `ppt-agent/backend/pkg/agent/deck/{types.go,agent.go}`
+    - `ppt-agent/backend/pkg/agent/ppt/{types.go,agent.go}`
   - 前端：
     - `ppt-agent/frontend/src/components/AccountSettingsDialog.vue`
     - `ppt-agent/frontend/src/components/ConversationComposer.vue`
@@ -214,7 +214,7 @@ MODEL_TIMEOUT_SECONDS=600
   - legacy Ark fallback 不再消费非 Ark 账号 Key，只使用 Ark 环境 Key。
 - 本地验证：
   - `go test ./pkg/agent/utils ./pkg/agent/modelcompat ./pkg/db ./pkg/web`
-  - `go test ./pkg/agent/deck`
+  - `go test ./pkg/agent/ppt`
   - `go build ./...`
 - 上线记录：
   - 目标：`remote-dev:/ppt/ppt-agent`

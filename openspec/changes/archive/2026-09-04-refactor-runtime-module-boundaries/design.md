@@ -46,7 +46,7 @@
 
 ### 5. 术语与渲染入口收敛
 
-新增代码使用面向业务动作的命名：`ppt`、`plan`、`page`、`download`、`sync`、`read`、`write`。`deck`、`manifest`、`materialize`、`reconcile` 仅在兼容既有导出符号、历史文件或第三方术语时保留，并应在注释中说明含义。
+新增代码使用面向业务动作的命名：`ppt`、`plan`、`page`、`download`、`sync`、`read`、`write`。`ppt`、`manifest`、`materialize`、`reconcile` 仅在兼容既有导出符号、历史文件或第三方术语时保留，并应在注释中说明含义。
 
 固定渲染链不再通过通用 Graph 组织：单一入口按顺序调用“读取并校验计划、下载/修订图片、并发生成页面”。内部 worker pool 和失败聚合保持不变。任务 JSON 的字段名保持兼容；文件名迁移采用“新写新名、读兼容旧名”的双读策略，确认历史任务淘汰后才移除旧入口。
 

@@ -10,7 +10,7 @@ The change deliberately excludes the retired runtime QA flow and page-level life
 
 - Let each user select `auto`, `sensitive`, or `manual` approval for a task, with a persisted default and task-local override.
 - Pause a task durably at `waiting_approval` only when its approval policy requires it, with a server-generated explanation of the interruption.
-- Create immutable deck revisions so a modification is previewed as a candidate, explicitly accepted or rejected, and can be rolled back without overwriting history.
+- Create immutable ppt revisions so a modification is previewed as a candidate, explicitly accepted or rejected, and can be rolled back without overwriting history.
 - Expose automatic retries and fallback as a bounded `recovering` phase with auditable error and recovery events.
 
 **Non-Goals:**
@@ -38,7 +38,7 @@ The backend creates a durable approval request with a reason code, action summar
 
 ### 3. Candidate revisions are copy-on-write workspace snapshots
 
-An initial successful deck becomes revision 1 and is `active`. A continuing modification creates a candidate revision with a parent revision ID, immutable manifest snapshot, affected pages, diff summary and candidate artifact paths. It does not replace the active revision. Acceptance publishes the candidate and marks the prior revision `superseded`; rejection marks only the candidate rejected. Rollback creates a new revision from a prior snapshot and marks it active.
+An initial successful ppt becomes revision 1 and is `active`. A continuing modification creates a candidate revision with a parent revision ID, immutable manifest snapshot, affected pages, diff summary and candidate artifact paths. It does not replace the active revision. Acceptance publishes the candidate and marks the prior revision `superseded`; rejection marks only the candidate rejected. Rollback creates a new revision from a prior snapshot and marks it active.
 
 The first delivery stores full manifest snapshots and copies changed artifacts when needed. This favors recoverability and simple rollback over deduplication; later storage optimization can reuse unchanged artifacts by content hash.
 
@@ -56,7 +56,7 @@ Existing model fallback, recoverable asset errors, Planner draft recovery and sc
 - [Candidate artifact copies consume disk] → Start with scoped copies and add retention/cleanup after correctness is verified.
 - [Users encounter excessive approval prompts] → Default to `auto`, use an explicit impact classifier, and offer task-level overrides.
 - [A restart loses in-memory state] → Read task, approval and revision records from persistent storage; pending states remain visible after reconnect.
-- [A change candidate corrupts the active deck] → Never write to the active revision directory; publish only after confirmation succeeds.
+- [A change candidate corrupts the active ppt] → Never write to the active revision directory; publish only after confirmation succeeds.
 
 ## Migration Plan
 

@@ -6,8 +6,8 @@
 
 | 旧术语 | 新代码优先术语 | 说明 |
 | --- | --- | --- |
-| deck | ppt | 表示整份演示文稿时使用 `ppt`。 |
-| DeckSpec / manifest | plan | 表示可渲染的 PPT 页面计划时使用 `plan`。 |
+| ppt | ppt | 表示整份演示文稿时使用 `ppt`。 |
+| PPTSpec / manifest | plan | 表示可渲染的 PPT 页面计划时使用 `plan`。 |
 | TaskItem | page | 表示单页时使用 `page`。 |
 | materialize / hydrate | download / prepare | 表示下载并写入图片元数据时使用 `download` 或 `prepare`。 |
 | reconcile | sync | 表示文件与页面状态对齐时使用 `sync`。 |

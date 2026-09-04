@@ -1,6 +1,6 @@
 ## Why
 
-The PPT Agent already generates decks, but failures are hard to diagnose because agent state, token usage, repeated tool calls, QA results, file progress, and compression loss are scattered across logs or natural-language summaries. Improving the harness gives both the agent and the frontend a reliable view of runtime metadata, budget pressure, validation evidence, and PPT quality signals.
+The PPT Agent already generates ppts, but failures are hard to diagnose because agent state, token usage, repeated tool calls, QA results, file progress, and compression loss are scattered across logs or natural-language summaries. Improving the harness gives both the agent and the frontend a reliable view of runtime metadata, budget pressure, validation evidence, and PPT quality signals.
 
 ## What Changes
 
@@ -16,7 +16,7 @@ The PPT Agent already generates decks, but failures are hard to diagnose because
 ### New Capabilities
 
 - `ppt-agent-runtime-harness`: Runtime metadata, budget observability, structured handoff, and validation contracts for PPT Agent execution.
-- `ppt-agent-quality-eval`: Offline PPT quality evaluation cases and scoring harness for generated deck artifacts.
+- `ppt-agent-quality-eval`: Offline PPT quality evaluation cases and scoring harness for generated ppt artifacts.
 - `ppt-agent-developer-status-ui`: Frontend developer status surface for runtime metadata and budget/QA signals.
 
 ### Modified Capabilities

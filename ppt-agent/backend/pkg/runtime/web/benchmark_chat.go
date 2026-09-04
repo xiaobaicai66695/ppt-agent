@@ -5,44 +5,17 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
+
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 )
 
-// ChatBenchmarkModel is the small text-model surface used by the production
-// chat reply builder. Benchmark callers can pass nil for deterministic fixture
-// checks, or a real model adapter for opt-in semantic evaluation.
-type ChatBenchmarkModel interface {
-	Generate(context.Context, []*schema.Message, ...interface{}) (*schema.Message, error)
-}
-
-type ChatBenchmarkSearchResult struct {
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	Description string `json:"description"`
-	Source      string `json:"source,omitempty"`
-}
-
-type ChatBenchmarkImageResult struct {
-	PreviewURL      string `json:"preview_url"`
-	ImageURL        string `json:"image_url"`
-	SourceURL       string `json:"source_url"`
-	Photographer    string `json:"photographer"`
-	PhotographerURL string `json:"photographer_url"`
-	Attribution     string `json:"attribution"`
-}
-
-// ChatBenchmarkInput controls every non-model input to the production chat
-// assembly. It deliberately accepts fixture evidence instead of invoking
-// external search services, so default benchmark runs are repeatable.
-type ChatBenchmarkInput struct {
-	Message             string                      `json:"message"`
-	Fallback            string                      `json:"fallback,omitempty"`
-	ConversationContext string                      `json:"conversation_context,omitempty"`
-	WebResults          []ChatBenchmarkSearchResult `json:"web_results,omitempty"`
-	Images              []ChatBenchmarkImageResult  `json:"images,omitempty"`
-	WebSearchError      string                      `json:"web_search_error,omitempty"`
-	ImageSearchError    string                      `json:"image_search_error,omitempty"`
-}
+// Benchmark models are owned by web/model. Aliases retain the package-level
+// API used by the existing evaluation command.
+type ChatBenchmarkModel = webmodel.TextModel
+type ChatBenchmarkSearchResult = webmodel.ChatBenchmarkSearchResult
+type ChatBenchmarkImageResult = webmodel.ChatBenchmarkImageResult
+type ChatBenchmarkInput = webmodel.ChatBenchmarkInput
 
 // BuildChatReplyForBenchmark invokes the same reply construction and Markdown
 // supplement functions used by workbench conversations. Passing nil as model

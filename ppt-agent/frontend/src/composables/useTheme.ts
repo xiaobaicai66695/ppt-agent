@@ -1,7 +1,7 @@
 import { computed, ref, watch } from 'vue'
 
 export type ColorTheme = 'dark' | 'light'
-const storageKey = 'deckform_theme'
+const storageKey = 'pptform_theme'
 const saved = localStorage.getItem(storageKey)
 const theme = ref<ColorTheme>(saved === 'light' ? 'light' : 'dark')
 

@@ -19,7 +19,7 @@
 
 - `D:\anaconda\python.exe -m unittest tests.test_render_task_components`
 - `python -m json.tool templates\component_contracts.json`
-- `go test ./pkg/web ./pkg/task ./pkg/agent/deck ./pkg/prompts`
+- `go test ./pkg/web ./pkg/task ./pkg/agent/ppt ./pkg/prompts`
 - `go build ./...`
 - `npm test -- --run src/utils/workbench.test.ts`
 - `npm run build`
@@ -40,7 +40,7 @@
   - `:8080` 正常监听，进程为 `3603484`
 - 线上生成器 smoke：
   - 在 `/tmp/ppt-agent-visualpalette-smoke` 创建 4 个临时 `image_text` 任务，不调用模型。
-  - 4 个任务均由 `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功渲染，输出 `slide_1.pptx` 至 `slide_4.pptx`，单文件约 32K。
+  - 4 个任务均由 `/ppt/ppt-agent/skills/ppt-planner/generators/render_task.py` 成功渲染，输出 `slide_1.pptx` 至 `slide_4.pptx`，单文件约 32K。
   - 临时 workdir、接口响应文件和传输包已清理。
 
 ## 遗留
@@ -60,8 +60,8 @@
   - Planner / Reviewer prompt、Skill 和组件契约同步改为“背景 `asset_query` 尽量只写一个英文关键词”。
 - 本地验证：
   - `python -m json.tool templates\component_contracts.json`
-  - `go test ./pkg/agent/deck ./pkg/prompts`
-  - `go test ./pkg/web ./pkg/task ./pkg/agent/deck ./pkg/prompts`
+  - `go test ./pkg/agent/ppt ./pkg/prompts`
+  - `go test ./pkg/web ./pkg/task ./pkg/agent/ppt ./pkg/prompts`
   - `go build ./...`
 - 上线记录：
   - 目标：`remote-dev:/ppt/ppt-agent`
@@ -80,10 +80,10 @@
 ## 分片规划与上下文压缩可见性
 
 - 问题：
-  - 12 页以上 DeckSpec 由单个 Planner 一次性填完整 `tasks.json`，后半段容易退化为抽象套话，且不利于后续单页/单节修复。
+  - 12 页以上 PPTSpec 由单个 Planner 一次性填完整 `tasks.json`，后半段容易退化为抽象套话，且不利于后续单页/单节修复。
   - 上下文压缩阈值过高，实际规划调用接近窗口上限时不容易触发；触发后也缺少前端明确回显。
 - OpenSpec：
-  - `openspec/changes/archive/2026-08-26-chunked-deck-planning-and-context-compression/`
+  - `openspec/changes/archive/2026-08-26-chunked-ppt-planning-and-context-compression/`
 - 行为变化：
   - 新增 chunked planning 路径：BlueprintPlanner 先锁定页码、章节、标题、页面类型和 `content_bank`，SectionPlanner 按小节补全 2-4 页内容，后端 Merger 确定性合并后仍只走一次 Task Reviewer。
   - `tasks.json` 页面增加可选 `section_id`、`section_title`、`page_intent`、`evidence_refs`，`content_plan` 增加可选 `evidence_refs`，为后续定点修复提供粒度。
@@ -91,11 +91,11 @@
   - 上下文压缩 prompt 显式包含历史消息、上次压缩交接和当前用户最新问题；压缩开始时记录 `compressing_context` 阶段并通过 SSE progress/runtime_meta 回显。
   - 默认规划压缩阈值从 200000 估算 token 调整为 24000，可通过 `PLANNER_COMPRESSOR_TOKEN_THRESHOLD` 覆盖。
 - 本地验证：
-  - `go test ./pkg/agent/deck ./pkg/agent/utils ./pkg/task`
+  - `go test ./pkg/agent/ppt ./pkg/agent/utils ./pkg/task`
   - `go build ./...`
   - `npm test -- --run src/utils/workbench.test.ts`
   - `npm run build`
-  - `go test ./...` 已执行，但 `test/plan_benchmark` 的既有 gold DeckSpec 因背景关键词/旧金标组件容量规则失败，需单独更新 gold 或调整评测基线。
+  - `go test ./...` 已执行，但 `test/plan_benchmark` 的既有 gold PPTSpec 因背景关键词/旧金标组件容量规则失败，需单独更新 gold 或调整评测基线。
 - 上线记录：
   - 目标：`remote-dev:/ppt/ppt-agent`
   - 时间：2026-08-27 01:38 Asia/Shanghai
@@ -127,14 +127,14 @@
   - `D:\anaconda\python.exe -m json.tool templates\component_contracts.json`
   - 本地构造黄底 `image_text` smoke，经 `render_task.py` 生成 PPTX，LibreOffice 转 PDF，Poppler 渲染 PNG；检查到 XML 同时包含可读文本色 `17202A` / `51616D` 和背景派生 shape 色 `B8CC6C`。
 - 上线记录：
-  - 目标：`remote-dev:/ppt/ppt-agent/skills/ppt-deck-planner`
+  - 目标：`remote-dev:/ppt/ppt-agent/skills/ppt-planner`
   - 时间：2026-08-27 10:39 Asia/Shanghai
   - 部署基线：代码提交 `44135bf`
   - 后端进程：PID `3624298` 保持运行，未重启；`/api/health` 返回 HTTP 200，`{"status":"ok"}`
   - 备份：`/ppt/ppt-agent/skills.bak.20260827103809-palette-text`
   - 线上生成器 smoke：
     - 在 `/tmp/ppt-agent-palette-text-smoke` 创建 1 页黄底 `image_text` 临时任务，不调用模型。
-    - `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功生成 `slide_01.pptx`，83,300 bytes。
+    - `/ppt/ppt-agent/skills/ppt-planner/generators/render_task.py` 成功生成 `slide_01.pptx`，83,300 bytes。
     - PPTX XML 包含可读文本色 `17202A`、`51616D` 和背景派生 shape 色 `B8CC6C`，临时 workdir 和传输包已清理。
 
 ## 内容密度与 TaskExpander 可见性修正
@@ -150,7 +150,7 @@
   - chunked planning 阶段的可见进度和系统提示改为 `TaskExpander`，明确它负责把蓝图页扩写成完整 task 内容。
   - 生成器对列表-only 叙事面板改为按内容量收缩并居中，列表正文可使用更大的可读字号，不再用大空框硬撑版面。
 - 本地验证：
-  - `go test ./pkg/agent/deck`
+  - `go test ./pkg/agent/ppt`
   - `D:\anaconda\python.exe -m unittest tests.test_render_task_components`
   - `Get-ChildItem -LiteralPath generators -Filter *.py | ForEach-Object { D:\anaconda\python.exe -m py_compile $_.FullName }`
   - `python -m json.tool templates\component_contracts.json`
@@ -168,10 +168,10 @@
     - `/api/health` 返回 HTTP 200，`{"status":"ok"}`
     - `/api/templates/layouts` 返回 HTTP 200，17522 bytes
     - `:8080` 正常监听，进程为 `3762155`
-    - 启动日志包含 `deck_planner_skill_ready`、`mysql_connected`、`server_starting addr=:8080`，无立即失败。
+    - 启动日志包含 `ppt_planner_skill_ready`、`mysql_connected`、`server_starting addr=:8080`，无立即失败。
   - 线上生成器 smoke：
     - 在 `/tmp/ppt-agent-density-smoke-bdb1ff1` 创建 1 页列表-only `content_slide` 临时任务，不调用模型。
-    - `/ppt/ppt-agent/skills/ppt-deck-planner/generators/render_task.py` 成功生成 `slide_01_density.pptx`，29,470 bytes。
+    - `/ppt/ppt-agent/skills/ppt-planner/generators/render_task.py` 成功生成 `slide_01_density.pptx`，29,470 bytes。
     - PPTX XML 包含第 4 条完整列表“开放合作的重点...”，并包含新列表字号标记 `sz="1340"`。
     - 临时 workdir、上传的临时 `tasks.json`、接口响应文件和传输包已清理。
 
@@ -181,12 +181,12 @@
   - 用户已经在编排页提供大纲/模板脚手架时，`shouldUseChunkedPlanning` 直接返回 false，导致任务回到单体 PPTPlanner。
   - 这会让 Planner 同时承担“制定草稿”和“逐页扩写正文”，和 BlueprintPlanner + TaskExpander 的职责边界冲突，也更容易把大纲词原样写进 `tasks.json`。
 - 行为变化：
-  - 有 `cfg.Outline` 时不再禁用分片规划；outline 会被确定性转换为 `deckPlanningBlueprint`，作为结构草稿进入 TaskExpander 链路。
-  - `deckBlueprintPage` 增加 `draft_description` 和 `draft_content_plan`，保留用户/模板给出的分节草稿，但只作为 TaskExpander 的输入素材。
+  - 有 `cfg.Outline` 时不再禁用分片规划；outline 会被确定性转换为 `pptPlanningBlueprint`，作为结构草稿进入 TaskExpander 链路。
+  - `pptBlueprintPage` 增加 `draft_description` 和 `draft_content_plan`，保留用户/模板给出的分节草稿，但只作为 TaskExpander 的输入素材。
   - TaskExpander prompt 从“整套蓝图全文 + 本次页面”改为“整套蓝图摘要 + 本节草稿页面 + 用户主题”，并明确只扩写本节草稿，不重写整套结构。
   - Merger 在 TaskExpander 未覆盖字段时可回退到草稿 description/content_plan，但最终仍会经过 Reviewer 和 Go 质量门。
 - 本地验证：
-  - `go test ./pkg/agent/deck`
+  - `go test ./pkg/agent/ppt`
   - `go build ./...`
 - 上线记录：
   - 目标：`remote-dev:/ppt/ppt-agent`
@@ -199,6 +199,6 @@
     - `/api/health` 返回 HTTP 200，15 bytes
     - `/api/templates/layouts` 返回 HTTP 200，17522 bytes
     - `:8080` 正常监听，进程为 `3782803`
-    - 启动日志包含 `deck_planner_skill_ready`、`mysql_connected`、`server_starting addr=:8080`，无立即失败。
+    - 启动日志包含 `ppt_planner_skill_ready`、`mysql_connected`、`server_starting addr=:8080`，无立即失败。
   - 清理：远端 `/tmp/ppt-agent-linux-99bf425`、health/layouts smoke 响应文件已删除。
   - 遗留：本次未发起完整 LLM 生成任务，避免额外消耗用户 Key；已通过单元测试覆盖 outline 进入 TaskExpander 路径，通过线上 health/layouts 和进程重启确认运行包生效。

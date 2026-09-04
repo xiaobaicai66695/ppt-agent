@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,16 +13,14 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
-	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/chattrace"
-	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
@@ -33,14 +33,15 @@ type Server struct {
 	tasks           *task.TaskManager
 	sessionManager  *session.SessionManager
 	agentFactory    task.AgentFactory
-	makeTaskConfig  func(taskID string) *deck.PPTTaskConfig
+	makeTaskConfig  func(taskID string) *ppt.PPTTaskConfig
 	taskIDGen       func() string
 	engine          *gin.Engine
 	addr            string
 	templateLoader  *templates.Loader
 	skillDir        string
 	operator        commandline.Operator
-	logAnalysis     *loganalysis.Service
+	httpServer      *http.Server
+	runContext      context.Context
 	chatTrace       chattrace.Store
 	continueStarter func(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession)
 	aiModelFactory  func(ctx context.Context) (interface {
@@ -61,7 +62,7 @@ type ServerConfig struct {
 	SkillsDir      string
 	Operator       commandline.Operator
 	AgentFactory   task.AgentFactory
-	MakeTaskConfig func(taskID string) *deck.PPTTaskConfig
+	MakeTaskConfig func(taskID string) *ppt.PPTTaskConfig
 	AIModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
@@ -70,12 +71,6 @@ type ServerConfig struct {
 	TextModelFactory func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
 	}, error)
-	// LogAnalysisModelFactory 创建用于后台日志分析的模型。
-	// 如果为 nil，则禁用日志分析功能。
-	LogAnalysisModelFactory func(ctx context.Context) (model.ToolCallingChatModel, error)
-	// LogAnalysisIdleInterval 控制空闲日志分析的运行频率。
-	// 默认为 5 分钟。设置为 0 可禁用空闲分析。
-	LogAnalysisIdleInterval time.Duration
 	// ChatTraceStore is a Redis-backed transient store for safe tool traces.
 	// It must not be replaced with a MySQL implementation.
 	ChatTraceStore chattrace.Store
@@ -109,6 +104,7 @@ func NewServer(cfg *ServerConfig) *Server {
 
 	// Prometheus HTTP 指标中间件
 	engine.Use(metricsMiddleware)
+	engine.Use(requestBodyLimitMiddleware)
 
 	engine.Use(cors.New(cors.Config{
 		AllowAllOrigins:  true,
@@ -130,16 +126,13 @@ func NewServer(cfg *ServerConfig) *Server {
 		skillDir:         cfg.SkillsDir,
 		operator:         cfg.Operator,
 		chatTrace:        cfg.ChatTraceStore,
+		runContext:       context.Background(),
 	}
 
 	// 创建任务管理器。风格要求由当前任务提示词显式携带。
 	s.tasks = task.NewTaskManager(cfg.BaseDir,
 		nil,
-		func(taskID string) {
-			if s.logAnalysis != nil {
-				s.logAnalysis.Trigger(taskID, "failed")
-			}
-		},
+		nil,
 		func(taskID string) {
 			s.onTaskContinue(taskID)
 		},
@@ -153,20 +146,8 @@ func NewServer(cfg *ServerConfig) *Server {
 		}
 	})
 
-	// 初始化日志分析后台服务
-	if cfg.LogAnalysisModelFactory != nil {
-		s.logAnalysis = loganalysis.NewService(&loganalysis.ServiceConfig{
-			ModelFactory: cfg.LogAnalysisModelFactory,
-			IdleInterval: cfg.LogAnalysisIdleInterval,
-			LogLines:     300,
-			SkillsDir:    cfg.SkillsDir,
-		})
-		loganalysis.HasRunningTasksFunc = s.tasks.HasRunningTasks
-		s.logAnalysis.Start()
-	}
-
 	// 页面能力只从 component_contracts.json 加载。
-	s.templateLoader = templates.NewComponentLoader(filepath.Join(cfg.SkillsDir, "ppt-deck-planner"))
+	s.templateLoader = templates.NewComponentLoader(filepath.Join(cfg.SkillsDir, "ppt-planner"))
 
 	// 认证路由（公开）
 	auth := engine.Group("/api/auth")
@@ -230,14 +211,6 @@ func NewServer(cfg *ServerConfig) *Server {
 		tpls.GET("/layouts", s.handleListLayouts)
 	}
 
-	// 日志分析路由（需要认证）
-	logs := engine.Group("/api/log-analyses")
-	logs.Use(s.authMiddleware())
-	{
-		logs.GET("", s.handleListLogAnalyses)
-		logs.GET("/task/:task_id", s.handleGetTaskLogAnalyses)
-	}
-
 	// 管理员路由（需要管理员权限）
 	admin := engine.Group("/api/admin")
 	admin.Use(s.adminMiddleware())
@@ -246,8 +219,6 @@ func NewServer(cfg *ServerConfig) *Server {
 		admin.GET("/users", s.handleAdminUsers)
 		admin.GET("/tasks", s.handleAdminTasks)
 		admin.GET("/feedback", s.handleAdminFeedback)
-		admin.GET("/log-analyses", s.handleAdminLogAnalyses)
-		admin.DELETE("/log-analyses/:id", s.handleAdminDeleteLogAnalysis)
 	}
 
 	// 指标
@@ -306,6 +277,70 @@ func metricsMiddleware(c *gin.Context) {
 
 // Start 启动 HTTP 服务器。
 func (s *Server) Start() error {
+	return s.StartContext(context.Background())
+}
+
+// StartContext serves HTTP until ctx is cancelled, then performs a bounded
+// graceful shutdown. Explicit server timeouts prevent slow clients from
+// holding connections forever (SSE handlers remain long-lived by design).
+func (s *Server) StartContext(ctx context.Context) error {
+	s.runContext = ctx
+	s.tasks.SetBaseContext(ctx)
 	logger.Info("server_starting", "addr", s.addr, "frontend", fmt.Sprintf("http://localhost%s", s.addr))
-	return s.engine.Run(s.addr)
+	readHeaderTimeout := durationEnv("HTTP_READ_HEADER_TIMEOUT", 10*time.Second)
+	readTimeout := durationEnv("HTTP_READ_TIMEOUT", 30*time.Second)
+	idleTimeout := durationEnv("HTTP_IDLE_TIMEOUT", 2*time.Minute)
+	writeTimeout := durationEnv("HTTP_WRITE_TIMEOUT", 0)
+	server := &http.Server{Handler: s.engine, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout, WriteTimeout: writeTimeout}
+	s.httpServer = server
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return err
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Serve(listener) }()
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return s.Shutdown(shutdownCtx)
+	}
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer == nil {
+		return nil
+	}
+	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) runtimeContext() context.Context {
+	if s.runContext != nil {
+		return s.runContext
+	}
+	return context.Background()
+}
+
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed >= 0 {
+			return parsed
+		}
+		logger.Warn("invalid_http_timeout", "key", key, "value", value)
+	}
+	return fallback
+}
+
+const maxRequestBodyBytes = 4 << 20
+
+func requestBodyLimitMiddleware(c *gin.Context) {
+	if c.Request.Body != nil && c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+	}
+	c.Next()
 }

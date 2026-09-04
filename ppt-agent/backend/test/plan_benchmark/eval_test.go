@@ -40,7 +40,7 @@ import (
 	"github.com/joho/godotenv"
 
 	agentcommand "github.com/cloudwego/ppt-agent/pkg/agent/command"
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
@@ -62,7 +62,7 @@ type benchmarkSummary struct {
 	TotalSlides  int                    `json:"total_slides"`
 	DoneSlides   int                    `json:"done_slides"`
 	EventCounts  map[string]int         `json:"event_counts"`
-	ReviewReport *deck.PlanReviewReport `json:"review_report,omitempty"`
+	ReviewReport *ppt.PlanReviewReport `json:"review_report,omitempty"`
 	Error        string                 `json:"error,omitempty"`
 }
 
@@ -74,13 +74,13 @@ type judgeResult struct {
 	Issues     []string           `json:"issues,omitempty"`
 }
 
-func TestGoldDeckSpecsPassReviewer(t *testing.T) {
+func TestGoldPPTSpecsPassReviewer(t *testing.T) {
 	for _, c := range loadBenchmarkCases(t) {
 		t.Run(c.ID, func(t *testing.T) {
 			manifest := loadManifestFile(t, resolveCasePath(t, c.casesRoot, c.GoldManifest))
-			report := deck.ReviewTasksManifest(manifest, "gold:"+c.ID, 1)
+			report := ppt.ReviewTasksManifest(manifest, "gold:"+c.ID, 1)
 			if !report.Passed {
-				t.Fatalf("gold DeckSpec should pass reviewer: %s issues=%s", report.Summary, mustJSON(report.Issues))
+				t.Fatalf("gold PPTSpec should pass reviewer: %s issues=%s", report.Summary, mustJSON(report.Issues))
 			}
 			if report.TotalSlides != len(manifest.Tasks) {
 				t.Fatalf("review total slides = %d, want %d", report.TotalSlides, len(manifest.Tasks))
@@ -89,7 +89,7 @@ func TestGoldDeckSpecsPassReviewer(t *testing.T) {
 	}
 }
 
-func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
+func TestPlannerWorkflowGeneratesReviewedPPTSpec(t *testing.T) {
 	if !envBool("PPT_BENCH_RUN_PLANNER") && !envBool("PPT_BENCH_RUN_LIVE") {
 		t.Skip("set PPT_BENCH_RUN_LIVE=true (or PPT_BENCH_RUN_PLANNER=true) to run the real Planner workflow")
 	}
@@ -113,7 +113,7 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 				StartedAt:   started.Format(time.RFC3339),
 				EventCounts: map[string]int{},
 			}
-			var events []deck.AgentEvent
+			var events []ppt.AgentEvent
 			defer func() {
 				summary.DurationMS = time.Since(started).Milliseconds()
 				writeJSON(t, filepath.Join(caseDir, "summary.json"), summary)
@@ -125,7 +125,7 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 
 			operator := &agentcommand.LocalOperator{}
 			ctx = operator.SetWorkDir(ctx, caseDir)
-			cfg := &deck.PPTTaskConfig{
+			cfg := &ppt.PPTTaskConfig{
 				WorkDir:     caseDir,
 				TaskID:      "bench-" + c.ID,
 				Query:       c.Query,
@@ -133,12 +133,12 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 				Operator:    operator,
 				SkillsDir:   filepath.Join(projectRoot(t), "skills"),
 			}
-			agent, err := deck.NewPPTPlannerAgent(ctx, cfg)
+			agent, err := ppt.NewPPTPlannerAgent(ctx, cfg)
 			if err != nil {
 				summary.Error = err.Error()
 				t.Fatal(err)
 			}
-			result, err := deck.RunPPTPlannerWithCallback(ctx, agent, cfg, c.Query, func(event deck.AgentEvent) {
+			result, err := ppt.RunPPTPlannerWithCallback(ctx, agent, cfg, c.Query, func(event ppt.AgentEvent) {
 				events = append(events, event)
 				summary.EventCounts[event.Type]++
 			})
@@ -147,17 +147,17 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			manifest, err := deck.ReadTasksManifest(caseDir)
+			manifest, err := ppt.ReadTasksManifest(caseDir)
 			if err != nil {
 				summary.Error = err.Error()
 				t.Fatal(err)
 			}
-			report := deck.ReviewTasksManifest(manifest, "generated:"+c.ID, 1)
+			report := ppt.ReviewTasksManifest(manifest, "generated:"+c.ID, 1)
 			summary.ReviewReport = report
 			summary.TotalSlides = result.TotalSlides
 			summary.DoneSlides = result.DoneSlides
 			if !report.Passed {
-				t.Fatalf("generated DeckSpec did not pass reviewer: %s issues=%s", report.Summary, mustJSON(report.Issues))
+				t.Fatalf("generated PPTSpec did not pass reviewer: %s issues=%s", report.Summary, mustJSON(report.Issues))
 			}
 			if _, err := os.Stat(filepath.Join(caseDir, "tasks.review.json")); err != nil {
 				t.Fatalf("planner workflow should persist tasks.review.json: %v", err)
@@ -166,7 +166,7 @@ func TestPlannerWorkflowGeneratesReviewedDeckSpec(t *testing.T) {
 	}
 }
 
-func TestPlanJudgeAPIScoresDeckSpecs(t *testing.T) {
+func TestPlanJudgeAPIScoresPPTSpecs(t *testing.T) {
 	if !envBool("PPT_BENCH_RUN_JUDGE") && !envBool("PPT_BENCH_RUN_LIVE") {
 		t.Skip("set PPT_BENCH_RUN_LIVE=true (or PPT_BENCH_RUN_JUDGE=true) to call the Judge API")
 	}
@@ -191,7 +191,7 @@ func TestPlanJudgeAPIScoresDeckSpecs(t *testing.T) {
 	for _, target := range targets {
 		t.Run(target.caseID, func(t *testing.T) {
 			manifest := loadManifestFile(t, target.manifestPath)
-			report := deck.ReviewTasksManifest(manifest, target.manifestPath, 1)
+			report := ppt.ReviewTasksManifest(manifest, target.manifestPath, 1)
 			if !report.Passed {
 				t.Fatalf("manifest must pass deterministic reviewer before Judge: %s issues=%s", report.Summary, mustJSON(report.Issues))
 			}
@@ -204,7 +204,7 @@ func TestPlanJudgeAPIScoresDeckSpecs(t *testing.T) {
 	}
 }
 
-func TestGoldDecksRenderWithSkillScripts(t *testing.T) {
+func TestGoldPPTsRenderWithSkillScripts(t *testing.T) {
 	if !envBool("PPT_BENCH_RUN_GOLD_RENDER") {
 		t.Skip("set PPT_BENCH_RUN_GOLD_RENDER=true to render gold manifests")
 	}
@@ -221,13 +221,13 @@ func TestGoldDecksRenderWithSkillScripts(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), envDuration("PPT_BENCH_RENDER_TIMEOUT", 5*time.Minute))
 			defer cancel()
-			cfg := &deck.PPTTaskConfig{
+			cfg := &ppt.PPTTaskConfig{
 				WorkDir:     workDir,
 				TaskID:      "gold-render-" + c.ID,
 				Concurrency: 2,
 				SkillsDir:   filepath.Join(projectRoot(t), "skills"),
 			}
-			result, err := deck.RenderPPT(ctx, cfg, nil)
+			result, err := ppt.RenderPPT(ctx, cfg, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -311,7 +311,7 @@ func generatedJudgeTargets(t *testing.T, resultsDir string, cases []benchmarkCas
 	return targets
 }
 
-func callJudge(t *testing.T, apiKey, model string, target judgeTarget, manifest *deck.TasksManifest, rubric string) judgeResult {
+func callJudge(t *testing.T, apiKey, model string, target judgeTarget, manifest *ppt.TasksManifest, rubric string) judgeResult {
 	t.Helper()
 	payload := map[string]any{
 		"model":       model,
@@ -365,7 +365,7 @@ func callJudge(t *testing.T, apiKey, model string, target judgeTarget, manifest 
 	return result
 }
 
-func judgePrompt(target judgeTarget, manifest *deck.TasksManifest, rubric string) string {
+func judgePrompt(target judgeTarget, manifest *ppt.TasksManifest, rubric string) string {
 	payload := map[string]any{
 		"case": map[string]any{
 			"id":        target.caseID,
@@ -375,7 +375,7 @@ func judgePrompt(target judgeTarget, manifest *deck.TasksManifest, rubric string
 			"must_not":  target.mustNot,
 		},
 		"contract_summary": map[string]any{
-			"judge_scope": "Hard schema validity and deterministic DeckSpec review already passed in Go. Judge semantic plan quality only.",
+			"judge_scope": "Hard schema validity and deterministic PPTSpec review already passed in Go. Judge semantic plan quality only.",
 		},
 		"rubric":         rubric,
 		"tasks_manifest": manifest,
@@ -449,9 +449,9 @@ func limitedCases(cases []benchmarkCase, limit int) []benchmarkCase {
 	return cases
 }
 
-func loadManifestFile(t *testing.T, path string) *deck.TasksManifest {
+func loadManifestFile(t *testing.T, path string) *ppt.TasksManifest {
 	t.Helper()
-	var manifest deck.TasksManifest
+	var manifest ppt.TasksManifest
 	if err := json.Unmarshal(readFile(t, path), &manifest); err != nil {
 		t.Fatalf("load manifest %s: %v", path, err)
 	}

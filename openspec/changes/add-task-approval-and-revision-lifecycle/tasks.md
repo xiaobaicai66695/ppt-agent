@@ -4,9 +4,9 @@
 - [x] 1.2 Persist pending approval requests and provide idempotent owner-only approve, adjust-scope and reject transitions.
 - [ ] 1.3 Emit runtime/SSE status events for approval pauses, decisions and normalized recovery actions; add focused state transition tests.
 
-## 2. Candidate deck revisions
+## 2. Candidate ppt revisions
 
-- [ ] 2.1 Add immutable revision records and workspace snapshot helpers for active and candidate deck artifacts.
+- [ ] 2.1 Add immutable revision records and workspace snapshot helpers for active and candidate ppt artifacts.
 - [ ] 2.2 Route completed-task modifications through candidate creation without overwriting the active revision.
 - [ ] 2.3 Add owner-only candidate accept, reject and rollback transitions with artifact/manifest integrity tests.
 

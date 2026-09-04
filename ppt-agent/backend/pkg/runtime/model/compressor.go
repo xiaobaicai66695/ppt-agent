@@ -148,7 +148,7 @@ type CompressionSummary struct {
 		OtherDecisions []string `json:"other_decisions,omitempty"` // 其他关键决策
 	} `json:"key_decisions"`
 
-	// ProgressSummary 规划摘要：DeckSpec 当前状态与仍需补齐的字段
+	// ProgressSummary 规划摘要：PPTSpec 当前状态与仍需补齐的字段
 	ProgressSummary string `json:"progress_summary"`
 
 	// ConversationSummary 自由格式对话摘要，描述中间轮次的交互过程
@@ -305,7 +305,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 {
 	"user_request_summary": "一句话重述用户最终要完成的目标",
 	"preserved_requirements": ["仍然生效的用户要求，保持原意和优先级"],
-  "progress_summary": "简要描述 DeckSpec 已确定内容和待补字段（50字以内）",
+  "progress_summary": "简要描述 PPTSpec 已确定内容和待补字段（50字以内）",
   "conversation_summary": "用50字以内概括中间轮次的交互过程"
 }`, baseJSON, firstNonEmptyCompressionString(previousText, "无"), firstNonEmptyCompressionString(strings.TrimSpace(latestUserRequest), "无"), conversationText)
 
@@ -313,7 +313,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 	defer cancel()
 
 	resp, err := summarizer.Generate(sumCtx, []*schema.Message{
-		schema.SystemMessage("你负责生成 PPT Planner 的结构化上下文交接。保留用户目标、DeckSpec 决策和有效约束，输出 JSON 对象。"),
+		schema.SystemMessage("你负责生成 PPT Planner 的结构化上下文交接。保留用户目标、PPTSpec 决策和有效约束，输出 JSON 对象。"),
 		schema.UserMessage(summaryPrompt),
 	})
 	if err != nil {

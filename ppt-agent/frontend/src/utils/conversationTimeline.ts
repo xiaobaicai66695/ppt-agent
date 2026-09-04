@@ -4,6 +4,7 @@ export type ExecutionState = 'running' | 'success' | 'error'
 
 export type ToolInvocation = {
   id: string
+  callID?: string
   name: string
   label: string
   callDetail?: string
@@ -78,18 +79,18 @@ export function finishToolPhase(items: ConversationTimelineItem[], phaseID?: str
   return true
 }
 
-export function appendToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', preview?: ToolPreview) {
+export function appendToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', preview?: ToolPreview, callID?: string) {
   const phase = findPhase(items, phaseID)
   if (!phase) return undefined
-  const tool: ToolInvocation = { id: nextID('tool'), name, label, callDetail: detail, preview, state: 'running', expanded: true }
+  const tool: ToolInvocation = { id: nextID('tool'), callID, name, label, callDetail: detail, preview, state: 'running', expanded: true }
   phase.tools.push(tool)
   return tool.id
 }
 
-export function resolveToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', state: ExecutionState = 'success', preview?: ToolPreview) {
+export function resolveToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', state: ExecutionState = 'success', preview?: ToolPreview, callID?: string) {
   const phase = findPhase(items, phaseID)
   if (!phase) return undefined
-  const tool = [...phase.tools].reverse().find(candidate => candidate.name === name && candidate.state === 'running')
+  const tool = [...phase.tools].reverse().find(candidate => candidate.state === 'running' && (callID ? candidate.callID === callID : candidate.name === name))
   if (tool) {
     tool.label = label
     tool.resultDetail = detail
@@ -97,7 +98,7 @@ export function resolveToolInvocation(items: ConversationTimelineItem[], phaseID
     tool.state = state
     return tool.id
   }
-  const id = appendToolInvocation(items, phase.id, name, label, '', preview)
+  const id = appendToolInvocation(items, phase.id, name, label, '', preview, callID)
   const recovered = phase.tools.find(candidate => candidate.id === id)
   if (recovered) {
     recovered.resultDetail = detail

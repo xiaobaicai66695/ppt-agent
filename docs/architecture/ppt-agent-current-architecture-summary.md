@@ -13,7 +13,7 @@ LLM 负责：
 - 理解用户需求、受众、场景和交付目标
 - 规划整套 PPT 的叙事结构、章节节奏和页面角色
 - 选择合法 content_type，填写 description 与 content_plan.components
-- 在规划阶段审查和润色 DeckSpec
+- 在规划阶段审查和润色 PPTSpec
 
 代码负责：
 - schema、容量、content_type、background、output_file 校验
@@ -32,7 +32,7 @@ LLM 负责：
   ↓
 创建入口意图分类：新建 PPT / 修改已有任务 / 主题澄清 / 闲聊
   ↓
-PPTPlanner 生成 DeckSpec 草稿
+PPTPlanner 生成 PPTSpec 草稿
   ↓
 TaskPlanReviewer 根据 Go 审查报告检查并修正需求偏差、叙事、容量和组件 schema
   ↓
@@ -40,7 +40,7 @@ Go 最多执行 3 轮校验/修正循环
   ↓
 最终 commit 为 tasks.json
   ↓
-DeckRenderWorkflow 按页并发渲染
+PPTRenderWorkflow 按页并发渲染
   ↓
 输出文件对账、合并、缩略图、下载交付
   ↓
@@ -55,13 +55,13 @@ DeckRenderWorkflow 按页并发渲染
 | --- | --- | --- |
 | Web/API | `ppt-agent/backend/pkg/runtime/web` | 任务创建、鉴权、SSE、下载、缩略图、conversation、runtime event 查询 |
 | 任务状态 | `ppt-agent/backend/pkg/runtime/task` | 任务生命周期、工作目录、DB 持久化、SSE 缓存、交付终态校验 |
-| 规划编排 | `ppt-agent/backend/pkg/agent/deck` | Planner、manifest 工具、草稿/提交、恢复、并发渲染 workflow |
+| 规划编排 | `ppt-agent/backend/pkg/agent/ppt` | Planner、manifest 工具、草稿/提交、恢复、并发渲染 workflow |
 | Prompt | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立职责提示词 |
 | 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 `component_contracts.json` 页面类型契约和 theme 元数据；不再维护固定整套 preset |
 | 前端工作台 | `ppt-agent/frontend/src` | 生成入口、任务列表、预览下载、会话、执行观察和运行状态 |
-| PPT Deck Planner 与生成器 | `ppt-agent/skills/ppt-deck-planner` | Skill 契约、组件 schema、Python generator、图片落盘和渲染测试 |
+| PPT Planner 与生成器 | `ppt-agent/skills/ppt-planner` | Skill 契约、组件 schema、Python generator、图片落盘和渲染测试 |
 
-## 4. DeckSpec / tasks.json 契约
+## 4. PPTSpec / tasks.json 契约
 
 `tasks.json` 是跨 Planner、Renderer、TaskManager、前端展示和下载交付的核心契约。
 

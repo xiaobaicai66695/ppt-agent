@@ -18,10 +18,10 @@ package prints
 
 import (
 	"fmt"
-	"io"
-	"strings"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
+	"io"
+	"strings"
 )
 
 const (

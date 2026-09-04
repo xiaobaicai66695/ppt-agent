@@ -19,6 +19,7 @@ type TaskRecord struct {
 	Files                string     `gorm:"type:text" json:"files"`
 	ConversationContent  string     `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
 	FullAnswer           string     `gorm:"type:longtext" json:"full_answer"`          // 完整拼接的 LLM 回答（用于冷加载恢复）
+	AssistantTurns       string     `gorm:"type:longtext" json:"assistant_turns"`      // 按 answer_end 分隔的助手回答段 JSON
 	Intent               string     `gorm:"size:32;index" json:"intent"`
 	ConversationID       string     `gorm:"size:64;index" json:"conversation_id"`
 	SourceMessageID      string     `gorm:"size:64;index" json:"source_message_id"`
@@ -31,7 +32,7 @@ type TaskRecord struct {
 	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
-// TaskFeedback stores one owner's reusable evaluation of a delivered deck.
+// TaskFeedback stores one owner's reusable evaluation of a delivered ppt.
 type TaskFeedback struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	TaskID     string    `gorm:"size:64;uniqueIndex:idx_task_feedback_task_user;index;not null" json:"task_id"`

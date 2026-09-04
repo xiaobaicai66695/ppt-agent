@@ -20,7 +20,7 @@ func TestLoaderPreservesLayoutContractMetadata(t *testing.T) {
 				"recommended_components":["headline","list"],
 				"capacity":{"max_items":6,"density":"normal"},
 				"variants":["balanced"],
-				"deck_rule":""
+				"ppt_rule":""
 			}
 		}
 	}`

@@ -193,7 +193,7 @@ func guestIPFingerprint(value string) string {
 	}
 	secret := strings.TrimSpace(os.Getenv("GUEST_IP_HASH_SECRET"))
 	if secret == "" {
-		secret = "deckform-guest-identity-v1"
+		secret = "pptform-guest-identity-v1"
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(ip.String()))

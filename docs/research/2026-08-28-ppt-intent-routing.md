@@ -24,7 +24,7 @@
 
 ## 现状
 
-- 后端已有 `/api/tasks` 创建入口，并有 `request_router.go` 对创建请求做 `create_deck/fix_existing/clarify_topic/chat` 分类。
+- 后端已有 `/api/tasks` 创建入口，并有 `request_router.go` 对创建请求做 `create_ppt/fix_existing/clarify_topic/chat` 分类。
 - 该分类仍以“创建入口防误用”为中心，缺少 `plan`，也没有统一 message API。
 - 前端首页和 Dashboard 无选中任务时直接调用 `createTask`；选中任务时直接调用 `continueTask`，导致闲聊也可能被当成修复反馈。
 - 现有工具中已有 `search` 和 `search_images`，可复用给 chat 回答，但需要允许配置缺失时降级。
@@ -58,7 +58,7 @@
 
 ## 风险与待确认问题
 
-- 服务端已新增 `PlanDraftRecord` 和 `/api/plan-drafts` 草稿 API；后续仍需把草稿升级为完整 DeckSpec 编辑/创建链路，而不是只保存规划文本。
+- 服务端已新增 `PlanDraftRecord` 和 `/api/plan-drafts` 草稿 API；后续仍需把草稿升级为完整 PPTSpec 编辑/创建链路，而不是只保存规划文本。
 - `chat` 搜索能力依赖 `QIANFAN_API_KEY`、`UNSPLASH_ACCESS_KEY` 等环境配置，未配置时只能降级。
 - 低置信度阈值已支持环境变量：`PPT_INTENT_LOW_CONFIDENCE_THRESHOLD`、`PPT_INTENT_CREATE_MISSING_FIELDS_AUTO_THRESHOLD`。
 - 前端手动模式优先级需要继续细化：手动选择 PPT Agent 不等于绕过后端 create/fix/plan 裁判。

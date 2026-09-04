@@ -6,13 +6,12 @@ import (
 	"strings"
 
 	"github.com/cloudwego/ppt-agent/pkg/auth"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/gin-gonic/gin"
 )
 
 func (s *Server) handleSendCode(c *gin.Context) {
-	var req struct {
-		Email string `json:"email"`
-	}
+	var req webmodel.SendCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return
@@ -25,11 +24,7 @@ func (s *Server) handleSendCode(c *gin.Context) {
 }
 
 func (s *Server) handleLogin(c *gin.Context) {
-	var req struct {
-		Email    string `json:"email"`
-		Code     string `json:"code"`
-		Password string `json:"password"`
-	}
+	var req webmodel.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return
@@ -56,11 +51,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 }
 
 func (s *Server) handleRegister(c *gin.Context) {
-	var req struct {
-		Email    string `json:"email"`
-		Code     string `json:"code"`
-		Password string `json:"password"`
-	}
+	var req webmodel.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return
@@ -98,9 +89,7 @@ func guestRemoteIP(c *gin.Context) string {
 }
 
 func (s *Server) handleSetPassword(c *gin.Context) {
-	var req struct {
-		Password string `json:"password"`
-	}
+	var req webmodel.SetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
 		return

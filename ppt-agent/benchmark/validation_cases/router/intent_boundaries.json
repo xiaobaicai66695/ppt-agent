@@ -8,7 +8,7 @@
       "conversation_context": []
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "must_extract": {"topic": "社区助餐项目半年复盘", "audience": "基金会理事会", "page_count": 5}
     },
@@ -23,7 +23,7 @@
       "conversation_context": []
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "must_extract": {"topic": "青甘大环线旅游项目介绍"}
     },
@@ -38,7 +38,7 @@
       "conversation_context": []
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "must_extract": {"topic": "新能源汽车出海趋势分析报告"}
     },
@@ -53,7 +53,7 @@
       "conversation_context": []
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "must_extract": {"topic": "智能家居新品发布会演示文稿"}
     },
@@ -68,7 +68,7 @@
       "conversation_context": []
     },
     "expected": {
-      "intent": "create_deck",
+      "intent": "create_ppt",
       "target_agent": "PPTPlanner",
       "must_extract": {"topic": "乡村民宿招商项目介绍"}
     },

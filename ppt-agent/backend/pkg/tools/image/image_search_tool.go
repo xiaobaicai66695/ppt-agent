@@ -1,7 +1,7 @@
 // Package image exposes an Unsplash-backed image search tool for project
 // agents. It deliberately returns remote candidates and attribution only; the
 // PPT planner's deterministic materialization stage remains responsible for
-// deck asset downloads.
+// ppt asset downloads.
 package image
 
 import (

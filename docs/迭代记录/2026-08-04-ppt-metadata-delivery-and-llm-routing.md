@@ -32,7 +32,7 @@
 - `ppt-agent/backend/pkg/agent/intent/`
 - `ppt-agent/backend/pkg/agent/router/engine.go`
 - `ppt-agent/backend/pkg/agent/learning/engine.go`
-- `ppt-agent/backend/pkg/agent/deck/agent.go`
+- `ppt-agent/backend/pkg/agent/ppt/agent.go`
 - `ppt-agent/backend/pkg/prompts/planner/master_instruction.tmpl`
 - `ppt-agent/backend/pkg/task/delivery_metadata.go`
 - `ppt-agent/backend/pkg/task/manager.go`

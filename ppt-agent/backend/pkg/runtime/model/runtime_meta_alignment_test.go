@@ -114,7 +114,7 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	meta.RecordToolEnd("python3", fullArgs, fullResult)
 	meta.RecordLLMStartDetails("ChatModel", map[string]any{
 		"history": []map[string]any{
-			{"role": "user", "content": "build a deck"},
+			{"role": "user", "content": "build a ppt"},
 			{"role": "meta", "content": "llm_call_metadata", "metadata": map[string]any{"model": "test-model"}},
 		},
 	})
@@ -254,7 +254,7 @@ func TestRuntimeMetaDeduplicatesManifestValidationAndUsesProgressStatus(t *testi
 	if events[1].Detail != "已完成 1/2 页，还有 1 页待生成" {
 		t.Fatalf("unexpected progress detail: %q", events[1].Detail)
 	}
-	if got := meta.Snapshot().EventCounts["deck_spec_validated"]; got != 3 {
+	if got := meta.Snapshot().EventCounts["ppt_spec_validated"]; got != 3 {
 		t.Fatalf("manifest event count = %d, want 3", got)
 	}
 	for _, event := range events {

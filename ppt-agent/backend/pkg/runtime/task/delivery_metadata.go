@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 )
 
 var errDeliveryMetadataComplete = errors.New("delivery metadata complete")
 
-// DeliverySnapshot is the code-owned terminal contract for a generated deck.
+// DeliverySnapshot is the code-owned terminal contract for a generated ppt.
 // The LLM may create pages, but it never decides whether this snapshot is done.
 type DeliverySnapshot struct {
 	Total        int
@@ -22,7 +22,7 @@ func (s DeliverySnapshot) Complete() bool {
 	return s.Total > 0 && s.Done == s.Total && len(s.PendingTasks) == 0
 }
 
-func deliverySnapshotFromManifest(manifest *deck.TasksManifest) DeliverySnapshot {
+func deliverySnapshotFromManifest(manifest *ppt.TasksManifest) DeliverySnapshot {
 	if manifest == nil {
 		return DeliverySnapshot{}
 	}
@@ -59,7 +59,7 @@ func (ts *TaskState) deliverySnapshot() DeliverySnapshot {
 }
 
 func (tm *TaskManager) syncDeliveryMetadata(ts *TaskState, workDir string) (DeliverySnapshot, error) {
-	manifest, err := deck.ReconcileTasksManifestOutputFiles(workDir)
+	manifest, err := ppt.ReconcileTasksManifestOutputFiles(workDir)
 	if err != nil {
 		return DeliverySnapshot{}, err
 	}

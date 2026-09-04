@@ -9,29 +9,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 )
 
-type planDraftResponse struct {
-	ID                string    `json:"id"`
-	UserID            uint      `json:"user_id"`
-	ConversationID    string    `json:"conversation_id"`
-	SourceMessageID   string    `json:"source_message_id"`
-	Query             string    `json:"query"`
-	NormalizedRequest string    `json:"normalized_request"`
-	DraftContent      string    `json:"draft_content"`
-	Status            string    `json:"status"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-}
+type planDraftResponse = webmodel.PlanDraftResponse
 
 func (s *Server) handleCreatePlanDraft(c *gin.Context) {
-	var req struct {
-		Query             string `json:"query"`
-		NormalizedRequest string `json:"normalized_request,omitempty"`
-		DraftContent      string `json:"draft_content,omitempty"`
-		ConversationID    string `json:"conversation_id,omitempty"`
-		SourceMessageID   string `json:"source_message_id,omitempty"`
-	}
+	var req webmodel.PlanDraftRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Query) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
 		return

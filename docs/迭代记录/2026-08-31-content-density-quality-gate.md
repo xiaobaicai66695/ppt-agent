@@ -16,10 +16,10 @@
 
 ## 本地验证
 
-- `go test ./pkg/agent/deck ./pkg/prompts ./cmd/pptbench` 通过。
+- `go test ./pkg/agent/ppt ./pkg/prompts ./cmd/pptbench` 通过。
 - `go build ./...` 通过。
 - `npm run build` 通过。
-- bundled Python：全部 generator 编译通过，`python -m unittest discover -s skills/ppt-deck-planner/tests` 为 33/33 通过。
+- bundled Python：全部 generator 编译通过，`python -m unittest discover -s skills/ppt-planner/tests` 为 33/33 通过。
 - 生成两页验收 PPT 并经 LibreOffice 转 PDF/PNG 检查：`image_text` 正文 15pt、`card_grid` 正文 13.2pt，未出现正文溢出或原有小字大空框。
 
 ## Benchmark 发布门禁
@@ -33,8 +33,8 @@
 
 ## 部署与线上冒烟
 
-- 目标：`remote-dev:/ppt/ppt-agent`。后端 Linux 二进制、`frontend/dist` 和 `skills/ppt-deck-planner` 已替换；本次旧版本备份保留在 `/ppt/ppt-agent/.release-backups/20260831-density-release-014244`。
-- 2026-08-31 启动新进程 PID `809752`，cwd `/ppt/ppt-agent/backend`，监听 `:8080`；日志确认 `deck_planner_skill_ready` 与 `mysql_connected`。
+- 目标：`remote-dev:/ppt/ppt-agent`。后端 Linux 二进制、`frontend/dist` 和 `skills/ppt-planner` 已替换；本次旧版本备份保留在 `/ppt/ppt-agent/.release-backups/20260831-density-release-014244`。
+- 2026-08-31 启动新进程 PID `809752`，cwd `/ppt/ppt-agent/backend`，监听 `:8080`；日志确认 `ppt_planner_skill_ready` 与 `mysql_connected`。
 - `GET /api/health`、`/`、`/dashboard`、`/api/templates/layouts` 均返回 200，公网 `http://124.220.22.162:8080/` 同样通过。
 - `/api/templates` 返回 404 是当前路由契约（旧接口已移除），不是本次发布故障；模板布局接口为 `/api/templates/layouts`。
 - 已清理本次 `/tmp/ppt-agent-release-20260831-density-release-014244` 传输包和 `.deploy-staging/20260831-density-release-014244`；回退备份与当前运行文件保留。

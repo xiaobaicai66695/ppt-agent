@@ -1,7 +1,7 @@
 # benchmark-suite-sample-coverage Specification
 
 ## Purpose
-TBD - created by archiving change expand-benchmark-and-collect-deck-feedback. Update Purpose after archive.
+TBD - created by archiving change expand-benchmark-and-collect-ppt-feedback. Update Purpose after archive.
 ## Requirements
 ### Requirement: Balanced benchmark suite coverage
 The system SHALL provide at least ten valid, uniquely identified cases for each `router`, `planner`, `reviewer`, and `fixer` suite in both the `test` and `validation` benchmark datasets.

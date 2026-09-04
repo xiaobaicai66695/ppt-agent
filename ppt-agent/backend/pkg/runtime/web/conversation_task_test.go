@@ -77,7 +77,7 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	}
 }
 
-func TestHandleMessageFixWithoutDeckRequiresTaskSelection(t *testing.T) {
+func TestHandleMessageFixWithoutPPTRequiresTaskSelection(t *testing.T) {
 	previousDB := db.DB
 	db.DB = nil
 	t.Cleanup(func() { db.DB = previousDB })

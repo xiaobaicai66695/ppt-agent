@@ -38,9 +38,9 @@
 | `HasExistingTask` | `bool` | ``json:"has_existing_task"`` | 承载 HasExistingTask 的 bool 值；业务上下文见本 struct 的源码包。 |
 | `TasksSummary` | `string` | ``json:"tasks_summary"`` | 承载 TasksSummary 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ConversationContext` | `[]string` | ``json:"conversation_context"`` | 承载 ConversationContext 的 []string 值；业务上下文见本 struct 的源码包。 |
-| `DraftTasks` | `*deck.TasksManifest` | ``json:"draft_tasks"`` | 承载 DraftTasks 的 *deck.TasksManifest 值；业务上下文见本 struct 的源码包。 |
-| `BaseTasks` | `*deck.TasksManifest` | ``json:"base_tasks"`` | 承载 BaseTasks 的 *deck.TasksManifest 值；业务上下文见本 struct 的源码包。 |
-| `ReviewIssues` | `[]deck.PlanReviewIssue` | ``json:"review_issues"`` | 承载 ReviewIssues 的 []deck.PlanReviewIssue 值；业务上下文见本 struct 的源码包。 |
+| `DraftTasks` | `*ppt.TasksManifest` | ``json:"draft_tasks"`` | 承载 DraftTasks 的 *ppt.TasksManifest 值；业务上下文见本 struct 的源码包。 |
+| `BaseTasks` | `*ppt.TasksManifest` | ``json:"base_tasks"`` | 承载 BaseTasks 的 *ppt.TasksManifest 值；业务上下文见本 struct 的源码包。 |
+| `ReviewIssues` | `[]ppt.PlanReviewIssue` | ``json:"review_issues"`` | 承载 ReviewIssues 的 []ppt.PlanReviewIssue 值；业务上下文见本 struct 的源码包。 |
 | `AllowedPageIndexes` | `[]int` | ``json:"allowed_page_indexes"`` | 承载 AllowedPageIndexes 的 []int 值；业务上下文见本 struct 的源码包。 |
 | `SourceMaterials` | `[]any` | ``json:"source_materials"`` | 承载 SourceMaterials 的 []any 值；业务上下文见本 struct 的源码包。 |
 | `Requirements` | `[]string` | ``json:"requirements"`` | 承载 Requirements 的 []string 值；业务上下文见本 struct 的源码包。 |
@@ -56,8 +56,8 @@
 | `Output` | `any` | ``json:"output,omitempty"`` | 承载 Output 的 any 值；业务上下文见本 struct 的源码包。 |
 | `Before` | `any` | ``json:"before,omitempty"`` | 承载 Before 的 any 值；业务上下文见本 struct 的源码包。 |
 | `After` | `any` | ``json:"after,omitempty"`` | 承载 After 的 any 值；业务上下文见本 struct 的源码包。 |
-| `Events` | `[]deck.AgentEvent` | ``json:"events,omitempty"`` | 承载 Events 的 []deck.AgentEvent 值；业务上下文见本 struct 的源码包。 |
-| `DeterministicReview` | `*deck.PlanReviewReport` | ``json:"deterministic_review,omitempty"`` | 承载 DeterministicReview 的 *deck.PlanReviewReport 值；业务上下文见本 struct 的源码包。 |
+| `Events` | `[]ppt.AgentEvent` | ``json:"events,omitempty"`` | 承载 Events 的 []ppt.AgentEvent 值；业务上下文见本 struct 的源码包。 |
+| `DeterministicReview` | `*ppt.PlanReviewReport` | ``json:"deterministic_review,omitempty"`` | 承载 DeterministicReview 的 *ppt.PlanReviewReport 值；业务上下文见本 struct 的源码包。 |
 | `ContentQuality` | `*contentQualityReport` | ``json:"content_quality,omitempty"`` | 承载 ContentQuality 的 *contentQualityReport 值；业务上下文见本 struct 的源码包。 |
 | `Error` | `string` | ``json:"error,omitempty"`` | 失败原因或错误详情。 |
 
@@ -70,7 +70,7 @@
 | `Output` | `any` | ``json:"output,omitempty"`` | 承载 Output 的 any 值；业务上下文见本 struct 的源码包。 |
 | `Before` | `any` | ``json:"before,omitempty"`` | 承载 Before 的 any 值；业务上下文见本 struct 的源码包。 |
 | `After` | `any` | ``json:"after,omitempty"`` | 承载 After 的 any 值；业务上下文见本 struct 的源码包。 |
-| `DeterministicReview` | `*deck.PlanReviewReport` | ``json:"deterministic_review,omitempty"`` | 承载 DeterministicReview 的 *deck.PlanReviewReport 值；业务上下文见本 struct 的源码包。 |
+| `DeterministicReview` | `*ppt.PlanReviewReport` | ``json:"deterministic_review,omitempty"`` | 承载 DeterministicReview 的 *ppt.PlanReviewReport 值；业务上下文见本 struct 的源码包。 |
 | `ContentQuality` | `*contentQualityReport` | ``json:"content_quality,omitempty"`` | 承载 ContentQuality 的 *contentQualityReport 值；业务上下文见本 struct 的源码包。 |
 | `Error` | `string` | ``json:"error,omitempty"`` | 失败原因或错误详情。 |
 
@@ -78,7 +78,7 @@
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
-| `DeckClaim` | `string` | ``json:"deck_claim,omitempty"`` | 承载 DeckClaim 的 string 值；业务上下文见本 struct 的源码包。 |
+| `PPTClaim` | `string` | ``json:"ppt_claim,omitempty"`` | 承载 PPTClaim 的 string 值；业务上下文见本 struct 的源码包。 |
 | `PageClaims` | `[]contentPageClaim` | ``json:"page_claims,omitempty"`` | 承载 PageClaims 的 []contentPageClaim 值；业务上下文见本 struct 的源码包。 |
 | `MissingClaimPages` | `[]int` | ``json:"missing_claim_pages,omitempty"`` | 承载 MissingClaimPages 的 []int 值；业务上下文见本 struct 的源码包。 |
 | `DuplicateClaimGroups` | `[][]int` | ``json:"duplicate_claim_groups,omitempty"`` | 承载 DuplicateClaimGroups 的 [][]int 值；业务上下文见本 struct 的源码包。 |
@@ -183,7 +183,7 @@
 | `mu` | `sync.RWMutex` | `` | 承载 mu 的 sync.RWMutex 值；业务上下文见本 struct 的源码包。 |
 | `workDir` | `string` | `` | 承载 workDir 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `plannedBackgroundTarget` — `pkg/agent/deck/background_assets.go:30`
+## `plannedBackgroundTarget` — `pkg/agent/ppt/background_assets.go:30`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -197,7 +197,7 @@
 | `visual` | `*VisualIntent` | `` | 承载 visual 的 *VisualIntent 值；业务上下文见本 struct 的源码包。 |
 | `component` | `*PlanComponent` | `` | 承载 component 的 *PlanComponent 值；业务上下文见本 struct 的源码包。 |
 
-## `assetQueryRevisionRequest` — `pkg/agent/deck/background_assets.go:44`
+## `assetQueryRevisionRequest` — `pkg/agent/ppt/background_assets.go:44`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -205,14 +205,14 @@
 | `PageIndexes` | `[]int` | `` | 承载 PageIndexes 的 []int 值；业务上下文见本 struct 的源码包。 |
 | `Queries` | `[]string` | `` | 承载 Queries 的 []string 值；业务上下文见本 struct 的源码包。 |
 
-## `assetQueryRevisionError` — `pkg/agent/deck/background_assets.go:50`
+## `assetQueryRevisionError` — `pkg/agent/ppt/background_assets.go:50`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Requests` | `[]assetQueryRevisionRequest` | `` | 承载 Requests 的 []assetQueryRevisionRequest 值；业务上下文见本 struct 的源码包。 |
 | `Cause` | `error` | `` | 承载 Cause 的 error 值；业务上下文见本 struct 的源码包。 |
 
-## `resolvedBackgroundAsset` — `pkg/agent/deck/background_assets.go:78`
+## `resolvedBackgroundAsset` — `pkg/agent/ppt/background_assets.go:78`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -221,21 +221,21 @@
 | `provider` | `string` | `` | 承载 provider 的 string 值；业务上下文见本 struct 的源码包。 |
 | `searchStatus` | `string` | `` | 当前生命周期或处理状态。 |
 
-## `plannedImageAssetTarget` — `pkg/agent/deck/background_assets.go:85`
+## `plannedImageAssetTarget` — `pkg/agent/ppt/background_assets.go:85`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `query` | `string` | `` | 用户或系统发起的查询文本。 |
 | `component` | `*PlanComponent` | `` | 承载 component 的 *PlanComponent 值；业务上下文见本 struct 的源码包。 |
 
-## `MaterializedDeckAssetCounts` — `pkg/agent/deck/background_assets.go:90`
+## `MaterializedPPTAssetCounts` — `pkg/agent/ppt/background_assets.go:90`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Backgrounds` | `int` | `` | 承载 Backgrounds 的 int 值；业务上下文见本 struct 的源码包。 |
 | `Images` | `int` | `` | 承载 Images 的 int 值；业务上下文见本 struct 的源码包。 |
 
-## `DeckRenderEvent` — `pkg/agent/deck/deck_renderer.go:23`
+## `PPTRenderEvent` — `pkg/agent/ppt/ppt_renderer.go:23`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -246,26 +246,26 @@
 | `Detail` | `string` | `` | 承载 Detail 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Error` | `string` | `` | 失败原因或错误详情。 |
 
-## `deckRenderInput` — `pkg/agent/deck/deck_renderer.go:34`
+## `pptRenderInput` — `pkg/agent/ppt/ppt_renderer.go:34`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Config` | `*PPTTaskConfig` | `` | 对应组件的运行配置。 |
-| `Callback` | `DeckRenderEventCallback` | `` | 承载 Callback 的 DeckRenderEventCallback 值；业务上下文见本 struct 的源码包。 |
+| `Callback` | `PPTRenderEventCallback` | `` | 承载 Callback 的 PPTRenderEventCallback 值；业务上下文见本 struct 的源码包。 |
 | `Started` | `time.Time` | `` | 承载 Started 的 time.Time 值；业务上下文见本 struct 的源码包。 |
 
-## `deckRenderContext` — `pkg/agent/deck/deck_renderer.go:40`
+## `pptRenderContext` — `pkg/agent/ppt/ppt_renderer.go:40`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Config` | `*PPTTaskConfig` | `` | 对应组件的运行配置。 |
-| `Callback` | `DeckRenderEventCallback` | `` | 承载 Callback 的 DeckRenderEventCallback 值；业务上下文见本 struct 的源码包。 |
+| `Callback` | `PPTRenderEventCallback` | `` | 承载 Callback 的 PPTRenderEventCallback 值；业务上下文见本 struct 的源码包。 |
 | `Started` | `time.Time` | `` | 承载 Started 的 time.Time 值；业务上下文见本 struct 的源码包。 |
 | `Manifest` | `*TasksManifest` | `` | 承载 Manifest 的 *TasksManifest 值；业务上下文见本 struct 的源码包。 |
 | `Concurrency` | `int` | `` | 承载 Concurrency 的 int 值；业务上下文见本 struct 的源码包。 |
 | `Tasks` | `[]*TaskItem` | `` | 承载 Tasks 的 []*TaskItem 值；业务上下文见本 struct 的源码包。 |
 
-## `draftTasksPatchTool` — `pkg/agent/deck/fixer_manifest_tool.go:39`
+## `draftTasksPatchTool` — `pkg/agent/ppt/fixer_manifest_tool.go:39`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -273,14 +273,14 @@
 | `scoped` | `bool` | `` | 承载 scoped 的 bool 值；业务上下文见本 struct 的源码包。 |
 | `allowed` | `map[int]bool` | `` | 承载 allowed 的 map[int]bool 值；业务上下文见本 struct 的源码包。 |
 
-## `selectedTasksPatchTool` — `pkg/agent/deck/fixer_manifest_tool.go:92`
+## `selectedTasksPatchTool` — `pkg/agent/ppt/fixer_manifest_tool.go:92`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `workDir` | `string` | `` | 承载 workDir 的 string 值；业务上下文见本 struct 的源码包。 |
 | `allowed` | `map[string]bool` | `` | 承载 allowed 的 map[string]bool 值；业务上下文见本 struct 的源码包。 |
 
-## `manifestTaskPatch` — `pkg/agent/deck/manifest_tool.go:79`
+## `manifestTaskPatch` — `pkg/agent/ppt/manifest_tool.go:79`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -294,29 +294,29 @@
 | `EvidenceRefs` | `[]string` | ``json:"evidence_refs,omitempty"`` | 承载 EvidenceRefs 的 []string 值；业务上下文见本 struct 的源码包。 |
 | `ContentPlan` | `*ContentPlan` | ``json:"content_plan,omitempty"`` | 承载 ContentPlan 的 *ContentPlan 值；业务上下文见本 struct 的源码包。 |
 
-## `manifestToolInput` — `pkg/agent/deck/manifest_tool.go:91`
+## `manifestToolInput` — `pkg/agent/ppt/manifest_tool.go:91`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Mode` | `string` | ``json:"mode"`` | 承载 Mode 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Title` | `string` | ``json:"title,omitempty"`` | 承载 Title 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ContentBank` | `map[string]any` | ``json:"content_bank,omitempty"`` | 承载 ContentBank 的 map[string]any 值；业务上下文见本 struct 的源码包。 |
-| `Sections` | `[]DeckSection` | ``json:"sections,omitempty"`` | 承载 Sections 的 []DeckSection 值；业务上下文见本 struct 的源码包。 |
+| `Sections` | `[]PPTSection` | ``json:"sections,omitempty"`` | 承载 Sections 的 []PPTSection 值；业务上下文见本 struct 的源码包。 |
 | `VisualPolicy` | `*VisualPolicy` | ``json:"visual_policy,omitempty"`` | 承载 VisualPolicy 的 *VisualPolicy 值；业务上下文见本 struct 的源码包。 |
 | `Tasks` | `[]manifestTaskPatch` | ``json:"tasks"`` | 承载 Tasks 的 []manifestTaskPatch 值；业务上下文见本 struct 的源码包。 |
 
-## `manifestToolRawInput` — `pkg/agent/deck/manifest_tool.go:100`
+## `manifestToolRawInput` — `pkg/agent/ppt/manifest_tool.go:100`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Mode` | `string` | ``json:"mode"`` | 承载 Mode 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Title` | `string` | ``json:"title,omitempty"`` | 承载 Title 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ContentBank` | `map[string]any` | ``json:"content_bank,omitempty"`` | 承载 ContentBank 的 map[string]any 值；业务上下文见本 struct 的源码包。 |
-| `Sections` | `[]DeckSection` | ``json:"sections,omitempty"`` | 承载 Sections 的 []DeckSection 值；业务上下文见本 struct 的源码包。 |
+| `Sections` | `[]PPTSection` | ``json:"sections,omitempty"`` | 承载 Sections 的 []PPTSection 值；业务上下文见本 struct 的源码包。 |
 | `VisualPolicy` | `*VisualPolicy` | ``json:"visual_policy,omitempty"`` | 承载 VisualPolicy 的 *VisualPolicy 值；业务上下文见本 struct 的源码包。 |
 | `Tasks` | `json.RawMessage` | ``json:"tasks"`` | 承载 Tasks 的 json.RawMessage 值；业务上下文见本 struct 的源码包。 |
 
-## `manifestTool` — `pkg/agent/deck/manifest_tool.go:109`
+## `manifestTool` — `pkg/agent/ppt/manifest_tool.go:109`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -324,13 +324,13 @@
 | `fallbackTitle` | `string` | `` | 承载 fallbackTitle 的 string 值；业务上下文见本 struct 的源码包。 |
 | `draftFirst` | `bool` | `` | 承载 draftFirst 的 bool 值；业务上下文见本 struct 的源码包。 |
 
-## `plannerManifestTool` — `pkg/agent/deck/manifest_tool.go:115`
+## `plannerManifestTool` — `pkg/agent/ppt/manifest_tool.go:115`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `inner` | `*manifestTool` | `` | 承载 inner 的 *manifestTool 值；业务上下文见本 struct 的源码包。 |
 
-## `planReviewRevisionPayload` — `pkg/agent/deck/plan_review_revision.go:10`
+## `planReviewRevisionPayload` — `pkg/agent/ppt/plan_review_revision.go:10`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -341,17 +341,17 @@
 | `IncludedTasks` | `[]planReviewTask` | ``json:"included_tasks,omitempty"`` | 承载 IncludedTasks 的 []planReviewTask 值；业务上下文见本 struct 的源码包。 |
 | `Instructions` | `[]string` | ``json:"instructions"`` | 承载 Instructions 的 []string 值；业务上下文见本 struct 的源码包。 |
 
-## `planReviewScope` — `pkg/agent/deck/plan_review_revision.go:19`
+## `planReviewScope` — `pkg/agent/ppt/plan_review_revision.go:19`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `PageIndexes` | `[]int` | ``json:"page_indexes,omitempty"`` | 承载 PageIndexes 的 []int 值；业务上下文见本 struct 的源码包。 |
 | `SectionIDs` | `[]string` | ``json:"section_ids,omitempty"`` | 承载 SectionIDs 的 []string 值；业务上下文见本 struct 的源码包。 |
 | `AllowedPageIndexes` | `[]int` | ``json:"allowed_page_indexes,omitempty"`` | 承载 AllowedPageIndexes 的 []int 值；业务上下文见本 struct 的源码包。 |
-| `IncludesDeckLevel` | `bool` | ``json:"includes_deck_level,omitempty"`` | 承载 IncludesDeckLevel 的 bool 值；业务上下文见本 struct 的源码包。 |
+| `IncludesPPTLevel` | `bool` | ``json:"includes_ppt_level,omitempty"`` | 承载 IncludesPPTLevel 的 bool 值；业务上下文见本 struct 的源码包。 |
 | `Reason` | `string` | ``json:"reason"`` | 承载 Reason 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `planReviewTask` — `pkg/agent/deck/plan_review_revision.go:27`
+## `planReviewTask` — `pkg/agent/ppt/plan_review_revision.go:27`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -365,7 +365,7 @@
 | `EvidenceRefs` | `[]string` | ``json:"evidence_refs,omitempty"`` | 承载 EvidenceRefs 的 []string 值；业务上下文见本 struct 的源码包。 |
 | `ContentPlan` | `*ContentPlan` | ``json:"content_plan,omitempty"`` | 承载 ContentPlan 的 *ContentPlan 值；业务上下文见本 struct 的源码包。 |
 
-## `PlanReviewReport` — `pkg/agent/deck/plan_review_tool.go:23`
+## `PlanReviewReport` — `pkg/agent/ppt/plan_review_tool.go:23`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -382,27 +382,27 @@
 | `ReviewedAt` | `string` | ``json:"reviewed_at"`` | 承载 ReviewedAt 的 string 值；业务上下文见本 struct 的源码包。 |
 | `BackgroundPages` | `int` | ``json:"background_pages"`` | 承载 BackgroundPages 的 int 值；业务上下文见本 struct 的源码包。 |
 
-## `recoveredThought` — `pkg/agent/deck/planner_recovery.go:13`
+## `recoveredThought` — `pkg/agent/ppt/planner_recovery.go:13`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Thought` | `string` | ``json:"thought"`` | 承载 Thought 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `recoveredSlideSpec` — `pkg/agent/deck/planner_recovery.go:82`
+## `recoveredSlideSpec` — `pkg/agent/ppt/planner_recovery.go:82`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Title` | `string` | `` | 承载 Title 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ContentType` | `string` | `` | 承载 ContentType 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `reviewCheckpoint` — `pkg/agent/deck/run.go:47`
+## `reviewCheckpoint` — `pkg/agent/ppt/run.go:47`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `NextRound` | `int` | ``json:"next_round"`` | 承载 NextRound 的 int 值；业务上下文见本 struct 的源码包。 |
 | `UpdatedAt` | `time.Time` | ``json:"updated_at"`` | 最近更新时间。 |
 
-## `AgentEvent` — `pkg/agent/deck/run.go:111`
+## `AgentEvent` — `pkg/agent/ppt/run.go:111`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -414,7 +414,7 @@
 | `Phase` | `string` | ``json:"phase,omitempty"`` | 承载 Phase 的 string 值；业务上下文见本 struct 的源码包。 |
 | `PhaseDetail` | `string` | ``json:"phase_detail,omitempty"`` | 承载 PhaseDetail 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `PPTTaskConfig` — `pkg/agent/deck/types.go:40`
+## `PPTTaskConfig` — `pkg/agent/ppt/types.go:40`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -437,17 +437,17 @@
 | `OnFixerTriggered` | `func()` | `` | 承载 OnFixerTriggered 的 func() 值；业务上下文见本 struct 的源码包。 |
 | `UserID` | `int` | `` | 关联用户的唯一标识。 |
 
-## `TasksManifest` — `pkg/agent/deck/types.go:82`
+## `TasksManifest` — `pkg/agent/ppt/types.go:82`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
 | `Title` | `string` | ``json:"title"`` | 承载 Title 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ContentBank` | `map[string]any` | ``json:"content_bank,omitempty"`` | 承载 ContentBank 的 map[string]any 值；业务上下文见本 struct 的源码包。 |
-| `Sections` | `[]DeckSection` | ``json:"sections,omitempty"`` | 承载 Sections 的 []DeckSection 值；业务上下文见本 struct 的源码包。 |
+| `Sections` | `[]PPTSection` | ``json:"sections,omitempty"`` | 承载 Sections 的 []PPTSection 值；业务上下文见本 struct 的源码包。 |
 | `VisualPolicy` | `*VisualPolicy` | ``json:"visual_policy,omitempty"`` | 承载 VisualPolicy 的 *VisualPolicy 值；业务上下文见本 struct 的源码包。 |
 | `Tasks` | `[]*TaskItem` | ``json:"tasks"`` | 承载 Tasks 的 []*TaskItem 值；业务上下文见本 struct 的源码包。 |
 
-## `VisualPolicy` — `pkg/agent/deck/types.go:93`
+## `VisualPolicy` — `pkg/agent/ppt/types.go:93`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -456,7 +456,7 @@
 | `RequiredRoles` | `[]string` | ``json:"required_roles,omitempty"`` | 承载 RequiredRoles 的 []string 值；业务上下文见本 struct 的源码包。 |
 | `Reason` | `string` | ``json:"reason,omitempty"`` | 承载 Reason 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `TaskItem` — `pkg/agent/deck/types.go:100`
+## `TaskItem` — `pkg/agent/ppt/types.go:100`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -473,7 +473,7 @@
 | `Status` | `string` | ``json:"status"`` | 当前生命周期或处理状态。 |
 | `ContentPlan` | `*ContentPlan` | ``json:"content_plan,omitempty"`` | 承载 ContentPlan 的 *ContentPlan 值；业务上下文见本 struct 的源码包。 |
 
-## `ManifestValidationReport` — `pkg/agent/deck/types.go:115`
+## `ManifestValidationReport` — `pkg/agent/ppt/types.go:115`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -483,7 +483,7 @@
 | `PendingTasks` | `[]string` | ``json:"pending_tasks,omitempty"`` | 承载 PendingTasks 的 []string 值；业务上下文见本 struct 的源码包。 |
 | `Invalid` | `bool` | ``json:"invalid"`` | 承载 Invalid 的 bool 值；业务上下文见本 struct 的源码包。 |
 
-## `TaskOutline` — `pkg/agent/deck/types.go:412`
+## `TaskOutline` — `pkg/agent/ppt/types.go:412`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -492,7 +492,7 @@
 | `RecommendationReason` | `string` | ``json:"recommendation_reason,omitempty"`` | 承载 RecommendationReason 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Slides` | `[]SlideOutline` | ``json:"slides"`` | 承载 Slides 的 []SlideOutline 值；业务上下文见本 struct 的源码包。 |
 
-## `DeckSection` — `pkg/agent/deck/types.go:419`
+## `PPTSection` — `pkg/agent/ppt/types.go:419`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -504,7 +504,7 @@
 | `PageCount` | `int` | ``json:"page_count,omitempty"`` | 承载 PageCount 的 int 值；业务上下文见本 struct 的源码包。 |
 | `NeighborKey` | `string` | ``json:"neighbor_key,omitempty"`` | 承载 NeighborKey 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `PlanComponent` — `pkg/agent/deck/types.go:444`
+## `PlanComponent` — `pkg/agent/ppt/types.go:444`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -535,7 +535,7 @@
 | `Attribution` | `string` | ``json:"attribution,omitempty"`` | 承载 Attribution 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Data` | `map[string]any` | ``json:"data,omitempty"`` | 承载 Data 的 map[string]any 值；业务上下文见本 struct 的源码包。 |
 
-## `PlanReviewIssue` — `pkg/agent/deck/types.go:532`
+## `PlanReviewIssue` — `pkg/agent/ppt/types.go:532`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -545,7 +545,7 @@
 | `PageIndex` | `int` | ``json:"page_index,omitempty"`` | 承载 PageIndex 的 int 值；业务上下文见本 struct 的源码包。 |
 | `ComponentID` | `string` | ``json:"component_id,omitempty"`` | 承载 ComponentID 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `ContentPlan` — `pkg/agent/deck/types.go:541`
+## `ContentPlan` — `pkg/agent/ppt/types.go:541`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -556,7 +556,7 @@
 | `VisualIntent` | `*VisualIntent` | ``json:"visual_intent,omitempty"`` | 承载 VisualIntent 的 *VisualIntent 值；业务上下文见本 struct 的源码包。 |
 | `Components` | `[]PlanComponent` | ``json:"components,omitempty"`` | 承载 Components 的 []PlanComponent 值；业务上下文见本 struct 的源码包。 |
 
-## `VisualIntent` — `pkg/agent/deck/types.go:551`
+## `VisualIntent` — `pkg/agent/ppt/types.go:551`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -577,7 +577,7 @@
 | `SourceURL` | `string` | ``json:"source_url,omitempty"`` | 承载 SourceURL 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Attribution` | `string` | ``json:"attribution,omitempty"`` | 承载 Attribution 的 string 值；业务上下文见本 struct 的源码包。 |
 
-## `SlideOutline` — `pkg/agent/deck/types.go:571`
+## `SlideOutline` — `pkg/agent/ppt/types.go:571`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -586,7 +586,7 @@
 | `LayoutVariant` | `string` | ``json:"layout_variant,omitempty"`` | 承载 LayoutVariant 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ContentPlan` | `*ContentPlan` | ``json:"content_plan,omitempty"`` | 承载 ContentPlan 的 *ContentPlan 值；业务上下文见本 struct 的源码包。 |
 
-## `PPTTaskStart` — `pkg/agent/deck/types.go:578`
+## `PPTTaskStart` — `pkg/agent/ppt/types.go:578`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -595,7 +595,7 @@
 | `CheckpointID` | `string` | `` | 承载 CheckpointID 的 string 值；业务上下文见本 struct 的源码包。 |
 | `StartTime` | `time.Time` | `` | 承载 StartTime 的 time.Time 值；业务上下文见本 struct 的源码包。 |
 
-## `PPTTaskResult` — `pkg/agent/deck/types.go:585`
+## `PPTTaskResult` — `pkg/agent/ppt/types.go:585`
 
 | 字段 | Go 类型 | Tag / 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -1378,7 +1378,7 @@
 | `ToolName` | `string` | ``json:"tool_name,omitempty"`` | 承载 ToolName 的 string 值；业务上下文见本 struct 的源码包。 |
 | `ToolArgs` | `string` | ``json:"tool_args,omitempty"`` | 承载 ToolArgs 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Error` | `string` | ``json:"error,omitempty"`` | 失败原因或错误详情。 |
-| `Tasks` | `[]*deck.TaskItem` | ``json:"tasks,omitempty"`` | 承载 Tasks 的 []*deck.TaskItem 值；业务上下文见本 struct 的源码包。 |
+| `Tasks` | `[]*ppt.TaskItem` | ``json:"tasks,omitempty"`` | 承载 Tasks 的 []*ppt.TaskItem 值；业务上下文见本 struct 的源码包。 |
 | `Done` | `int` | ``json:"done,omitempty"`` | 承载 Done 的 int 值；业务上下文见本 struct 的源码包。 |
 | `Total` | `int` | ``json:"total,omitempty"`` | 承载 Total 的 int 值；业务上下文见本 struct 的源码包。 |
 | `Files` | `[]string` | ``json:"files,omitempty"`` | 承载 Files 的 []string 值；业务上下文见本 struct 的源码包。 |
@@ -1440,7 +1440,7 @@
 | `turnEventID` | `uint64` | `` | 承载 turnEventID 的 uint64 值；业务上下文见本 struct 的源码包。 |
 | `listeners` | `map[string]chan SSERichEvent` | `` | 承载 listeners 的 map[string]chan SSERichEvent 值；业务上下文见本 struct 的源码包。 |
 | `cancel` | `context.CancelFunc` | `` | 承载 cancel 的 context.CancelFunc 值；业务上下文见本 struct 的源码包。 |
-| `result` | `*deck.PPTTaskResult` | `` | 承载 result 的 *deck.PPTTaskResult 值；业务上下文见本 struct 的源码包。 |
+| `result` | `*ppt.PPTTaskResult` | `` | 承载 result 的 *ppt.PPTTaskResult 值；业务上下文见本 struct 的源码包。 |
 | `reportedFiles` | `map[string]bool` | `` | 承载 reportedFiles 的 map[string]bool 值；业务上下文见本 struct 的源码包。 |
 | `runtimeMeta` | `*utils.RuntimeMeta` | `` | 承载 runtimeMeta 的 *utils.RuntimeMeta 值；业务上下文见本 struct 的源码包。 |
 | `delivery` | `DeliverySnapshot` | `` | 承载 delivery 的 DeliverySnapshot 值；业务上下文见本 struct 的源码包。 |
@@ -1687,7 +1687,7 @@
 | `tasks` | `*task.TaskManager` | `` | 承载 tasks 的 *task.TaskManager 值；业务上下文见本 struct 的源码包。 |
 | `sessionManager` | `*session.SessionManager` | `` | 承载 sessionManager 的 *session.SessionManager 值；业务上下文见本 struct 的源码包。 |
 | `agentFactory` | `task.AgentFactory` | `` | 承载 agentFactory 的 task.AgentFactory 值；业务上下文见本 struct 的源码包。 |
-| `makeTaskConfig` | `func(taskID string) *deck.PPTTaskConfig` | `` | 对应组件的运行配置。 |
+| `makeTaskConfig` | `func(taskID string) *ppt.PPTTaskConfig` | `` | 对应组件的运行配置。 |
 | `taskIDGen` | `func() string` | `` | 承载 taskIDGen 的 func() string 值；业务上下文见本 struct 的源码包。 |
 | `engine` | `*gin.Engine` | `` | 承载 engine 的 *gin.Engine 值；业务上下文见本 struct 的源码包。 |
 | `addr` | `string` | `` | 承载 addr 的 string 值；业务上下文见本 struct 的源码包。 |
@@ -1714,7 +1714,7 @@
 | `SkillsDir` | `string` | `` | 承载 SkillsDir 的 string 值；业务上下文见本 struct 的源码包。 |
 | `Operator` | `commandline.Operator` | `` | 承载 Operator 的 commandline.Operator 值；业务上下文见本 struct 的源码包。 |
 | `AgentFactory` | `task.AgentFactory` | `` | 承载 AgentFactory 的 task.AgentFactory 值；业务上下文见本 struct 的源码包。 |
-| `MakeTaskConfig` | `func(taskID string) *deck.PPTTaskConfig` | `` | 对应组件的运行配置。 |
+| `MakeTaskConfig` | `func(taskID string) *ppt.PPTTaskConfig` | `` | 对应组件的运行配置。 |
 | `AIModelFactory` | `func(ctx context.Context) (interface {` | `` | 承载 AIModelFactory 的 func(ctx context.Context) (interface { 值；业务上下文见本 struct 的源码包。 |
 | `Generate(ctx` | `context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)` | `` | 承载 Generate(ctx 的 context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error) 值；业务上下文见本 struct 的源码包。 |
 | `},` | `error)` | `` | 承载 }, 的 error) 值；业务上下文见本 struct 的源码包。 |
@@ -1792,7 +1792,7 @@
 | `RecommendedComponents` | `[]string` | ``json:"recommended_components"`` | 承载 RecommendedComponents 的 []string 值；业务上下文见本 struct 的源码包。 |
 | `Capacity` | `map[string]any` | ``json:"capacity"`` | 承载 Capacity 的 map[string]any 值；业务上下文见本 struct 的源码包。 |
 | `Variants` | `[]string` | ``json:"variants"`` | 承载 Variants 的 []string 值；业务上下文见本 struct 的源码包。 |
-| `DeckRule` | `string` | ``json:"deck_rule"`` | 承载 DeckRule 的 string 值；业务上下文见本 struct 的源码包。 |
+| `PPTRule` | `string` | ``json:"ppt_rule"`` | 承载 PPTRule 的 string 值；业务上下文见本 struct 的源码包。 |
 | `}` | `嵌入字段` | ``json:"content_types"`` | 承载 } 的 嵌入字段 值；业务上下文见本 struct 的源码包。 |
 
 ## `Loader` — `pkg/templates/loader.go:58`

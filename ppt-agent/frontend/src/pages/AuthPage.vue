@@ -36,7 +36,7 @@ function switchLoginMode(mode: LoginMode) { loginMode.value = mode; resetFeedbac
   <main class="auth-page">
     <RouterLink to="/" class="back"><ArrowLeft :size="16" />返回首页</RouterLink>
     <section class="auth-panel" :aria-labelledby="isRegister ? 'register-title' : 'login-title'">
-      <div class="brand"><span><FileStack :size="21" /></span><b>Deckform</b></div>
+      <div class="brand"><span><FileStack :size="21" /></span><b>PPTform</b></div>
       <p class="overline">{{ isRegister ? '创建你的工作台' : '回到创作现场' }}</p>
       <h1 :id="isRegister ? 'register-title' : 'login-title'">{{ isRegister ? '从这里，建立你的\n演示工作台。' : '把你的想法\n排成作品。' }}</h1>
       <p class="intro">{{ isRegister ? '用邮箱验证身份，并设置一组只属于你的登录密码。' : '登录后可保存会话、继续生成，并管理你的交付文件。' }}</p>
@@ -55,7 +55,7 @@ function switchLoginMode(mode: LoginMode) { loginMode.value = mode; resetFeedbac
       <p class="auth-change"><template v-if="isRegister">已有账号？<RouterLink :to="{ name: 'login', query: route.query }">去登录</RouterLink></template><template v-else>还没有账号？<RouterLink :to="{ name: 'register', query: route.query }">创建账号</RouterLink></template></p>
       <template v-if="!isRegister"><div class="rule"><span>或先体验</span></div><button class="guest" type="button" :disabled="busy" @click="guest"><UserRound :size="17" />以访客身份继续</button><p class="guest-hint">访客数据仅保留在当前工作区，退出后不可恢复。</p></template>
     </section>
-    <aside class="auth-aside" aria-hidden="true"><p>{{ isRegister ? '先验证身份，再开始创作' : '从第一行想法开始' }}</p><div class="quote">不是把文字<br>塞进模板，<br><em>而是组织一场表达。</em></div><span>DECKFORM / CREATIVE STUDIO</span></aside>
+    <aside class="auth-aside" aria-hidden="true"><p>{{ isRegister ? '先验证身份，再开始创作' : '从第一行想法开始' }}</p><div class="quote">不是把文字<br>塞进模板，<br><em>而是组织一场表达。</em></div><span>PPTFORM / CREATIVE STUDIO</span></aside>
   </main>
 </template>
 

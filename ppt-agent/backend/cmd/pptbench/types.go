@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 )
 
 type options struct {
@@ -34,9 +34,9 @@ type caseInput struct {
 	HasExistingTask     bool                   `json:"has_existing_task"`
 	TasksSummary        string                 `json:"tasks_summary"`
 	ConversationContext []string               `json:"conversation_context"`
-	DraftTasks          *deck.TasksManifest    `json:"draft_tasks"`
-	BaseTasks           *deck.TasksManifest    `json:"base_tasks"`
-	ReviewIssues        []deck.PlanReviewIssue `json:"review_issues"`
+	DraftTasks          *ppt.TasksManifest    `json:"draft_tasks"`
+	BaseTasks           *ppt.TasksManifest    `json:"base_tasks"`
+	ReviewIssues        []ppt.PlanReviewIssue `json:"review_issues"`
 	AllowedPageIndexes  []int                  `json:"allowed_page_indexes"`
 	SourceMaterials     []any                  `json:"source_materials"`
 	Requirements        []string               `json:"requirements"`
@@ -50,8 +50,8 @@ type agentOutput struct {
 	Output              any                    `json:"output,omitempty"`
 	Before              any                    `json:"before,omitempty"`
 	After               any                    `json:"after,omitempty"`
-	Events              []deck.AgentEvent      `json:"events,omitempty"`
-	DeterministicReview *deck.PlanReviewReport `json:"deterministic_review,omitempty"`
+	Events              []ppt.AgentEvent      `json:"events,omitempty"`
+	DeterministicReview *ppt.PlanReviewReport `json:"deterministic_review,omitempty"`
 	ContentQuality      *contentQualityReport  `json:"content_quality,omitempty"`
 	Error               string                 `json:"error,omitempty"`
 }
@@ -62,16 +62,16 @@ type modelOutput struct {
 	Output              any                    `json:"output,omitempty"`
 	Before              any                    `json:"before,omitempty"`
 	After               any                    `json:"after,omitempty"`
-	DeterministicReview *deck.PlanReviewReport `json:"deterministic_review,omitempty"`
+	DeterministicReview *ppt.PlanReviewReport `json:"deterministic_review,omitempty"`
 	ContentQuality      *contentQualityReport  `json:"content_quality,omitempty"`
 	Error               string                 `json:"error,omitempty"`
 }
 
 // contentQualityReport provides evidence for the Judge rather than pretending
-// that a word-count gate can decide whether a deck says something coherent.
+// that a word-count gate can decide whether a ppt says something coherent.
 // Semantic alignment remains an LLM judgment against each case's expectations.
 type contentQualityReport struct {
-	DeckClaim                     string                `json:"deck_claim,omitempty"`
+	PPTClaim                     string                `json:"ppt_claim,omitempty"`
 	PageClaims                    []contentPageClaim    `json:"page_claims,omitempty"`
 	MissingClaimPages             []int                 `json:"missing_claim_pages,omitempty"`
 	DuplicateClaimGroups          [][]int               `json:"duplicate_claim_groups,omitempty"`

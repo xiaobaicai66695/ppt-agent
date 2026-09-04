@@ -1,14 +1,14 @@
 # ppt-delivery-feedback Specification
 
 ## Purpose
-TBD - created by archiving change expand-benchmark-and-collect-deck-feedback. Update Purpose after archive.
+TBD - created by archiving change expand-benchmark-and-collect-ppt-feedback. Update Purpose after archive.
 ## Requirements
 ### Requirement: Owner can record delivery feedback
 The system SHALL allow the owner of a completed task to save one task-level rating from 1 through 5 and an optional suggestion of at most 1000 characters.
 
 #### Scenario: User submits a rating with a suggestion
 - **WHEN** the owner submits a valid rating and optional suggestion for a completed task
-- **THEN** the system persists the feedback and returns the saved value without starting a continuation or changing deck artifacts
+- **THEN** the system persists the feedback and returns the saved value without starting a continuation or changing ppt artifacts
 
 #### Scenario: User updates a prior rating
 - **WHEN** the owner submits feedback again for the same task

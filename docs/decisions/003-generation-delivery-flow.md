@@ -4,7 +4,7 @@
 
 首次生成以受控意图路由、PPTPlanner 完整草稿、TaskPlanReviewer 质量门、Go 原子提交和并发渲染为准。`tasks.json` 是跨 Agent、生成器、TaskManager 与前端的唯一正式页面契约；交付终态由代码维护的元数据和文件对账决定，不能由模型自然语言宣称完成。
 
-Planner 必须尽力填写完整的 DeckSpec 内容字段，包括页面结构、稳定英文 `content_type`、`layout_variant`、`content_plan.components`、视觉意图与来源；运行态、系统派生字段和文件路径由 Go 管理。草稿只写入 `tasks.draft.json`，Reviewer 根据确定性问题报告定向修补，最多三轮后才允许原子提交正式 `tasks.json`。
+Planner 必须尽力填写完整的 PPTSpec 内容字段，包括页面结构、稳定英文 `content_type`、`layout_variant`、`content_plan.components`、视觉意图与来源；运行态、系统派生字段和文件路径由 Go 管理。草稿只写入 `tasks.draft.json`，Reviewer 根据确定性问题报告定向修补，最多三轮后才允许原子提交正式 `tasks.json`。
 
 ## 执行准则
 

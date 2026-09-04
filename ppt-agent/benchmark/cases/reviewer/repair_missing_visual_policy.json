@@ -53,6 +53,6 @@
   "judge_focus": [
     "是否只给需要图片的页面补视觉计划",
     "是否使用 asset_query 或 local_path 这类独立 skill 可消费字段",
-    "是否没有重新写整套 deck"
+    "是否没有重新写整套 ppt"
   ]
 }

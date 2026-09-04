@@ -13,7 +13,7 @@
 - `go build ./...`（Linux 交付二进制已生成）
 - 前端 `npm test`：41 项通过；`npm run build` 通过
 - Python 生成器：38 项测试通过，逐文件 `py_compile` 通过
-- `openspec validate expand-benchmark-and-collect-deck-feedback --type change --strict`
+- `openspec validate expand-benchmark-and-collect-ppt-feedback --type change --strict`
 - `git diff --check`
 
 Benchmark 数量检查结果：`test` 与 `validation` 中四类均为 10 条；请求不重复，ID 非空且全局唯一。
@@ -22,7 +22,7 @@ Benchmark 数量检查结果：`test` 与 `validation` 中四类均为 10 条；
 
 - 目标：`ssh remote-dev`，运行目录 `/ppt/ppt-agent`。
 - 后端：`/ppt/ppt-agent-linux`，工作目录 `/ppt/ppt-agent/backend`，启动参数 `-mode web -addr :8080`。
-- 前端：`/ppt/ppt-agent/frontend/dist`；运行时 skill：`/ppt/ppt-agent/skills/ppt-deck-planner`。
+- 前端：`/ppt/ppt-agent/frontend/dist`；运行时 skill：`/ppt/ppt-agent/skills/ppt-planner`。
 - 旧版本备份：`/ppt/ppt-agent/deploy-backups/20260902-feature-release`。
 - 发布后最终进程 PID `1688027`，`:8080` 正常监听；启动日志包含 `mysql_connected`，无立即失败。
 

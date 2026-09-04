@@ -3,7 +3,7 @@
 ## 交付内容
 
 - 恢复并独立实现 `RouterAgent`：默认会话由它区分闲聊、规划、新建和已有 PPT 修复；它只输出结构化路由，不拥有任务写入、渲染或工具权限。
-- 明确的新建 PPT 请求进入 `PPTPlanner`；已有 Deck 的指定页调整进入 `PPTFixer`；未选择已有任务的页修改请求只提示选择任务，不会猜测目标任务。
+- 明确的新建 PPT 请求进入 `PPTPlanner`；已有 PPT 的指定页调整进入 `PPTFixer`；未选择已有任务的页修改请求只提示选择任务，不会猜测目标任务。
 - 工作台的“PPT 生成”选择是显式指令，后端直接返回 `create / prepare_create`，绕过 RouterAgent；前端也把该选择作为最高优先级，不因分类结果降级为聊天。
 - 统一 Router 与确定性 fallback：主题明确的新建请求即使没有受众或风格也交给 Planner 补齐；仅纯空泛的“帮我做个 PPT”保留澄清。
 - 增补 Router、Planner、Reviewer、Fixer 的 test/validation fixture，使每个分类至少 10 条；恢复 `cmd/pptbench` 可执行 runner。

@@ -11,7 +11,7 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 )
 
 func projectRoot() string {
@@ -59,12 +59,12 @@ func writeJSON(path string, value any) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
-func cloneManifest(manifest *deck.TasksManifest) *deck.TasksManifest {
+func cloneManifest(manifest *ppt.TasksManifest) *ppt.TasksManifest {
 	if manifest == nil {
 		return nil
 	}
 	data, _ := json.Marshal(manifest)
-	var out deck.TasksManifest
+	var out ppt.TasksManifest
 	_ = json.Unmarshal(data, &out)
 	return &out
 }
@@ -78,7 +78,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func firstEventError(events []deck.AgentEvent) string {
+func firstEventError(events []ppt.AgentEvent) string {
 	for _, event := range events {
 		if strings.TrimSpace(event.Error) != "" {
 			return strings.TrimSpace(event.Error)

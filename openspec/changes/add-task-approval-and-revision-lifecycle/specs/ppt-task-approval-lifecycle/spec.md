@@ -20,7 +20,7 @@ The system SHALL persist an approval request before pausing a task. The request 
 
 #### Scenario: User rejects an approval request
 - **WHEN** the owner rejects a pending approval request
-- **THEN** the proposed operation SHALL not execute and the currently active deck revision SHALL remain unchanged
+- **THEN** the proposed operation SHALL not execute and the currently active ppt revision SHALL remain unchanged
 
 ### Requirement: Bounded recovery state
 The system SHALL record recoverable runtime failures with a failure class and recovery action. It SHALL use `recovering` while executing automatic retry, fallback or targeted repair, and SHALL record `failed` only after recovery is exhausted or unavailable.

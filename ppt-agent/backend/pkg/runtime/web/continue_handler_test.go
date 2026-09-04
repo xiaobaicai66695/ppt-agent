@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 )
@@ -70,7 +70,7 @@ func TestHandleContinueTaskQueuesRunningTask(t *testing.T) {
 
 func TestResumeDraftCheckpointClaimsUncommittedDraft(t *testing.T) {
 	workDir := t.TempDir()
-	if err := deck.WriteTasksDraftManifest(workDir, &deck.TasksManifest{}); err != nil {
+	if err := ppt.WriteTasksDraftManifest(workDir, &ppt.TasksManifest{}); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{}
@@ -86,7 +86,7 @@ func TestResumeDraftCheckpointClaimsUncommittedDraft(t *testing.T) {
 
 func TestResumeDraftCheckpointLeavesCommittedTaskToEditWorkflow(t *testing.T) {
 	workDir := t.TempDir()
-	if err := deck.WriteTasksManifest(workDir, &deck.TasksManifest{}); err != nil {
+	if err := ppt.WriteTasksManifest(workDir, &ppt.TasksManifest{}); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{}
@@ -102,7 +102,7 @@ func TestResumeDraftCheckpointLeavesCommittedTaskToEditWorkflow(t *testing.T) {
 
 func TestResumeDraftCheckpointRecognizesRetryableRenderMarkerAfterStatusReopens(t *testing.T) {
 	workDir := t.TempDir()
-	if err := deck.WriteTasksManifest(workDir, &deck.TasksManifest{}); err != nil {
+	if err := ppt.WriteTasksManifest(workDir, &ppt.TasksManifest{}); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{}

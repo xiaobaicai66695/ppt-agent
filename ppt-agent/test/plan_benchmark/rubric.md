@@ -8,7 +8,7 @@ Score each dimension from 0 to 10:
 
 | Dimension | What Good Looks Like |
 | --- | --- |
-| intent_coverage | The deck addresses the user's explicit topic, audience, constraints, must-have items, and requested page count or structure. |
+| intent_coverage | The ppt addresses the user's explicit topic, audience, constraints, must-have items, and requested page count or structure. |
 | narrative | Slides form a clear story with setup, evidence, implications, and conclusion instead of independent bullet dumps. |
 | content_specificity | Pages include named entities, concrete facts, scoped scenarios, numbers, examples, or decisions where relevant. |
 | layout_fit | `content_type` choices match the content, and the sequence varies layouts appropriately. |

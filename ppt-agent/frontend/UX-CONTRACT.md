@@ -15,7 +15,7 @@
 | Domain / scope | Authoritative source | Source type | Reviewed date |
 |---|---|---|---|
 | PPT 生命周期与 SSE 交付 | `docs/architecture/ppt-agent-current-architecture-summary.md` | 架构基线 | 2026-09-04 |
-| Planner / Reviewer / Fixer 边界 | `docs/architecture/deckspec-planner-reviewer-fixer-boundary.md` | 架构决策 | 2026-09-04 |
+| Planner / Reviewer / Fixer 边界 | `docs/architecture/pptspec-planner-reviewer-fixer-boundary.md` | 架构决策 | 2026-09-04 |
 | 前端 API 与任务状态 | `frontend/src/api.ts`、`frontend/src/types.ts` | 已验证 API 契约 | 2026-09-04 |
 
 ## Visual contract

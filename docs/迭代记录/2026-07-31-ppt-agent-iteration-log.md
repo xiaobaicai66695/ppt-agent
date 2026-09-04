@@ -25,7 +25,7 @@
 - 新增 `generators/asset_manager.py` 和 `generators/layout_intelligence.py`，用于素材选择、图标放置、内容密度判断、动态字号和对齐策略。
 - 接入 `title_slide`、`section_divider`、`content_slide`、`card_grid`、`icon_grid`、`quote_slide`、`summary_slide`，少字内容页可切换到居中焦点布局，卡片/图标页可使用本地语义图标。
 - 修复 `image_hero` 传入背景时 `colors` 未初始化的问题。
-- 生成 review deck 并通过 LibreOffice PDF 转换、Poppler PNG 渲染和总览图检查。
+- 生成 review ppt 并通过 LibreOffice PDF 转换、Poppler PNG 渲染和总览图检查。
 
 ## 本轮追加落地：全局版面平衡
 

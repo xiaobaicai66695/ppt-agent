@@ -26,22 +26,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
 
-// HealthStatus 表示单个健康检查的结果。
-type HealthStatus struct {
-	Status  string `json:"status"` // "ok" or "error"
-	Message string `json:"message,omitempty"`
-}
-
-// HealthReport 是完整的健康检查响应。
-type HealthReport struct {
-	Status     string                  `json:"status"` // "ok", "degraded", or "error"
-	Version    string                  `json:"version"`
-	Uptime     string                  `json:"uptime"`
-	Components map[string]HealthStatus `json:"components"`
-}
+// Health models are transport contracts owned by web/model.
+type HealthStatus = webmodel.HealthStatus
+type HealthReport = webmodel.HealthReport
 
 // StartTime 由 main.go 设置，以便健康检查可以报告服务运行时间。
 var StartTime = time.Now()

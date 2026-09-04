@@ -3,12 +3,12 @@ package main
 import (
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 )
 
 func TestMergeReviewerIssuesKeepsTargetedAndDeterministicBlockers(t *testing.T) {
-	targeted := []deck.PlanReviewIssue{{Code: "weak_narrative", Severity: "error", PageIndex: 2, Message: "case target"}}
-	detected := []deck.PlanReviewIssue{
+	targeted := []ppt.PlanReviewIssue{{Code: "weak_narrative", Severity: "error", PageIndex: 2, Message: "case target"}}
+	detected := []ppt.PlanReviewIssue{
 		{Code: "weak_narrative", Severity: "error", PageIndex: 2, Message: "detected duplicate"},
 		{Code: "low_information_density", Severity: "error", PageIndex: 2, Message: "detected density blocker"},
 	}

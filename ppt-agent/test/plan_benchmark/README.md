@@ -18,11 +18,11 @@ query
 
 The default test does not call external model APIs or render PPTX files. It
 loads the five gold `tasks.json` files and verifies that they pass the backend
-DeckSpec reviewer.
+PPTSpec reviewer.
 
 ```powershell
 cd D:\environment\codeGo\llm-examples\projects\ppt-agent\backend
-go test ./test/plan_benchmark -v -run TestGoldDeckSpecsPassReviewer -count 1
+go test ./test/plan_benchmark -v -run TestGoldPPTSpecsPassReviewer -count 1
 ```
 
 ## Generate Planner Artifacts
@@ -35,7 +35,7 @@ This calls the real Planner Agent and writes generated `tasks.json`,
 cd D:\environment\codeGo\llm-examples\projects\ppt-agent\backend
 $env:PPT_BENCH_RUN_PLANNER="true"
 $env:PPT_BENCH_LIMIT="1"
-go test ./test/plan_benchmark -v -run TestPlannerWorkflowGeneratesReviewedDeckSpec -count 1 -timeout 20m
+go test ./test/plan_benchmark -v -run TestPlannerWorkflowGeneratesReviewedPPTSpec -count 1 -timeout 20m
 ```
 
 `PPT_BENCH_RUN_LIVE=true` is the unified real-model switch. It also enables
@@ -52,19 +52,19 @@ cd D:\environment\codeGo\llm-examples\projects\ppt-agent\backend
 $env:PPT_BENCH_RUN_JUDGE="true"
 $env:PLAN_JUDGE_API_KEY="..."
 $env:PLAN_JUDGE_MODEL="..."
-go test ./test/plan_benchmark -v -run TestPlanJudgeAPIScoresDeckSpecs -count 1 -timeout 10m
+go test ./test/plan_benchmark -v -run TestPlanJudgeAPIScoresPPTSpecs -count 1 -timeout 10m
 ```
 
 ## Gold Render Check
 
 This copies each gold `tasks.json` into a temporary work directory and invokes
-the production `RenderDeckByTaskIDWorkflow`, which calls
-`skills/ppt-deck-planner/generators/render_task.py`.
+the production `RenderPPTByTaskIDWorkflow`, which calls
+`skills/ppt-planner/generators/render_task.py`.
 
 ```powershell
 cd D:\environment\codeGo\llm-examples\projects\ppt-agent\backend
 $env:PPT_BENCH_RUN_GOLD_RENDER="true"
-go test ./test/plan_benchmark -v -run TestGoldDecksRenderWithSkillScripts -count 1 -timeout 10m
+go test ./test/plan_benchmark -v -run TestGoldPPTsRenderWithSkillScripts -count 1 -timeout 10m
 ```
 
 ## Environment Variables

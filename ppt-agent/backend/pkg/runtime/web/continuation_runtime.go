@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
@@ -20,7 +20,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 	ch <- task.SSERichEvent{Type: "answer", Content: "正在更新页面计划并重新渲染...\n"}
 	credential := userModelCredential(ts.Info.UserID)
 
-	manifest, err := deck.ReadTasksManifest(ts.Info.WorkDir)
+	manifest, err := ppt.ReadTasksManifest(ts.Info.WorkDir)
 	if err != nil || manifest == nil {
 		ch <- task.SSERichEvent{Type: "error", Error: "无法读取任务清单"}
 		markTaskFailed(ts, "无法读取任务清单")
@@ -34,16 +34,16 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		if strings.TrimSpace(route.Reason) != "" {
 			title = "补充说明"
 		}
-		newTask := &deck.TaskItem{
+		newTask := &ppt.TaskItem{
 			TaskID:      fmt.Sprint(nextPage),
 			PageIndex:   nextPage,
 			Title:       title,
 			ContentType: "content_slide",
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", nextPage, title),
-			Status:      deck.StatusPending,
-			ContentPlan: &deck.ContentPlan{
+			Status:      ppt.StatusPending,
+			ContentPlan: &ppt.ContentPlan{
 				Summary: fmt.Sprintf("补充说明用户要求：%s", continueMessage),
-				Components: []deck.PlanComponent{{
+				Components: []ppt.PlanComponent{{
 					Type:  "bullet_list",
 					Items: []string{continueMessage, "围绕原演示主题补充新的信息点", "保持与前后页面一致的叙事和视觉风格"},
 				}},
@@ -58,7 +58,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		}
 		if len(pages) == 0 {
 			for _, item := range manifest.Tasks {
-				if item != nil && (item.Status == deck.StatusDone || item.Status == deck.StatusQADone || item.Status == deck.StatusFixed) {
+				if item != nil && (item.Status == ppt.StatusDone || item.Status == ppt.StatusQADone || item.Status == ppt.StatusFixed) {
 					pages = append(pages, item.PageIndex)
 				}
 			}
@@ -74,7 +74,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		fixerApplied := false
 		if len(allowedTaskIDs) > 0 {
 			beforeFix, _ := manifest.MustMarshalJSON()
-			fixerCfg := &deck.PPTTaskConfig{
+			fixerCfg := &ppt.PPTTaskConfig{
 				WorkDir:          ts.Info.WorkDir,
 				TaskID:           taskID,
 				Query:            ts.Info.Query,
@@ -85,23 +85,23 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 				ModelAPIKey:      credential.APIKey,
 				ModelProvider:    credential.Provider,
 			}
-			fixerCtx, cancelFixer := context.WithTimeout(context.Background(), 5*time.Minute)
+			fixerCtx, cancelFixer := context.WithTimeout(s.runtimeContext(), 5*time.Minute)
 			defer cancelFixer()
-			fixer, fixerErr := deck.NewPPTFixerAgentForTasks(fixerCtx, fixerCfg, allowedTaskIDs)
+			fixer, fixerErr := ppt.NewPPTFixerAgentForTasks(fixerCtx, fixerCfg, allowedTaskIDs)
 			if fixerErr == nil {
 				fixerInput := fmt.Sprintf("用户要求：%s\n允许修改的任务 ID：%v\n允许修改的页面：%v\n结构化修复提示：%s", continueMessage, allowedTaskIDs, allowedPageIndexes, instruction)
 				fixerCfg.NotifyFixerTriggered()
-				fixerErr = deck.RunPPTFixerWithCallback(fixerCtx, fixer, fixerInput, func(event deck.AgentEvent) {
+				fixerErr = ppt.RunPPTFixerWithCallback(fixerCtx, fixer, fixerInput, func(event ppt.AgentEvent) {
 					switch event.Type {
-					case deck.AgentEventAnswer:
+					case ppt.AgentEventAnswer:
 						ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
-					case deck.AgentEventProgress:
+					case ppt.AgentEventProgress:
 						ch <- task.SSERichEvent{Type: "progress", Phase: "fixing", PhaseDetail: event.PhaseDetail}
 					}
 				})
 			}
 			if fixerErr == nil {
-				if updated, readErr := deck.ReadTasksManifest(ts.Info.WorkDir); readErr == nil && updated != nil {
+				if updated, readErr := ppt.ReadTasksManifest(ts.Info.WorkDir); readErr == nil && updated != nil {
 					afterFix, _ := updated.MustMarshalJSON()
 					if !bytes.Equal(beforeFix, afterFix) {
 						manifest = updated
@@ -149,15 +149,15 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		ch <- task.SSERichEvent{Type: "answer", Content: "所有页面已标记为待重新生成\n"}
 	}
 
-	if err := deck.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
+	if err := ppt.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
 		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("更新任务清单失败: %v", err)}
 		markTaskFailed(ts, err.Error())
 		return
 	}
 
 	runtimeMeta := agentutils.NewRuntimeMeta(taskID, ts.Info.WorkDir)
-	runtimeMeta.RecordPhase("rendering", "继续请求已写入 DeckSpec，开始并发渲染")
-	cfg := &deck.PPTTaskConfig{
+	runtimeMeta.RecordPhase("rendering", "继续请求已写入 PPTSpec，开始并发渲染")
+	cfg := &ppt.PPTTaskConfig{
 		WorkDir:     ts.Info.WorkDir,
 		TaskID:      taskID,
 		SkillsDir:   s.skillDir,
@@ -168,8 +168,8 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 	}
 	cfg.ModelAPIKey = credential.APIKey
 	cfg.ModelProvider = credential.Provider
-	if _, err := deck.RenderPPT(context.Background(), cfg, func(event deck.DeckRenderEvent) {
-		ch <- deckRenderSSE(event)
+	if _, err := ppt.RenderPPT(s.runtimeContext(), cfg, func(event ppt.PPTRenderEvent) {
+		ch <- pptRenderSSE(event)
 	}); err != nil {
 		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("幻灯片生成出错: %v", err)}
 		markTaskFailed(ts, err.Error())
@@ -177,8 +177,8 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 
 	s.refreshFileList(ts, ch)
 
-	manifest, _ = deck.ReadTasksManifest(ts.Info.WorkDir)
-	var progressTasks []*deck.TaskItem
+	manifest, _ = ppt.ReadTasksManifest(ts.Info.WorkDir)
+	var progressTasks []*ppt.TaskItem
 	if manifest != nil {
 		progressTasks = manifest.Tasks
 		ts.Mu.Lock()
@@ -198,7 +198,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 	}
 }
 
-func findManifestTaskByPage(manifest *deck.TasksManifest, pageIdx int) *deck.TaskItem {
+func findManifestTaskByPage(manifest *ppt.TasksManifest, pageIdx int) *ppt.TaskItem {
 	if manifest == nil {
 		return nil
 	}
@@ -210,21 +210,21 @@ func findManifestTaskByPage(manifest *deck.TasksManifest, pageIdx int) *deck.Tas
 	return nil
 }
 
-func markTaskForRerender(workDir string, item *deck.TaskItem, instruction string, isFix bool) {
+func markTaskForRerender(workDir string, item *ppt.TaskItem, instruction string, isFix bool) {
 	if item == nil {
 		return
 	}
-	item.Status = deck.StatusPending
+	item.Status = ppt.StatusPending
 	if item.OutputFile != "" {
 		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
 	}
 }
 
-func markTaskForFixRerender(workDir string, item *deck.TaskItem, instruction string) {
+func markTaskForFixRerender(workDir string, item *ppt.TaskItem, instruction string) {
 	if item == nil {
 		return
 	}
-	item.Status = deck.StatusPending
+	item.Status = ppt.StatusPending
 	if item.OutputFile != "" {
 		_ = os.Remove(filepath.Join(workDir, item.OutputFile))
 	}
@@ -241,7 +241,7 @@ func buildContinueInstruction(route *RouteResult, message string) string {
 	return "用户继续请求：" + message
 }
 
-func deckRenderSSE(event deck.DeckRenderEvent) task.SSERichEvent {
+func pptRenderSSE(event ppt.PPTRenderEvent) task.SSERichEvent {
 	switch event.Type {
 	case "workflow_start":
 		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail}
@@ -303,8 +303,7 @@ func (s *Server) refreshFileList(ts *task.TaskState, ch chan task.SSERichEvent) 
 		}
 		if strings.EqualFold(filepath.Ext(entry.Name()), ".pptx") {
 			ts.Mu.Lock()
-			if !ts.ReportedFiles()[entry.Name()] {
-				ts.SetReportedFile(entry.Name())
+			if ts.MarkReportedFile(entry.Name()) {
 				ts.Mu.Unlock()
 				evt := task.SSERichEvent{
 					Type:     "file_ready",

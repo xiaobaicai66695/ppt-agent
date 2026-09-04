@@ -66,7 +66,7 @@ onMounted(load)
       <p v-if="error" class="error"><ShieldAlert :size="17" />{{ error }}</p>
       <template v-else>
         <section class="intro">
-          <div><p class="eyebrow">Deckform / operating signal</p><h2>运营脉搏</h2><p>从一次生成到用户复用，查看交付体验是否真正改善。</p></div>
+          <div><p class="eyebrow">PPTform / operating signal</p><h2>运营脉搏</h2><p>从一次生成到用户复用，查看交付体验是否真正改善。</p></div>
           <p class="scope-note">实时总量 + 最近 100 条任务记录</p>
         </section>
 
