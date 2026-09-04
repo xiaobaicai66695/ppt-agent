@@ -44,10 +44,10 @@
 - 主要模块：
   - `pkg/agent/deck`：PPTPlanner、TaskPlanReviewer、PPTFixer、DeckSpec 草稿/审查/提交和并发渲染 workflow。
   - `pkg/prompts/planner`、`pkg/prompts/reviewer`、`pkg/prompts/fixer`：三个 Agent 的独立职责提示词。
-  - `pkg/web`：HTTP API、任务创建、模板接口、文件下载、缩略图生成。
-  - `pkg/task`：任务生命周期管理。
+  - `pkg/runtime/web`：HTTP API、任务创建、模板接口、文件下载、缩略图生成。
+  - `pkg/runtime/task`：任务生命周期管理。
   - `pkg/templates`：模板和背景资源加载。
-  - `pkg/agent/utils`：模型 fallback、上下文压缩、token 统计。
+  - `pkg/runtime/model`：模型 fallback、上下文压缩、token 统计（Go package 名仍为 `utils`）。
 - 修改 Agent/prompt 逻辑时要特别注意：
   - `tasks.json` 是多 Agent 协作的核心契约，避免并发覆盖整个文件。
   - `content_type` 必须保持为生成器支持的稳定英文 id，不要写成中文显示名。
@@ -116,7 +116,7 @@
 
 ```powershell
 go test ./...
-go test ./pkg/web ./pkg/task ./pkg/agent/deck
+go test ./pkg/runtime/web ./pkg/runtime/task ./pkg/agent/deck
 go build ./...
 ```
 
@@ -161,20 +161,28 @@ python skills/ppt-deck-planner/generators/generator.py
 - 上线结果必须回填到迭代记录、OpenSpec tasks 或 `done.md`：至少包含部署目标、时间、新进程标识、关键接口状态、代表性任务结果和遗留风险；不得记录凭据、Cookie、完整 DSN 或 API key。
 - 冒烟失败时先保留诊断证据并修复、重新部署和复测；仍未通过则状态只能是“实现完成但上线阻塞”，不得归档为 `done`，也不得将涉及运行行为的 OpenSpec change 标记完成或 archive。
 - 纯文档、仅测试、不会进入运行环境的改动可以免部署，但最终说明和归档记录必须明确写出免部署原因；没有服务器权限或被外部依赖阻塞时，也必须如实记录，不能声称已经线上闭环。
+- 部署不保留备份文件：不得在仓库、构建目录或服务器留下 `.deploy-backup-*`、`.pre-refactor`、`dist.previous` 等备份副本。部署前确认目标和进程，采用可验证的替换方式；如需回退，重新构建并部署对应提交，不通过遗留备份文件回退。
 - 如果是重构操作，无需兼容，重构后将不用的代码删除，并且主动检查修改提示词做适配
 - 如果修改skill中的生成脚本，需要本地跑一边，生成验收后再上线
+
+## 提交与多 Agent 协作纪律
+
+- 每次代码、测试、配置或文档变更完成并通过相应验证后，必须立即创建对应 Git commit；提交信息应说明变更目的，禁止把已完成但未提交的改动交给下一位 Agent。
+- 提交前检查 `git diff` 与 `git status`，只提交当前事项相关文件，不覆盖或回滚其他 Agent 的未完成改动；发现交叉修改时先拆分提交或记录冲突。
+- 多 Agent 并行开发期间，中间提交不要求逐次上线。只有集成分支/发布提交，或用户明确要求交付当前服务器时，才执行 Linux 构建、部署、重启和线上冒烟闭环。
+- 多 Agent 中间提交仍必须保持可构建、可测试的最小提交点；合并前统一运行受影响包测试和全量构建，发布后按本文件的上线证据要求回填。
 
 ## 人机协作工作流
 
 本项目采用**事项登记 + 按需分流**的迭代模式，所有 Agent 都必须遵守：
 
-- **小需求默认 direct**：局部 bug 修复、单一页面或接口调整、测试补强、文案/提示词微调，以及可在当前会话内闭环的改动，直接实现、验证、上线和回填即可；不要求创建 OpenSpec、research 或 `todo.md` 条目。
+- **小需求默认 direct**：局部 bug 修复、单一页面或接口调整、测试补强、文案/提示词微调，以及可在当前会话内闭环的改动，直接实现、验证、提交并按发布门禁决定是否上线和回填即可；不要求创建 OpenSpec、research 或 `todo.md` 条目。
 - **中大型需求先归类**：跨模块的新能力、架构/数据契约重构、需要多阶段设计权衡、预计跨会话追踪，或会显著改变主流程的事项，先映射到 `todo.md` 的长期方向；仅在现有方向均不覆盖时，按首次提出时间追加新方向。
 - **完成事项统一归档**：错误修复、UI 改造和其他具体执行事项完成后，按完成时间追加到 [`docs/issues/done.md`](./docs/issues/done.md)，保留 ID、计划时间、完成时间和产出链接，不再堆放到 `todo.md`
 - **预研文档按需放在 `docs/research/`**：当边界不清、依赖外部系统、存在多方案权衡时，先写预研，再决定实施路线
 - **OpenSpec 仅用于大型 feat 或重构**：当事项属于前述中大型需求、需要明确规格/迁移计划、或用户明确要求时，使用 `openspec/changes/<change>/`；其余事项使用 `direct`。不要为单点修复或常规测试补强创建 OpenSpec 工件。
 - TODO 事项有两条正式路线：`direct`（直接实现）和 `opsx`（OpenSpec）。只有需要长期追踪的事项才登记到 TODO；已完成的小事项只在必要时写入 `done.md` 或迭代记录。
-- **运行变更必须上线冒烟**：本地验证后完成部署、重启确认、线上最小代表性测试和测试数据清理，才可视为闭环
+- **运行变更必须上线冒烟**：面向当前服务器的发布变更在本地验证后必须完成部署、重启确认、线上最小代表性测试和测试数据清理，才可视为上线闭环；多 Agent 开发中的中间提交可以暂不上线，但不得标记为已发布。
 - **Agent 必须回填状态与链接**：direct 事项用 `done.md` 或迭代记录回填；OpenSpec 事项用 change 和归档回填。上线冒烟通过后按需更新 `todo.md` 对应方向的当前基线。
 - **连续闭环授权**：用户已明确“开始实施”且范围、权限和目标清楚时，Agent 应连续完成必要的设计工件（仅 OpenSpec 事项）、实现、验证、部署、冒烟与归档，不因常规中间结果暂停确认；仅在需要新的外部权限、范围发生实质变化，或三次安全排查后仍无法消解的外部阻塞时才请求用户决定。
 
@@ -210,6 +218,8 @@ python skills/ppt-deck-planner/generators/generator.py
 - [长期迭代方向](./docs/issues/todo.md)
 
 - [已完成事项归档](./docs/issues/done.md)
+
+- [长期架构决策索引](./docs/decisions/README.md)
 
 - [模板编排与 Agent UI 预研](./docs/research/2026-08-24-template-orchestration-and-agent-ui.md)
 
