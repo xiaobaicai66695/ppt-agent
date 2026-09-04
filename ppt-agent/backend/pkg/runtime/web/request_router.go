@@ -197,7 +197,10 @@ func fallbackMessageRoute(query, selectedTaskID string) MessageRouteResult {
 		NormalizedRequest: strings.TrimSpace(query), MissingFields: missing,
 		Action: messageActionPrepareCreate, Reason: "用户表达了新建 PPT 的意图",
 	}
-	if len(missing) > 0 || looksLikeVagueDeckRequest(query) {
+	// A named PPT request may omit audience, page count or style; these are
+	// Planner defaults, not a reason to keep the user in chat. Only a truly
+	// content-free request needs a clarification in the deterministic fallback.
+	if looksLikeVagueDeckRequest(query) {
 		result.NeedsConfirmation = true
 		result.Action = messageActionAskClarification
 		result.Reply = "已识别为 PPT 创建意图，但信息还不完整。建议补充受众、页数、风格或核心结论。"

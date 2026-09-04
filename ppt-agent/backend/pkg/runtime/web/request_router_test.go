@@ -113,6 +113,7 @@ func TestRouteMessageRequestRuleFallback(t *testing.T) {
 	}{
 		{name: "small talk", query: "你好", wantIntent: messageIntentChat, wantMode: messageModeChat, wantAction: messageActionReply},
 		{name: "clear create", query: "为研发负责人做一份 10 页产品评审 PPT，风格务实", wantIntent: messageIntentCreate, wantMode: messageModePPTAgent, wantAction: messageActionPrepareCreate},
+		{name: "clear create with Planner defaults", query: "为新员工制作 3 页安全培训 PPT", wantIntent: messageIntentCreate, wantMode: messageModePPTAgent, wantAction: messageActionPrepareCreate},
 		{name: "plan only", query: "先规划一下 AI 技术分享的结构，不要生成", wantIntent: messageIntentPlan, wantMode: messageModePPTAgent, wantAction: messageActionSavePlan},
 		{name: "fix without task", query: "修复上一版 PPT 的第三页标题溢出", wantIntent: messageIntentFix, wantMode: messageModePPTAgent, wantAction: messageActionAskClarification, wantNeeds: true},
 		{name: "fix with task", query: "把第2页标题字体调大一点", selectedID: "task-1", wantIntent: messageIntentFix, wantMode: messageModePPTAgent, wantAction: messageActionUpdateTask},
