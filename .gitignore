@@ -1,4 +1,8 @@
 # Agent / PPT generation outputs
+.codex/
+.claude/
+**/.codex/
+**/.claude/
 output/
 weboutput/
 **/output/
@@ -21,6 +25,11 @@ __pycache__/
 *.zip
 *.tar
 *.tar.gz
+*.tgz
+*.tsbuildinfo
+
+# Local frontend quality-audit report (contains machine-specific paths).
+ppt-agent/frontend/premium-audit.json
 
 # Local probe workspaces
 tmp-eino-qwen-probe/

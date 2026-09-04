@@ -1,6 +1,0 @@
-interface:
-  display_name: "BK-ITSM 插件开发"
-  short_description: "BK-ITSM 生成工作树后端插件开发规范"
-  default_prompt: "Use $bk-itsm-plugin-development to build a backend plugin extension in the current BK-ITSM generated worktree."
-policy:
-  allow_implicit_invocation: true
