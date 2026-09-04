@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 type fakeBackgroundAssetClient struct {

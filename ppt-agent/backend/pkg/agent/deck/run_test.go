@@ -1,10 +1,15 @@
 package deck
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/cloudwego/ppt-agent/pkg/retry"
 )
 
 func TestAssistantContentWithToolCallsIsNotEmittable(t *testing.T) {
@@ -118,5 +123,43 @@ func TestADKStreamingEnabledCanBeDisabled(t *testing.T) {
 				t.Fatalf("expected ADK streaming to be disabled for %q", value)
 			}
 		})
+	}
+}
+
+func TestProcessStreamingMessageReturnsRetryableReadError(t *testing.T) {
+	reader, writer := schema.Pipe[adk.Message](1)
+	go func() {
+		defer writer.Close()
+		writer.Send(nil, errors.New("Post https://api.example.com: unexpected EOF"))
+	}()
+	var answers []string
+	err := processStreamingMessage(reader, func(event AgentEvent) {
+		if event.Type == AgentEventError {
+			answers = append(answers, event.Error)
+		}
+	}, &strings.Builder{})
+	if !retry.IsRetryable(err) {
+		t.Fatalf("stream read error must be retryable, got %v", err)
+	}
+	if len(answers) != 1 || !strings.Contains(answers[0], "unexpected EOF") {
+		t.Fatalf("visible stream error = %#v", answers)
+	}
+}
+
+func TestPlanReviewCheckpointPersistsResumeRound(t *testing.T) {
+	workDir := t.TempDir()
+	if err := writePlanReviewCheckpoint(workDir, 2); err != nil {
+		t.Fatal(err)
+	}
+	round, err := readPlanReviewCheckpoint(workDir)
+	if err != nil || round != 2 {
+		t.Fatalf("checkpoint round=%d err=%v, want 2", round, err)
+	}
+	if err := clearPlanReviewCheckpoint(workDir); err != nil {
+		t.Fatal(err)
+	}
+	round, err = readPlanReviewCheckpoint(workDir)
+	if err != nil || round != 1 {
+		t.Fatalf("cleared checkpoint round=%d err=%v, want 1", round, err)
 	}
 }

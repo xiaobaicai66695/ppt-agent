@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 )
 

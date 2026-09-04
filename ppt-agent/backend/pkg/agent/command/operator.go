@@ -27,7 +27,7 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 
-	"github.com/cloudwego/ppt-agent/pkg/params"
+	"github.com/cloudwego/ppt-agent/pkg/utils/params"
 )
 
 // WorkDirFunc 定义获取工作目录的函数类型

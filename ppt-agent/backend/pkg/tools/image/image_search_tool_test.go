@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 func TestImageSearchToolReturnsAttributableCandidates(t *testing.T) {

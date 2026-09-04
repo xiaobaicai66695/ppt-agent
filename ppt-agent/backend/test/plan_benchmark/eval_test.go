@@ -227,7 +227,7 @@ func TestGoldDecksRenderWithSkillScripts(t *testing.T) {
 				Concurrency: 2,
 				SkillsDir:   filepath.Join(projectRoot(t), "skills"),
 			}
-			result, err := deck.RenderDeckByTaskIDWorkflow(ctx, cfg, nil)
+			result, err := deck.RenderPPT(ctx, cfg, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -5,6 +5,9 @@ package retry
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net"
 	"strings"
 	"time"
 )
@@ -24,6 +27,101 @@ type Policy struct {
 	// failed operation, not the number of network requests.
 	MaxAttempts int
 	Cooldown    time.Duration
+	// MaxCooldown caps exponential backoff. A zero value uses Cooldown as-is.
+	MaxCooldown time.Duration
+}
+
+// ErrorClass is a stable, provider-agnostic failure category. Callers should
+// branch on it instead of matching a provider's error string directly.
+type ErrorClass string
+
+const (
+	ErrorUnknown       ErrorClass = "unknown"
+	ErrorRateLimited   ErrorClass = "rate_limited"
+	ErrorUnexpectedEOF ErrorClass = "unexpected_eof"
+	ErrorTimeout       ErrorClass = "timeout"
+	ErrorUnavailable   ErrorClass = "service_unavailable"
+	ErrorConnection    ErrorClass = "connection"
+)
+
+// RetryableError keeps the original error available to errors.Is/As while
+// exposing a normalized class for task status, metrics and retry selection.
+type RetryableError struct {
+	Class ErrorClass
+	Cause error
+}
+
+func (e *RetryableError) Error() string {
+	if e == nil || e.Cause == nil {
+		return string(ErrorUnknown)
+	}
+	return e.Cause.Error()
+}
+
+func (e *RetryableError) Unwrap() error { return e.Cause }
+
+// ClassifyError recognizes provider/network failures that are safe to retry
+// before a workflow has reached a durable checkpoint. It intentionally does
+// not classify auth, schema or validation failures as retryable.
+func ClassifyError(err error) ErrorClass {
+	if err == nil {
+		return ErrorUnknown
+	}
+	var classified *RetryableError
+	if errors.As(err, &classified) && classified.Class != "" {
+		return classified.Class
+	}
+	if IsRateLimited(err) {
+		return ErrorRateLimited
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrorTimeout
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && networkErr.Timeout() {
+		return ErrorTimeout
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case errors.Is(err, io.ErrUnexpectedEOF), strings.Contains(message, "unexpected eof"):
+		return ErrorUnexpectedEOF
+	case strings.Contains(message, "context deadline exceeded"), strings.Contains(message, "timeout"), strings.Contains(message, "timed out"), strings.Contains(message, "超时"):
+		return ErrorTimeout
+	case strings.Contains(message, "http 502"), strings.Contains(message, "http 503"), strings.Contains(message, "http 504"),
+		strings.Contains(message, "bad gateway"), strings.Contains(message, "service unavailable"), strings.Contains(message, "gateway timeout"):
+		return ErrorUnavailable
+	case strings.Contains(message, "connection reset"), strings.Contains(message, "connection refused"),
+		strings.Contains(message, "broken pipe"), strings.Contains(message, "transport is closing"), strings.Contains(message, "stream reset"):
+		return ErrorConnection
+	default:
+		return ErrorUnknown
+	}
+}
+
+func IsRetryable(err error) bool {
+	switch ClassifyError(err) {
+	case ErrorRateLimited, ErrorUnexpectedEOF, ErrorTimeout, ErrorUnavailable, ErrorConnection:
+		return true
+	default:
+		return false
+	}
+}
+
+// WrapRetryable preserves already classified errors and otherwise adds the
+// normalized class only when the cause is safe to retry.
+func WrapRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	var classified *RetryableError
+	if errors.As(err, &classified) {
+		return err
+	}
+	class := ClassifyError(err)
+	if class == ErrorUnknown {
+		return err
+	}
+	return &RetryableError{Class: class, Cause: err}
 }
 
 // FixedAttemptStrategy centralizes a workflow's bounded retry/revision budget.
@@ -107,6 +205,41 @@ func (f *Factory) MaxAttempts(operation Operation) int {
 	return decision.Policy.MaxAttempts
 }
 
+// RetryDelay returns the delay for the one-based recovery attempt. It is
+// deliberately owned here so model, stream and task workflows share one
+// bounded backoff policy.
+func (f *Factory) RetryDelay(operation Operation, cause error, recoveryAttempt int) (time.Duration, bool) {
+	decision, ok := f.Select(operation, cause)
+	if !ok || recoveryAttempt < 1 || recoveryAttempt > decision.Policy.MaxAttempts {
+		return 0, false
+	}
+	delay := decision.Policy.Cooldown
+	if delay <= 0 {
+		return 0, true
+	}
+	for attempt := 1; attempt < recoveryAttempt; attempt++ {
+		delay *= 2
+		if decision.Policy.MaxCooldown > 0 && delay >= decision.Policy.MaxCooldown {
+			return decision.Policy.MaxCooldown, true
+		}
+	}
+	return delay, true
+}
+
+func Wait(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // HTTP410SearchTermRevisionStrategy delegates the retry to an LLM that can
 // understand the slide visual intent and write a different asset_query. It is
 // intentionally not a network retry and never retries a download operation.
@@ -152,6 +285,20 @@ func IsRateLimited(err error) bool {
 		strings.Contains(message, "rate_limit") || strings.Contains(message, "too many requests")
 }
 
+// TransientModelRetryStrategy covers provider disconnects and temporary 5xx
+// responses. After its same-model retry budget is exhausted, callers may use
+// the same decision to advance to an independently configured fallback model.
+type TransientModelRetryStrategy struct{}
+
+func (TransientModelRetryStrategy) Name() string { return "model_transient_retry" }
+func (TransientModelRetryStrategy) Match(operation Operation, err error) bool {
+	return (operation == OperationModelFallback || operation == OperationModelStreamRead) &&
+		ClassifyError(err) != ErrorRateLimited && IsRetryable(err)
+}
+func (TransientModelRetryStrategy) Policy() Policy {
+	return Policy{MaxAttempts: 2, Cooldown: 500 * time.Millisecond, MaxCooldown: 2 * time.Second}
+}
+
 // ModelStreamReadFallbackStrategy permits a fallback-model retry only before
 // the current stream emitted content; callers retain the stream state check to
 // avoid duplicating an answer after partial output.
@@ -159,13 +306,14 @@ type ModelStreamReadFallbackStrategy struct{}
 
 func (ModelStreamReadFallbackStrategy) Name() string { return "model_stream_read_fallback" }
 func (ModelStreamReadFallbackStrategy) Match(operation Operation, err error) bool {
-	return operation == OperationModelStreamRead && err != nil
+	return operation == OperationModelStreamRead && IsRateLimited(err)
 }
 func (ModelStreamReadFallbackStrategy) Policy() Policy { return Policy{MaxAttempts: 1} }
 
 var defaultFactory = NewFactory(
 	HTTP410SearchTermRevisionStrategy{},
 	RateLimitFallbackStrategy{},
+	TransientModelRetryStrategy{},
 	ModelStreamReadFallbackStrategy{},
 	FixedAttemptStrategy{Operation: OperationQAModelInit, StrategyName: "qa_model_initialization", MaxAttempts: 3},
 	FixedAttemptStrategy{Operation: OperationDeckSpecReview, StrategyName: "deck_spec_reviewer", MaxAttempts: 3},

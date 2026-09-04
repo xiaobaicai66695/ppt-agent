@@ -4,7 +4,7 @@ import (
 	"github.com/cloudwego/eino-ext/components/tool/commandline"
 	"github.com/cloudwego/eino/components/tool"
 
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 	imagetool "github.com/cloudwego/ppt-agent/pkg/tools/image"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 )

@@ -30,7 +30,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/human"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 )
 
@@ -41,6 +41,13 @@ const (
 	AgentEventError    = "error"
 	AgentEventProgress = "progress"
 )
+
+const reviewCheckpointFileName = "review.checkpoint.json"
+
+type reviewCheckpoint struct {
+	NextRound int       `json:"next_round"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
 
 // streamTimeout 返回单次 iter.Next() 调用允许阻塞的最长时间
 // 通过 STREAM_TIMEOUT 环境变量设置（如 "3m"）。零或负值禁用超时
@@ -184,6 +191,37 @@ func RunPPTPlannerWithCallback(ctx context.Context, agent adk.Agent, cfg *PPTTas
 	return runPPTPlannerInternal(ctx, agent, cfg, userQuery, onEvent)
 }
 
+// ResumePPTPlannerFromDraftWithCallback continues a task that already has a
+// Planner checkpoint but was interrupted before tasks.json was committed. It
+// deliberately skips Planner: tasks.draft.json is the durable checkpoint and
+// must still pass the normal Reviewer gate before rendering can begin.
+func ResumePPTPlannerFromDraftWithCallback(ctx context.Context, cfg *PPTTaskConfig,
+	onEvent AgentEventCallback) (*PPTTaskResult, error) {
+	if cfg == nil || strings.TrimSpace(cfg.WorkDir) == "" {
+		return nil, fmt.Errorf("恢复 DeckSpec 失败：任务工作目录为空")
+	}
+	draft, err := ReadTasksDraftManifest(cfg.WorkDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("没有可恢复的 Planner 草稿")
+		}
+		return nil, fmt.Errorf("读取 Planner 草稿失败: %w", err)
+	}
+	if draft == nil || len(draft.Tasks) == 0 {
+		return nil, fmt.Errorf("Planner 草稿为空，无法恢复")
+	}
+
+	onEvent(AgentEvent{Type: AgentEventProgress, Phase: "reviewing", PhaseDetail: "检测到未提交的规划草稿，正在从 Reviewer 阶段恢复"})
+	manifest, err := reviewAndCommitDeckSpec(ctx, cfg, onEvent)
+	if err != nil {
+		return nil, err
+	}
+	if manifest == nil || len(manifest.Tasks) == 0 {
+		return nil, fmt.Errorf("恢复后 DeckSpec 为空，无法进入渲染")
+	}
+	return &PPTTaskResult{TotalSlides: len(manifest.Tasks)}, nil
+}
+
 func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig,
 	userQuery string, onEvent AgentEventCallback) (result *PPTTaskResult, err error) {
 
@@ -231,7 +269,7 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 			if lastMessageStream != nil {
 				lastMessageStream.Close()
 			}
-			return nil, fmt.Errorf("LLM 流式输出超时（%s），任务已暂停", streamTimeout())
+			return nil, retry.WrapRetryable(fmt.Errorf("LLM 流式输出超时（%s），任务已暂停", streamTimeout()))
 		}
 
 		if !ok {
@@ -248,7 +286,9 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 				event.Output.MessageOutput.MessageStream = cpStream[0]
 				lastMessage = nil
 				lastMessageStream = cpStream[1]
-				processStreamingMessage(lastMessageStream, onEvent, &answerBuf)
+				if streamErr := processStreamingMessage(lastMessageStream, onEvent, &answerBuf); streamErr != nil && plannerErr == nil {
+					plannerErr = streamErr
+				}
 			} else {
 				lastMessage = event.Output.MessageOutput.Message
 				lastMessageStream = nil
@@ -363,8 +403,18 @@ func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Ag
 	if maxPlanReviewRounds < 1 {
 		return nil, fmt.Errorf("未配置 DeckSpec 审查重试策略")
 	}
+	startRound, err := readPlanReviewCheckpoint(cfg.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	if startRound > maxPlanReviewRounds {
+		return nil, fmt.Errorf("DeckSpec 审查检查点轮次 %d 超出最大轮次 %d", startRound, maxPlanReviewRounds)
+	}
 	var latest *PlanReviewReport
-	for round := 1; round <= maxPlanReviewRounds; round++ {
+	for round := startRound; round <= maxPlanReviewRounds; round++ {
+		if err := writePlanReviewCheckpoint(cfg.WorkDir, round); err != nil {
+			return nil, err
+		}
 		report, err := ReviewTasksDraftManifest(cfg.WorkDir, round)
 		if err != nil {
 			return nil, fmt.Errorf("第 %d 轮 DeckSpec 硬校验失败: %w", round, err)
@@ -392,6 +442,9 @@ func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Ag
 			}
 			if !ok || manifest == nil {
 				return nil, fmt.Errorf("DeckSpec 审查通过但没有可提交的规划草稿")
+			}
+			if err := clearPlanReviewCheckpoint(cfg.WorkDir); err != nil {
+				return nil, err
 			}
 			onEvent(AgentEvent{Type: AgentEventAnswer, Content: fmt.Sprintf("DeckSpec 已通过 Task Reviewer 并提交，共 %d 页，开始进入并发渲染。\n", len(manifest.Tasks))})
 			if cfg.RuntimeMeta != nil {
@@ -426,6 +479,51 @@ func reviewAndCommitDeckSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Ag
 		return nil, fmt.Errorf("Task Reviewer 未产生审查结果")
 	}
 	return nil, fmt.Errorf("DeckSpec 在 %d 轮审查后仍未通过：%s", maxPlanReviewRounds, latest.Summary)
+}
+
+func readPlanReviewCheckpoint(workDir string) (int, error) {
+	data, err := os.ReadFile(filepath.Join(workDir, reviewCheckpointFileName))
+	if os.IsNotExist(err) {
+		return 1, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("读取 DeckSpec 审查检查点失败: %w", err)
+	}
+	var checkpoint reviewCheckpoint
+	if err := json.Unmarshal(data, &checkpoint); err != nil {
+		return 0, fmt.Errorf("解析 DeckSpec 审查检查点失败: %w", err)
+	}
+	if checkpoint.NextRound < 1 {
+		return 0, fmt.Errorf("DeckSpec 审查检查点轮次无效")
+	}
+	return checkpoint.NextRound, nil
+}
+
+func writePlanReviewCheckpoint(workDir string, nextRound int) error {
+	if nextRound < 1 {
+		return fmt.Errorf("DeckSpec 审查检查点轮次无效")
+	}
+	data, err := json.Marshal(reviewCheckpoint{NextRound: nextRound, UpdatedAt: time.Now()})
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(workDir, reviewCheckpointFileName)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("写入 DeckSpec 审查检查点失败: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("提交 DeckSpec 审查检查点失败: %w", err)
+	}
+	return nil
+}
+
+func clearPlanReviewCheckpoint(workDir string) error {
+	if err := os.Remove(filepath.Join(workDir, reviewCheckpointFileName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("清理 DeckSpec 审查检查点失败: %w", err)
+	}
+	return nil
 }
 
 func makePrintCallback() AgentEventCallback {
@@ -521,9 +619,9 @@ func emitVisibleAnswer(content string, onEvent AgentEventCallback, buf *strings.
 	})
 }
 
-func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent AgentEventCallback, buf *strings.Builder) {
+func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent AgentEventCallback, buf *strings.Builder) error {
 	if stream == nil {
-		return
+		return nil
 	}
 	var probe strings.Builder
 	probing := true
@@ -535,8 +633,9 @@ func processStreamingMessage(stream *schema.StreamReader[adk.Message], onEvent A
 			}
 			if err != io.EOF {
 				onEvent(AgentEvent{Type: AgentEventError, Error: err.Error()})
+				return retry.WrapRetryable(err)
 			}
-			return
+			return nil
 		}
 		if !isChunkEmittable(chunk) {
 			continue
@@ -598,7 +697,7 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 
 		if timedOut {
 			logger.Error("stream_agent_timeout", "timeout", streamTimeout().String())
-			return fmt.Errorf("LLM 流式输出超时（%s）", streamTimeout())
+			return retry.WrapRetryable(fmt.Errorf("LLM 流式输出超时（%s）", streamTimeout()))
 		}
 
 		if !ok {
@@ -613,7 +712,9 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 				defer lastMsgStream.Close()
 
 				answerBuf := strings.Builder{}
-				processStreamingMessage(lastMsgStream, onEvent, &answerBuf)
+				if streamErr := processStreamingMessage(lastMsgStream, onEvent, &answerBuf); streamErr != nil {
+					return streamErr
+				}
 			} else {
 				if msg := event.Output.MessageOutput.Message; msg != nil {
 					if isChunkEmittable(msg) && msg.Content != "" {
@@ -634,6 +735,7 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 
 		if event.Err != nil {
 			onEvent(AgentEvent{Type: AgentEventError, Error: event.Err.Error()})
+			return retry.WrapRetryable(event.Err)
 		}
 	}
 

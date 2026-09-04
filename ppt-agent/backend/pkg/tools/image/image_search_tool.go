@@ -13,7 +13,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 const (

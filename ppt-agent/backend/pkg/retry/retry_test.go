@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
+	"time"
 )
 
 func TestFactoryExecutesHTTP410LLMRevisionStrategy(t *testing.T) {
@@ -53,5 +55,42 @@ func TestDefaultFactoryContainsSharedAttemptBounds(t *testing.T) {
 	}
 	if _, ok := Default().Select(OperationModelStreamRead, errors.New("stream reset")); !ok {
 		t.Fatal("missing stream read fallback policy")
+	}
+}
+
+func TestClassifyRetryableTransportFailures(t *testing.T) {
+	cases := []struct {
+		err  error
+		want ErrorClass
+	}{
+		{io.ErrUnexpectedEOF, ErrorUnexpectedEOF},
+		{context.DeadlineExceeded, ErrorTimeout},
+		{errors.New("Post request: HTTP 503 service unavailable"), ErrorUnavailable},
+		{errors.New("read tcp: connection reset by peer"), ErrorConnection},
+	}
+	for _, tc := range cases {
+		if got := ClassifyError(tc.err); got != tc.want {
+			t.Fatalf("ClassifyError(%v) = %q, want %q", tc.err, got, tc.want)
+		}
+		if !IsRetryable(tc.err) {
+			t.Fatalf("IsRetryable(%v) = false", tc.err)
+		}
+		if !errors.Is(WrapRetryable(tc.err), tc.err) {
+			t.Fatalf("wrapped error does not preserve cause: %v", tc.err)
+		}
+	}
+}
+
+func TestTransientModelRetryUsesBoundedBackoff(t *testing.T) {
+	first, ok := Default().RetryDelay(OperationModelFallback, io.ErrUnexpectedEOF, 1)
+	if !ok || first != 500*time.Millisecond {
+		t.Fatalf("first retry = %s ok=%t", first, ok)
+	}
+	second, ok := Default().RetryDelay(OperationModelFallback, io.ErrUnexpectedEOF, 2)
+	if !ok || second != time.Second {
+		t.Fatalf("second retry = %s ok=%t", second, ok)
+	}
+	if _, ok := Default().RetryDelay(OperationModelFallback, io.ErrUnexpectedEOF, 3); ok {
+		t.Fatal("third transient retry must exceed the shared retry budget")
 	}
 }
