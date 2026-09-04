@@ -19,7 +19,7 @@ export type ToolPreview = { images?: Array<{ thumbnail_url?: string; image_url?:
 export type ConversationTimelineItem =
   | { id: string; type: 'message'; message: ConversationMessage }
   | { id: string; type: 'phase'; phase: string; label: string; detail?: string; state: ExecutionState; tools: ToolInvocation[] }
-  | { id: string; type: 'execution'; label: string; detail?: string; state: ExecutionState }
+  | { id: string; type: 'execution'; label: string; detail?: string; state: ExecutionState; runtimeKey?: string }
 
 let ordinal = 0
 
@@ -131,6 +131,25 @@ export function toggleToolInvocation(items: ConversationTimelineItem[], toolID: 
 export function appendExecutionStep(items: ConversationTimelineItem[], label: string, detail = '', state: ExecutionState = 'running') {
   const id = nextID('execution')
   items.push({ id, type: 'execution', label, detail, state })
+  return id
+}
+
+// LLM callbacks report a start and an end event for one model invocation. Keep
+// the start row live and resolve it when the matching end/error arrives so the
+// timeline shows one observable model step instead of duplicate rows such as
+// "ChatModel" and "chat_model".
+export function appendRuntimeExecution(items: ConversationTimelineItem[], label: string, detail = '', state: ExecutionState = 'running', kind = '') {
+  const runtimeKey = kind.toLowerCase().startsWith('llm_') ? label.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : ''
+  if (runtimeKey) {
+    const active = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'execution' }> => item.type === 'execution' && item.runtimeKey === runtimeKey && item.state === 'running')
+    if (active) {
+      if (detail) active.detail = detail
+      active.state = state
+      return active.id
+    }
+  }
+  const id = nextID('execution')
+  items.push({ id, type: 'execution', label, detail, state, ...(runtimeKey ? { runtimeKey } : {}) })
   return id
 }
 

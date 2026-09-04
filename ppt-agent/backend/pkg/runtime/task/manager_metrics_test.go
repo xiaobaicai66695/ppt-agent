@@ -9,7 +9,8 @@ import (
 )
 
 func TestBroadcastCombinesToolCallAndResult(t *testing.T) {
-	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	listener := make(chan SSERichEvent, 4)
+	ts := &TaskState{listeners: map[string]chan SSERichEvent{"test": listener}}
 	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolCallID: "call-1", ToolName: "search", ToolArgs: `{"query":"PPT"}`})
 	if len(ts.Events) != 0 {
 		t.Fatalf("tool call must wait for result, got %#v", ts.Events)
@@ -20,6 +21,19 @@ func TestBroadcastCombinesToolCallAndResult(t *testing.T) {
 	}
 	if len(ts.Events) != 1 || ts.Events[0].ID == 0 || ts.Events[0].ToolCallID != "call-1" {
 		t.Fatalf("replay event = %#v", ts.Events)
+	}
+	select {
+	case event := <-listener:
+		if event.Type != "tool_call" || event.ToolResult != "找到 3 条资料" {
+			t.Fatalf("listener event = %#v, want merged tool_call", event)
+		}
+	default:
+		t.Fatal("listener did not receive merged tool call")
+	}
+	select {
+	case event := <-listener:
+		t.Fatalf("listener received a separate tool result: %#v", event)
+	default:
 	}
 }
 

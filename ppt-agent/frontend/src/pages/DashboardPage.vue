@@ -11,7 +11,7 @@ import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetch
 import type { AuthUser, TaskInfo } from '../types'
 import { shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent } from '../utils/taskStream'
-import { appendExecutionStep, appendTimelineMessage, appendToolInvocation, beginObservablePhase, completeObservablePhase, finishToolPhase, hideCompletedToolTraces, prepareToolBoundary, resetConversationTimeline, resolveToolInvocation, toggleToolInvocation, type ConversationTimelineItem, type ExecutionState, type ToolPreview } from '../utils/conversationTimeline'
+import { appendExecutionStep, appendRuntimeExecution, appendTimelineMessage, appendToolInvocation, beginObservablePhase, completeObservablePhase, finishToolPhase, hideCompletedToolTraces, prepareToolBoundary, resetConversationTimeline, resolveToolInvocation, toggleToolInvocation, type ConversationTimelineItem, type ExecutionState, type ToolPreview } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -126,7 +126,7 @@ function openStream(id: string, after = 0) {
       reconnectAttempts = 0
       consume(event.data)
     }
-  for (const name of ['answer', 'answer_end', 'system_step', 'tool_call', 'tool_result', 'progress', 'runtime_event', 'file_ready', 'thumbnail_ready', 'error', 'complete', 'continue_complete', 'continue_queued', 'conversation_complete']) {
+    for (const name of ['answer', 'answer_end', 'system_step', 'tool_call', 'progress', 'runtime_event', 'file_ready', 'thumbnail_ready', 'error', 'complete', 'continue_complete', 'continue_queued', 'conversation_complete']) {
       source?.addEventListener(name, receive)
     }
     source.onerror = () => {
@@ -181,7 +181,8 @@ function consume(raw: string) {
     } else if (data.type === 'runtime_event') {
       const event = data.runtime_event
       const state: ExecutionState = event?.status === 'error' || event?.status === 'failed' ? 'error' : event?.status === 'ok' ? 'success' : 'running'
-      addExecution(event?.name || event?.kind || '处理任务', event?.detail || '', state)
+      appendRuntimeExecution(timeline.value, event?.name || event?.kind || '处理任务', event?.detail || '', state, event?.kind || '')
+      void nextTick(stickToLatestMessage)
     } else if (data.type === 'system_step') {
       startPhase(data.phase || 'system', data.phase_detail || data.message || '正在推进')
     } else if (data.type === 'tool_call') {
@@ -195,10 +196,6 @@ function consume(raw: string) {
 		if (toolID && toolState !== 'running') {
 			resolveToolInvocation(timeline.value, activePhaseID.value, data.tool_name || 'unknown', toolLabel(data.tool_name), data.tool_result || '工具调用已完成', toolState, data.tool_preview, data.tool_call_id)
 		}
-      void nextTick(stickToLatestMessage)
-    } else if (data.type === 'tool_result') {
-      ensureAnalysisPhase()
-      resolveToolInvocation(timeline.value, activePhaseID.value, data.tool_name || 'unknown', toolLabel(data.tool_name), data.error || data.phase_detail || data.message || '已完成', data.error ? 'error' : 'success', data.tool_preview, data.tool_call_id)
       void nextTick(stickToLatestMessage)
     } else if (data.type === 'progress') {
       addExecution(data.phase_detail || data.phase || '推进生成', data.message || '')

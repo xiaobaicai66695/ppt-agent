@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendTimelineMessage,
+  appendRuntimeExecution,
   appendToolInvocation,
   beginObservablePhase,
   completeObservablePhase,
@@ -97,5 +98,14 @@ describe('conversation timeline', () => {
     expect(items[2]).toMatchObject({ type: 'phase', state: 'success' })
     appendTimelineMessage(items, { role: 'assistant', content: '查到了一些资料。', timestamp: '' })
     expect(items.map(item => item.type === 'message' ? item.message.role : item.type)).toEqual(['user', 'assistant', 'phase', 'assistant'])
+  })
+
+  it('merges LLM start and end events into one execution row', () => {
+    const items = resetConversationTimeline([])
+    appendRuntimeExecution(items, 'ChatModel', '', 'running', 'llm_start')
+    appendRuntimeExecution(items, 'chat_model', '', 'success', 'llm_end')
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ type: 'execution', label: 'ChatModel', state: 'success' })
   })
 })
