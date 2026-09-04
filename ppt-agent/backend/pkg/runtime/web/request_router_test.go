@@ -39,6 +39,20 @@ func TestNormalizeMessageRouteKeepsExplicitCreateDespiteOptionalMissingFields(t 
 	}
 }
 
+func TestNormalizeMessageRouteRemovesModelClarificationFromExplicitCreate(t *testing.T) {
+	got := normalizeMessageRoute(MessageRouteResult{
+		Intent:            messageIntentCreate,
+		Action:            messageActionAskClarification,
+		NeedsConfirmation: true,
+		Confidence:        0.91,
+		NormalizedRequest: "为新员工制作 3 页安全培训 PPT",
+		MissingFields:     []string{"style"},
+	}, "为新员工制作 3 页安全培训 PPT", "")
+	if got.Action != messageActionPrepareCreate || got.NeedsConfirmation || got.Mode != messageModePPTAgent {
+		t.Fatalf("explicit create must enter Planner without a confirmation gate: %#v", got)
+	}
+}
+
 func (f fakeCreateRouteModel) Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (*schema.Message, error) {
 	if f.called != nil {
 		*f.called = true
