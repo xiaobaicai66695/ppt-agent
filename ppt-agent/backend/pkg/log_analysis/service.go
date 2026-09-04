@@ -15,8 +15,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/params"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/params"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )

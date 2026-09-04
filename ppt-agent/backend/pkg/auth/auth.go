@@ -19,7 +19,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 const (

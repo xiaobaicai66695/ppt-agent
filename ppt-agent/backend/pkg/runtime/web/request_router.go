@@ -281,9 +281,12 @@ func normalizeMessageRoute(route MessageRouteResult, original, selectedTaskID st
 	switch route.Intent {
 	case messageIntentCreate:
 		route.Mode = messageModePPTAgent
-		if route.Action == "" {
-			route.Action = messageActionPrepareCreate
-		}
+		// A RouterAgent create decision is already an explicit user instruction
+		// to enter the Planner flow. Page count, audience and style are optional
+		// Planner inputs, so an LLM must not turn that decision back into a
+		// confirmation gate and leave the workbench in chat mode.
+		route.Action = messageActionPrepareCreate
+		route.NeedsConfirmation = false
 	case messageIntentPlan:
 		route.Mode = messageModePPTAgent
 		if route.Action == "" {
