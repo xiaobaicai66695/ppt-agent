@@ -8,12 +8,13 @@
 
 | 合并事项 | 覆盖历史 ID | 完成时间 | 沉淀 |
 | --- | --- | --- | --- |
-| 全项目 Deck → PPT 命名重构 | `PPT-NAMING-001` | 2026-09-04 | Go 包、函数、类型/字段、前端组件、Python skill、测试样例、文档及路径统一使用 `ppt` 命名；旧 `deck` 标识已清理，验证命令见本次提交。 |
+| 全项目 PPT 命名统一重构 | `PPT-NAMING-001` | 2026-09-04 | Go 包、函数、类型/字段、前端组件、Python skill、测试样例、文档及路径统一使用 `ppt` 命名；旧术语标识已清理，验证命令见本次提交。 |
 | Runtime harness、可回放执行轨迹与质量评估基线 | `PPT-HARNESS-001`、`PPT-EVAL-001`、`PPT-OBS-001`、`PPT-EVAL-002` | 2026-07-31 至 2026-09-02 | `RuntimeMeta`、持久化运行事件、Timeline、质量评估集与 test/validation 隔离；决策见 `001-agent-harness-observability.md`。 |
 | Planner → Reviewer → Commit → 并发渲染主流程 | `PPT-FLOW-001/002`、`PPT-PLAN-001/002/006`、`PPT-COMPONENT-001` | 2026-08-04 至 2026-08-27 | `tasks.draft.json` 与正式 `tasks.json` 分离，确定性审查后原子提交，组件级 PPTSpec 驱动确定性生成器；架构入口见 `docs/architecture/ppt-agent-current-architecture-summary.md`。 |
 | 任务交付与恢复闭环 | `PPT-DELIVERY-001`、`PPT-TRACE-002`、`PPT-DEPLOY-002` | 2026-08-03 至 2026-08-29 | 任务权限、SSE、渐进预览、文件对账、下载与会话恢复构成同一交付闭环；决策见 `003-generation-delivery-flow.md`。 |
 | 服务运行与部署基线 | `PPT-OPS-001`、`PPT-RELEASE-001` | 2026-08-04、2026-08-29 | MySQL 与应用同机运行；运行变更完成本地验证、Linux 构建、部署、最小冒烟与证据回填；决策见 `005-ops-governance-reliability.md`。 |
 | Web / Task / Model 运行时边界重构 | `PPT-RESILIENCE-001` | 2026-09-04 | 运行时代码归入 `pkg/runtime/{web,task,model}`，并按职责增加二级导航目录；HTTP、SSE、任务和模型契约保持不变。部署与验证证据见 [`2026-09-04-runtime-module-boundaries.md`](../迭代记录/2026-09-04-runtime-module-boundaries.md)。 |
+| 上线可靠性与日志分析下线 | `PPT-RESILIENCE-002` | 2026-09-04 | 增加 HTTP 优雅停机/超时、MySQL 单写实例锁、任务取消与继续幂等、SSE 断线重连、请求体限制和 iterator 取消；删除后台日志分析及历史日志读取逻辑。验证：`go test ./...`、`npm run build`。 |
 
 ## PPTSpec、视觉与素材能力
 
