@@ -25,17 +25,17 @@ func TestNormalizeMessageRouteUsesConfigurableConfidenceThreshold(t *testing.T) 
 	}
 }
 
-func TestNormalizeMessageRouteMissingCreateFieldsRequiresConfirmationBelowThreshold(t *testing.T) {
-	t.Setenv("PPT_INTENT_CREATE_MISSING_FIELDS_AUTO_THRESHOLD", "0.95")
+func TestNormalizeMessageRouteKeepsExplicitCreateDespiteOptionalMissingFields(t *testing.T) {
 	got := normalizeMessageRoute(MessageRouteResult{
 		Intent:            messageIntentCreate,
 		Mode:              messageModePPTAgent,
 		Action:            messageActionPrepareCreate,
-		Confidence:        0.9,
+		Confidence:        0.5,
 		NormalizedRequest: "帮我做个 PPT",
-	}, "帮我做个 PPT", "")
-	if got.Action != messageActionAskClarification || !got.NeedsConfirmation || len(got.MissingFields) == 0 {
-		t.Fatalf("missing create fields should ask clarification: %#v", got)
+		MissingFields:     []string{"page_count", "audience", "style"},
+	}, "帮我做一份产品复盘 PPT", "")
+	if got.Action != messageActionPrepareCreate || got.NeedsConfirmation {
+		t.Fatalf("explicit create must remain directly startable: %#v", got)
 	}
 }
 

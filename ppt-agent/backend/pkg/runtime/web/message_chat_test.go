@@ -7,8 +7,8 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 type streamedChatReplyModel struct{ chunks []*schema.Message }
@@ -111,7 +111,7 @@ func TestAppendChatSupplementRendersSourcesAndImages(t *testing.T) {
 		webResults: []search.SearchResult{{Title: "官方攻略", URL: "https://example.com/guide"}},
 		images: []chatImageResult{{
 			PreviewURL: "https://images.example/guide.jpg", Attribution: "摄影师", Photographer: "示例摄影师",
-			SourceURL: "https://unsplash.com/photos/example-guide?utm_medium=referral&utm_source=ppt_agent",
+			SourceURL:       "https://unsplash.com/photos/example-guide?utm_medium=referral&utm_source=ppt_agent",
 			PhotographerURL: "https://unsplash.com/@example?utm_medium=referral&utm_source=ppt_agent",
 		}},
 	})

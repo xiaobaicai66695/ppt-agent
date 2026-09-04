@@ -20,14 +20,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/cloudwego/ppt-agent/pkg/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 // CompressorConfig 压缩器配置
@@ -41,6 +43,11 @@ type CompressorConfig struct {
 	// 压缩时每个留边消息对中保留的 tool result 条数上限（默认全部保留）
 	// 设为 0 表示不限制；设为正数 N 表示每个留边 pair 只保留最近的 N 条 tool result
 	ToolResultPreserveCount int
+	// Minimum growth after a successful compression before another one can run.
+	// This avoids repeatedly summarizing the same context on adjacent tool calls.
+	MinMessagesSinceLastCompression int
+	MinTokensSinceLastCompression   int
+	MinCompressionInterval          time.Duration
 }
 
 // CompressorOption 压缩器配置选项
@@ -95,11 +102,23 @@ func WithToolResultPreserveCount(n int) CompressorOption {
 // 旧的 MASTER_COMPRESSOR_* 环境变量仍作为 fallback 读取。
 func DefaultCompressorConfig() *CompressorConfig {
 	return &CompressorConfig{
-		MessageThreshold:        envIntWithFallback("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", "MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
-		TokenThreshold:          envIntWithFallback("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", "MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
-		PreserveCount:           envIntWithFallback("PLANNER_COMPRESSOR_PRESERVE_COUNT", "MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
-		ToolResultPreserveCount: envIntWithFallback("PLANNER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", "MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", 0),
+		MessageThreshold:                envIntWithFallback("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", "MASTER_COMPRESSOR_MESSAGE_THRESHOLD", 60),
+		TokenThreshold:                  envIntWithFallback("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", "MASTER_COMPRESSOR_TOKEN_THRESHOLD", 200000),
+		PreserveCount:                   envIntWithFallback("PLANNER_COMPRESSOR_PRESERVE_COUNT", "MASTER_COMPRESSOR_PRESERVE_COUNT", 8),
+		ToolResultPreserveCount:         envIntWithFallback("PLANNER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", "MASTER_COMPRESSOR_TOOL_RESULT_PRESERVE_COUNT", 0),
+		MinMessagesSinceLastCompression: EnvInt("PLANNER_COMPRESSOR_MIN_NEW_MESSAGES", 8),
+		MinTokensSinceLastCompression:   EnvInt("PLANNER_COMPRESSOR_MIN_NEW_TOKENS", 24000),
+		MinCompressionInterval:          envDuration("PLANNER_COMPRESSOR_MIN_INTERVAL", 5*time.Minute),
 	}
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+		if value, err := time.ParseDuration(raw); err == nil && value > 0 {
+			return value
+		}
+	}
+	return fallback
 }
 
 func envIntWithFallback(primary, legacy string, defaultVal int) int {
@@ -337,6 +356,14 @@ type ChatModelCompressor struct {
 	tracker    *TokenTracker // optional; if set, summarizer calls are tracked
 	runtime    *RuntimeMeta
 	onEvent    CompressionEventCallback
+	state      *compressionState
+}
+
+type compressionState struct {
+	mu           sync.Mutex
+	lastMessages int
+	lastTokens   int
+	lastAt       time.Time
 }
 
 // NewChatModelCompressor 创建上下文压缩包装器
@@ -349,6 +376,7 @@ func NewChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.T
 		inner:      inner,
 		summarizer: summarizer,
 		cfg:        cfg,
+		state:      &compressionState{},
 	}
 	// If the inner model is a FallbackChatModel, store the compressor config so that
 	// WithTools can re-apply the compressor after rebinding tools.
@@ -386,9 +414,7 @@ func (c *ChatModelCompressor) SetCompressionEventCallback(callback CompressionEv
 // Generate 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	estimatedTokens := totalTokenEstimate(messages)
-	// Skip compression only when BOTH message count AND token estimate are below threshold.
-	// Compression is triggered when EITHER threshold is exceeded.
-	if len(messages) <= c.cfg.MessageThreshold && estimatedTokens <= c.cfg.TokenThreshold {
+	if !c.shouldCompress(len(messages), estimatedTokens) {
 		return c.inner.Generate(ctx, messages, opts...)
 	}
 
@@ -415,6 +441,7 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 			handoff.UserRequestSummary, handoff.PreservedRequirements)
 	}
 	c.emitCompressionSuccess(len(messages), len(compressed), beforeLen, afterLen)
+	c.markCompression(len(messages), estimatedTokens)
 
 	return c.inner.Generate(ctx, compressed, opts...)
 }
@@ -422,9 +449,7 @@ func (c *ChatModelCompressor) Generate(ctx context.Context, messages []*schema.M
 // Stream 实现 model.ToolCallingChatModel 接口
 func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	estimatedTokens := totalTokenEstimate(messages)
-	// Skip compression only when BOTH message count AND token estimate are below threshold.
-	// Compression is triggered when EITHER threshold is exceeded.
-	if len(messages) <= c.cfg.MessageThreshold && estimatedTokens <= c.cfg.TokenThreshold {
+	if !c.shouldCompress(len(messages), estimatedTokens) {
 		return c.inner.Stream(ctx, messages, opts...)
 	}
 
@@ -451,6 +476,7 @@ func (c *ChatModelCompressor) Stream(ctx context.Context, messages []*schema.Mes
 			handoff.UserRequestSummary, handoff.PreservedRequirements)
 	}
 	c.emitCompressionSuccess(len(messages), len(compressed), beforeLen, afterLen)
+	c.markCompression(len(messages), estimatedTokens)
 
 	return c.inner.Stream(ctx, compressed, opts...)
 }
@@ -475,7 +501,37 @@ func (c *ChatModelCompressor) WithTools(tools []*schema.ToolInfo) (model.ToolCal
 		tracker:    c.tracker,
 		runtime:    c.runtime,
 		onEvent:    c.onEvent,
+		state:      c.state,
 	}, nil
+}
+
+func (c *ChatModelCompressor) shouldCompress(messageCount, tokenCount int) bool {
+	if messageCount <= c.cfg.MessageThreshold && tokenCount <= c.cfg.TokenThreshold {
+		return false
+	}
+	if c.state == nil {
+		return true
+	}
+	c.state.mu.Lock()
+	defer c.state.mu.Unlock()
+	if c.state.lastAt.IsZero() {
+		return true
+	}
+	newMessages := messageCount - c.state.lastMessages
+	newTokens := tokenCount - c.state.lastTokens
+	if time.Since(c.state.lastAt) < c.cfg.MinCompressionInterval && newMessages < c.cfg.MinMessagesSinceLastCompression && newTokens < c.cfg.MinTokensSinceLastCompression {
+		return false
+	}
+	return true
+}
+
+func (c *ChatModelCompressor) markCompression(messageCount, tokenCount int) {
+	if c.state == nil {
+		return
+	}
+	c.state.mu.Lock()
+	c.state.lastMessages, c.state.lastTokens, c.state.lastAt = messageCount, tokenCount, time.Now()
+	c.state.mu.Unlock()
 }
 
 func (c *ChatModelCompressor) emitCompressionStart(beforeMessages, beforeTokens int) {

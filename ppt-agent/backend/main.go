@@ -25,13 +25,14 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/agent/command"
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
 	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/callback"
+	"github.com/cloudwego/ppt-agent/pkg/chattrace"
 	"github.com/cloudwego/ppt-agent/pkg/db"
 	"github.com/cloudwego/ppt-agent/pkg/human"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/web"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/web"
 )
 
 func main() {
@@ -109,6 +110,15 @@ func runWebMode(pwd, skillsDir, addr string) {
 
 	// Shared operator (stateless, safe to reuse).
 	operator := &command.LocalOperator{}
+	chatTraceStore, traceErr := chattrace.NewFromEnv(context.Background())
+	if traceErr != nil {
+		logger.Warn("chat_trace_redis_unavailable", "error", traceErr.Error())
+	} else if chatTraceStore == nil {
+		logger.Warn("chat_trace_redis_not_configured", "env", "CHAT_TRACE_REDIS_ADDR")
+	} else {
+		defer chatTraceStore.Close()
+		logger.Info("chat_trace_redis_ready")
+	}
 
 	concurrency := 5
 	if c := os.Getenv("PLANNER_CONCURRENCY"); c != "" {
@@ -190,6 +200,7 @@ func runWebMode(pwd, skillsDir, addr string) {
 		},
 		LogAnalysisModelFactory: logAnalysisModelFactory,
 		LogAnalysisIdleInterval: parseDurationEnv("LOG_ANALYSIS_IDLE_INTERVAL", 5*time.Minute),
+		ChatTraceStore:          chatTraceStore,
 	})
 
 	logger.Info("server_starting", "mode", "web", "addr", addr, "concurrency", concurrency)

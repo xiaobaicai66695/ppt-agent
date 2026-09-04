@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudwego/ppt-agent/pkg/task"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 )
 
 func TestWriteSSEIncludesEventID(t *testing.T) {

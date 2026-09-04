@@ -18,8 +18,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/joho/godotenv"
 
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
-	"github.com/cloudwego/ppt-agent/pkg/web"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/web"
 )
 
 type chatCase struct {

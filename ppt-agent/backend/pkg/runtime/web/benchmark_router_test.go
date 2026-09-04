@@ -34,3 +34,16 @@ func TestClassifyTaskMessageForBenchmarkKeepsConversationTask(t *testing.T) {
 		t.Fatalf("benchmark contextual route = %#v", got)
 	}
 }
+
+func TestClassifyTaskMessageForBenchmarkKeepsUnboundFixOutOfFixer(t *testing.T) {
+	got := ClassifyTaskMessageForBenchmark(
+		context.Background(),
+		"把第 2 页标题缩短",
+		"",
+		"",
+		"",
+	)
+	if got.Intent != messageIntentFix || got.Action != messageActionAskClarification || got.TargetAgent != "PPTFixer after selecting an existing task" {
+		t.Fatalf("benchmark unbound fix = %#v", got)
+	}
+}

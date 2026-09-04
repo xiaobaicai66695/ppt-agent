@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/task"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 // thumbMu 序列化每个 workDir 的转换调用，防止并发缩略图请求争夺同一个 soffice 进程。

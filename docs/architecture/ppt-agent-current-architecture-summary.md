@@ -53,8 +53,8 @@ DeckRenderWorkflow 按页并发渲染
 
 | 层级 | 路径 | 当前职责 |
 | --- | --- | --- |
-| Web/API | `ppt-agent/backend/pkg/web` | 任务创建、鉴权、SSE、下载、缩略图、conversation、runtime event 查询 |
-| 任务状态 | `ppt-agent/backend/pkg/task` | 任务生命周期、工作目录、DB 持久化、SSE 缓存、交付终态校验 |
+| Web/API | `ppt-agent/backend/pkg/runtime/web` | 任务创建、鉴权、SSE、下载、缩略图、conversation、runtime event 查询 |
+| 任务状态 | `ppt-agent/backend/pkg/runtime/task` | 任务生命周期、工作目录、DB 持久化、SSE 缓存、交付终态校验 |
 | 规划编排 | `ppt-agent/backend/pkg/agent/deck` | Planner、manifest 工具、草稿/提交、恢复、并发渲染 workflow |
 | Prompt | `ppt-agent/backend/pkg/prompts/{planner,reviewer,fixer}` | 首轮规划、规划质量修正和生成后定点修复的独立职责提示词 |
 | 模板加载 | `ppt-agent/backend/pkg/templates` | 读取 `component_contracts.json` 页面类型契约和 theme 元数据；不再维护固定整套 preset |

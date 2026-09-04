@@ -29,8 +29,8 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	agentcontentplan "github.com/cloudwego/ppt-agent/pkg/agent/contentplan"
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 // tasksManifestMu 保护 tasks.json 的并发读写，防止多个 goroutine（如 HTTP handlers）调用 WriteTasksManifest 时产生竞态

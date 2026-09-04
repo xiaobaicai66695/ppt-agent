@@ -13,8 +13,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
-	"github.com/cloudwego/ppt-agent/pkg/task"
 	"github.com/gin-gonic/gin"
 )
 
@@ -72,8 +72,37 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	if route.Intent != messageIntentCreate || route.Mode != messageModePPTAgent || route.Action != messageActionPrepareCreate || route.NeedsConfirmation || route.Reply != "" {
 		t.Fatalf("manual PPT route = %#v, want create/pptagent/prepare_create", route)
 	}
-	if !routerCalled {
-		t.Fatal("manual PPT mode must still run intent recognition before applying the create override")
+	if routerCalled {
+		t.Fatal("manual PPT mode must bypass RouterAgent and start the explicit create path directly")
+	}
+}
+
+func TestHandleMessageFixWithoutDeckRequiresTaskSelection(t *testing.T) {
+	previousDB := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = previousDB })
+
+	server := &Server{
+		tasks:          task.NewTaskManager(t.TempDir(), nil, nil, nil),
+		sessionManager: session.NewSessionManager(),
+		taskIDGen:      func() string { return "empty-conversation" },
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/api/messages", bytes.NewBufferString(`{"message":"把第 2 页标题改短一点"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req.WithContext(auth.WithUser(req.Context(), &db.User{ID: 7}))
+
+	server.handleMessage(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var route MessageRouteResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &route); err != nil {
+		t.Fatal(err)
+	}
+	if route.Intent != messageIntentFix || route.Action != messageActionAskClarification || !route.NeedsConfirmation || route.TaskID != "empty-conversation" {
+		t.Fatalf("route = %#v, want unbound fix clarification on the conversation task", route)
 	}
 }
 

@@ -34,9 +34,9 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/metrics"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/metrics"
 )
 
 // startTime 程序启动时间

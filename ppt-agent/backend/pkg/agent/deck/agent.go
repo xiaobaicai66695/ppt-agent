@@ -31,7 +31,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 )
@@ -275,9 +275,9 @@ func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int
 		return nil, err
 	}
 	chatModel = agentutils.NewChatModelCompressor(chatModel, compressor,
-		agentutils.WithCompressThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", 40)),
-		agentutils.WithTokenThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", 24000)),
-		agentutils.WithPreserveCount(8),
+		agentutils.WithCompressThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", 80)),
+		agentutils.WithTokenThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", 80000)),
+		agentutils.WithPreserveCount(agentutils.EnvInt("PLANNER_COMPRESSOR_PRESERVE_COUNT", 12)),
 	)
 	if cfg.CompressorTracker != nil {
 		if compressor, ok := chatModel.(*agentutils.ChatModelCompressor); ok {

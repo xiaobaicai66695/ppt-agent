@@ -14,10 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino/compose"
-
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 	"github.com/cloudwego/ppt-agent/pkg/tools/pythonutil"
 )
@@ -48,28 +46,35 @@ type deckRenderContext struct {
 	Tasks       []*TaskItem
 }
 
-func RenderDeckByTaskIDWorkflow(ctx context.Context, cfg *PPTTaskConfig, onEvent DeckRenderEventCallback) (*PPTTaskResult, error) {
-	graph := compose.NewGraph[*deckRenderInput, *PPTTaskResult]()
-	_ = graph.AddLambdaNode("validate_deck_spec", compose.InvokableLambda(validateDeckRenderInput))
-	_ = graph.AddLambdaNode("materialize_background_assets", compose.InvokableLambda(materializeDeckBackgroundAssets))
-	_ = graph.AddLambdaNode("render_worker_pool", compose.InvokableLambda(renderValidatedDeck))
-	_ = graph.AddEdge(compose.START, "validate_deck_spec")
-	_ = graph.AddEdge("validate_deck_spec", "materialize_background_assets")
-	_ = graph.AddEdge("materialize_background_assets", "render_worker_pool")
-	_ = graph.AddEdge("render_worker_pool", compose.END)
-
-	runner, err := graph.Compile(ctx, compose.WithGraphName("PPTDeckRenderWorkflow"))
-	if err != nil {
-		return nil, err
-	}
-	return runner.Invoke(ctx, &deckRenderInput{
+// RenderPPT validates the committed PPT plan, prepares required images, and
+// renders pending pages. These are a fixed sequence, so the entry deliberately
+// uses plain calls instead of hiding the order in a generic workflow graph.
+func RenderPPT(ctx context.Context, cfg *PPTTaskConfig, onEvent DeckRenderEventCallback) (*PPTTaskResult, error) {
+	input := &deckRenderInput{
 		Config:   cfg,
 		Callback: onEvent,
 		Started:  time.Now(),
-	})
+	}
+	plan, err := validateDeckRenderInput(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	plan, err = preparePPTImages(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	return renderPPTPages(ctx, plan)
 }
 
-func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContext) (*deckRenderContext, error) {
+// RenderDeckByTaskIDWorkflow remains for source compatibility. New code should
+// call RenderPPT so the fixed rendering stages stay obvious at the call site.
+func RenderDeckByTaskIDWorkflow(ctx context.Context, cfg *PPTTaskConfig, onEvent DeckRenderEventCallback) (*PPTTaskResult, error) {
+	return RenderPPT(ctx, cfg, onEvent)
+}
+
+// preparePPTImages downloads and records images for the pages being rendered.
+// It may ask the page editor to replace an unusable Unsplash search term once.
+func preparePPTImages(ctx context.Context, deck *deckRenderContext) (*deckRenderContext, error) {
 	if deck == nil || deck.Config == nil || deck.Manifest == nil || len(deck.Tasks) == 0 {
 		return deck, nil
 	}
@@ -77,14 +82,14 @@ func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContex
 		// Only hydrate pages selected for this render pass. The task pointers are
 		// shared with deck.Manifest, so successful metadata is persisted below.
 		pendingManifest := &TasksManifest{Tasks: deck.Tasks, VisualPolicy: deck.Manifest.VisualPolicy}
-		counts, err := MaterializePlannedDeckAssets(ctx, deck.Config.WorkDir, pendingManifest)
+		counts, err := DownloadPPTAssets(ctx, deck.Config.WorkDir, pendingManifest)
 		if errors.Is(err, unsplash.ErrMissingAccessKey) {
 			return nil, fmt.Errorf("图片素材服务未配置，无法交付带背景图片的 PPT: %w", err)
 		}
 		if err != nil {
 			var revision *assetQueryRevisionError
 			if !errors.As(err, &revision) {
-				return nil, fmt.Errorf("materialize planned deck assets: %w", err)
+				return nil, fmt.Errorf("prepare PPT images: %w", err)
 			}
 			handled, revisionErr := backgroundSearchRetryFactory.Execute(ctx, retry.OperationUnsplashSearch, err, revisionAttempt, func(ctx context.Context, decision retry.Decision) error {
 				return reviseBackgroundSearchTermsWithFixer(ctx, deck, revision, decision)
@@ -106,7 +111,7 @@ func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContex
 		if counts.Backgrounds == 0 && counts.Images == 0 {
 			return deck, nil
 		}
-		if err := WriteTasksManifest(deck.Config.WorkDir, deck.Manifest); err != nil {
+		if err := WritePlan(deck.Config.WorkDir, deck.Manifest); err != nil {
 			return nil, fmt.Errorf("persist materialized deck assets: %w", err)
 		}
 		if deck.Config.RuntimeMeta != nil {
@@ -119,6 +124,8 @@ func materializeDeckBackgroundAssets(ctx context.Context, deck *deckRenderContex
 	}
 }
 
+// reviseBackgroundSearchTermsWithFixer asks the PPT fixer to change only the
+// failed pages' image search terms, then verifies that the plan really changed.
 func reviseBackgroundSearchTermsWithFixer(ctx context.Context, deck *deckRenderContext, revision *assetQueryRevisionError, decision retry.Decision) error {
 	if deck == nil || deck.Config == nil || revision == nil {
 		return fmt.Errorf("背景搜索词修订上下文不完整")
@@ -333,7 +340,9 @@ func validateDeckRenderInput(ctx context.Context, input *deckRenderInput) (*deck
 	}, nil
 }
 
-func renderValidatedDeck(ctx context.Context, deck *deckRenderContext) (*PPTTaskResult, error) {
+// renderPPTPages runs the existing worker pool after the plan and image paths
+// have been validated. It preserves per-page status and progress events.
+func renderPPTPages(ctx context.Context, deck *deckRenderContext) (*PPTTaskResult, error) {
 	if deck == nil || deck.Config == nil {
 		return nil, fmt.Errorf("nil deck render context")
 	}

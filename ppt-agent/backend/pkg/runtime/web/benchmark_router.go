@@ -7,7 +7,7 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	agentutils "github.com/cloudwego/ppt-agent/pkg/agent/utils"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 )
 
 // BenchmarkCreateRouteResult is the stable evaluation vocabulary used by
@@ -67,7 +67,11 @@ func ClassifyTaskMessageForBenchmark(ctx context.Context, message, taskID, conve
 	case messageIntentPlan:
 		result.TargetAgent = "PPTPlanner (planning only)"
 	case messageIntentFix:
-		result.TargetAgent = "PPTFixer"
+		if route.Action == messageActionUpdateTask {
+			result.TargetAgent = "PPTFixer"
+		} else {
+			result.TargetAgent = "PPTFixer after selecting an existing task"
+		}
 	}
 	return result
 }

@@ -33,8 +33,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/modelcompat"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 const (
@@ -186,8 +186,7 @@ func EnvInt(key string, defaultVal int) int {
 
 // IsRateLimitError 判断错误是否为 429 限流错误
 func IsRateLimitError(err error) bool {
-	_, ok := retry.Default().Select(retry.OperationModelFallback, err)
-	return ok
+	return retry.ClassifyError(err) == retry.ErrorRateLimited
 }
 
 func modelFallbackPauseDuration() time.Duration {
@@ -749,6 +748,7 @@ func (f *FallbackChatModel) globalTrackerKey(idx int) string {
 }
 
 func (f *FallbackChatModel) callWithFallback(ctx context.Context, callFn func(idx int) (*schema.Message, error)) (*schema.Message, error) {
+	var lastErr error
 	for idx := 0; idx < len(f.models); idx++ {
 		paused, pauseEnd := f.shouldPause(idx)
 		if paused {
@@ -774,17 +774,34 @@ func (f *FallbackChatModel) callWithFallback(ctx context.Context, callFn func(id
 			}
 		}
 
-		msg, err := callFn(idx)
-		if err != nil {
+		for recoveryAttempt := 0; ; recoveryAttempt++ {
+			msg, err := callFn(idx)
+			if err == nil {
+				return msg, nil
+			}
+			lastErr = retry.WrapRetryable(err)
 			if IsRateLimitError(err) {
 				f.markRateLimited(idx)
-				continue
+				break
 			}
-			return msg, err
+			delay, canRetry := retry.Default().RetryDelay(retry.OperationModelFallback, err, recoveryAttempt+1)
+			if !canRetry {
+				if retry.IsRetryable(err) {
+					logger.Warn("model_transient_retry_exhausted_falling_back", "model", f.modelDisplayName(idx), "error", err.Error())
+					break
+				}
+				return msg, err
+			}
+			logger.Warn("model_transient_retrying", "model", f.modelDisplayName(idx), "attempt", recoveryAttempt+1, "delay", delay.String(), "error", err.Error())
+			if err := retry.Wait(ctx, delay); err != nil {
+				return nil, err
+			}
 		}
-		return msg, nil
 	}
 
+	if lastErr != nil {
+		return nil, fmt.Errorf("所有模型均失败: %w", lastErr)
+	}
 	return nil, fmt.Errorf("所有模型均失败")
 }
 
@@ -832,6 +849,7 @@ func (f *FallbackChatModel) streamWithFallback(ctx context.Context, messages []*
 		defer writer.Close()
 
 		nextIdx := 0
+		readRecoveryAttempts := make(map[int]int)
 		for {
 			idx, stream, err := f.openStreamFrom(ctx, nextIdx, messages, opts...)
 			if err != nil {
@@ -852,13 +870,26 @@ func (f *FallbackChatModel) streamWithFallback(ctx context.Context, messages []*
 						writer.Send(nil, recvErr)
 						return
 					}
-					_, canFallback := retry.Default().Select(retry.OperationModelStreamRead, recvErr)
-					if !emitted && canFallback && idx+1 < len(f.models) {
-						logger.Warn("model_stream_read_failed_retrying", "model", f.modelDisplayName(idx), "error", recvErr.Error())
-						nextIdx = idx + 1
-						break
+					if !emitted {
+						recoveryAttempt := readRecoveryAttempts[idx] + 1
+						delay, canRetry := retry.Default().RetryDelay(retry.OperationModelStreamRead, recvErr, recoveryAttempt)
+						if canRetry {
+							readRecoveryAttempts[idx] = recoveryAttempt
+							logger.Warn("model_stream_read_failed_retrying", "model", f.modelDisplayName(idx), "attempt", recoveryAttempt, "delay", delay.String(), "error", recvErr.Error())
+							if err := retry.Wait(ctx, delay); err != nil {
+								writer.Send(nil, err)
+								return
+							}
+							nextIdx = idx
+							break
+						}
+						if retry.IsRetryable(recvErr) && idx+1 < len(f.models) {
+							logger.Warn("model_stream_read_failed_falling_back", "model", f.modelDisplayName(idx), "error", recvErr.Error())
+							nextIdx = idx + 1
+							break
+						}
 					}
-					writer.Send(nil, recvErr)
+					writer.Send(nil, retry.WrapRetryable(recvErr))
 					return
 				}
 				emitted = true
@@ -893,24 +924,37 @@ func (f *FallbackChatModel) openStreamFrom(ctx context.Context, startIdx int, me
 			}
 		}
 
-		msgs := make([]*schema.Message, len(messages))
-		copy(msgs, messages)
-		release, err := acquireModelCallSlot(ctx, f.modelResourceKey(idx))
-		if err != nil {
-			return idx, nil, err
-		}
-		stream, err := f.models[idx].Stream(ctx, msgs, opts...)
-		if err != nil {
+		for recoveryAttempt := 0; ; recoveryAttempt++ {
+			msgs := make([]*schema.Message, len(messages))
+			copy(msgs, messages)
+			release, err := acquireModelCallSlot(ctx, f.modelResourceKey(idx))
+			if err != nil {
+				return idx, nil, err
+			}
+			stream, err := f.models[idx].Stream(ctx, msgs, opts...)
+			if err == nil {
+				f.recordModelRequest(ctx, idx, "stream", msgs)
+				return idx, releaseOnStreamDone(sanitizeStreamingToolCallDeltas(stream), release), nil
+			}
 			release()
+			f.recordModelError(ctx, idx, "stream_open", err)
 			if IsRateLimitError(err) {
 				f.markRateLimited(idx)
-				continue
+				break
 			}
-			f.recordModelError(ctx, idx, "stream_open", err)
-			return idx, nil, err
+			delay, canRetry := retry.Default().RetryDelay(retry.OperationModelFallback, err, recoveryAttempt+1)
+			if !canRetry {
+				if retry.IsRetryable(err) {
+					logger.Warn("model_stream_open_retry_exhausted_falling_back", "model", f.modelDisplayName(idx), "error", err.Error())
+					break
+				}
+				return idx, nil, err
+			}
+			logger.Warn("model_stream_open_retrying", "model", f.modelDisplayName(idx), "attempt", recoveryAttempt+1, "delay", delay.String(), "error", err.Error())
+			if err := retry.Wait(ctx, delay); err != nil {
+				return idx, nil, err
+			}
 		}
-		f.recordModelRequest(ctx, idx, "stream", msgs)
-		return idx, releaseOnStreamDone(sanitizeStreamingToolCallDeltas(stream), release), nil
 	}
 
 	return -1, nil, fmt.Errorf("所有模型均失败")
@@ -1352,14 +1396,15 @@ func newChatModelCompressorFromConfig(inner model.ToolCallingChatModel, cfg *com
 
 // newChatModelCompressor 是内部构造函数，接受原始阈值参数。
 func newChatModelCompressor(inner model.ToolCallingChatModel, summarizer model.ToolCallingChatModel, msgThresh, tokenThresh, preserve, toolResultPreserve int) *ChatModelCompressor {
+	cfg := DefaultCompressorConfig()
+	cfg.MessageThreshold = msgThresh
+	cfg.TokenThreshold = tokenThresh
+	cfg.PreserveCount = preserve
+	cfg.ToolResultPreserveCount = toolResultPreserve
 	return &ChatModelCompressor{
 		inner:      inner,
 		summarizer: summarizer,
-		cfg: &CompressorConfig{
-			MessageThreshold:        msgThresh,
-			TokenThreshold:          tokenThresh,
-			PreserveCount:           preserve,
-			ToolResultPreserveCount: toolResultPreserve,
-		},
+		cfg:        cfg,
+		state:      &compressionState{},
 	}
 }

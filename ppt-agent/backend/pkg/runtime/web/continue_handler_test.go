@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
-	"github.com/cloudwego/ppt-agent/pkg/task"
 )
 
 func newContinueTestContext(taskID, message string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -63,5 +65,56 @@ func TestHandleContinueTaskQueuesRunningTask(t *testing.T) {
 	}
 	if !ts.HasPendingContinueMsg() {
 		t.Fatal("running task did not retain the queued message")
+	}
+}
+
+func TestResumeDraftCheckpointClaimsUncommittedDraft(t *testing.T) {
+	workDir := t.TempDir()
+	if err := deck.WriteTasksDraftManifest(workDir, &deck.TasksManifest{}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{}
+	ts := &task.TaskState{Info: task.TaskInfo{ID: "task-draft", WorkDir: workDir}}
+	claimed, err := server.resumeDraftCheckpoint("task-draft", ts, make(chan task.SSERichEvent, 1))
+	if !claimed {
+		t.Fatal("uncommitted draft checkpoint should be claimed by resume path")
+	}
+	if err == nil {
+		t.Fatal("empty draft should report a recoverable checkpoint error")
+	}
+}
+
+func TestResumeDraftCheckpointLeavesCommittedTaskToEditWorkflow(t *testing.T) {
+	workDir := t.TempDir()
+	if err := deck.WriteTasksManifest(workDir, &deck.TasksManifest{}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{}
+	ts := &task.TaskState{Info: task.TaskInfo{ID: "task-committed", WorkDir: workDir}}
+	claimed, err := server.resumeDraftCheckpoint("task-committed", ts, make(chan task.SSERichEvent, 1))
+	if err != nil {
+		t.Fatalf("resume checkpoint error = %v", err)
+	}
+	if claimed {
+		t.Fatal("committed manifest should use the normal edit workflow")
+	}
+}
+
+func TestResumeDraftCheckpointRecognizesRetryableRenderMarkerAfterStatusReopens(t *testing.T) {
+	workDir := t.TempDir()
+	if err := deck.WriteTasksManifest(workDir, &deck.TasksManifest{}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{}
+	ts := &task.TaskState{Info: task.TaskInfo{
+		ID: "task-render", WorkDir: workDir, Status: task.TaskStatusRunning,
+		Error: "可恢复的 unexpected_eof：Post request: unexpected EOF。可在对话框输入“继续任务”从检查点恢复。",
+	}}
+	claimed, err := server.resumeDraftCheckpoint("task-render", ts, make(chan task.SSERichEvent, 1))
+	if !claimed {
+		t.Fatal("retryable render marker should be claimed after the status changes back to running")
+	}
+	if err == nil || !strings.Contains(err.Error(), "从渲染检查点恢复") {
+		t.Fatalf("resume error = %v", err)
 	}
 }

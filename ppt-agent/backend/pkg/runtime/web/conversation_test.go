@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
-	"github.com/cloudwego/ppt-agent/pkg/task"
 )
 
 func TestConversationMessagesWithFallbackUsesFullAnswer(t *testing.T) {
@@ -112,18 +112,12 @@ func TestHandleGetConversationBypassesTerminalInMemoryLock(t *testing.T) {
 	}
 }
 
-func TestHandleGetConversationIncludesPersistedRuntimeTimeline(t *testing.T) {
+func TestHandleGetConversationDoesNotLoadPersistedRuntimeTimeline(t *testing.T) {
 	workDir := t.TempDir()
 	oldListRuntimeEvents := listRuntimeEvents
 	listRuntimeEvents = func(taskID string) ([]db.RuntimeEventRecord, error) {
-		if taskID != "task-runtime" {
-			return nil, nil
-		}
-		return []db.RuntimeEventRecord{
-			{TaskID: taskID, EventID: 1, Timestamp: time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC), ElapsedMS: 12, Kind: "tool_start", Name: "python3", Status: "running", Metadata: `{"args":"{\"code\":\"print(1)\"}"}`},
-			{TaskID: taskID, EventID: 2, Timestamp: time.Date(2026, 8, 4, 10, 0, 1, 0, time.UTC), ElapsedMS: 30, Kind: "tool_end", Name: "python3", Status: "ok", Metadata: `{"result":"stdout:\n1"}`},
-			{TaskID: taskID, EventID: 3, Timestamp: time.Date(2026, 8, 4, 10, 0, 2, 0, time.UTC), ElapsedMS: 42, Kind: "llm_end", Name: "planner", Status: "ok", Metadata: `{"assistant_output":"## 规划\n\n开始拆分页面。","output_preview":"规划摘要"}`},
-		}, nil
+		t.Fatalf("conversation snapshot must not query runtime events for %s", taskID)
+		return nil, nil
 	}
 	defer func() { listRuntimeEvents = oldListRuntimeEvents }()
 	manager := task.NewTaskManager(t.TempDir(), nil, nil, nil)
@@ -138,28 +132,12 @@ func TestHandleGetConversationIncludesPersistedRuntimeTimeline(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	var payload struct {
-		RuntimeMeta struct {
-			RecentEvents []struct {
-				Kind     string         `json:"kind"`
-				Metadata map[string]any `json:"metadata"`
-			} `json:"recent_events"`
-		} `json:"runtime_meta"`
-	}
+	var payload map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.RuntimeMeta.RecentEvents) != 3 {
-		t.Fatalf("recent_events = %#v", payload.RuntimeMeta.RecentEvents)
-	}
-	if payload.RuntimeMeta.RecentEvents[0].Metadata["args_preview"] == nil || payload.RuntimeMeta.RecentEvents[1].Metadata["result_preview"] == nil {
-		t.Fatalf("conversation timeline should expose bounded tool previews: %#v", payload.RuntimeMeta.RecentEvents)
-	}
-	if payload.RuntimeMeta.RecentEvents[0].Metadata["args"] != nil || payload.RuntimeMeta.RecentEvents[1].Metadata["result"] != nil {
-		t.Fatalf("conversation timeline should omit raw tool payloads: %#v", payload.RuntimeMeta.RecentEvents)
-	}
-	if got := payload.RuntimeMeta.RecentEvents[2].Metadata["assistant_output"]; got != "## 规划\n\n开始拆分页面。" {
-		t.Fatalf("conversation timeline should keep assistant_output only, got %#v", payload.RuntimeMeta.RecentEvents[2].Metadata)
+	if _, exists := payload["runtime_meta"]; exists {
+		t.Fatal("conversation snapshot must omit runtime metadata")
 	}
 }
 

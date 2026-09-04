@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/cloudwego/ppt-agent/pkg/task"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 )
 
 type flushWriter interface {

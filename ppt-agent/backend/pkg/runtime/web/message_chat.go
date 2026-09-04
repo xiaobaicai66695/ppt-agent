@@ -12,9 +12,9 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/cloudwego/ppt-agent/pkg/assets/unsplash"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 type chatImageResult struct {
@@ -45,6 +45,7 @@ type chatTraceEvent struct {
 	ToolName string
 	Detail   string
 	Error    string
+	Preview  map[string]any
 }
 
 type chatTraceEmitter func(chatTraceEvent)
@@ -319,7 +320,7 @@ func (s *Server) collectChatAugmentationsWithTrace(ctx context.Context, message,
 				var response chatImageSearchResponse
 				if json.Unmarshal([]byte(out), &response) == nil {
 					augmentations.images = append(augmentations.images, response.Photos...)
-					emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Detail: fmt.Sprintf("已找到 %d 张图片参考", len(response.Photos))})
+					emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Detail: fmt.Sprintf("已找到 %d 张图片参考", len(response.Photos)), Preview: chatImagePreview(response.Photos)})
 				} else {
 					emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索结果格式无效"})
 				}
@@ -332,6 +333,39 @@ func (s *Server) collectChatAugmentationsWithTrace(ctx context.Context, message,
 		}
 	}
 	return augmentations
+}
+
+func chatImagePreview(images []chatImageResult) map[string]any {
+	items := make([]map[string]string, 0, min(len(images), 2))
+	for _, image := range images[:min(len(images), 2)] {
+		previewURL := safePreviewURL(image.PreviewURL)
+		imageURL := safePreviewURL(image.ImageURL)
+		if previewURL == "" && imageURL == "" {
+			continue
+		}
+		item := map[string]string{"thumbnail_url": previewURL, "image_url": imageURL, "source_url": safePreviewURL(image.SourceURL), "alt": compactChatPreviewText(image.Photographer, 120), "attribution": compactChatPreviewText(image.Attribution, 160)}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return map[string]any{"images": items}
+}
+
+func safePreviewURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.String()
+}
+
+func compactChatPreviewText(value string, maxRunes int) string {
+	value = strings.TrimSpace(value)
+	if len([]rune(value)) <= maxRunes {
+		return value
+	}
+	return string([]rune(value)[:maxRunes]) + "…"
 }
 
 func (s *Server) chatSearchContentSummarizer() search.ContentSummarizer {

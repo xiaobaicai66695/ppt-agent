@@ -19,12 +19,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
+	"github.com/cloudwego/ppt-agent/pkg/chattrace"
 	loganalysis "github.com/cloudwego/ppt-agent/pkg/log_analysis"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/metrics"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
-	"github.com/cloudwego/ppt-agent/pkg/task"
 	"github.com/cloudwego/ppt-agent/pkg/templates"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/metrics"
 )
 
 // Server 提供 REST API + SSE 流式推送 + 静态前端服务（基于 Gin 框架）。
@@ -40,6 +41,7 @@ type Server struct {
 	skillDir        string
 	operator        commandline.Operator
 	logAnalysis     *loganalysis.Service
+	chatTrace       chattrace.Store
 	continueStarter func(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession)
 	aiModelFactory  func(ctx context.Context) (interface {
 		Generate(ctx context.Context, messages []*schema.Message, opts ...interface{}) (msg *schema.Message, err error)
@@ -74,6 +76,9 @@ type ServerConfig struct {
 	// LogAnalysisIdleInterval 控制空闲日志分析的运行频率。
 	// 默认为 5 分钟。设置为 0 可禁用空闲分析。
 	LogAnalysisIdleInterval time.Duration
+	// ChatTraceStore is a Redis-backed transient store for safe tool traces.
+	// It must not be replaced with a MySQL implementation.
+	ChatTraceStore chattrace.Store
 }
 
 // NewServer 创建并初始化一个新的 Gin Server。
@@ -124,6 +129,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		textModelFactory: cfg.TextModelFactory,
 		skillDir:         cfg.SkillsDir,
 		operator:         cfg.Operator,
+		chatTrace:        cfg.ChatTraceStore,
 	}
 
 	// 创建任务管理器。风格要求由当前任务提示词显式携带。

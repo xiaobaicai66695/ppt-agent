@@ -15,11 +15,12 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/deck"
-	"github.com/cloudwego/ppt-agent/pkg/agent/utils"
 	"github.com/cloudwego/ppt-agent/pkg/db"
-	"github.com/cloudwego/ppt-agent/pkg/logger"
-	"github.com/cloudwego/ppt-agent/pkg/metrics"
+	"github.com/cloudwego/ppt-agent/pkg/retry"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/session"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
+	"github.com/cloudwego/ppt-agent/pkg/utils/metrics"
 )
 
 // TaskStatus 表示 PPT 生成任务的总体状态。
@@ -29,14 +30,20 @@ const (
 	TaskStatusConversation TaskStatus = "conversation"
 	TaskStatusRunning      TaskStatus = "running"
 	TaskStatusCompleted    TaskStatus = "completed"
-	TaskStatusFailed       TaskStatus = "failed"
-	TaskStatusCancelled    TaskStatus = "cancelled"
+	// TaskStatusPausedRetryable means a durable checkpoint is available and the
+	// user can resume without repeating completed planning or rendering work.
+	TaskStatusPausedRetryable TaskStatus = "paused_retryable"
+	TaskStatusFailed          TaskStatus = "failed"
+	TaskStatusCancelled       TaskStatus = "cancelled"
 )
 
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
 	ID               uint64              `json:"id,omitempty"`
+	SegmentID        string              `json:"segment_id,omitempty"`
+	SegmentBoundary  bool                `json:"segment_boundary,omitempty"`
+	ToolPreview      map[string]any      `json:"tool_preview,omitempty"`
 	Type             string              `json:"type"`
 	Content          string              `json:"content,omitempty"`
 	ToolName         string              `json:"tool_name,omitempty"`
@@ -283,7 +290,7 @@ func (ts *TaskState) RemoveListener(id string) {
 	}
 }
 
-func (ts *TaskState) Broadcast(event SSERichEvent) {
+func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 	ts.Mu.Lock()
 	if event.ID == 0 {
 		ts.nextEventID++
@@ -337,9 +344,10 @@ func (ts *TaskState) Broadcast(event SSERichEvent) {
 		}
 		ts.Mu.Unlock()
 	}
+	return event
 }
 
-func normalizeAnswerChunk(currentTurn, chunk string) string {
+func normalizeAnswerChunkLegacy(currentTurn, chunk string) string {
 	current := strings.TrimSpace(currentTurn)
 	incoming := strings.TrimSpace(chunk)
 	if incoming == "" {
@@ -999,7 +1007,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
 	if err == nil && ctx.Err() == nil {
-		renderResult, renderErr := deck.RenderDeckByTaskIDWorkflow(ctx, cfg, func(event deck.DeckRenderEvent) {
+		renderResult, renderErr := deck.RenderPPT(ctx, cfg, func(event deck.DeckRenderEvent) {
 			switch event.Type {
 			case "workflow_start":
 				ts.Broadcast(SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail})
@@ -1046,6 +1054,9 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		if ctx.Err() == context.Canceled {
 			ts.Info.Status = TaskStatusCancelled
 			ts.Info.Error = "任务已被用户中断"
+		} else if retry.IsRetryable(err) {
+			ts.Info.Status = TaskStatusPausedRetryable
+			ts.Info.Error = fmt.Sprintf("可恢复的 %s：%v。可在对话框输入“继续任务”从检查点恢复。", retry.ClassifyError(err), err)
 		} else {
 			ts.Info.Status = TaskStatusFailed
 			ts.Info.Error = err.Error()
@@ -1093,6 +1104,8 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			ts.runtimeMeta.RecordPhase("complete", "任务执行完成")
 		case TaskStatusCancelled:
 			ts.runtimeMeta.RecordPhase("cancelled", ts.Info.Error)
+		case TaskStatusPausedRetryable:
+			ts.runtimeMeta.RecordPhase("paused_retryable", ts.Info.Error)
 		case TaskStatusFailed:
 			ts.runtimeMeta.RecordPhase("failed", ts.Info.Error)
 		}
