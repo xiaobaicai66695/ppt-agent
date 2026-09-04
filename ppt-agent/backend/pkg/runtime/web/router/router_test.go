@@ -54,3 +54,15 @@ func TestRegisterUsesMiddlewareBeforeHandler(t *testing.T) {
 		t.Fatalf("middleware/handler order mismatch: called=%v status=%d", called, rec.Code)
 	}
 }
+
+func TestRegisterFallsBackToNotFoundForUnknownRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	Register(engine, Handlers{})
+	req, _ := http.NewRequest(http.MethodGet, "/missing", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown route status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}

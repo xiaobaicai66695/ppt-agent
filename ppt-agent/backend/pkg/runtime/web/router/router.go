@@ -135,7 +135,7 @@ func Register(engine *gin.Engine, h Handlers) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	engine.GET("/health/ready", handler(h.HealthCheck))
-	engine.NoRoute(handler(h.NoRoute))
+	engine.NoRoute(noRoute(h.NoRoute))
 }
 
 func handler(fn gin.HandlerFunc) gin.HandlerFunc {
@@ -150,4 +150,11 @@ func use(fn gin.HandlerFunc) gin.HandlerFunc {
 		return fn
 	}
 	return func(c *gin.Context) { c.Next() }
+}
+
+func noRoute(fn gin.HandlerFunc) gin.HandlerFunc {
+	if fn != nil {
+		return fn
+	}
+	return func(c *gin.Context) { c.Status(http.StatusNotFound) }
 }
