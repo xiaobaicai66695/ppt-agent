@@ -38,7 +38,7 @@ func TestTaskGenerationQueryRetainsInitialTopicAndFollowup(t *testing.T) {
 	}
 }
 
-func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
+func TestHandleMessageExplicitPPTDirectiveUsesRouterAgent(t *testing.T) {
 	previousDB := db.DB
 	db.DB = nil
 	t.Cleanup(func() { db.DB = previousDB })
@@ -57,7 +57,7 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	}
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	req := httptest.NewRequest(http.MethodPost, "/api/messages", bytes.NewBufferString(`{"message":"人工智能发展趋势","manual_mode":"pptagent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/messages", bytes.NewBufferString(`{"message":"人工智能发展趋势（生成PPT）"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ctx.Request = req.WithContext(auth.WithUser(req.Context(), &db.User{ID: 7}))
 
@@ -72,8 +72,8 @@ func TestHandleMessageManualPPTModeBypassesAnyRouterIntent(t *testing.T) {
 	if route.Intent != messageIntentCreate || route.Mode != messageModePPTAgent || route.Action != messageActionPrepareCreate || route.NeedsConfirmation || route.Reply != "" {
 		t.Fatalf("manual PPT route = %#v, want create/pptagent/prepare_create", route)
 	}
-	if routerCalled {
-		t.Fatal("manual PPT mode must bypass RouterAgent and start the explicit create path directly")
+	if !routerCalled {
+		t.Fatal("explicit PPT directive must be classified by RouterAgent")
 	}
 }
 
@@ -153,14 +153,35 @@ func TestHandleMessageStreamsChatTurnOverTaskTimeline(t *testing.T) {
 			types[event.Type] = true
 		}
 		answerContent := ""
+		thoughtIndex, llmStartIndex, answerIndex, llmEndIndex := -1, -1, -1, -1
 		for _, event := range events {
-			if event.Type == "answer" {
+			if event.Type == task.SSEEventFinalAnswer {
 				answerContent += event.Content
 			}
 		}
-		if done && types["answer"] && types["answer_end"] && types["conversation_complete"] {
+		for index, event := range events {
+			if event.Type == task.SSEEventThought && thoughtIndex < 0 {
+				thoughtIndex = index
+			}
+			if event.Type == task.SSEEventLLMStart && llmStartIndex < 0 {
+				llmStartIndex = index
+			}
+			if event.Type == task.SSEEventFinalAnswer && answerIndex < 0 {
+				answerIndex = index
+			}
+			if event.Type == task.SSEEventLLMEnd && llmEndIndex < 0 {
+				llmEndIndex = index
+			}
+		}
+		if done && types[task.SSEEventThought] && types[task.SSEEventLLMStart] && types[task.SSEEventFinalAnswer] && types[task.SSEEventLLMEnd] && types["answer_end"] && types["conversation_complete"] {
 			if strings.TrimSpace(answerContent) == "" {
-				t.Fatalf("chat timeline emitted answer events without visible content: %#v", events)
+				t.Fatalf("chat timeline emitted final_answer events without visible content: %#v", events)
+			}
+			if thoughtIndex < 0 || answerIndex < 0 || thoughtIndex >= answerIndex {
+				t.Fatalf("chat timeline order = %#v, want safe thought before final answer", events)
+			}
+			if llmStartIndex < 0 || llmEndIndex < 0 || !(thoughtIndex < llmStartIndex && llmStartIndex < answerIndex && answerIndex < llmEndIndex) {
+				t.Fatalf("chat llm segment order = %#v, want thought -> llm_start -> final_answer -> llm_end", events)
 			}
 			messages := sessions.Get(route.TaskID).GetRecentMessages(0)
 			assistantCount := 0

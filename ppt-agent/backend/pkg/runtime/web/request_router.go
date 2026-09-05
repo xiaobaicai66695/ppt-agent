@@ -189,6 +189,17 @@ func fallbackMessageRoute(query, selectedTaskID string) MessageRouteResult {
 // 风格吧" is a request to proceed with that presentation rather than an
 // unrelated chat turn.
 func fallbackTaskMessageRoute(query, selectedTaskID, conversationContext string) MessageRouteResult {
+	if hasExplicitPPTGenerationDirective(query) {
+		return MessageRouteResult{
+			Intent:            messageIntentCreate,
+			Mode:              messageModePPTAgent,
+			Confidence:        1,
+			NormalizedRequest: strings.TrimSpace(query),
+			TaskID:            strings.TrimSpace(selectedTaskID),
+			Action:            messageActionPrepareCreate,
+			Reason:            "用户通过生成 PPT 指令明确授权创建",
+		}
+	}
 	if hasConversationTopic(conversationContext) && looksLikeDelegatedPPTDecision(query) {
 		return MessageRouteResult{
 			Intent:            messageIntentCreate,
@@ -242,6 +253,17 @@ func looksLikeDelegatedPPTDecision(query string) bool {
 }
 
 func normalizeMessageRoute(route MessageRouteResult, original, selectedTaskID string) MessageRouteResult {
+	if hasExplicitPPTGenerationDirective(original) {
+		return MessageRouteResult{
+			Intent:            messageIntentCreate,
+			Mode:              messageModePPTAgent,
+			Confidence:        1,
+			NormalizedRequest: strings.TrimSpace(original),
+			TaskID:            strings.TrimSpace(selectedTaskID),
+			Action:            messageActionPrepareCreate,
+			Reason:            "用户通过生成 PPT 指令明确授权创建",
+		}
+	}
 	route.Intent = strings.TrimSpace(route.Intent)
 	route.Mode = strings.TrimSpace(route.Mode)
 	route.Action = strings.TrimSpace(route.Action)
@@ -309,6 +331,10 @@ func normalizeMessageRoute(route MessageRouteResult, original, selectedTaskID st
 		}
 	}
 	return route
+}
+
+func hasExplicitPPTGenerationDirective(query string) bool {
+	return strings.Contains(strings.TrimSpace(query), "（生成PPT）")
 }
 
 func intentLowConfidenceThreshold() float64 {

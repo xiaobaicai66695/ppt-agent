@@ -15,6 +15,7 @@ useTheme()
   --text-strong:#e9f1f8; --text-muted:#b5cbd0; --text-subtle:#7898a1; --text-on-accent:#d9edf0;
   --accent:#6ce5ca; --accent-strong:#9af1dc; --accent-soft:rgba(102,225,202,.1); --accent-on:#03201f;
   --info:#79c6e5; --danger:#ef9892; --message-user:#173846; --message-user-label:#94d7ce; --message-assistant:#f0f1e9;
+  --scrollbar-track:var(--surface-raised); --scrollbar-thumb:var(--border-strong); --scrollbar-thumb-hover:var(--text-subtle); --scrollbar-thumb-active:var(--text-muted);
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #07131f; }
@@ -22,6 +23,7 @@ button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 :focus-visible { outline: 2px solid #65e5cb; outline-offset: 3px; }
+:root,:root *{scrollbar-color:var(--scrollbar-thumb) var(--scrollbar-track);scrollbar-width:thin}:root *::-webkit-scrollbar{width:10px;height:10px}:root *::-webkit-scrollbar-track{background:var(--scrollbar-track)}:root *::-webkit-scrollbar-thumb{border:2px solid var(--scrollbar-track);border-radius:999px;background:var(--scrollbar-thumb)}:root *::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-thumb-hover)}:root *::-webkit-scrollbar-thumb:active{background:var(--scrollbar-thumb-active)}@media(forced-colors:active){:root,:root *{scrollbar-color:auto}}
 
 html[data-theme='light'] { color:#163841; background:#edf2f0;
   --surface-base:#eaf0ee; --surface-raised:#f9fbf7; --surface-accent:#dcebe7; --surface-hover:#dceae5;
@@ -30,6 +32,8 @@ html[data-theme='light'] { color:#163841; background:#edf2f0;
   --accent:#176f72; --accent-strong:#13535a; --accent-soft:rgba(23,111,114,.14); --accent-on:#f7fffc;
   --info:#2f7da0; --danger:#b64e4b; --message-user:#cce5e2; --message-user-label:#2a7372; --message-assistant:#ffffff;
 }
+/* Scoped screen styles predate semantic theme tokens; these controlled
+   overrides keep the light-theme adapter authoritative until each screen is migrated. */
 html[data-theme='light'] body{background:#edf2f0;color:#163841}
 html[data-theme='light'] .studio-shell,html[data-theme='light'] .studio-main,html[data-theme='light'] .canvas,html[data-theme='light'] .compose,html[data-theme='light'] .composer{background:#eaf0ee!important;color:#153842}
 html[data-theme='light'] .studio-nav,html[data-theme='light'] .conversations{background:#f9fbf7!important;border-color:#cfddd8!important}

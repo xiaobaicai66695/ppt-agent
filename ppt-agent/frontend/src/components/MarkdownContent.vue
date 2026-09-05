@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { parseMarkdown } from '../utils/markdown'
 
-const props = withDefaults(defineProps<{ content: string; streaming?: boolean }>(), { streaming: false })
+const props = withDefaults(defineProps<{ content: string; streaming?: boolean; live?: boolean }>(), { streaming: false, live: true })
 const preview = ref('')
 const blocks = computed(() => parseMarkdown(props.content))
 
@@ -11,7 +11,7 @@ function openPreview(src: string) { preview.value = src }
 </script>
 
 <template>
-  <div class="markdown" :aria-live="streaming ? 'polite' : undefined" :aria-busy="streaming || undefined">
+  <div class="markdown" :aria-live="streaming && live ? 'polite' : undefined" :aria-busy="streaming || undefined">
     <template v-for="(block, blockIndex) in blocks" :key="blockIndex">
       <component :is="`h${block.level}`" v-if="block.type === 'heading'" class="markdown-heading">
         <template v-for="(token, tokenIndex) in block.content" :key="tokenIndex">
@@ -52,7 +52,7 @@ function openPreview(src: string) { preview.value = src }
     </template>
     <span v-if="streaming" class="streaming-cursor" aria-label="正在生成" />
   </div>
-  <div v-if="preview" class="lightbox" role="dialog" aria-modal="true" aria-label="图片预览" @click.self="preview = ''">
+  <div v-if="preview" class="lightbox" role="dialog" aria-modal="true" aria-label="图片预览">
     <button type="button" @click="preview = ''">关闭预览</button>
     <img :src="preview" alt="图片参考预览">
   </div>

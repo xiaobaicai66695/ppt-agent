@@ -38,7 +38,6 @@ export interface ConversationSession {
   replay_after_event_id?: number
   conversation_streaming?: boolean
   messages: ConversationMessage[]
-  full_answer?: string
   status?: TaskStatus
   done_count?: number
   total_count?: number
@@ -55,6 +54,51 @@ export interface RuntimeEvent {
   status?: string
   detail?: string
   metadata?: Record<string, unknown>
+}
+
+export type TaskStreamEventType =
+  | 'llm_start'
+  | 'llm_delta'
+  | 'llm_end'
+  | 'thought'
+  | 'tool_call'
+  | 'tool_result'
+  | 'final_answer'
+  | 'answer'
+  | 'answer_end'
+  | 'system_step'
+  | 'progress'
+  | 'runtime_event'
+  | 'file_ready'
+  | 'thumbnail_ready'
+  | 'error'
+  | 'complete'
+  | 'continue_complete'
+  | 'continue_queued'
+  | 'conversation_complete'
+
+export interface TaskStreamEvent {
+  id?: number
+  type?: TaskStreamEventType
+  segment_id?: string
+  segment_boundary?: boolean
+  delta?: boolean
+  content?: string
+  error?: string
+  message?: string
+  phase?: string
+  phase_detail?: string
+  tool_call_id?: string
+  tool_name?: string
+  tool_args?: string
+  tool_result?: string
+  tool_status?: 'success' | 'error'
+  files?: string[]
+  status?: TaskStatus
+  runtime_event?: RuntimeEvent
+  tool_preview?: {
+    images?: Array<{ thumbnail_url?: string; image_url?: string; source_url?: string; alt?: string; attribution?: string }>
+  }
 }
 
 export interface AtomicLayout {

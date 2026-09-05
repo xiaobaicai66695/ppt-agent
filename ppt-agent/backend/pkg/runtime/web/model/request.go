@@ -55,9 +55,6 @@ type ContinueTaskRequest struct {
 type MessageRequest struct {
 	Message        string `json:"message"`
 	SelectedTaskID string `json:"selected_task_id,omitempty"`
-	ManualMode     string `json:"manual_mode,omitempty"`
-	WebSearch      bool   `json:"web_search,omitempty"`
-	ImageSearch    bool   `json:"image_search,omitempty"`
 }
 
 type TaskFeedbackRequest struct {

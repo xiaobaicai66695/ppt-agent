@@ -38,6 +38,17 @@ const (
 	TaskStatusCancelled       TaskStatus = "cancelled"
 )
 
+const (
+	SSEEventThought     = "thought"
+	SSEEventLLMStart    = "llm_start"
+	SSEEventLLMDelta    = "llm_delta"
+	SSEEventLLMEnd      = "llm_end"
+	SSEEventToolCall    = "tool_call"
+	SSEEventToolResult  = "tool_result"
+	SSEEventFinalAnswer = "final_answer"
+	SSEEventError       = "error"
+)
+
 // SSERichEvent 是 SSE 流式传输的增强事件。它封装了 agent 级别的
 // AgentEvent，并附带额外的进度和生命周期信息。
 type SSERichEvent struct {
@@ -66,6 +77,7 @@ type SSERichEvent struct {
 	Phase            string              `json:"phase,omitempty"`
 	PhaseDetail      string              `json:"phase_detail,omitempty"`
 	RuntimeEvent     *utils.RuntimeEvent `json:"runtime_event,omitempty"`
+	Delta            bool                `json:"delta,omitempty"`
 }
 
 const sseReplayEventLimit = 1024
@@ -86,9 +98,6 @@ type TaskInfo struct {
 	PromptTokens         int64             `json:"prompt_tokens"`
 	CompletionTokens     int64             `json:"completion_tokens"`
 	TotalTokens          int64             `json:"total_tokens"`
-	ConversationContent  string            `json:"conversation_content,omitempty"` // 拼接后的对话内容
-	FullAnswer           string            `json:"full_answer,omitempty"`          // 完整累积的 LLM 回答
-	AssistantTurns       []string          `json:"assistant_turns,omitempty"`      // 按 answer_end 分隔的助手回答段
 	Intent               string            `json:"intent,omitempty"`
 	ConversationID       string            `json:"conversation_id,omitempty"`
 	SourceMessageID      string            `json:"source_message_id,omitempty"`
@@ -130,12 +139,14 @@ type TaskState struct {
 	// "running". PPT generation still owns the running status.
 	conversationStreamActive bool
 
-	// fullAnswer 累积全部 LLM answer SSE 输出，任务结束时一次性存入 DB
-	fullAnswer      strings.Builder
 	answerTurn      strings.Builder
 	assistantTurnFn func(taskID, workDir, content string)
 	done            chan struct{}
-	pendingTools    []SSERichEvent
+	// pendingTools correlates independently emitted tool_call/tool_result
+	// events. Calls are never buffered here: every call is assigned an event ID
+	// and broadcast immediately, while this slice only tracks open invocations.
+	pendingTools   []SSERichEvent
+	completedTools map[string]struct{}
 }
 
 // Persist 将任务状态持久化到数据库。
@@ -166,13 +177,6 @@ func (ts *TaskState) finishGeneration() {
 		ts.Info.GenerationDurationMS = now.Sub(*ts.Info.GenerationStartedAt).Milliseconds()
 	}
 	ts.Mu.Unlock()
-}
-
-// FullAnswer 返回已累积的完整 LLM 回答内容。
-func (ts *TaskState) FullAnswer() string {
-	ts.Mu.Lock()
-	defer ts.Mu.Unlock()
-	return ts.fullAnswer.String()
 }
 
 // LatestEventID lets clients begin a continuation stream after the previous
@@ -328,76 +332,71 @@ func (ts *TaskState) RemoveListener(id string) {
 
 func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 	ts.Mu.Lock()
-	// Collapse the provider's call/result pair into one observable event. The
-	// call is held briefly and is only appended to the replay buffer once its
-	// result arrives, so clients never render duplicate tool rows.
-	if event.Type == "tool_call" {
-		completedTurn := strings.TrimSpace(ts.answerTurn.String())
-		if completedTurn != "" {
-			ts.Info.AssistantTurns = append(ts.Info.AssistantTurns, completedTurn)
-		}
-		ts.answerTurn.Reset()
-		turnCallback := ts.assistantTurnFn
-		taskID, workDir := ts.Info.ID, ts.Info.WorkDir
-		ts.pendingTools = append(ts.pendingTools, event)
-		ts.Mu.Unlock()
-		if completedTurn != "" && turnCallback != nil {
-			turnCallback(taskID, workDir, completedTurn)
-		}
-		return event
-	}
-	if event.Type == "tool_result" {
-		match := -1
-		for index := len(ts.pendingTools) - 1; index >= 0; index-- {
-			pending := ts.pendingTools[index]
-			if (event.ToolCallID != "" && pending.ToolCallID == event.ToolCallID) || (event.ToolCallID == "" && pending.ToolName == event.ToolName) {
-				match = index
-				break
-			}
-		}
-		if match >= 0 {
-			merged := ts.pendingTools[match]
-			ts.pendingTools = append(ts.pendingTools[:match], ts.pendingTools[match+1:]...)
-			merged.ToolResult = event.Error
-			if merged.ToolResult == "" {
-				merged.ToolResult = event.ToolResult
-			}
-			if merged.ToolResult == "" {
-				merged.ToolResult = event.PhaseDetail
-			}
-			merged.ToolStatus = "success"
-			if event.Error != "" {
-				merged.ToolStatus = "error"
-			}
-			if event.ToolPreview != nil {
-				merged.ToolPreview = event.ToolPreview
-			}
-			event = merged
-			event.Type = "tool_call"
-		} else {
-			event.Type = "tool_call"
-			event.ToolStatus = "error"
-			if event.Error == "" {
-				event.ToolStatus = "success"
-			}
-			event.ToolResult = event.Error
-			if event.ToolResult == "" {
-				event.ToolResult = event.PhaseDetail
-			}
-		}
-	}
 	if event.ID == 0 {
 		ts.nextEventID++
 		event.ID = ts.nextEventID
 	} else if event.ID > ts.nextEventID {
 		ts.nextEventID = event.ID
 	}
-	// 累积 LLM 回答内容到 fullAnswer，任务结束时一次性写入 DB。
+	if event.Type == SSEEventThought || event.Type == SSEEventFinalAnswer || event.Type == SSEEventLLMStart || event.Type == SSEEventLLMDelta || event.Type == SSEEventLLMEnd {
+		if strings.TrimSpace(event.SegmentID) == "" {
+			event.SegmentID = fmt.Sprintf("%s-%d", event.Type, event.ID)
+		}
+	}
+	if event.Type == SSEEventToolCall {
+		if strings.TrimSpace(event.ToolCallID) == "" {
+			event.ToolCallID = fmt.Sprintf("tool-%d", event.ID)
+		}
+		if ts.completedTools == nil {
+			ts.completedTools = make(map[string]struct{})
+		}
+		// The registry is correlation state only. The call continues below and is
+		// appended to Events/listeners immediately.
+		ts.pendingTools = append(ts.pendingTools, event)
+	}
+	if event.Type == SSEEventToolResult {
+		match := ts.pendingToolIndexLocked(event.ToolCallID, event.ToolName, event.ToolArgs)
+		if match >= 0 {
+			pending := ts.pendingTools[match]
+			ts.pendingTools = append(ts.pendingTools[:match], ts.pendingTools[match+1:]...)
+			if event.ToolCallID == "" {
+				event.ToolCallID = pending.ToolCallID
+			}
+			if event.ToolName == "" {
+				event.ToolName = pending.ToolName
+			}
+		}
+		if event.ToolCallID == "" {
+			event.ToolCallID = fmt.Sprintf("tool-%d", event.ID)
+		}
+		if ts.completedTools == nil {
+			ts.completedTools = make(map[string]struct{})
+		}
+		if _, duplicate := ts.completedTools[event.ToolCallID]; duplicate {
+			ts.Mu.Unlock()
+			return SSERichEvent{}
+		}
+		ts.completedTools[event.ToolCallID] = struct{}{}
+		if event.ToolResult == "" {
+			event.ToolResult = event.Error
+		}
+		if event.ToolResult == "" {
+			event.ToolResult = event.PhaseDetail
+		}
+		if event.ToolStatus == "" {
+			event.ToolStatus = "success"
+			if event.Error != "" {
+				event.ToolStatus = "error"
+			}
+		}
+	}
+	// 流式 chunk 仅在内存中累积到当前回答边界。达到边界后，完整
+	// assistant 消息通过 assistantTurnFn 落入 conversation_messages。
 	// 有些模型/框架会把 answer chunk 作为累计文本发出，这里先转成
 	// 可显示的增量，避免 SSE 实时流、事件回放和会话持久化重复展示。
-	if event.Type == "answer" && event.Content != "" {
+	if (event.Type == "answer" || event.Type == SSEEventFinalAnswer || event.Type == SSEEventLLMDelta) && event.Content != "" {
 		event.Content = normalizeAnswerChunk(ts.answerTurn.String(), event.Content)
-		ts.fullAnswer.WriteString(event.Content)
+		event.Delta = true
 		ts.answerTurn.WriteString(event.Content)
 		if ts.runtimeMeta != nil && strings.TrimSpace(event.Content) != "" {
 			ts.runtimeMeta.RecordAssistantOutput(event.Content)
@@ -408,15 +407,11 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 		ts.Events = ts.Events[len(ts.Events)-sseReplayEventLimit:]
 	}
 	var completedTurn string
-	// A tool call also closes the preceding visible assistant segment. This
-	// keeps durable assistant turns aligned with the SSE timeline instead of
-	// flattening thought -> tool -> follow-up text into one database row.
-	isTurnBoundary := event.Type == "answer_end" || event.Type == "tool_call" || event.Type == "complete" || event.Type == "continue_complete"
+	// answer_end is emitted after one LLM response has finished forwarding all
+	// visible chunks. Lifecycle events remain only as a fallback flush path.
+	isTurnBoundary := event.Type == "answer_end" || event.Type == SSEEventLLMEnd || event.Type == "complete" || event.Type == "continue_complete" || event.Type == "conversation_complete"
 	if isTurnBoundary {
 		completedTurn = strings.TrimSpace(ts.answerTurn.String())
-		if completedTurn != "" {
-			ts.Info.AssistantTurns = append(ts.Info.AssistantTurns, completedTurn)
-		}
 		ts.answerTurn.Reset()
 	}
 	for listenerID, ch := range ts.listeners {
@@ -445,6 +440,57 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 		ts.Mu.Unlock()
 	}
 	return event
+}
+
+func (ts *TaskState) pendingToolIndexLocked(callID, name, args string) int {
+	callID = strings.TrimSpace(callID)
+	name = strings.TrimSpace(name)
+	args = strings.TrimSpace(args)
+	for index := len(ts.pendingTools) - 1; index >= 0; index-- {
+		pending := ts.pendingTools[index]
+		if callID != "" && pending.ToolCallID == callID {
+			return index
+		}
+		if callID == "" && name != "" && args != "" && pending.ToolName == name && strings.TrimSpace(pending.ToolArgs) == args {
+			return index
+		}
+	}
+	if callID != "" || name == "" {
+		return -1
+	}
+	for index := len(ts.pendingTools) - 1; index >= 0; index-- {
+		if ts.pendingTools[index].ToolName == name {
+			return index
+		}
+	}
+	return -1
+}
+
+// CompletePendingTools emits one terminal observation for each invocation
+// that did not receive an ADK tool end/error callback. The snapshot is removed
+// before broadcasting so late duplicate callbacks are suppressed by call ID.
+func (ts *TaskState) CompletePendingTools(err error) {
+	ts.Mu.Lock()
+	pending := append([]SSERichEvent(nil), ts.pendingTools...)
+	ts.pendingTools = nil
+	ts.Mu.Unlock()
+	for _, call := range pending {
+		result := SSERichEvent{
+			Type:        SSEEventToolResult,
+			ToolCallID:  call.ToolCallID,
+			ToolName:    call.ToolName,
+			ToolStatus:  "success",
+			ToolResult:  "工具调用已完成",
+			SegmentID:   call.SegmentID,
+			ToolPreview: call.ToolPreview,
+		}
+		if err != nil {
+			result.ToolStatus = "error"
+			result.Error = "工具调用未完成"
+			result.ToolResult = result.Error
+		}
+		ts.Broadcast(result)
+	}
 }
 
 func normalizeAnswerChunkLegacy(currentTurn, chunk string) string {
@@ -711,7 +757,6 @@ func (tm *TaskManager) reportFileReady(ts *TaskState, workDir, filename string) 
 
 func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 	filesJSON, _ := json.Marshal(DeduplicateOutputFiles(info.Files))
-	turnsJSON, _ := json.Marshal(sanitizeAssistantTurns(info.AssistantTurns))
 	return &db.TaskRecord{
 		ID:                   info.ID,
 		UserID:               uint(info.UserID),
@@ -726,9 +771,6 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		PromptTokens:         info.PromptTokens,
 		CompletionTokens:     info.CompletionTokens,
 		TotalTokens:          info.TotalTokens,
-		ConversationContent:  mysqlSafeText(info.ConversationContent),
-		FullAnswer:           mysqlSafeText(info.FullAnswer),
-		AssistantTurns:       mysqlSafeText(string(turnsJSON)),
 		Intent:               mysqlSafeText(info.Intent),
 		ConversationID:       mysqlSafeText(info.ConversationID),
 		SourceMessageID:      mysqlSafeText(info.SourceMessageID),
@@ -739,19 +781,6 @@ func taskInfoToRecord(info *TaskInfo) *db.TaskRecord {
 		FixerRunCount:        info.FixerRunCount,
 		CreatedAt:            info.CreatedAt,
 	}
-}
-
-func sanitizeAssistantTurns(turns []string) []string {
-	if len(turns) == 0 {
-		return nil
-	}
-	clean := make([]string, 0, len(turns))
-	for _, turn := range turns {
-		if value := mysqlSafeText(turn); value != "" {
-			clean = append(clean, value)
-		}
-	}
-	return clean
 }
 
 func mysqlSafeText(value string) string {
@@ -781,10 +810,6 @@ func isEmojiSymbol(r rune) bool {
 func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 	var files []string
 	json.Unmarshal([]byte(r.Files), &files)
-	var assistantTurns []string
-	if strings.TrimSpace(r.AssistantTurns) != "" {
-		_ = json.Unmarshal([]byte(r.AssistantTurns), &assistantTurns)
-	}
 	files = DeduplicateOutputFiles(files)
 	if files == nil {
 		files = []string{}
@@ -804,9 +829,6 @@ func recordToTaskInfo(r *db.TaskRecord) *TaskInfo {
 		PromptTokens:         r.PromptTokens,
 		CompletionTokens:     r.CompletionTokens,
 		TotalTokens:          r.TotalTokens,
-		ConversationContent:  r.ConversationContent,
-		FullAnswer:           r.FullAnswer,
-		AssistantTurns:       assistantTurns,
 		Intent:               r.Intent,
 		ConversationID:       r.ConversationID,
 		SourceMessageID:      r.SourceMessageID,
@@ -835,9 +857,6 @@ func (ts *TaskState) persist() {
 		"prompt_tokens":          r.PromptTokens,
 		"completion_tokens":      r.CompletionTokens,
 		"total_tokens":           r.TotalTokens,
-		"conversation_content":   r.ConversationContent,
-		"full_answer":            r.FullAnswer,
-		"assistant_turns":        r.AssistantTurns,
 		"intent":                 r.Intent,
 		"conversation_id":        r.ConversationID,
 		"source_message_id":      r.SourceMessageID,
@@ -929,16 +948,8 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 
 	startedAt := time.Now()
 	createdAt := startedAt
-	var previousInfo *TaskInfo
 	if existing := tm.GetTask(cfg.TaskID); existing != nil && !existing.CreatedAt.IsZero() {
-		previousInfo = existing
 		createdAt = existing.CreatedAt
-	}
-	var previousTurns []string
-	previousFullAnswer := ""
-	if previousInfo != nil {
-		previousTurns = append([]string(nil), previousInfo.AssistantTurns...)
-		previousFullAnswer = previousInfo.FullAnswer
 	}
 	ts := &TaskState{
 		Info: TaskInfo{
@@ -953,7 +964,6 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 			SourceMessageID:     cfg.SourceMessageID,
 			ParentTaskID:        cfg.ParentTaskID,
 			GenerationStartedAt: &startedAt,
-			AssistantTurns:      previousTurns,
 		},
 		listeners:       make(map[string]chan SSERichEvent),
 		reportedFiles:   make(map[string]bool),
@@ -961,7 +971,6 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		assistantTurnFn: tm.onAssistantTurn,
 		done:            make(chan struct{}),
 	}
-	ts.fullAnswer.WriteString(previousFullAnswer)
 	cfg.OnFixerTriggered = ts.RecordFixerRun
 	runtimeMeta.SetEventSink(func(event utils.RuntimeEvent) {
 		persistRuntimeEvent(event)
@@ -971,25 +980,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		if event.Kind == "assistant_output" {
 			return
 		}
-		summary := utils.RuntimeEventSummary(event)
-		if summary.Kind == "phase_changed" && summary.Phase != "" {
-			ts.Broadcast(SSERichEvent{
-				Type:        "progress",
-				Phase:       summary.Phase,
-				PhaseDetail: summary.Detail,
-			})
-		}
-		if summary.Kind == "planner_context_compressing" {
-			ts.Broadcast(SSERichEvent{
-				Type:        "progress",
-				Phase:       "compressing_context",
-				PhaseDetail: firstRuntimeDetail(summary.Detail, "正在压缩较早对话，保留你的最新要求"),
-			})
-		}
-		ts.Broadcast(SSERichEvent{
-			Type:         "runtime_event",
-			RuntimeEvent: &summary,
-		})
+		broadcastRuntimeSummary(ts, utils.RuntimeEventSummary(event))
 	})
 	type workDirSetter interface {
 		SetWorkDir(context.Context, string) context.Context
@@ -1073,6 +1064,73 @@ func firstRuntimeDetail(values ...string) string {
 	return ""
 }
 
+func runtimeMetadataString(metadata map[string]any, key string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	value, _ := metadata[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
+	if ts == nil {
+		return
+	}
+	if isRuntimeToolStart(summary.Kind) {
+		ts.Broadcast(SSERichEvent{
+			Type:        SSEEventToolCall,
+			ToolName:    summary.Name,
+			ToolArgs:    runtimeMetadataString(summary.Metadata, "args_preview"),
+			Phase:       summary.Phase,
+			PhaseDetail: firstRuntimeDetail(summary.Detail, "正在调用工具"),
+		})
+		return
+	}
+	if isRuntimeToolTerminal(summary.Kind) {
+		toolStatus := "success"
+		result := runtimeMetadataString(summary.Metadata, "result_preview")
+		if strings.HasSuffix(strings.ToLower(summary.Kind), "_error") || strings.EqualFold(summary.Status, "error") {
+			toolStatus = "error"
+			result = firstRuntimeDetail(runtimeMetadataString(summary.Metadata, "error"), summary.Detail, "工具调用失败")
+		}
+		ts.Broadcast(SSERichEvent{
+			Type:        SSEEventToolResult,
+			ToolName:    summary.Name,
+			ToolArgs:    runtimeMetadataString(summary.Metadata, "args_preview"),
+			ToolResult:  firstRuntimeDetail(result, "工具调用已完成"),
+			ToolStatus:  toolStatus,
+			Phase:       summary.Phase,
+			PhaseDetail: summary.Detail,
+		})
+		return
+	}
+	if summary.Kind == "phase_changed" && summary.Phase != "" {
+		ts.Broadcast(SSERichEvent{
+			Type:        "progress",
+			Phase:       summary.Phase,
+			PhaseDetail: summary.Detail,
+		})
+		return
+	}
+	if summary.Kind == "planner_context_compressing" {
+		ts.Broadcast(SSERichEvent{
+			Type:        "progress",
+			Phase:       "compressing_context",
+			PhaseDetail: firstRuntimeDetail(summary.Detail, "正在压缩较早对话，保留你的最新要求"),
+		})
+	}
+}
+
+func isRuntimeToolStart(kind string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return kind == "tool_start" || kind == "slide_render_start"
+}
+
+func isRuntimeToolTerminal(kind string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return kind == "tool_end" || kind == "tool_error" || kind == "slide_render_end" || kind == "slide_render_error"
+}
+
 func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Agent,
 	cfg *ppt.PPTTaskConfig, query string) {
 	startedAt := time.Now()
@@ -1131,13 +1189,20 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		cancelRun(errDeliveryMetadataComplete)
 	})
 
-	// ADK exposes tool calls from assistant messages, but some providers do not
-	// emit a separate tool-result callback. Track calls for this run so every
-	// visible invocation receives a deterministic terminal event below.
-	type pendingTool struct{ id, name string }
-	var pendingTools []pendingTool
+	var thoughtSegment int
+	currentThoughtSegment := ""
+	nextThoughtSegment := func() string {
+		thoughtSegment++
+		return fmt.Sprintf("planner-thought-%d", thoughtSegment)
+	}
 	result, err := ppt.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event ppt.AgentEvent) {
 		if event.Type == ppt.AgentEventProgress {
+			ts.Broadcast(SSERichEvent{
+				Type:        SSEEventThought,
+				Content:     event.PhaseDetail,
+				Phase:       event.Phase,
+				PhaseDetail: event.PhaseDetail,
+			})
 			ts.Broadcast(SSERichEvent{
 				Type:        "progress",
 				Phase:       event.Phase,
@@ -1146,11 +1211,44 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			return
 		}
 		if event.Type == "tool_call" || event.Type == "token_usage" {
-			if event.Type == "tool_call" && strings.TrimSpace(event.ToolName) != "" {
-				pendingTools = append(pendingTools, pendingTool{id: event.ToolCallID, name: event.ToolName})
+			// RuntimeMeta tool callbacks are the authoritative call/result source.
+			// The model event still provides an early, user-safe phase summary.
+			if event.Type == "tool_call" {
+				detectAndBroadcastPhase(ts, event, false)
+				currentThoughtSegment = ""
 			}
-			// 从 tool_call 推断阶段
-			detectAndBroadcastPhase(ts, event)
+			return
+		}
+		if event.Type == ppt.AgentEventAnswer {
+			if currentThoughtSegment == "" {
+				currentThoughtSegment = nextThoughtSegment()
+				ts.Broadcast(SSERichEvent{
+					Type:      SSEEventLLMStart,
+					SegmentID: currentThoughtSegment,
+					Phase:     "thought",
+				})
+			}
+			ts.Broadcast(SSERichEvent{
+				Type:      SSEEventThought,
+				Content:   event.Content,
+				SegmentID: currentThoughtSegment,
+				Delta:     true,
+			})
+			return
+		}
+		if event.Type == ppt.AgentEventLLMEnd {
+			// AgentEventLLMEnd is emitted after this model response's visible
+			// chunks. Use the existing explicit answer boundary so reconnect
+			// cursors and durable assistant rows remain aligned.
+			if currentThoughtSegment != "" {
+				ts.Broadcast(SSERichEvent{
+					Type:      SSEEventLLMEnd,
+					SegmentID: currentThoughtSegment,
+					Phase:     "thought",
+				})
+			}
+			ts.Broadcast(SSERichEvent{Type: "answer_end"})
+			currentThoughtSegment = ""
 			return
 		}
 		ts.Broadcast(SSERichEvent{
@@ -1161,13 +1259,7 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			Error:    event.Error,
 		})
 	})
-	for _, tool := range pendingTools {
-		resultEvent := SSERichEvent{Type: "tool_result", ToolCallID: tool.id, ToolName: tool.name, PhaseDetail: "工具调用已完成"}
-		if err != nil {
-			resultEvent.Error = "工具调用未完成"
-		}
-		ts.Broadcast(resultEvent)
-	}
+	ts.CompletePendingTools(err)
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
 	if err == nil && ctx.Err() == nil {
@@ -1290,8 +1382,13 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		ts.Info.TotalTokens = t
 	}
 
-	// 将累积的完整 LLM 回答写入持久化字段
-	ts.Info.FullAnswer = ts.fullAnswer.String()
+	if ts.Info.Status == TaskStatusCompleted {
+		ts.Broadcast(SSERichEvent{
+			Type:    SSEEventFinalAnswer,
+			Content: completionFinalAnswer(ts.Info),
+		})
+	}
+
 	ts.finishGeneration()
 
 	ts.persist()
@@ -1336,10 +1433,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 	}
 	ts.Broadcast(finalEvent)
 
-	// 在 complete 事件被所有监听者处理完毕后（触发 flushAnswerToDB + flushCompleteToDB），
-	// 再构建并写入 conversation_content。
-	ts.persistConversationContent()
-
 	// 触发任务完成回调。
 	if tm.onTaskComplete != nil && ts.Info.UserID > 0 && ts.Info.Status == TaskStatusCompleted {
 		go tm.onTaskComplete(ts.Info.UserID, ts.Info.WorkDir, ts.Info.Query)
@@ -1380,6 +1473,13 @@ func applyDeliverySnapshotOutcome(ts *TaskState, delivery DeliverySnapshot) bool
 	return true
 }
 
+func completionFinalAnswer(info TaskInfo) string {
+	if info.TotalCount > 0 {
+		return fmt.Sprintf("PPT 已完成交付，共 %d 页。你可以在下方预览缩略图、下载文件，或继续告诉我想调整的页面。", info.TotalCount)
+	}
+	return "PPT 已完成交付。你可以在下方预览缩略图、下载文件，或继续告诉我想调整的页面。"
+}
+
 func persistRuntimeEvent(event utils.RuntimeEvent) {
 	if event.TaskID == "" {
 		return
@@ -1410,8 +1510,10 @@ func persistRuntimeEvent(event utils.RuntimeEvent) {
 	}
 }
 
-// detectAndBroadcastPhase 从 Planner 工具事件推断当前阶段并广播进度事件。
-func detectAndBroadcastPhase(ts *TaskState, event ppt.AgentEvent) {
+// detectAndBroadcastPhase derives a safe public process summary from a model
+// tool decision. RuntimeMeta callbacks own the first-class call/result events
+// because they align with actual tool execution across providers.
+func detectAndBroadcastPhase(ts *TaskState, event ppt.AgentEvent, emitToolCall bool) {
 	detail := event.PhaseDetail
 	if detail == "" {
 		detail = event.ToolArgs
@@ -1449,13 +1551,19 @@ func detectAndBroadcastPhase(ts *TaskState, event ppt.AgentEvent) {
 		ts.runtimeMeta.RecordPhase(phase, phaseDetail)
 	}
 	ts.Broadcast(SSERichEvent{
+		Type:        SSEEventThought,
+		Content:     phaseDetail,
+		Phase:       phase,
+		PhaseDetail: phaseDetail,
+	})
+	ts.Broadcast(SSERichEvent{
 		Type:        "progress",
 		Phase:       phase,
 		PhaseDetail: phaseDetail,
 	})
-	if strings.TrimSpace(event.ToolName) != "" {
+	if emitToolCall && strings.TrimSpace(event.ToolName) != "" {
 		ts.Broadcast(SSERichEvent{
-			Type:        "tool_call",
+			Type:        SSEEventToolCall,
 			ToolCallID:  event.ToolCallID,
 			ToolName:    event.ToolName,
 			ToolArgs:    event.ToolArgs,
@@ -1655,7 +1763,6 @@ func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
 		reportedFiles:   make(map[string]bool),
 		assistantTurnFn: tm.onAssistantTurn,
 	}
-	ts.fullAnswer.WriteString(info.FullAnswer)
 	tm.mu.Lock()
 	tm.tasks[info.ID] = ts
 	tm.mu.Unlock()
@@ -1877,69 +1984,6 @@ func compactRequestSummary(query string, limit int) string {
 		summary = string(runes[:limit]) + "..."
 	}
 	return summary
-}
-
-// persistConversationContent 从对话消息表（数据库）和内存中的 SSE 事件流中提取有意义的内容，
-// 将它们合并为可读的对话文本，并存储到 ts.Info 中以便后续持久化到数据库。
-// 在任务结束时调用（成功、取消或错误）。
-var listConversationMessagesForSummary = db.ListConversationMessages
-
-func (ts *TaskState) persistConversationContent() {
-	ts.Mu.Lock()
-	info := ts.Info
-	ts.Mu.Unlock()
-
-	// Database and filesystem I/O stay outside TaskState.Mu so readers can keep
-	// serving the in-memory task and answer while persistence is slow.
-	dbMessages, err := listConversationMessagesForSummary(info.ID)
-	if err != nil {
-		logger.Warn("load_conversation_messages_failed", "task_id", info.ID, "error", err.Error())
-	}
-
-	manifest, manifestErr := ppt.ReadTasksManifest(info.WorkDir)
-
-	var b strings.Builder
-	b.WriteString("## 任务信息\n")
-	b.WriteString(fmt.Sprintf("- 状态: %s | 进度: %d/%d | 耗时: %s\n",
-		info.Status, info.DoneCount, info.TotalCount, info.Duration))
-	if info.Error != "" {
-		b.WriteString(fmt.Sprintf("- 错误: %s\n", info.Error))
-	}
-
-	if manifestErr == nil && manifest != nil && len(manifest.Tasks) > 0 {
-		b.WriteString("\n## 幻灯片概览\n")
-		b.WriteString("| # | 标题 | 类型 | 状态 |\n")
-		b.WriteString("|---|------|------|------|\n")
-		for _, t := range manifest.Tasks {
-			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s |\n",
-				t.PageIndex, t.Title, t.ContentType, t.Status))
-		}
-	}
-
-	b.WriteString("\n## 对话内容\n")
-
-	// 从数据库直接构建对话（每条消息都是 flush 后的完整内容，无碎片）。
-	for _, m := range dbMessages {
-		trimmed := strings.TrimSpace(m.Content)
-		if trimmed == "" || trimmed == "..." || trimmed == "……" {
-			continue
-		}
-		if len(trimmed) > 2000 {
-			trimmed = trimmed[:2000] + "\n...(内容已截断)"
-		}
-		roleTag := "**助手**"
-		if m.Role == "user" {
-			roleTag = "**用户**"
-		}
-		b.WriteString(fmt.Sprintf("\n%s: %s\n", roleTag, trimmed))
-	}
-
-	ts.Mu.Lock()
-	ts.Info.ConversationContent = b.String()
-	ts.Mu.Unlock()
-	// Persist the summary synchronously with the terminal task snapshot. This
-	// prevents a process exit from leaving task_records without its summary.
-	ts.persist()
 }
 
 // BuildContinueContext 构建用于任务继续的紧凑 LLM 上下文。

@@ -17,9 +17,6 @@ type TaskRecord struct {
 	CompletionTokens     int64      `gorm:"default:0" json:"completion_tokens"`
 	TotalTokens          int64      `gorm:"default:0" json:"total_tokens"`
 	Files                string     `gorm:"type:text" json:"files"`
-	ConversationContent  string     `gorm:"type:longtext" json:"conversation_content"` // 拼接后的对话内容
-	FullAnswer           string     `gorm:"type:longtext" json:"full_answer"`          // 完整拼接的 LLM 回答（用于冷加载恢复）
-	AssistantTurns       string     `gorm:"type:longtext" json:"assistant_turns"`      // 按 answer_end 分隔的助手回答段 JSON
 	Intent               string     `gorm:"size:32;index" json:"intent"`
 	ConversationID       string     `gorm:"size:64;index" json:"conversation_id"`
 	SourceMessageID      string     `gorm:"size:64;index" json:"source_message_id"`

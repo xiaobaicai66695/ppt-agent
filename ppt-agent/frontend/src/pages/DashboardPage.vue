@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bot, CheckCircle2, ChevronDown, ChevronRight, CircleStop, FileDown, Image, LoaderCircle, MessageSquareText, Plus, RefreshCw, Send, Trash2, WandSparkles } from 'lucide-vue-next'
+import { Bot, CircleStop, FileDown, Image, MessageSquareText, Plus, RefreshCw, Send, Trash2, WandSparkles } from 'lucide-vue-next'
 import AppShell from '../components/AppShell.vue'
 import AppModal from '../components/AppModal.vue'
-import MarkdownContent from '../components/MarkdownContent.vue'
+import ConversationTimelineItemCard from '../components/ConversationTimelineItem.vue'
 import DeliveryFeedbackForm from '../components/DeliveryFeedbackForm.vue'
 import TaskDeliveryPreview from '../components/TaskDeliveryPreview.vue'
 import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetchTasks, routeMessage, startTask, taskDownloadUrl } from '../api'
-import type { AuthUser, TaskInfo } from '../types'
-import { shouldStartPPTGeneration } from '../utils/messageRouting'
-import { isTerminalTaskStreamEvent } from '../utils/taskStream'
-import { appendExecutionStep, appendRuntimeExecution, appendTimelineMessage, appendToolInvocation, beginObservablePhase, completeObservablePhase, finishToolPhase, hideCompletedToolTraces, prepareToolBoundary, resetConversationTimeline, resolveToolInvocation, toggleToolInvocation, type ConversationTimelineItem, type ExecutionState, type ToolPreview } from '../utils/conversationTimeline'
+import type { AuthUser, TaskInfo, TaskStreamEvent } from '../types'
+import { appendDeliveryDirectives, shouldStartPPTGeneration } from '../utils/messageRouting'
+import { isTerminalTaskStreamEvent, taskStreamEventNames } from '../utils/taskStream'
+import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, resetConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -26,9 +26,7 @@ const web = ref(false)
 const images = ref(false)
 const error = ref('')
 const messagesContainer = ref<HTMLElement>()
-const streamingMessageID = ref<string>()
-const activePhaseID = ref<string>()
-const activePhase = ref('')
+const shouldFollowStream = ref(true)
 const thumbnailRevision = ref(0)
 const feedbackDialogOpen = ref(false)
 const pendingDeletion = ref<TaskInfo>()
@@ -42,9 +40,7 @@ const activeTitle = computed(() => selected.value?.query || '新的创作会话'
 const sorted = computed(() => [...tasks.value].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)))
 const hasTimeline = computed(() => busy.value || timeline.value.length > 0)
 const taskLabel = (status: string) => ({ running: '生成中', completed: '已交付', paused_retryable: '可继续恢复', failed: '需要处理', conversation: '对话中', cancelled: '已取消' } as Record<string, string>)[status] || status
-const phaseLabel = (phase = '') => ({ analysis: '分析请求', answer: '组织回答' } as Record<string, string>)[phase] || '处理任务'
-const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图片搜索' } as Record<string, string>)[name] || name || '调用工具'
-const executionLabel = (state: ExecutionState) => ({ running: '执行中', success: '已完成', error: '失败' } as Record<ExecutionState, string>)[state]
+const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图片搜索', generate_slide: '幻灯片渲染', slide_render: '幻灯片渲染', update_tasks_manifest: '写入任务清单', patch_tasks_draft: '修正规划草稿', read_file: '读取文件', shell: 'Shell', bash: 'Shell', command: '命令行', terminal: '终端' } as Record<string, string>)[name] || name || '调用工具'
 
 function closeStream() {
   streamGeneration += 1
@@ -54,36 +50,20 @@ function closeStream() {
   reconnectTimer = undefined
 }
 
-function addExecution(label: string, detail = '', state: ExecutionState = 'running') {
-  appendExecutionStep(timeline.value, label, detail, state)
+function addExecution(label: string, detail = '', state: ExecutionState = 'running', eventID?: number) {
+  appendExecutionStep(timeline.value, label, detail, state, eventID)
   void nextTick(stickToLatestMessage)
+}
+
+function handleTimelineScroll() {
+  const container = messagesContainer.value
+  shouldFollowStream.value = !container || container.scrollHeight - container.scrollTop - container.clientHeight <= 96
 }
 
 function stickToLatestMessage() {
   const container = messagesContainer.value
-  if (!container || container.scrollHeight - container.scrollTop - container.clientHeight > 96) return
+  if (!container || !shouldFollowStream.value) return
   container.scrollTop = container.scrollHeight
-}
-
-function appendAssistantChunk(content: string) {
-  if (!content) return
-  // A tool result starts a new visible assistant segment.  Without closing
-  // the previous phase here, the next model delta is appended to the text
-  // above the tool card instead of appearing after it in the timeline.
-  if (!streamingMessageID.value && activePhaseID.value) {
-    if (finishToolPhase(timeline.value, activePhaseID.value)) {
-      activePhaseID.value = undefined
-      activePhase.value = ''
-    }
-  }
-  const item = timeline.value.find((candidate): candidate is Extract<ConversationTimelineItem, { type: 'message' }> => candidate.type === 'message' && candidate.id === streamingMessageID.value)
-  if (item?.message.role === 'assistant') {
-    item.message.content += content
-  } else {
-    appendTimelineMessage(timeline.value, { role: 'assistant', content, timestamp: new Date().toISOString() })
-    streamingMessageID.value = timeline.value[timeline.value.length - 1]?.id
-  }
-  void nextTick(stickToLatestMessage)
 }
 
 async function loadTasks() {
@@ -92,17 +72,12 @@ async function loadTasks() {
 
 async function select(task: TaskInfo) {
   closeStream()
-  streamingMessageID.value = undefined
-  activePhaseID.value = undefined
-  activePhase.value = ''
+  shouldFollowStream.value = true
   selected.value = task
   error.value = ''
   const session = await fetchConversation(task.id)
   const history = session.messages || []
   timeline.value = resetConversationTimeline(history)
-  if (session.full_answer && !history.some(message => message.role === 'assistant' && message.content === session.full_answer)) {
-    appendTimelineMessage(timeline.value, { role: 'assistant', content: session.full_answer, timestamp: '' })
-  }
   if (session.conversation_streaming || task.status === 'running') {
     openStream(task.id, session.replay_after_event_id || session.latest_event_id || 0)
   }
@@ -124,9 +99,9 @@ function openStream(id: string, after = 0) {
       if (Number.isFinite(numericID) && numericID > 0 && numericID <= streamCursor) return
       if (Number.isFinite(numericID) && numericID > streamCursor) streamCursor = numericID
       reconnectAttempts = 0
-      consume(event.data)
+      consume(event.data, Number.isFinite(numericID) && numericID > 0 ? numericID : undefined)
     }
-    for (const name of ['answer', 'answer_end', 'system_step', 'tool_call', 'progress', 'runtime_event', 'file_ready', 'thumbnail_ready', 'error', 'complete', 'continue_complete', 'continue_queued', 'conversation_complete']) {
+    for (const name of taskStreamEventNames) {
       source?.addEventListener(name, receive)
     }
     source.onerror = () => {
@@ -143,82 +118,110 @@ function openStream(id: string, after = 0) {
   connect()
 }
 
-function startPhase(phase: string, detail: string) {
-  activePhase.value = phase
-  activePhaseID.value = beginObservablePhase(timeline.value, phase, phaseLabel(phase), detail)
-  void nextTick(stickToLatestMessage)
-}
-
-function ensureAnalysisPhase() {
-  if (!activePhaseID.value) startPhase('analysis', '正在分析请求与可用工具')
-}
-
-function consume(raw: string) {
+function consume(raw: string, eventID?: number) {
   try {
-    const data = JSON.parse(raw) as {
-      type?: string
-      content?: string
-      error?: string
-      message?: string
-      phase?: string
-      phase_detail?: string
-      tool_name?: string
-		tool_call_id?: string
-		tool_result?: string
-		tool_status?: 'success' | 'error'
-      files?: string[]
-		status?: string
-      runtime_event?: { kind?: string; name?: string; detail?: string; status?: string }
-      tool_preview?: ToolPreview
-    }
+    const data = JSON.parse(raw) as TaskStreamEvent
+    const sourceID = eventID || data.id
 
-    if (data.type === 'answer') {
-      appendAssistantChunk(data.content || '')
+    if (data.type === 'thought') {
+      appendThought(timeline.value, data.content || data.phase_detail || data.message || '正在推进任务', {
+        eventID: sourceID,
+        segmentID: data.segment_id,
+        phase: data.phase,
+        delta: data.delta,
+      })
+    } else if (data.type === 'llm_start') {
+      finishStreamingEntries(timeline.value)
+    } else if (data.type === 'llm_delta') {
+      const isThought = data.phase === 'analysis' || data.phase === 'reasoning' || data.phase === 'thought'
+      const text = data.content || data.phase_detail || data.message || ''
+      if (isThought) {
+        appendThought(timeline.value, text || '正在推进任务', {
+          eventID: sourceID,
+          segmentID: data.segment_id,
+          phase: data.phase,
+          delta: data.delta ?? true,
+        })
+      } else {
+        appendFinalAnswer(timeline.value, text, {
+          eventID: sourceID,
+          segmentID: data.segment_id || 'llm-answer',
+          delta: data.delta ?? true,
+        })
+      }
+    } else if (data.type === 'llm_end') {
+      finishStreamingEntries(timeline.value)
+    } else if (data.type === 'final_answer' || data.type === 'answer') {
+      appendFinalAnswer(timeline.value, data.content || '', {
+        eventID: sourceID,
+        segmentID: data.segment_id || 'legacy-final-answer',
+        delta: data.delta ?? true,
+      })
     } else if (data.type === 'error') {
       error.value = data.error || '任务出现错误'
-      if (activePhase.value) completeObservablePhase(timeline.value, activePhase.value, 'error')
-      addExecution('生成遇到错误', error.value, 'error')
-    } else if (data.type === 'runtime_event') {
-      const event = data.runtime_event
-      const state: ExecutionState = event?.status === 'error' || event?.status === 'failed' ? 'error' : event?.status === 'ok' ? 'success' : 'running'
-      appendRuntimeExecution(timeline.value, event?.name || event?.kind || '处理任务', event?.detail || '', state, event?.kind || '')
-      void nextTick(stickToLatestMessage)
+      appendTimelineError(timeline.value, error.value, sourceID)
+      finishStreamingEntries(timeline.value)
     } else if (data.type === 'system_step') {
-      startPhase(data.phase || 'system', data.phase_detail || data.message || '正在推进')
+      appendThought(timeline.value, data.content || data.phase_detail || data.message || '正在推进任务', {
+        eventID: sourceID,
+        segmentID: data.segment_id || `legacy-system-${sourceID || 'step'}`,
+        phase: data.phase || '系统步骤',
+        delta: false,
+      })
     } else if (data.type === 'tool_call') {
-      // A tool call is a hard segment boundary: finish the preceding model
-      // text and place the observable phase after it before adding the tool.
-      streamingMessageID.value = undefined
-      prepareToolBoundary(timeline.value, activePhaseID.value)
-      ensureAnalysisPhase()
-		const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : data.tool_status === 'success' ? 'success' : 'running'
-		const toolID = appendToolInvocation(timeline.value, activePhaseID.value, data.tool_name || 'unknown', toolLabel(data.tool_name), data.phase_detail || data.message || '正在调用', data.tool_preview, data.tool_call_id)
-		if (toolID && toolState !== 'running') {
-			resolveToolInvocation(timeline.value, activePhaseID.value, data.tool_name || 'unknown', toolLabel(data.tool_name), data.tool_result || '工具调用已完成', toolState, data.tool_preview, data.tool_call_id)
-		}
-      void nextTick(stickToLatestMessage)
+      const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : data.tool_status === 'success' ? 'success' : 'running'
+      appendToolCall(timeline.value, {
+        eventID: sourceID,
+        callID: data.tool_call_id,
+        name: data.tool_name || 'unknown',
+        label: toolLabel(data.tool_name),
+        args: data.tool_args,
+        detail: data.phase_detail || data.message || '正在调用工具',
+      })
+      // During rolling deploys, an older backend can still merge the observation
+      // into a tool_call frame. Split it locally without changing arrival order.
+      if (data.tool_result || toolState !== 'running') {
+        appendToolResult(timeline.value, {
+          eventID: sourceID === undefined ? undefined : `${sourceID}-result`,
+          callID: data.tool_call_id,
+          name: data.tool_name || 'unknown',
+          label: toolLabel(data.tool_name),
+          result: data.tool_result || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
+          state: toolState,
+          preview: data.tool_preview,
+        })
+      }
+    } else if (data.type === 'tool_result') {
+      const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : 'success'
+      appendToolResult(timeline.value, {
+        eventID: sourceID,
+        callID: data.tool_call_id,
+        name: data.tool_name || 'unknown',
+        label: toolLabel(data.tool_name),
+        result: data.tool_result || data.error || data.phase_detail || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
+        state: toolState,
+        preview: data.tool_preview,
+      })
     } else if (data.type === 'progress') {
-      addExecution(data.phase_detail || data.phase || '推进生成', data.message || '')
+      addExecution(data.phase_detail || data.phase || '推进生成', data.message || '', 'running', sourceID)
     } else if (data.type === 'file_ready') {
-      addExecution('演示文件已生成', '可以下载并继续修改', 'success')
+      addExecution('演示文件已生成', '可以下载并继续修改', 'success', sourceID)
       void refreshSelected()
     } else if (data.type === 'thumbnail_ready') {
       thumbnailRevision.value += 1
-      addExecution('缩略图已就绪', data.files?.length ? `已准备 ${data.files.length} 张预览` : '可以查看演示预览', 'success')
+      addExecution('缩略图已就绪', data.files?.length ? `已准备 ${data.files.length} 张预览` : '可以查看演示预览', 'success', sourceID)
     } else if (data.type === 'answer_end') {
-      streamingMessageID.value = undefined
-      completeObservablePhase(timeline.value, 'answer')
-      addExecution('规划说明已完成', '正在开始生成演示页面', 'success')
+      finishStreamingEntries(timeline.value)
+      addExecution('规划说明已完成', '正在开始生成演示页面', 'success', sourceID)
     } else if (isTerminalTaskStreamEvent(data.type)) {
       busy.value = false
       closeStream()
-      streamingMessageID.value = undefined
-      completeObservablePhase(timeline.value, 'answer')
-      hideCompletedToolTraces(timeline.value)
-		const paused = data.status === 'paused_retryable'
-      addExecution(data.type === 'conversation_complete' ? '回答完成' : paused ? '生成已暂停，可继续恢复' : '生成阶段结束', '', paused ? 'error' : 'success')
+      finishStreamingEntries(timeline.value)
+      const paused = data.status === 'paused_retryable'
+      addExecution(data.type === 'conversation_complete' ? '回答完成' : paused ? '生成已暂停，可继续恢复' : '生成阶段结束', '', paused ? 'error' : 'success', sourceID)
       void refreshSelected(data.type !== 'conversation_complete')
     }
+    void nextTick(stickToLatestMessage)
   } catch {
     // Ignore SSE keepalive frames.
   }
@@ -237,9 +240,7 @@ async function submit() {
   const text = prompt.value.trim()
   if (!text || busy.value) return
   error.value = ''
-  streamingMessageID.value = undefined
-  activePhaseID.value = undefined
-  activePhase.value = ''
+  shouldFollowStream.value = true
   appendTimelineMessage(timeline.value, { role: 'user', content: text, timestamp: new Date().toISOString() })
   prompt.value = ''
   busy.value = true
@@ -253,11 +254,12 @@ async function submit() {
       return
     }
     const selectedMode = mode.value
-    const result = await routeMessage(text, selected.value?.id || '', selectedMode, web.value, images.value)
+    const routedText = appendDeliveryDirectives(text, selectedMode, web.value, images.value)
+    const result = await routeMessage(routedText, selected.value?.id || '')
     await loadTasks()
     selected.value = tasks.value.find(task => task.id === result.task_id) || selected.value
-    if (shouldStartPPTGeneration(result, selectedMode)) {
-      addExecution('已识别为 PPT 生成', selectedMode === 'pptagent' ? '已按手动选择直接创建' : '已按意图识别启动规划与交付')
+    if (shouldStartPPTGeneration(result)) {
+      addExecution('已识别为 PPT 生成', selectedMode === 'pptagent' ? '已按显式生成指令启动规划与交付' : '已按意图识别启动规划与交付')
       const started = await startTask(result.task_id)
       selected.value = started
       openStream(started.id)
@@ -268,7 +270,6 @@ async function submit() {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '无法提交这条消息'
     busy.value = false
-    streamingMessageID.value = undefined
     addExecution('提交失败', error.value, 'error')
   }
 }
@@ -316,16 +317,14 @@ async function stop() {
   await cancelTask(selected.value.id)
   closeStream()
   busy.value = false
-  hideCompletedToolTraces(timeline.value)
+  finishStreamingEntries(timeline.value)
   addExecution('任务已停止', '', 'success')
   await refreshSelected()
 }
 
 function newConversation() {
   closeStream()
-  streamingMessageID.value = undefined
-  activePhaseID.value = undefined
-  activePhase.value = ''
+  shouldFollowStream.value = true
   selected.value = undefined
   timeline.value = []
   error.value = ''
@@ -333,8 +332,8 @@ function newConversation() {
   router.replace({ query: {} })
 }
 
-function toggleTool(toolID: string) {
-  toggleToolInvocation(timeline.value, toolID)
+function toggleTimelineEntry(itemID: string) {
+  toggleTimelineItem(timeline.value, itemID)
 }
 
 function handleComposerEnter(event: KeyboardEvent) {
@@ -370,9 +369,12 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
       <aside class="conversations">
         <div class="conversation-head"><span>你的会话</span><button @click="newConversation" aria-label="新建会话"><Plus :size="17" /></button></div>
         <div class="task-list">
-          <button v-for="task in sorted" :key="task.id" class="task-row" :class="{ selected: task.id === selected?.id }" @click="select(task)">
-            <span class="status-dot" :class="task.status"></span><span class="task-info"><b>{{ task.query || '未命名会话' }}</b><small>{{ taskLabel(task.status) }} · {{ task.total_count ? `${task.done_count}/${task.total_count} 页` : '对话' }}</small></span><Trash2 :size="14" class="delete" @click.stop="requestRemove(task)" />
-          </button>
+          <div v-for="task in sorted" :key="task.id" class="task-row" :class="{ selected: task.id === selected?.id }">
+            <button type="button" class="task-select" @click="select(task)">
+              <span class="status-dot" :class="task.status"></span><span class="task-info"><b>{{ task.query || '未命名会话' }}</b><small>{{ taskLabel(task.status) }} · {{ task.total_count ? `${task.done_count}/${task.total_count} 页` : '对话' }}</small></span>
+            </button>
+            <button type="button" class="delete-task" :aria-label="`删除会话：${task.query || '未命名会话'}`" @click="requestRemove(task)"><Trash2 :size="14" aria-hidden="true" /></button>
+          </div>
           <p v-if="!tasks.length" class="empty-list">还没有会话。<br>从右侧写下第一个想法。</p>
         </div>
       </aside>
@@ -381,34 +383,17 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
           <div><span class="canvas-kicker">{{ selected ? taskLabel(selected.status) : '准备就绪' }}</span><h2>{{ activeTitle }}</h2></div>
           <div v-if="selected" class="canvas-actions"><button v-if="selected.status === 'running'" class="outline-button" @click="stop"><CircleStop :size="15" />停止</button><button v-if="selected.status === 'paused_retryable'" class="outline-button" :disabled="busy" @click="resumePausedTask"><RefreshCw :size="15" />继续恢复</button><a v-for="file in selected.files" :key="file" class="download" :href="taskDownloadUrl(selected.id, file)"><FileDown :size="15" />下载</a></div>
         </header>
-        <div ref="messagesContainer" class="messages">
+        <div ref="messagesContainer" class="messages" aria-live="polite" @scroll.passive="handleTimelineScroll">
           <div v-if="!hasTimeline" class="blank-canvas"><span><Bot :size="25" /></span><h3>从一个问题开始。</h3><p>可以让它解释、梳理资料，或直接开始一份演示。明确需求会让成稿更接近你的表达。</p><div><button @click="prompt = '为一场产品发布会规划 8 页叙事'">规划一份发布会演示</button><button @click="prompt = '总结这份资料的核心观点'">先梳理一个主题</button></div></div>
-          <template v-for="item in timeline" :key="item.id">
-            <article v-if="item.type === 'message'" class="message" :class="item.message.role">
-              <div class="message-label">{{ item.message.role === 'user' ? '你' : 'PPTform' }}</div>
-              <MarkdownContent :content="item.message.content" :streaming="busy && item.id === streamingMessageID" />
-            </article>
-            <section v-else-if="item.type === 'phase'" class="observable-phase" :class="item.state" :aria-label="`${item.label}阶段`">
-              <header class="phase-head"><span class="trace-state" :class="item.state"><LoaderCircle v-if="item.state === 'running'" :size="14" /><CheckCircle2 v-else :size="14" /></span><div><span class="phase-kicker">可观察步骤</span><b>{{ item.label }}</b><small v-if="item.detail">{{ item.detail }}</small></div></header>
-              <div v-if="item.tools.length" class="tool-list">
-                <article v-for="tool in item.tools" :key="tool.id" class="tool-invocation" :class="tool.state">
-                  <button type="button" class="tool-toggle" :aria-expanded="tool.expanded" :aria-controls="`tool-detail-${tool.id}`" @click="toggleTool(tool.id)">
-                    <span class="trace-state" :class="tool.state"><LoaderCircle v-if="tool.state === 'running'" :size="14" /><CheckCircle2 v-else :size="14" /></span><span class="tool-copy"><small>工具调用</small><b>{{ tool.label }}</b></span><span class="tool-status">{{ executionLabel(tool.state) }}</span><ChevronDown v-if="tool.expanded" :size="16" aria-hidden="true" /><ChevronRight v-else :size="16" aria-hidden="true" />
-                  </button>
-                  <div v-if="tool.expanded" :id="`tool-detail-${tool.id}`" class="tool-detail">
-                    <p v-if="tool.callDetail"><span>调用说明</span>{{ tool.callDetail }}</p><p v-if="tool.resultDetail"><span>{{ tool.state === 'error' ? '执行结果' : '已获得' }}</span>{{ tool.resultDetail }}</p><div v-if="tool.preview?.images?.length" class="tool-image-preview"><a v-for="(image, index) in tool.preview.images" :key="image.image_url || image.thumbnail_url || index" :href="image.source_url || image.image_url || image.thumbnail_url" target="_blank" rel="noopener noreferrer"><img :src="image.thumbnail_url || image.image_url" :alt="image.alt || '图片工具结果预览'" width="136" height="88"><small v-if="image.attribution">{{ image.attribution }}</small></a></div><p v-if="!tool.resultDetail && tool.state === 'running'"><span>当前状态</span>正在等待工具返回结果</p>
-                  </div>
-                </article>
-              </div>
-            </section>
-            <div v-else class="execution-event" :class="item.state"><span class="trace-state" :class="item.state"><LoaderCircle v-if="item.state === 'running'" :size="13" /><CheckCircle2 v-else :size="13" /></span><b>{{ item.label }}</b><em v-if="item.detail">{{ item.detail }}</em></div>
-          </template>
+          <div v-if="timeline.length" class="timeline-list" role="list" aria-label="对话与执行时间线">
+            <ConversationTimelineItemCard v-for="item in timeline" :key="item.id" :item="item" @toggle="toggleTimelineEntry" />
+          </div>
           <TaskDeliveryPreview v-if="selected?.status === 'completed'" :task="selected" :revision="thumbnailRevision" />
           <button v-if="selected?.status === 'completed'" type="button" class="feedback-trigger" @click="feedbackDialogOpen = true">{{ selected.feedback ? '修改评价' : '评价这份演示' }}</button>
         </div>
         <form class="composer" novalidate @submit.prevent="submit">
           <div class="modebar"><button type="button" :class="{ on: mode === 'chat' }" @click="mode = 'chat'"><MessageSquareText :size="14" />对话</button><button type="button" :class="{ on: mode === 'pptagent' }" @click="mode = 'pptagent'"><WandSparkles :size="14" />PPT 生成</button><label><input v-model="web" type="checkbox">联网资料</label><label><input v-model="images" type="checkbox"><Image :size="13" />图片参考</label></div>
-          <div class="composer-input"><textarea class="resize-none" v-model="prompt" rows="2" :disabled="busy" placeholder="写下你想完成的事…" @keydown.enter="handleComposerEnter" /><button type="submit" :disabled="busy || !prompt.trim()"><Send :size="18" /></button></div>
+          <div class="composer-input"><textarea class="resize-none" v-model="prompt" rows="2" :disabled="busy" placeholder="写下你想完成的事… Enter 发送，Shift+Enter 换行" @keydown.enter="handleComposerEnter" /><button type="submit" :disabled="busy || !prompt.trim()" aria-label="发送消息"><Send :size="18" aria-hidden="true" /></button></div>
           <p v-if="error" class="inline-error">{{ error }}</p>
         </form>
       </section>
@@ -419,6 +404,64 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
 </template>
 
 <style scoped>
-.compose-link{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--border-strong);border-radius:6px;padding:8px 10px;color:var(--accent-strong);background:var(--surface-raised);font-size:12px}.workbench{min-height:0;flex:1;display:grid;grid-template-columns:254px minmax(0,1fr);overflow:hidden;background:var(--surface-base)}.conversations{min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--surface-raised)}.conversation-head{display:flex;align-items:center;justify-content:space-between;padding:20px 16px 14px;color:var(--text-muted);font-size:12px}.conversation-head button{display:grid;place-items:center;width:27px;height:27px;color:var(--accent-strong);background:var(--surface-accent);border:0;border-radius:5px}.task-list{min-height:0;overflow:auto;padding:0 8px 16px}.task-row{position:relative;width:100%;display:flex;align-items:center;gap:8px;padding:11px 7px;border:0;border-radius:6px;color:var(--text-muted);background:transparent;text-align:left}.task-row:hover,.task-row.selected{background:var(--surface-hover);color:var(--text-strong)}.task-info{min-width:0;flex:1}.task-info b,.task-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-info b{font-size:13px;font-weight:600}.task-info small{margin-top:3px;color:var(--text-subtle);font-size:11px}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--text-subtle)}.status-dot.running{background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}.status-dot.completed{background:var(--info)}.status-dot.failed{background:var(--danger)}.delete{opacity:0;color:var(--danger)}.task-row:hover .delete{opacity:1}.empty-list{padding:18px 8px;color:var(--text-subtle);font-size:12px;line-height:1.7}.canvas{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--surface-base)}.canvas-head{display:flex;justify-content:space-between;gap:20px;padding:17px 30px;border-bottom:1px solid var(--border-subtle)}.canvas-kicker{font:500 10px 'DM Mono',monospace;color:var(--accent);letter-spacing:.08em}.canvas-head h2{max-width:690px;margin:4px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-strong);font:700 18px 'Noto Serif SC',serif}.canvas-actions{display:flex;align-items:center;gap:8px}.outline-button,.download,.feedback-trigger{display:flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid var(--border-strong);border-radius:5px;color:var(--text-muted);background:var(--surface-raised);font-size:12px}.outline-button:hover,.feedback-trigger:hover{color:var(--text-strong);background:var(--surface-hover)}.download{color:var(--accent-on);background:var(--accent);border-color:var(--accent)}.messages{min-height:0;overflow:auto;padding:27px max(25px,7%)}.blank-canvas{max-width:570px;margin:8vh auto;text-align:center}.blank-canvas>span{display:grid;place-items:center;width:53px;height:53px;margin:auto;color:var(--accent-strong);background:var(--surface-accent);border-radius:16px 16px 4px 16px}.blank-canvas h3{margin:19px 0 9px;color:var(--text-strong);font:700 28px 'Noto Serif SC',serif}.blank-canvas p{margin:auto;max-width:450px;color:var(--text-muted);font-size:14px;line-height:1.8}.blank-canvas div{display:flex;justify-content:center;gap:8px;margin-top:25px}.blank-canvas button{border:1px solid var(--border-strong);border-radius:5px;padding:8px 10px;color:var(--text-muted);background:var(--surface-raised);font-size:12px}.message,.observable-phase,.execution-event{max-width:760px;margin:0 auto 16px}.message{padding:18px 20px;border-radius:3px 13px 13px 13px}.message.user{max-width:650px;margin-right:0;color:var(--text-on-accent);background:var(--message-user)}.message.assistant{color:var(--text-strong);background:var(--message-assistant);border:1px solid var(--border-subtle)}.message-label{margin-bottom:10px;font:500 10px 'DM Mono',monospace;letter-spacing:.08em;color:var(--accent-strong)}.message.user .message-label{color:var(--message-user-label)}.observable-phase{padding:13px 14px 12px;border:1px solid var(--border-subtle);border-left:2px solid var(--accent);border-radius:8px;background:var(--surface-accent)}.observable-phase.success{border-left-color:var(--info)}.observable-phase.error{border-left-color:var(--danger)}.phase-head{display:flex;align-items:flex-start;gap:9px}.phase-head>div{display:grid;gap:2px}.phase-kicker,.tool-copy small{color:var(--text-subtle);font:500 10px 'DM Mono',monospace;letter-spacing:.06em}.phase-head b{color:var(--text-strong);font-size:13px}.phase-head small:not(.phase-kicker){color:var(--text-muted);font-size:12px}.trace-state{display:grid;flex:none;place-items:center;margin-top:1px;color:var(--accent)}.trace-state.error{color:var(--danger)}.trace-state.success{color:var(--info)}.trace-state.running svg{animation:spin 1s linear infinite}.tool-list{display:grid;gap:6px;margin:11px 0 0 23px}.tool-invocation{overflow:hidden;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-raised)}.tool-toggle{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;width:100%;gap:8px;padding:8px 9px;border:0;color:var(--text-muted);background:transparent;text-align:left}.tool-toggle:hover{background:var(--surface-hover)}.tool-copy{display:grid;gap:1px;min-width:0}.tool-copy b{overflow:hidden;color:var(--text-strong);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.tool-status{color:var(--text-subtle);font-size:11px}.tool-detail{display:grid;gap:6px;padding:9px 10px;border-top:1px solid var(--border-subtle);color:var(--text-muted);background:rgba(0,0,0,.08);font-size:12px;line-height:1.55}.tool-detail p{margin:0}.tool-detail span{display:block;margin-bottom:2px;color:var(--text-subtle);font:500 10px 'DM Mono',monospace;letter-spacing:.04em}.execution-event{display:flex;align-items:center;gap:7px;padding:3px 3px;color:var(--text-muted);font-size:12px}.execution-event b{font-weight:600}.execution-event em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-subtle);font-style:normal}.feedback-trigger{margin:0 auto 22px;color:var(--accent);font-weight:600}.composer{padding:12px 30px 18px;border-top:1px solid var(--border-subtle);background:var(--surface-base)}.modebar{display:flex;align-items:center;gap:5px;margin:0 0 7px}.modebar button,.modebar label{display:flex;align-items:center;gap:4px;border:0;padding:5px 7px;color:var(--text-subtle);background:transparent;font-size:11px}.modebar button.on{color:var(--accent-strong);background:var(--surface-accent);border-radius:4px}.modebar label{margin-left:5px}.modebar input{accent-color:var(--accent)}.composer-input{display:grid;grid-template-columns:1fr 43px;gap:8px;padding:8px;background:var(--message-assistant);border:1px solid var(--border-subtle);border-radius:8px}.composer textarea{width:100%;min-height:39px;resize:none;padding:6px 8px;border:0;outline:0;color:var(--text-strong);background:transparent;line-height:1.5}.composer-input button{display:grid;place-items:center;align-self:end;height:39px;border:0;border-radius:5px;color:var(--accent-on);background:var(--accent)}.composer-input button:disabled{opacity:.4;cursor:not-allowed}.inline-error{margin:7px 0 0;color:var(--danger);font-size:12px}.delete-confirm{display:flex;justify-content:flex-end;gap:9px}.danger-button{border:1px solid var(--danger);border-radius:5px;padding:7px 10px;color:#411515;background:var(--danger);font-size:12px;font-weight:700}.danger-button:hover{filter:brightness(1.08)}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:850px){.workbench{grid-template-columns:1fr}.conversations{display:none}.canvas-head,.composer{padding-left:18px;padding-right:18px}.messages{padding:22px 18px}.message{padding:15px}.tool-list{margin-left:9px}.modebar label{display:none}}
-.tool-image-preview{display:flex;gap:8px;overflow:auto;padding-bottom:2px}.tool-image-preview a{display:grid;gap:3px;min-width:136px;color:var(--text-muted);font-size:10px;line-height:1.35}.tool-image-preview img{display:block;width:136px;height:88px;border:1px solid var(--border-subtle);border-radius:4px;object-fit:cover;background:var(--surface-hover)}.tool-image-preview a:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.compose-link { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--accent-strong); background: var(--surface-raised); font-size: 12px; }
+.workbench { display: grid; flex: 1; grid-template-columns: 254px minmax(0, 1fr); min-height: 0; overflow: hidden; background: var(--surface-base); }
+.conversations { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-subtle); background: var(--surface-raised); }
+.conversation-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 16px 14px; color: var(--text-muted); font-size: 12px; }
+.conversation-head button { display: grid; width: 27px; height: 27px; place-items: center; border: 0; border-radius: 5px; color: var(--accent-strong); background: var(--surface-accent); }
+.task-list { min-height: 0; overflow: auto; padding: 0 8px 16px; }
+.task-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; border-radius: 6px; color: var(--text-muted); background: transparent; }
+.task-row:hover, .task-row.selected { color: var(--text-strong); background: var(--surface-hover); }
+.task-select { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 11px 7px; border: 0; color: inherit; background: transparent; text-align: left; }
+.task-select:focus-visible, .delete-task:focus-visible { position: relative; z-index: 1; }
+.task-info { min-width: 0; flex: 1; }
+.task-info b, .task-info small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-info b { font-size: 13px; font-weight: 600; }
+.task-info small { margin-top: 3px; color: var(--text-subtle); font-size: 11px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-subtle); }
+.status-dot.running { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.status-dot.completed { background: var(--info); }
+.status-dot.failed { background: var(--danger); }
+.delete-task { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 5px; color: var(--danger); background: transparent; opacity: 0; }
+.delete-task:hover { background: color-mix(in srgb,var(--danger) 12%,transparent); opacity: 1; }
+.task-row:hover .delete-task, .delete-task:focus-visible { opacity: 1; }
+.empty-list { padding: 18px 8px; color: var(--text-subtle); font-size: 12px; line-height: 1.7; }
+.canvas { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; background: var(--surface-base); }
+.canvas-head { display: flex; justify-content: space-between; gap: 20px; padding: 17px 30px; border-bottom: 1px solid var(--border-subtle); }
+.canvas-kicker { color: var(--accent); font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; }
+.canvas-head h2 { max-width: 690px; margin: 4px 0 0; overflow: hidden; color: var(--text-strong); font: 700 18px 'Noto Serif SC', serif; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-actions { display: flex; align-items: center; gap: 8px; }
+.outline-button, .download, .feedback-trigger { display: flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-muted); background: var(--surface-raised); font-size: 12px; }
+.outline-button:hover, .feedback-trigger:hover { color: var(--text-strong); background: var(--surface-hover); }
+.download { border-color: var(--accent); color: var(--accent-on); background: var(--accent); }
+.messages { min-height: 0; overflow: auto; padding: 27px max(25px, 7%); scrollbar-gutter: stable; }
+.blank-canvas { max-width: 570px; margin: 8vh auto; text-align: center; }
+.blank-canvas > span { display: grid; width: 53px; height: 53px; margin: auto; place-items: center; border-radius: 16px 16px 4px 16px; color: var(--accent-strong); background: var(--surface-accent); }
+.blank-canvas h3 { margin: 19px 0 9px; color: var(--text-strong); font: 700 28px 'Noto Serif SC', serif; }
+.blank-canvas p { max-width: 450px; margin: auto; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
+.blank-canvas div { display: flex; justify-content: center; gap: 8px; margin-top: 25px; }
+.blank-canvas button { padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-muted); background: var(--surface-raised); font-size: 12px; }
+.timeline-list { display: flow-root; max-width: 760px; margin: 0 auto; }
+.feedback-trigger { margin: 0 auto 22px; color: var(--accent); font-weight: 600; }
+.composer { padding: 12px 30px 18px; border-top: 1px solid var(--border-subtle); background: var(--surface-base); }
+.modebar { display: flex; align-items: center; gap: 5px; margin: 0 0 7px; }
+.modebar button, .modebar label { display: flex; align-items: center; gap: 4px; padding: 5px 7px; border: 0; color: var(--text-subtle); background: transparent; font-size: 11px; }
+.modebar button.on { border-radius: 4px; color: var(--accent-strong); background: var(--surface-accent); }
+.modebar label { margin-left: 5px; }
+.modebar input { accent-color: var(--accent); }
+.composer-input { display: grid; grid-template-columns: 1fr 43px; gap: 8px; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--message-assistant); }
+.composer textarea { width: 100%; min-height: 39px; padding: 6px 8px; resize: none; border: 0; outline: 0; color: var(--text-strong); background: transparent; line-height: 1.5; }
+.composer-input button { display: grid; align-self: end; height: 39px; place-items: center; border: 0; border-radius: 5px; color: var(--accent-on); background: var(--accent); }
+.composer-input button:disabled { cursor: not-allowed; opacity: .4; }
+.inline-error { margin: 7px 0 0; color: var(--danger); font-size: 12px; }
+.delete-confirm { display: flex; justify-content: flex-end; gap: 9px; }
+.danger-button { padding: 7px 10px; border: 1px solid var(--danger); border-radius: 5px; color: #411515; background: var(--danger); font-size: 12px; font-weight: 700; }
+.danger-button:hover { filter: brightness(1.08); }
+@media (max-width: 850px) {
+  .workbench { grid-template-columns: 1fr; }
+  .conversations { display: none; }
+  .canvas-head, .composer { padding-right: 18px; padding-left: 18px; }
+  .messages { padding: 22px 18px; }
+  .modebar label { display: none; }
+}
 </style>

@@ -269,6 +269,7 @@ npm run build
 | `STREAM_TIMEOUT` | 单次流式调用超时 | `3m` |
 | `PYTHON_BIN` | Python 可执行文件 | `/root/pptx_env/bin/python` |
 | `MYSQL_DSN` | MySQL 数据源 | 可选 |
+| `PPT_AGENT_INSTANCE_LOCK` | MySQL 单写实例锁名称 | `ppt-agent-web-single-writer` |
 | `REDIS_ADDR` | Redis 服务地址（Web 模式必填） | 无 |
 | `REDIS_USERNAME` | Redis ACL 用户名 | 可选 |
 | `REDIS_PASSWORD` | Redis 密码 | 可选 |
@@ -299,6 +300,8 @@ cd /ppt/ppt-agent/backend
 - `/api/health` 返回 200。
 - `/api/templates` 返回可用模板和组件布局数据。
 - 涉及生成链路时，创建 1 个低成本 1 到 2 页任务并清理测试数据。
+
+当前任务状态、SSE 和输出目录仍是单写实例模型。Web 进程启动时会持有 MySQL advisory lock，第二个实例会拒绝启动，避免多实例 split-brain。
 
 ## 版本与外部依赖
 

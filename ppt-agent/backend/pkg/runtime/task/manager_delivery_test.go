@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
-	"github.com/cloudwego/ppt-agent/pkg/db"
 )
 
 func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
@@ -36,19 +35,16 @@ func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
 
 func TestTaskInfoToRecordDropsFourByteRunesForLegacyMySQL(t *testing.T) {
 	record := taskInfoToRecord(&TaskInfo{
-		ID:                  "task-emoji",
-		Query:               "介绍桂林📋",
-		ConversationContent: "中文保留，emoji移除✨",
-		FullAnswer:          "完成✅",
-		AssistantTurns:      []string{"先分析📋", "完成✅"},
-		Error:               "错误🚫",
-		Files:               []string{"1_桂林.pptx"},
+		ID:    "task-emoji",
+		Query: "介绍桂林📋",
+		Error: "错误🚫",
+		Files: []string{"1_桂林.pptx"},
 	})
 
-	if strings.ContainsAny(record.Query+record.ConversationContent+record.FullAnswer+record.AssistantTurns+record.Error, "📋✨✅🚫") {
+	if strings.ContainsAny(record.Query+record.Error, "📋✨✅🚫") {
 		t.Fatalf("record still contains four-byte runes: %#v", record)
 	}
-	if !strings.Contains(record.ConversationContent, "中文保留") || !strings.Contains(record.Query, "介绍桂林") {
+	if !strings.Contains(record.Query, "介绍桂林") {
 		t.Fatalf("BMP text was not preserved: %#v", record)
 	}
 }
@@ -72,55 +68,7 @@ func TestTaskInfoRecordCarriesIntentMetadata(t *testing.T) {
 	}
 }
 
-func TestTaskInfoRecordCarriesAssistantTurnBoundaries(t *testing.T) {
-	want := []string{"先分析", "工具完成后继续回答"}
-	record := taskInfoToRecord(&TaskInfo{ID: "task-turns", AssistantTurns: want})
-	info := recordToTaskInfo(record)
-	if !reflect.DeepEqual(info.AssistantTurns, want) {
-		t.Fatalf("assistant turns = %#v, want %#v", info.AssistantTurns, want)
-	}
-}
-
-func TestPersistConversationContentDoesNotHoldTaskLockDuringDatabaseRead(t *testing.T) {
-	oldList := listConversationMessagesForSummary
-	started := make(chan struct{})
-	release := make(chan struct{})
-	listConversationMessagesForSummary = func(string) ([]db.ConversationMessage, error) {
-		close(started)
-		<-release
-		return nil, nil
-	}
-	defer func() { listConversationMessagesForSummary = oldList }()
-
-	ts := &TaskState{Info: TaskInfo{ID: "task-slow-db", WorkDir: t.TempDir()}}
-	ts.fullAnswer.WriteString("内存中的完整回答")
-	persisted := make(chan struct{})
-	go func() {
-		ts.persistConversationContent()
-		close(persisted)
-	}()
-	<-started
-
-	answer := make(chan string, 1)
-	go func() { answer <- ts.FullAnswer() }()
-	select {
-	case got := <-answer:
-		if got != "内存中的完整回答" {
-			t.Fatalf("full answer = %q", got)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("FullAnswer blocked behind database persistence")
-	}
-
-	close(release)
-	select {
-	case <-persisted:
-	case <-time.After(time.Second):
-		t.Fatal("conversation persistence did not finish after database release")
-	}
-}
-
-func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
+func TestTaskStateWaitsForLLMEndAfterToolCall(t *testing.T) {
 	var turns []string
 	ts := &TaskState{
 		Info:      TaskInfo{ID: "task-1", Status: TaskStatusRunning},
@@ -130,10 +78,21 @@ func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
 		},
 	}
 
-	ts.Broadcast(SSERichEvent{Type: "answer", Content: "## 结果\n\n"})
-	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "python"})
+	legacyAnswer := "## 结果\n\n"
+	ts.Broadcast(SSERichEvent{Type: "answer", Content: legacyAnswer})
+	toolCall := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolName: "python"})
+	if len(turns) != 0 {
+		t.Fatalf("tool call must not flush before llm_end: %#v", turns)
+	}
+	if got := ts.ReplayAfterEventID(); got != 0 {
+		t.Fatalf("replay boundary = %d, want 0 before llm_end", got)
+	}
+	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 	if !reflect.DeepEqual(turns, []string{"## 结果"}) {
-		t.Fatalf("turns after tool boundary = %#v, want first segment", turns)
+		t.Fatalf("turns after llm_end = %#v, want first response", turns)
+	}
+	if got := ts.ReplayAfterEventID(); got != toolCall.ID+1 {
+		t.Fatalf("replay boundary = %d, want llm_end event ID %d", got, toolCall.ID+1)
 	}
 	ts.Broadcast(SSERichEvent{Type: "progress", Done: 1, Total: 2})
 	ts.Broadcast(SSERichEvent{Type: "answer", Content: "- 第一页完成\n- 第二页完成"})
@@ -147,8 +106,52 @@ func TestTaskStatePersistsOneMarkdownTurnAtExplicitBoundary(t *testing.T) {
 	if !reflect.DeepEqual(turns, want) {
 		t.Fatalf("turns = %#v, want %#v", turns, want)
 	}
-	if !reflect.DeepEqual(ts.Info.AssistantTurns, want) {
-		t.Fatalf("assistant turns = %#v, want %#v", ts.Info.AssistantTurns, want)
+}
+
+func TestTaskStateWaitsForLLMEndAfterLLMDelta(t *testing.T) {
+	var turns []string
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-llm", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+		assistantTurnFn: func(_, _ string, content string) {
+			turns = append(turns, content)
+		},
+	}
+
+	ts.Broadcast(SSERichEvent{Type: SSEEventLLMStart, SegmentID: "segment-1"})
+	ts.Broadcast(SSERichEvent{Type: SSEEventLLMDelta, Content: "第一段", SegmentID: "segment-1"})
+	if len(turns) != 0 {
+		t.Fatalf("llm delta must not flush before llm_end: %#v", turns)
+	}
+	ts.Broadcast(SSERichEvent{Type: SSEEventLLMEnd, SegmentID: "segment-1"})
+
+	if !reflect.DeepEqual(turns, []string{"第一段"}) {
+		t.Fatalf("turns after llm_end = %#v, want first response", turns)
+	}
+	if got := ts.ReplayAfterEventID(); got != ts.Events[len(ts.Events)-1].ID {
+		t.Fatalf("replay boundary = %d, want llm_end event ID %d", got, ts.Events[len(ts.Events)-1].ID)
+	}
+}
+
+func TestTaskStatePersistsFinalAnswerBeforeComplete(t *testing.T) {
+	var turns []string
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-final", Status: TaskStatusCompleted, TotalCount: 8, DoneCount: 8},
+		listeners: make(map[string]chan SSERichEvent),
+		assistantTurnFn: func(_, _ string, content string) {
+			turns = append(turns, content)
+		},
+	}
+
+	finalAnswer := completionFinalAnswer(ts.Info)
+	ts.Broadcast(SSERichEvent{Type: SSEEventFinalAnswer, Content: finalAnswer})
+	ts.Broadcast(SSERichEvent{Type: "complete", Status: TaskStatusCompleted})
+
+	if len(ts.Events) != 2 || ts.Events[0].Type != SSEEventFinalAnswer || ts.Events[1].Type != "complete" {
+		t.Fatalf("events = %#v, want final_answer then complete", ts.Events)
+	}
+	if !reflect.DeepEqual(turns, []string{finalAnswer}) {
+		t.Fatalf("turns = %#v, want final answer persisted once", turns)
 	}
 }
 
@@ -175,9 +178,6 @@ func TestTaskStateNormalizesCumulativeAnswerChunks(t *testing.T) {
 		t.Fatalf("answer events = (%q, %q), want prefix then suffix", ts.Events[0].Content, ts.Events[1].Content)
 	}
 	want := prefix + "\n\n" + suffix
-	if got := ts.FullAnswer(); got != want {
-		t.Fatalf("full answer = %q, want %q", got, want)
-	}
 	if len(turns) != 1 || turns[0] != want {
 		t.Fatalf("turns = %#v, want %q", turns, want)
 	}
@@ -199,9 +199,6 @@ func TestTaskStatePreservesEnglishWordBoundariesInAnswerChunks(t *testing.T) {
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 
 	want := "I'll start by reading the required skill files"
-	if got := ts.FullAnswer(); got != want {
-		t.Fatalf("full answer = %q, want %q", got, want)
-	}
 	if len(turns) != 1 || turns[0] != want {
 		t.Fatalf("turns = %#v, want %q", turns, want)
 	}
@@ -217,10 +214,6 @@ func TestTaskStateRestoresEnglishWordBoundaryForCumulativeSnapshots(t *testing.T
 	ts.Broadcast(SSERichEvent{Type: "answer", Content: "I'llstart"})
 	ts.Broadcast(SSERichEvent{Type: "answer", Content: "I'llstartby"})
 
-	want := "I'll start by"
-	if got := ts.FullAnswer(); got != want {
-		t.Fatalf("full answer = %q, want %q", got, want)
-	}
 	if ts.Events[1].Content != " start" || ts.Events[2].Content != " by" {
 		t.Fatalf("events = %#v, want restored suffix spaces", ts.Events)
 	}
@@ -242,9 +235,6 @@ func TestTaskStateTelemetryDoesNotEnterAssistantTurn(t *testing.T) {
 	ts.Broadcast(SSERichEvent{Type: "answer_end"})
 	ts.Broadcast(SSERichEvent{Type: "complete"})
 
-	if got := strings.TrimSpace(ts.FullAnswer()); got != "" {
-		t.Fatalf("telemetry leaked into full answer: %q", got)
-	}
 	if len(turns) != 0 {
 		t.Fatalf("telemetry persisted as assistant turns: %#v", turns)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
@@ -43,6 +44,7 @@ type chatTraceEvent struct {
 	Type     string
 	Phase    string
 	ToolName string
+	ToolArgs string
 	Detail   string
 	Error    string
 	Preview  map[string]any
@@ -50,9 +52,9 @@ type chatTraceEvent struct {
 
 type chatTraceEmitter func(chatTraceEvent)
 
-func (s *Server) buildChatReply(ctx context.Context, message, fallback, conversationContext string, forceWebSearch, forceImageSearch bool) string {
+func (s *Server) buildChatReply(ctx context.Context, message, fallback, conversationContext string) string {
 	fallback = strings.TrimSpace(fallback)
-	augmentations := s.collectChatAugmentations(ctx, message, conversationContext, forceWebSearch, forceImageSearch)
+	augmentations := s.collectChatAugmentations(ctx, message, conversationContext)
 	return s.buildChatReplyWithAugmentations(ctx, message, fallback, augmentations)
 }
 
@@ -112,15 +114,15 @@ func openChatReplyStream(ctx context.Context, chatModel any, prompt string) (*sc
 // streamChatReply forwards model deltas to SSE as soon as they arrive. Older
 // model adapters that only implement Generate retain the bounded fallback
 // path, but must not make capable providers look non-streaming to the UI.
-func (s *Server) streamChatReply(ctx context.Context, message, fallback, conversationContext string, forceWebSearch, forceImageSearch bool, emit func(string), trace chatTraceEmitter) {
+func (s *Server) streamChatReply(ctx context.Context, message, fallback, conversationContext string, emit func(string), trace chatTraceEmitter) {
 	emitTrace := func(event chatTraceEvent) {
 		if trace != nil {
 			trace(event)
 		}
 	}
-	emitTrace(chatTraceEvent{Type: "system_step", Phase: "analysis", Detail: "正在分析请求与可用工具"})
-	augmentations := s.collectChatAugmentationsWithTrace(ctx, message, conversationContext, forceWebSearch, forceImageSearch, emitTrace)
-	emitTrace(chatTraceEvent{Type: "system_step", Phase: "answer", Detail: "正在组织回答"})
+	emitTrace(chatTraceEvent{Type: task.SSEEventThought, Phase: "analysis", Detail: "先分析请求，并确认是否需要调用工具。"})
+	augmentations := s.collectChatAugmentationsWithTrace(ctx, message, conversationContext, emitTrace)
+	emitTrace(chatTraceEvent{Type: task.SSEEventThought, Phase: "answer", Detail: "根据已有上下文与工具结果组织最终回答。"})
 	modelFactory := s.textModelFactory
 	if modelFactory == nil {
 		modelFactory = s.aiModelFactory
@@ -246,11 +248,11 @@ func splitChatReplyForSSE(reply string) []string {
 	return chunks
 }
 
-func (s *Server) collectChatAugmentations(ctx context.Context, message, conversationContext string, forceWebSearch, forceImageSearch bool) chatAugmentations {
-	return s.collectChatAugmentationsWithTrace(ctx, message, conversationContext, forceWebSearch, forceImageSearch, nil)
+func (s *Server) collectChatAugmentations(ctx context.Context, message, conversationContext string) chatAugmentations {
+	return s.collectChatAugmentationsWithTrace(ctx, message, conversationContext, nil)
 }
 
-func (s *Server) collectChatAugmentationsWithTrace(ctx context.Context, message, conversationContext string, forceWebSearch, forceImageSearch bool, trace chatTraceEmitter) chatAugmentations {
+func (s *Server) collectChatAugmentationsWithTrace(ctx context.Context, message, conversationContext string, trace chatTraceEmitter) chatAugmentations {
 	emitTrace := func(event chatTraceEvent) {
 		if trace != nil {
 			trace(event)
@@ -269,70 +271,94 @@ func (s *Server) collectChatAugmentationsWithTrace(ctx context.Context, message,
 	}
 	query := chatSearchQuery(message, conversationContext)
 	augmentations.query = query
-	if forceWebSearch || chatNeedsWebSearch(message) {
-		emitTrace(chatTraceEvent{Type: "tool_call", ToolName: "search", Detail: "正在检索并核实资料"})
-		searchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		defer cancel()
-		out, err := tools.NewSearchTool(tools.WithSearchContentSummarizer(s.chatSearchContentSummarizer())).InvokableRun(searchCtx, mustJSON(map[string]string{
+	if chatNeedsWebSearch(message) {
+		searchArgs := mustJSON(map[string]string{
 			"query":  query,
 			"reason": "用户在闲聊中请求最新或需要核实的信息",
-		}))
+		})
+		emitTrace(chatTraceEvent{Type: task.SSEEventToolCall, ToolName: "search", ToolArgs: searchArgs, Detail: "正在检索并核实资料"})
+		searchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		out, err := tools.NewSearchTool(tools.WithSearchContentSummarizer(s.chatSearchContentSummarizer())).InvokableRun(searchCtx, searchArgs)
 		if err != nil {
 			augmentations.promptParts = append(augmentations.promptParts, "web_search_error: "+err.Error())
-			emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search", Error: "联网检索暂不可用"})
+			emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Error: "联网检索暂不可用"})
 		} else if strings.TrimSpace(out) != "" {
 			var response search.SearchResponse
 			if json.Unmarshal([]byte(out), &response) == nil {
-				augmentations.webResults = append(augmentations.webResults, response.Results...)
-				emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search", Detail: fmt.Sprintf("已获取 %d 条可核对资料", len(response.Results))})
-				if summary := strings.TrimSpace(response.Content); summary != "" {
-					// Search tool already reduced the third-party material with the
-					// lightweight model. Never put the original JSON/body into chat.
-					augmentations.promptParts = append(augmentations.promptParts, "web_search_summary:\n"+summary)
-				} else if response.Error != "" {
-					augmentations.promptParts = append(augmentations.promptParts, "web_search_error: "+response.Error)
-					emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search", Error: "联网检索未返回可用资料"})
-				}
+				emitTrace(applyChatSearchResponse(&augmentations, response))
 			} else {
 				augmentations.promptParts = append(augmentations.promptParts, "web_search_error: 搜索结果格式无效")
-				emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search", Error: "联网检索结果格式无效"})
+				emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Error: "联网检索结果格式无效"})
 			}
 		} else {
-			emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search", Detail: "未返回可用资料"})
+			emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Detail: "未返回可用资料"})
 		}
 	}
-	if forceImageSearch || chatNeedsImageSearch(message) {
-		emitTrace(chatTraceEvent{Type: "tool_call", ToolName: "search_images", Detail: "正在搜索两张图片参考"})
+	if chatNeedsImageSearch(message) {
+		imageArgs := mustJSON(map[string]any{"query": query, "per_page": 2, "reason": "闲聊回答需要图片候选作为参考"})
+		emitTrace(chatTraceEvent{Type: task.SSEEventToolCall, ToolName: "search_images", ToolArgs: imageArgs, Detail: "正在搜索两张图片参考"})
 		if !unsplash.IsConfigured() {
 			augmentations.promptParts = append(augmentations.promptParts, "image_search_error: 未配置 UNSPLASH_ACCESS_KEY，当前无法检索图片候选。")
-			emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索未配置"})
+			emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search_images", Error: "图片搜索未配置"})
 		} else if client, err := unsplash.NewClientFromEnv(); err == nil {
 			imageCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
-			out, runErr := tools.NewImageSearchTool(client).InvokableRun(imageCtx, mustJSON(map[string]any{
-				"query": query, "per_page": 2, "reason": "闲聊回答需要图片候选作为参考",
-			}))
+			out, runErr := tools.NewImageSearchTool(client).InvokableRun(imageCtx, imageArgs)
 			if runErr != nil {
 				augmentations.promptParts = append(augmentations.promptParts, "image_search_error: "+runErr.Error())
-				emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索暂不可用"})
+				emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search_images", Error: "图片搜索暂不可用"})
 			} else if strings.TrimSpace(out) != "" {
 				augmentations.promptParts = append(augmentations.promptParts, "image_search_result:\n"+out)
 				var response chatImageSearchResponse
 				if json.Unmarshal([]byte(out), &response) == nil {
 					augmentations.images = append(augmentations.images, response.Photos...)
-					emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Detail: fmt.Sprintf("已找到 %d 张图片参考", len(response.Photos)), Preview: chatImagePreview(response.Photos)})
+					emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search_images", Detail: fmt.Sprintf("已找到 %d 张图片参考", len(response.Photos)), Preview: chatImagePreview(response.Photos)})
 				} else {
-					emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索结果格式无效"})
+					emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search_images", Error: "图片搜索结果格式无效"})
 				}
 			} else {
-				emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Detail: "未返回图片候选"})
+				emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search_images", Detail: "未返回图片候选"})
 			}
 		} else {
 			augmentations.promptParts = append(augmentations.promptParts, "image_search_error: "+err.Error())
-			emitTrace(chatTraceEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索暂不可用"})
+			emitTrace(chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search_images", Error: "图片搜索暂不可用"})
 		}
 	}
 	return augmentations
+}
+
+// applyChatSearchResponse turns one completed search invocation into exactly
+// one public observation. Search providers can return usable references while
+// the optional summary fails; that remains a successful observable result,
+// rather than a second conflicting tool_result for the same call.
+func applyChatSearchResponse(augmentations *chatAugmentations, response search.SearchResponse) chatTraceEvent {
+	if augmentations == nil {
+		return chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Error: "联网检索未返回可用资料"}
+	}
+
+	augmentations.webResults = append(augmentations.webResults, response.Results...)
+	if summary := strings.TrimSpace(response.Content); summary != "" {
+		// Search tool already reduced the third-party material with the
+		// lightweight model. Never put the original JSON/body into chat.
+		augmentations.promptParts = append(augmentations.promptParts, "web_search_summary:\n"+summary)
+		return chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Detail: fmt.Sprintf("已获取 %d 条可核对资料", len(response.Results))}
+	}
+
+	if strings.TrimSpace(response.Error) != "" {
+		augmentations.promptParts = append(augmentations.promptParts, "web_search_error: "+response.Error)
+	}
+	if len(response.Results) > 0 {
+		detail := fmt.Sprintf("已获取 %d 条可核对资料", len(response.Results))
+		if strings.TrimSpace(response.Error) != "" {
+			detail += "，摘要暂不可用"
+		}
+		return chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Detail: detail}
+	}
+	if strings.TrimSpace(response.Error) != "" {
+		return chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Error: "联网检索未返回可用资料"}
+	}
+	return chatTraceEvent{Type: task.SSEEventToolResult, ToolName: "search", Detail: "未返回可用资料"}
 }
 
 func chatImagePreview(images []chatImageResult) map[string]any {

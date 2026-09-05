@@ -54,27 +54,13 @@ func (s *Server) handleMessage(c *gin.Context) {
 	// actually contains slides, so “修改第 2 页” cannot be misrouted to an
 	// empty conversation.
 	routeTargetID := ""
-	var route MessageRouteResult
-	if strings.EqualFold(strings.TrimSpace(req.ManualMode), messageModePPTAgent) {
-		// The visible PPT 生成 toggle is an explicit instruction. It bypasses
-		// RouterAgent entirely so the model cannot reinterpret or delay it.
-		route = MessageRouteResult{
-			Intent:            messageIntentCreate,
-			Mode:              messageModePPTAgent,
-			Confidence:        1,
-			NormalizedRequest: strings.TrimSpace(req.Message),
-			Action:            messageActionPrepareCreate,
-			Reason:            "用户手动选择 PPT Agent，按创建准备处理",
-		}
-	} else {
-		if hasEditablePPT(info) {
-			routeTargetID = taskID
-		}
-		credential := userModelCredential(uid)
-		route = s.routeTaskMessageRequest(
-			c.Request.Context(), req.Message, routeTargetID, taskConversationContext(sess, 12), credential,
-		)
+	if hasEditablePPT(info) {
+		routeTargetID = taskID
 	}
+	credential := userModelCredential(uid)
+	route := s.routeTaskMessageRequest(
+		c.Request.Context(), req.Message, routeTargetID, taskConversationContext(sess, 12), credential,
+	)
 	route.TaskID = taskID
 	if route.Intent == messageIntentPlan {
 		draft := s.newPlanDraftRecord(uid, req.Message, route.NormalizedRequest, route.Reply, route.TaskID, "")
@@ -109,7 +95,7 @@ func (s *Server) handleMessage(c *gin.Context) {
 		route.AfterEventID = afterEventID
 		fallback := route.Reply
 		route.Reply = ""
-		go s.startConversationChat(taskID, uid, req.Message, fallback, taskConversationContext(sess, 12), req.WebSearch, req.ImageSearch, ts)
+		go s.startConversationChat(taskID, uid, req.Message, fallback, taskConversationContext(sess, 12), ts)
 	} else if strings.TrimSpace(route.Reply) != "" {
 		_ = sess.AddAssistantMessage(route.Reply)
 	}
@@ -120,41 +106,87 @@ func hasEditablePPT(info *task.TaskInfo) bool {
 	return info != nil && info.TotalCount > 0
 }
 
-func (s *Server) startConversationChat(taskID string, uid int, message, fallback, conversationContext string, forceWebSearch, forceImageSearch bool, ts *task.TaskState) {
+func (s *Server) startConversationChat(taskID string, uid int, message, fallback, conversationContext string, ts *task.TaskState) {
 	defer func() {
 		ts.Broadcast(task.SSERichEvent{Type: "answer_end"})
 		ts.FinishConversationStream()
 		ts.Broadcast(task.SSERichEvent{Type: "conversation_complete"})
 	}()
 	ctx := auth.WithUser(s.runtimeContext(), &db.User{ID: uint(uid)})
-	segmentID := ""
-	s.streamChatReply(ctx, message, fallback, conversationContext, forceWebSearch, forceImageSearch, func(content string) {
-		ts.Broadcast(task.SSERichEvent{Type: "answer", Content: content})
-	}, func(event chatTraceEvent) {
-		if event.Type == "tool_call" {
-			segmentID = s.taskIDGen()
+	traceSegmentID := ""
+	answerSegmentID := ""
+	toolCallID := ""
+	traceOrdinal := 0
+	nextTraceSegment := func(kind string) string {
+		traceOrdinal++
+		return fmt.Sprintf("%s-%s-%d", taskID, kind, traceOrdinal)
+	}
+	s.streamChatReply(ctx, message, fallback, conversationContext, func(content string) {
+		if answerSegmentID == "" {
+			answerSegmentID = nextTraceSegment("answer")
+			ts.Broadcast(task.SSERichEvent{
+				Type:      task.SSEEventLLMStart,
+				SegmentID: answerSegmentID,
+				Phase:     "answer",
+			})
 		}
-		rich := ts.Broadcast(task.SSERichEvent{
-			SegmentID:       segmentID,
-			SegmentBoundary: event.Type == "tool_call",
+		ts.Broadcast(task.SSERichEvent{Type: task.SSEEventFinalAnswer, SegmentID: answerSegmentID, Content: content, Delta: true})
+	}, func(event chatTraceEvent) {
+		if event.Type == task.SSEEventThought {
+			traceSegmentID = nextTraceSegment("thought")
+		} else if event.Type == task.SSEEventToolCall {
+			traceSegmentID = nextTraceSegment("tool")
+			toolCallID = nextTraceSegment("call")
+		}
+		streamEvent := task.SSERichEvent{
+			SegmentID:       traceSegmentID,
+			SegmentBoundary: event.Type == task.SSEEventToolCall,
 			Type:            event.Type,
 			Phase:           event.Phase,
 			PhaseDetail:     event.Detail,
-			ToolName:        event.ToolName,
 			Error:           event.Error,
 			ToolPreview:     event.Preview,
-		})
-		// TaskState combines tool_call/tool_result into one terminal tool_call.
-		// The initial call has no replay id yet, so persist only the merged event.
-		if s.chatTrace != nil && rich.Type == "tool_call" && rich.ID > 0 {
-			if err := s.chatTrace.Append(ctx, taskID, chattrace.Event{ID: rich.ID, SegmentID: segmentID, Type: rich.Type, Phase: event.Phase, ToolName: rich.ToolName, Detail: rich.ToolResult, Error: event.Error, Preview: rich.ToolPreview, CreatedAt: time.Now()}); err != nil {
+		}
+		if event.Type == task.SSEEventThought {
+			streamEvent.Content = event.Detail
+		}
+		if event.Type == task.SSEEventToolCall || event.Type == task.SSEEventToolResult {
+			streamEvent.ToolCallID = toolCallID
+			streamEvent.ToolName = event.ToolName
+			streamEvent.ToolArgs = event.ToolArgs
+		}
+		if event.Type == task.SSEEventToolResult {
+			streamEvent.ToolResult = firstNonEmpty(event.Error, event.Detail)
+			streamEvent.ToolStatus = chatToolStatus(event)
+		}
+		rich := ts.Broadcast(streamEvent)
+		if s.chatTrace != nil && rich.ID > 0 && (rich.Type == task.SSEEventToolCall || rich.Type == task.SSEEventToolResult) {
+			if err := s.chatTrace.Append(ctx, taskID, chattrace.Event{ID: rich.ID, SegmentID: traceSegmentID, Type: rich.Type, Phase: event.Phase, ToolName: rich.ToolName, Detail: firstNonEmpty(rich.ToolResult, rich.PhaseDetail), Error: event.Error, Preview: rich.ToolPreview, CreatedAt: time.Now()}); err != nil {
 				logger.Warn("chat_trace_redis_append_failed", "task_id", taskID, "type", rich.Type, "error", err.Error())
 			}
 		}
-		if event.Type == "tool_result" {
-			segmentID = ""
+		if event.Type == task.SSEEventToolResult {
+			toolCallID = ""
+			traceSegmentID = ""
 		}
 	})
+	if answerSegmentID != "" {
+		ts.Broadcast(task.SSERichEvent{
+			Type:      task.SSEEventLLMEnd,
+			SegmentID: answerSegmentID,
+			Phase:     "answer",
+		})
+	}
+}
+
+func chatToolStatus(event chatTraceEvent) string {
+	if event.Type != task.SSEEventToolResult {
+		return ""
+	}
+	if strings.TrimSpace(event.Error) != "" {
+		return "error"
+	}
+	return "success"
 }
 
 // handleStartConversationTask promotes a workbench conversation into the PPT
@@ -240,15 +272,12 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	// 只有运行中的任务需要读取内存态实时会话。终态任务即使仍暂存在内存
 	// map 中，也走持久化快照，避免被收尾 goroutine 的 TaskState.Mu 牵住。
 	if ts != nil && (ts.Info.Status == task.TaskStatusRunning || (ts.Info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive())) {
-		fullAnswer := ts.FullAnswer()
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 		snapshot := sess.Snapshot()
 		info := ts.SnapshotInfo()
-		messages := conversationMessagesWithFallback(snapshot.Messages, fullAnswer, info.ConversationContent, snapshot.UpdatedAt)
-		if info.Status == task.TaskStatusRunning || (info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive()) {
-			// The unfinished turn is replayed from replay_after_event_id via SSE.
-			messages = conversationMessagesWithFallback(snapshot.Messages, "", "", snapshot.UpdatedAt)
-		}
+		messages := persistedConversationMessages(snapshot.Messages)
+		// The unfinished turn is replayed from replay_after_event_id via SSE;
+		// only complete rows are returned in the durable snapshot.
 		latestEventID, replayAfterEventID := ts.EventBoundaries()
 		c.JSON(http.StatusOK, gin.H{
 			"task_id":                taskID,
@@ -256,8 +285,6 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 			"replay_after_event_id":  replayAfterEventID,
 			"conversation_streaming": info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive(),
 			"messages":               messages,
-			"full_answer":            fullAnswer,
-			"conversation_content":   info.ConversationContent,
 			"status":                 info.Status,
 			"done_count":             info.DoneCount,
 			"total_count":            info.TotalCount,
@@ -272,38 +299,21 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		return
 	}
 
-	// 冷启动：从数据库重建完整对话历史。
-	// 先从 task_records 获取 ConversationContent（已拼接的完整摘要）。
+	// 冷启动：仅按 task_id 从 conversation_messages 重建完整对话历史。
 	info := s.tasks.GetTask(taskID)
 	if info == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
 
-	// 追加 conversation_messages 中的助手消息（在 stream 已写入的部分）。
-	dbMsgs, err := db.ListConversationMessages(taskID)
-	if err != nil {
-		dbMsgs = nil
-	}
-
-	// 按时间顺序合并：用户消息 + 助手消息。
-	var messages []session.Message
-	for _, m := range dbMsgs {
-		messages = append(messages, session.Message{
-			Role:      m.Role,
-			Content:   m.Content,
-			Timestamp: m.Timestamp,
-		})
-	}
-	messages = conversationMessagesWithFallback(messages, info.FullAnswer, info.ConversationContent, info.CreatedAt)
+	snapshot := s.sessionManager.GetOrCreate(taskID, info.WorkDir).Snapshot()
+	messages := persistedConversationMessages(snapshot.Messages)
 
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":               taskID,
 		"latest_event_id":       uint64(0),
 		"replay_after_event_id": uint64(0),
 		"messages":              messages,
-		"conversation_content":  info.ConversationContent,
-		"full_answer":           info.FullAnswer,
 		"status":                info.Status,
 		"done_count":            info.DoneCount,
 		"total_count":           info.TotalCount,
@@ -312,8 +322,8 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		"prompt_tokens":         info.PromptTokens,
 		"completion_tokens":     info.CompletionTokens,
 		"total_tokens":          info.TotalTokens,
-		"created_at":            info.CreatedAt,
-		"updated_at":            info.CreatedAt,
+		"created_at":            snapshot.CreatedAt,
+		"updated_at":            snapshot.UpdatedAt,
 	})
 }
 

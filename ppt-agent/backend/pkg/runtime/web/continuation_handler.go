@@ -105,12 +105,10 @@ func (s *Server) startContinue(taskID string, ts *task.TaskState, message string
 		for evt := range ch {
 			ts.Broadcast(evt)
 		}
-		fullAnswer := ts.FullAnswer()
 		ts.Mu.Lock()
 		if ts.Info.Status == task.TaskStatusRunning {
 			ts.Info.Status = task.TaskStatusCompleted
 		}
-		ts.Info.FullAnswer = fullAnswer
 		ts.Mu.Unlock()
 		ts.Persist()
 	}()
@@ -234,6 +232,8 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 		switch event.Type {
 		case ppt.AgentEventAnswer:
 			ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
+		case ppt.AgentEventLLMEnd:
+			ch <- task.SSERichEvent{Type: "answer_end"}
 		case ppt.AgentEventProgress:
 			ch <- task.SSERichEvent{Type: "progress", Phase: event.Phase, PhaseDetail: event.PhaseDetail}
 		case ppt.AgentEventError:

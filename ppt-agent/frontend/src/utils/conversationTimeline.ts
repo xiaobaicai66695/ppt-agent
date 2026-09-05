@@ -1,31 +1,59 @@
 import type { ConversationMessage } from '../types'
 
 export type ExecutionState = 'running' | 'success' | 'error'
+export type TimelineEventID = string | number
 
-export type ToolInvocation = {
-  id: string
-  callID?: string
-  name: string
-  label: string
-  callDetail?: string
-  resultDetail?: string
-  preview?: ToolPreview
-  state: ExecutionState
-  expanded: boolean
+export type ToolPreview = {
+  images?: Array<{
+    thumbnail_url?: string
+    image_url?: string
+    source_url?: string
+    alt?: string
+    attribution?: string
+  }>
 }
 
-export type ToolPreview = { images?: Array<{ thumbnail_url?: string; image_url?: string; source_url?: string; alt?: string; attribution?: string }> }
+type TimelineBase = { id: string; eventID?: TimelineEventID; eventIDs?: TimelineEventID[] }
 
 export type ConversationTimelineItem =
-  | { id: string; type: 'message'; message: ConversationMessage }
-  | { id: string; type: 'phase'; phase: string; label: string; detail?: string; state: ExecutionState; tools: ToolInvocation[] }
-  | { id: string; type: 'execution'; label: string; detail?: string; state: ExecutionState; runtimeKey?: string }
+  | (TimelineBase & { type: 'message'; message: ConversationMessage })
+  | (TimelineBase & { type: 'thought'; segmentID: string; content: string; phase?: string; state: ExecutionState; expanded: boolean; streaming: boolean })
+  | (TimelineBase & { type: 'tool_call'; callID: string; name: string; label: string; args?: string; detail?: string; result?: string; state: ExecutionState; expanded: boolean; preview?: ToolPreview })
+  | (TimelineBase & { type: 'final_answer'; segmentID: string; content: string; streaming: boolean })
+  | (TimelineBase & { type: 'execution'; label: string; detail?: string; state: ExecutionState })
+  | (TimelineBase & { type: 'error'; content: string })
 
 let ordinal = 0
 
 function nextID(prefix: string) {
   ordinal += 1
   return `${prefix}-${ordinal}`
+}
+
+function eventItemID(type: string, eventID?: TimelineEventID) {
+  return eventID === undefined || eventID === '' ? nextID(type) : `event-${eventID}-${type}`
+}
+
+function eventAlreadyRendered(items: ConversationTimelineItem[], type: ConversationTimelineItem['type'], eventID?: TimelineEventID) {
+  if (eventID === undefined || eventID === '') return false
+  return items.some(item => item.type === type && (String(item.eventID) === String(eventID) || item.eventIDs?.some(id => String(id) === String(eventID))))
+}
+
+function rememberEventID(item: TimelineBase, eventID?: TimelineEventID) {
+  if (eventID === undefined || eventID === '') return
+  item.eventID = eventID
+  if (!item.eventIDs?.some(id => String(id) === String(eventID))) {
+    item.eventIDs = [...(item.eventIDs || []), eventID]
+  }
+}
+
+function appendDelta(current: string, incoming: string) {
+  if (!incoming) return current
+  if (!current) return incoming
+  if (incoming === current) return current
+  if (incoming.startsWith(current)) return incoming
+  if (current.endsWith(incoming)) return current
+  return current + incoming
 }
 
 export function resetConversationTimeline(messages: ConversationMessage[]): ConversationTimelineItem[] {
@@ -37,129 +65,148 @@ export function appendTimelineMessage(items: ConversationTimelineItem[], message
   items.push({ id: nextID('message'), type: 'message', message })
 }
 
-export function beginObservablePhase(items: ConversationTimelineItem[], phase: string, label: string, detail = '') {
-  const active = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'phase' }> => item.type === 'phase' && item.state === 'running')
-  if (active?.phase === phase) {
-    active.label = label
-    active.detail = detail
-    return active.id
+export function appendThought(
+  items: ConversationTimelineItem[],
+  content: string,
+  options: { eventID?: TimelineEventID; segmentID?: string; phase?: string; delta?: boolean } = {},
+) {
+  if (!content) return undefined
+  if (eventAlreadyRendered(items, 'thought', options.eventID)) return undefined
+  const segmentID = options.segmentID || `thought-${options.eventID || nextID('segment')}`
+  const current = [...items]
+    .reverse()
+    .find((item): item is Extract<ConversationTimelineItem, { type: 'thought' }> => item.type === 'thought' && item.segmentID === segmentID && item.streaming)
+  if (current) {
+    current.content = options.delta === false ? content : appendDelta(current.content, content)
+    current.streaming = options.delta !== false
+    rememberEventID(current, options.eventID)
+    return current.id
   }
-  if (active) active.state = 'success'
-  const id = nextID('phase')
-  items.push({ id, type: 'phase', phase, label, detail, state: 'running', tools: [] })
+  const id = eventItemID('thought', options.eventID)
+  items.push({ id, eventID: options.eventID, eventIDs: options.eventID === undefined ? undefined : [options.eventID], type: 'thought', segmentID, content, phase: options.phase, state: 'running', expanded: true, streaming: options.delta === true })
   return id
 }
 
-export function completeObservablePhase(items: ConversationTimelineItem[], phase: string, state: ExecutionState = 'success') {
-  const item = [...items].reverse().find((candidate): candidate is Extract<ConversationTimelineItem, { type: 'phase' }> => candidate.type === 'phase' && candidate.phase === phase)
-  if (item) item.state = state
-}
-
-function findPhase(items: ConversationTimelineItem[], phaseID?: string) {
-  if (phaseID) return items.find((item): item is Extract<ConversationTimelineItem, { type: 'phase' }> => item.type === 'phase' && item.id === phaseID)
-  return [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'phase' }> => item.type === 'phase')
-}
-
-// A tool boundary closes the current model-text segment.  Keep the phase
-// after that text so the rendered order is: thought -> tool call -> next text.
-export function prepareToolBoundary(items: ConversationTimelineItem[], phaseID?: string) {
-  const phase = findPhase(items, phaseID)
-  if (!phase) return
-  const index = items.indexOf(phase)
-  if (index >= 0 && index < items.length - 1) {
-    items.splice(index, 1)
-    items.push(phase)
+export function appendToolCall(
+  items: ConversationTimelineItem[],
+  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; args?: string; detail?: string },
+) {
+  if (eventAlreadyRendered(items, 'tool_call', payload.eventID)) return undefined
+  const callID = payload.callID || `call-${payload.eventID || nextID('call')}`
+  const existing = items.find((item): item is Extract<ConversationTimelineItem, { type: 'tool_call' }> => item.type === 'tool_call' && item.callID === callID)
+  if (existing) {
+    existing.name = payload.name || existing.name
+    existing.label = payload.label || existing.label
+    if (payload.args && !existing.args) existing.args = payload.args
+    if (payload.detail && !existing.detail) existing.detail = payload.detail
+    rememberEventID(existing, payload.eventID)
+    return existing.id
   }
-}
-
-export function finishToolPhase(items: ConversationTimelineItem[], phaseID?: string) {
-  const phase = findPhase(items, phaseID)
-  if (!phase || phase.tools.length === 0) return false
-  phase.state = 'success'
-  return true
-}
-
-export function appendToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', preview?: ToolPreview, callID?: string) {
-  const phase = findPhase(items, phaseID)
-  if (!phase) return undefined
-  const tool: ToolInvocation = { id: nextID('tool'), callID, name, label, callDetail: detail, preview, state: 'running', expanded: true }
-  phase.tools.push(tool)
-  return tool.id
-}
-
-export function resolveToolInvocation(items: ConversationTimelineItem[], phaseID: string | undefined, name: string, label: string, detail = '', state: ExecutionState = 'success', preview?: ToolPreview, callID?: string) {
-  const phase = findPhase(items, phaseID)
-  if (!phase) return undefined
-  const tool = [...phase.tools].reverse().find(candidate => candidate.state === 'running' && (callID ? candidate.callID === callID : candidate.name === name))
-  if (tool) {
-    tool.label = label
-    tool.resultDetail = detail
-    tool.preview = preview || tool.preview
-    tool.state = state
-    return tool.id
+  const activeThought = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'thought' }> => item.type === 'thought' && item.state === 'running')
+  if (activeThought) {
+    activeThought.state = 'success'
+    activeThought.streaming = false
   }
-  const id = appendToolInvocation(items, phase.id, name, label, '', preview, callID)
-  const recovered = phase.tools.find(candidate => candidate.id === id)
-  if (recovered) {
-    recovered.resultDetail = detail
-    recovered.state = state
-  }
+  const id = eventItemID('tool-call', payload.eventID)
+  items.push({ id, eventID: payload.eventID, eventIDs: payload.eventID === undefined ? undefined : [payload.eventID], type: 'tool_call', callID, name: payload.name, label: payload.label, args: payload.args, detail: payload.detail, state: 'running', expanded: true })
   return id
 }
 
-// Tool calls are transient observability, not durable conversation history.
-// A terminal task keeps user/assistant text but drops every tool-bearing phase.
-export function hideCompletedToolTraces(items: ConversationTimelineItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]
-    if (item?.type === 'phase' && item.tools.length > 0) items.splice(index, 1)
-  }
-}
-
-export function toggleToolInvocation(items: ConversationTimelineItem[], toolID: string) {
-  for (const item of items) {
-    if (item.type !== 'phase') continue
-    const tool = item.tools.find(candidate => candidate.id === toolID)
-    if (tool) {
-      tool.expanded = !tool.expanded
-      return tool.expanded
+export function appendToolResult(
+  items: ConversationTimelineItem[],
+  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; result?: string; state?: ExecutionState; preview?: ToolPreview },
+) {
+  if (eventAlreadyRendered(items, 'tool_call', payload.eventID)) return undefined
+  const callID = payload.callID || `call-${payload.eventID || nextID('call')}`
+  const call = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'tool_call' }> => item.type === 'tool_call' && (item.callID === callID || (!payload.callID && item.name === payload.name && item.state === 'running')))
+  const result = payload.result || (payload.state === 'error' ? '工具调用失败' : '工具调用已完成')
+  if (call) {
+    if (payload.state) call.state = payload.state
+    else if (result) call.state = 'success'
+    if (result && (!call.result || call.result === '工具调用已完成' || call.result === '工具调用失败' || call.result.length < result.length)) {
+      call.result = result
     }
+    if (payload.preview && !call.preview) call.preview = payload.preview
+    if (payload.eventID !== undefined) rememberEventID(call, payload.eventID)
+    return call.id
+  }
+  const id = eventItemID('tool-call', payload.eventID)
+  items.push({
+    id,
+    eventID: payload.eventID,
+    eventIDs: payload.eventID === undefined ? undefined : [payload.eventID],
+    type: 'tool_call',
+    callID,
+    name: payload.name || 'unknown',
+    label: payload.label || '工具调用',
+    result,
+    state: payload.state || 'success',
+    preview: payload.preview,
+    expanded: true,
+  })
+  return id
+}
+
+export function appendFinalAnswer(
+  items: ConversationTimelineItem[],
+  content: string,
+  options: { eventID?: TimelineEventID; segmentID?: string; delta?: boolean } = {},
+) {
+  if (!content) return undefined
+  if (eventAlreadyRendered(items, 'final_answer', options.eventID)) return undefined
+  const activeThought = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'thought' }> => item.type === 'thought' && item.state === 'running')
+  if (activeThought) {
+    activeThought.state = 'success'
+    activeThought.streaming = false
+  }
+  const segmentID = options.segmentID || 'legacy-final-answer'
+  const current = [...items]
+    .reverse()
+    .find((item): item is Extract<ConversationTimelineItem, { type: 'final_answer' }> => item.type === 'final_answer' && item.segmentID === segmentID && item.streaming)
+  if (current) {
+    current.content = options.delta === false ? content : appendDelta(current.content, content)
+    current.streaming = options.delta !== false
+    rememberEventID(current, options.eventID)
+    return current.id
+  }
+  const id = eventItemID('final-answer', options.eventID)
+  items.push({ id, eventID: options.eventID, eventIDs: options.eventID === undefined ? undefined : [options.eventID], type: 'final_answer', segmentID, content, streaming: options.delta !== false })
+  return id
+}
+
+export function finishStreamingEntries(items: ConversationTimelineItem[]) {
+  for (const item of items) {
+    if (item.type === 'thought') {
+      item.streaming = false
+      if (item.state === 'running') item.state = 'success'
+    }
+    if (item.type === 'tool_call' && item.state === 'running') {
+      item.state = item.result ? 'success' : 'error'
+      if (!item.result) item.result = '工具调用未返回结果'
+    }
+    if (item.type === 'final_answer') item.streaming = false
+  }
+}
+
+export function appendTimelineError(items: ConversationTimelineItem[], content: string, eventID?: TimelineEventID) {
+  if (!content || eventAlreadyRendered(items, 'error', eventID)) return undefined
+  const id = eventItemID('error', eventID)
+  items.push({ id, eventID, eventIDs: eventID === undefined ? undefined : [eventID], type: 'error', content })
+  return id
+}
+
+export function toggleTimelineItem(items: ConversationTimelineItem[], itemID: string) {
+  const item = items.find(candidate => candidate.id === itemID)
+  if (item?.type === 'thought' || item?.type === 'tool_call') {
+    item.expanded = !item.expanded
+    return item.expanded
   }
   return undefined
 }
 
-export function appendExecutionStep(items: ConversationTimelineItem[], label: string, detail = '', state: ExecutionState = 'running') {
-  const id = nextID('execution')
-  items.push({ id, type: 'execution', label, detail, state })
+export function appendExecutionStep(items: ConversationTimelineItem[], label: string, detail = '', state: ExecutionState = 'running', eventID?: TimelineEventID) {
+  if (eventAlreadyRendered(items, 'execution', eventID)) return undefined
+  const id = eventItemID('execution', eventID)
+  items.push({ id, eventID, eventIDs: eventID === undefined ? undefined : [eventID], type: 'execution', label, detail, state })
   return id
-}
-
-// LLM callbacks report a start and an end event for one model invocation. Keep
-// the start row live and resolve it when the matching end/error arrives so the
-// timeline shows one observable model step instead of duplicate rows such as
-// "ChatModel" and "chat_model".
-export function appendRuntimeExecution(items: ConversationTimelineItem[], label: string, detail = '', state: ExecutionState = 'running', kind = '') {
-  const runtimeKey = kind.toLowerCase().startsWith('llm_') ? label.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : ''
-  if (runtimeKey) {
-    const active = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'execution' }> => item.type === 'execution' && item.runtimeKey === runtimeKey && item.state === 'running')
-    if (active) {
-      if (detail) active.detail = detail
-      active.state = state
-      return active.id
-    }
-  }
-  const id = nextID('execution')
-  items.push({ id, type: 'execution', label, detail, state, ...(runtimeKey ? { runtimeKey } : {}) })
-  return id
-}
-
-export function updateExecutionStep(items: ConversationTimelineItem[], id: string, label: string, detail = '', state: ExecutionState = 'running') {
-  const step = items.find((item): item is Extract<ConversationTimelineItem, { type: 'execution' }> => item.type === 'execution' && item.id === id)
-  if (step) {
-    step.label = label
-    step.detail = detail
-    step.state = state
-    return id
-  }
-  return appendExecutionStep(items, label, detail, state)
 }

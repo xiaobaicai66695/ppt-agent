@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/tools/search"
 	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
@@ -73,6 +74,23 @@ func TestChatSearchContentSummarizerUsesTextModel(t *testing.T) {
 		if !strings.Contains(model.prompt, want) {
 			t.Fatalf("summary prompt missing %q: %q", want, model.prompt)
 		}
+	}
+}
+
+func TestApplyChatSearchResponseKeepsOneSuccessfulObservationWhenSummaryFails(t *testing.T) {
+	augmentations := chatAugmentations{}
+	event := applyChatSearchResponse(&augmentations, search.SearchResponse{
+		Results: []search.SearchResult{{Title: "WHO", URL: "https://www.who.int/"}},
+		Error:   "summary provider unavailable",
+	})
+	if event.Type != task.SSEEventToolResult || event.ToolName != "search" || event.Error != "" {
+		t.Fatalf("event = %#v, want one successful search observation", event)
+	}
+	if !strings.Contains(event.Detail, "已获取 1 条可核对资料") || !strings.Contains(event.Detail, "摘要暂不可用") {
+		t.Fatalf("event detail = %q", event.Detail)
+	}
+	if len(augmentations.webResults) != 1 || !strings.Contains(strings.Join(augmentations.promptParts, "\n"), "web_search_error: summary provider unavailable") {
+		t.Fatalf("augmentations = %#v", augmentations)
 	}
 }
 
@@ -235,7 +253,7 @@ func TestStreamChatReplyForwardsNativeModelDeltas(t *testing.T) {
 	}}
 	var received []string
 	var trace []chatTraceEvent
-	server.streamChatReply(context.Background(), "你好", "", "", false, false, func(chunk string) {
+	server.streamChatReply(context.Background(), "你好", "", "", func(chunk string) {
 		received = append(received, chunk)
 	}, func(event chatTraceEvent) { trace = append(trace, event) })
 	if got := strings.Join(received, ""); got != "第一段第二段" {
@@ -244,8 +262,13 @@ func TestStreamChatReplyForwardsNativeModelDeltas(t *testing.T) {
 	if len(received) != 2 {
 		t.Fatalf("received %d chunks, want native delta boundaries", len(received))
 	}
-	if len(trace) != 2 || trace[0].Phase != "analysis" || trace[1].Phase != "answer" {
-		t.Fatalf("trace = %#v, want request-analysis then answer phases", trace)
+	if len(trace) != 2 || trace[0].Type != task.SSEEventThought || trace[1].Type != task.SSEEventThought || trace[0].Phase != "analysis" || trace[1].Phase != "answer" {
+		t.Fatalf("trace = %#v, want safe thought summaries around the final answer", trace)
+	}
+	for _, event := range trace {
+		if strings.TrimSpace(event.Detail) == "" || strings.Contains(strings.ToLower(event.Detail), "reasoning_content") {
+			t.Fatalf("unsafe or empty thought trace = %#v", event)
+		}
 	}
 }
 
@@ -259,7 +282,7 @@ func TestStreamChatReplyForwardsAdapterModelDeltas(t *testing.T) {
 		}}, nil
 	}}
 	var received []string
-	server.streamChatReply(context.Background(), "你好", "", "", false, false, func(chunk string) {
+	server.streamChatReply(context.Background(), "你好", "", "", func(chunk string) {
 		received = append(received, chunk)
 	}, nil)
 	if got := strings.Join(received, ""); got != "适配器流式回复" {

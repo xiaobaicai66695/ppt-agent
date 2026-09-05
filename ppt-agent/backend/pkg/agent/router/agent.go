@@ -166,6 +166,8 @@ func prompt(input Input) string {
 action 只能是 reply、prepare_create、save_plan、update_task、ask_clarification。
 mode 只能是 chat 或 pptagent。
 - 明确 create 意图即使未写页数、受众或风格，也返回 prepare_create；Planner 会补齐可选信息。
+- 用户输入中含有工作台附加的“（生成PPT）”时，必须返回 create/pptagent/prepare_create，不得降级为 chat、plan 或澄清。这是用户已确认的生成授权，不要在 normalized_request 中删掉该指令。
+- “（网络搜索）”表示后续 Agent 必须联网核验所需事实；“（图片搜索）”表示后续 PPT 规划必须保留图片素材需求。这两个指令不改变 chat/create/plan/fix 的意图，且必须保留在 normalized_request 中。
 - 明确 fix 且已选中任务时返回 update_task；未选中任务时返回 ask_clarification。
 - 无法明确判断时不要猜测创建或修复；返回 chat/reply，简短要求用户说明要聊天、规划、新建 PPT 还是修改已有任务。
 

@@ -1,7 +1,5 @@
 import type { AtomicLayout, AuthUser, ConversationSession, RuntimeEvent, TaskInfo, TaskOutline } from './types'
 
-export type MessageMode = 'chat' | 'pptagent'
-
 export interface MessageRoute {
   task_id: string
   intent: string
@@ -59,7 +57,7 @@ export const cancelTask = (id: string) => request<TaskInfo>(`/api/tasks/${id}/ca
 export const startTask = (id: string) => request<TaskInfo>(`/api/tasks/${id}/start`, { method: 'POST' })
 export const fetchConversation = (id: string) => request<ConversationSession>(`/api/tasks/${id}/conversation`)
 export const fetchRuntimeEvent = (id: string, eventId: number) => request<RuntimeEvent>(`/api/tasks/${id}/runtime-events/${eventId}`)
-export const routeMessage = (message: string, selectedTaskId = '', manualMode: MessageMode = 'chat', webSearch = false, imageSearch = false) => request<MessageRoute>('/api/messages', { method: 'POST', body: JSON.stringify({ message, selected_task_id: selectedTaskId, manual_mode: manualMode, web_search: webSearch, image_search: imageSearch }) })
+export const routeMessage = (message: string, selectedTaskId = '') => request<MessageRoute>('/api/messages', { method: 'POST', body: JSON.stringify({ message, selected_task_id: selectedTaskId }) })
 export const continueTask = (id: string, message: string) => request<{ task_id: string; after_event_id?: number }>(`/api/tasks/${id}/continue`, { method: 'POST', body: JSON.stringify({ message }) })
 export const fetchLayouts = async () => (await request<{ layouts?: AtomicLayout[] }>('/api/templates/layouts')).layouts || []
 export const createTaskWithOutline = (query: string, outline: TaskOutline) => request<TaskInfo>('/api/tasks', { method: 'POST', body: JSON.stringify({ query, outline }) })

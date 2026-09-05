@@ -1,111 +1,127 @@
 import { describe, expect, it } from 'vitest'
 import {
-  appendTimelineMessage,
-  appendRuntimeExecution,
-  appendToolInvocation,
-  beginObservablePhase,
-  completeObservablePhase,
-  finishToolPhase,
-  hideCompletedToolTraces,
-  prepareToolBoundary,
+  appendFinalAnswer,
+  appendThought,
+  appendToolCall,
+  appendToolResult,
+  finishStreamingEntries,
   resetConversationTimeline,
-  resolveToolInvocation,
-  toggleToolInvocation,
+  toggleTimelineItem,
 } from './conversationTimeline'
 
 describe('conversation timeline', () => {
-  it('keeps observable phases, their tools, and replies in arrival order', () => {
+  it('keeps thoughts, paired tool cards, and final answers in arrival order', () => {
     const items = resetConversationTimeline([{ role: 'user', content: '找两张图片', timestamp: '2026-09-04T00:00:00Z' }])
-    const analysisID = beginObservablePhase(items, 'analysis', '分析请求', '正在判断可用工具')
-    appendToolInvocation(items, analysisID, 'search_images', '图片搜索', '正在搜索图片参考')
-    resolveToolInvocation(items, analysisID, 'search_images', '图片搜索', '已找到 2 张图片参考')
-    beginObservablePhase(items, 'answer', '组织回答', '正在组织回答')
-    appendTimelineMessage(items, { role: 'assistant', content: '这是两张候选图片。', timestamp: '2026-09-04T00:00:01Z' })
 
-    expect(items.map(item => item.type === 'message' ? item.message.role : item.label)).toEqual([
-      'user', '分析请求', '组织回答', 'assistant',
-    ])
-    expect(items[1]).toMatchObject({ type: 'phase', state: 'success', tools: [{ label: '图片搜索', state: 'success' }] })
+    appendThought(items, '先判断需要哪些资料。', { eventID: 1, segmentID: 'thought-1', phase: 'analysis', delta: true })
+    appendToolCall(items, { eventID: 2, callID: 'call-1', name: 'search_images', label: '图片搜索', args: '{"query":"PPT"}' })
+    appendToolResult(items, { eventID: 3, callID: 'call-1', name: 'search_images', label: '图片搜索', result: '已找到 2 张图片参考' })
+    appendThought(items, '根据候选图片组织回答。', { eventID: 4, segmentID: 'thought-2', phase: 'answer', delta: true })
+    appendFinalAnswer(items, '这是两张候选图片。', { eventID: 5, segmentID: 'answer-1', delta: true })
+
+    expect(items.map(item => item.type)).toEqual(['message', 'thought', 'tool_call', 'thought', 'final_answer'])
+    expect(items[1]).toMatchObject({ type: 'thought', state: 'success', content: '先判断需要哪些资料。' })
+    expect(items[2]).toMatchObject({ type: 'tool_call', callID: 'call-1', state: 'success', result: '已找到 2 张图片参考' })
   })
 
-  it('updates only the matching invocation and keeps sibling calls in order', () => {
+  it('updates one streaming segment and deduplicates replayed event IDs', () => {
     const items = resetConversationTimeline([])
-    const analysisID = beginObservablePhase(items, 'analysis', '分析请求')
-    appendToolInvocation(items, analysisID, 'search', '联网检索', '正在检索')
-    appendToolInvocation(items, analysisID, 'search_images', '图片搜索', '正在搜索')
-    resolveToolInvocation(items, analysisID, 'search', '联网检索', '已获取 5 条资料')
 
-    expect(items[0]).toMatchObject({ type: 'phase', tools: [
-      { label: '联网检索', resultDetail: '已获取 5 条资料', state: 'success' },
-      { label: '图片搜索', state: 'running' },
-    ] })
+    appendThought(items, '正在', { eventID: 11, segmentID: 'thought-1', delta: true })
+    appendThought(items, '分析', { eventID: 12, segmentID: 'thought-1', delta: true })
+    appendThought(items, '正在', { eventID: 11, segmentID: 'thought-1', delta: true })
+    appendFinalAnswer(items, '答案', { eventID: 13, segmentID: 'answer-1', delta: true })
+    appendFinalAnswer(items, '如下。', { eventID: 14, segmentID: 'answer-1', delta: true })
+    appendFinalAnswer(items, '答案', { eventID: 13, segmentID: 'answer-1', delta: true })
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ type: 'thought', content: '正在分析', eventIDs: [11, 12] })
+    expect(items[1]).toMatchObject({ type: 'final_answer', content: '答案如下。', eventIDs: [13, 14] })
   })
 
-  it('resolves repeated tool names by provider call id', () => {
+  it('keeps a completed call in place when a later observation arrives', () => {
     const items = resetConversationTimeline([])
-    const phaseID = beginObservablePhase(items, 'analysis', '分析请求')
-    appendToolInvocation(items, phaseID, 'search', '联网检索', '第一次', undefined, 'call-1')
-    appendToolInvocation(items, phaseID, 'search', '联网检索', '第二次', undefined, 'call-2')
-    resolveToolInvocation(items, phaseID, 'search', '联网检索', '第一次完成', 'success', undefined, 'call-1')
+    appendToolCall(items, { eventID: 21, callID: 'call-1', name: 'search', label: '联网检索' })
+    appendThought(items, '工具仍在返回资料。', { eventID: 22, segmentID: 'thought-2', delta: true })
+    appendToolResult(items, { eventID: 23, callID: 'call-1', name: 'search', label: '联网检索', result: '已获取 5 条资料' })
 
-    expect(items[0]).toMatchObject({ type: 'phase', tools: [
-      { callID: 'call-1', resultDetail: '第一次完成', state: 'success' },
-      { callID: 'call-2', state: 'running' },
-    ] })
+    expect(items.map(item => item.type)).toEqual(['tool_call', 'thought'])
+    expect(items[0]).toMatchObject({ type: 'tool_call', callID: 'call-1', state: 'success' })
+    expect(items[0]).toMatchObject({ result: '已获取 5 条资料' })
   })
 
-  it('lets each tool invocation independently expand or collapse', () => {
+  it('recovers an observation replayed without its earlier call frame', () => {
     const items = resetConversationTimeline([])
-    const analysisID = beginObservablePhase(items, 'analysis', '分析请求')
-    const firstID = appendToolInvocation(items, analysisID, 'search', '联网检索')!
-    const secondID = appendToolInvocation(items, analysisID, 'search_images', '图片搜索')!
+    appendToolResult(items, { eventID: 31, callID: 'call-1', name: 'search', label: '联网检索', result: '已获取 5 条资料' })
 
-    toggleToolInvocation(items, firstID)
-
-    expect(items[0]).toMatchObject({ type: 'phase', tools: [
-      { id: firstID, expanded: false },
-      { id: secondID, expanded: true },
-    ] })
+    expect(items).toEqual([expect.objectContaining({ type: 'tool_call', callID: 'call-1', state: 'success', result: '已获取 5 条资料' })])
   })
 
-  it('recovers from a result replayed without its earlier call event', () => {
+  it('keeps long tool results intact inside the paired call card', () => {
     const items = resetConversationTimeline([])
-    const analysisID = beginObservablePhase(items, 'analysis', '分析请求')
-    resolveToolInvocation(items, analysisID, 'search', '联网检索', '已获取 5 条资料')
-    completeObservablePhase(items, 'analysis')
+    const thoughtID = appendThought(items, '安全的过程摘要', { eventID: 41, segmentID: 'thought-1' })!
+    const resultID = appendToolResult(items, { eventID: 42, callID: 'call-1', name: 'search', label: '联网检索', result: '资料'.repeat(140) })!
 
-    expect(items[0]).toMatchObject({ type: 'phase', state: 'success', tools: [{ name: 'search', state: 'success' }] })
+    expect(items[0]).toMatchObject({ id: thoughtID, expanded: true })
+    expect(items[1]).toMatchObject({ id: resultID, type: 'tool_call', expanded: true, result: '资料'.repeat(140) })
+    expect(toggleTimelineItem(items, thoughtID)).toBe(false)
+    expect(toggleTimelineItem(items, resultID)).toBe(false)
+    expect(items[0]).toMatchObject({ expanded: false })
+    expect(items[1]).toMatchObject({ expanded: false })
   })
 
-  it('removes transient tool phases once the task reaches a terminal state', () => {
-    const items = resetConversationTimeline([{ role: 'user', content: '找图', timestamp: '' }])
-    const phaseID = beginObservablePhase(items, 'analysis', '分析请求')
-    appendToolInvocation(items, phaseID, 'search_images', '图片搜索')
-    appendTimelineMessage(items, { role: 'assistant', content: '完成', timestamp: '' })
-    hideCompletedToolTraces(items)
-    expect(items.map(item => item.type)).toEqual(['message', 'message'])
-  })
-
-  it('keeps a tool phase after the preceding assistant segment', () => {
-    const items = resetConversationTimeline([{ role: 'user', content: '查资料', timestamp: '' }])
-    const phaseID = beginObservablePhase(items, 'analysis', '分析请求')
-    appendTimelineMessage(items, { role: 'assistant', content: '我先查一下。', timestamp: '' })
-    prepareToolBoundary(items, phaseID)
-    appendToolInvocation(items, phaseID, 'search', '联网检索')
-
-    expect(items.map(item => item.type === 'message' ? item.message.role : item.type)).toEqual(['user', 'assistant', 'phase'])
-    expect(finishToolPhase(items, phaseID)).toBe(true)
-    expect(items[2]).toMatchObject({ type: 'phase', state: 'success' })
-    appendTimelineMessage(items, { role: 'assistant', content: '查到了一些资料。', timestamp: '' })
-    expect(items.map(item => item.type === 'message' ? item.message.role : item.type)).toEqual(['user', 'assistant', 'phase', 'assistant'])
-  })
-
-  it('merges LLM start and end events into one execution row', () => {
+  it('keeps trace cards after text streaming ends', () => {
     const items = resetConversationTimeline([])
-    appendRuntimeExecution(items, 'ChatModel', '', 'running', 'llm_start')
-    appendRuntimeExecution(items, 'chat_model', '', 'success', 'llm_end')
+    appendThought(items, '先检索资料。', { eventID: 51, segmentID: 'thought-1', delta: true })
+    appendToolCall(items, { eventID: 52, callID: 'call-1', name: 'search', label: '联网检索' })
+    appendToolResult(items, { eventID: 53, callID: 'call-1', name: 'search', label: '联网检索', result: '已获取 5 条资料' })
+    appendFinalAnswer(items, '根据资料，答案如下。', { eventID: 54, segmentID: 'answer-1', delta: true })
 
+    finishStreamingEntries(items)
+
+    expect(items.map(item => item.type)).toEqual(['thought', 'tool_call', 'final_answer'])
+    expect(items[2]).toMatchObject({ type: 'final_answer', streaming: false })
+  })
+
+  it('starts a fresh thought card after a finished segment receives the same segment id again', () => {
+    const items = resetConversationTimeline([])
+    appendThought(items, '先检索资料。', { eventID: 51, segmentID: 'thought-1', delta: true })
+    finishStreamingEntries(items)
+    appendThought(items, '继续整理。', { eventID: 52, segmentID: 'thought-1', delta: true })
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ type: 'thought', content: '先检索资料。', streaming: false })
+    expect(items[1]).toMatchObject({ type: 'thought', content: '继续整理。', streaming: true })
+  })
+
+  it('starts a fresh final-answer card after a finished segment receives the same segment id again', () => {
+    const items = resetConversationTimeline([])
+    appendFinalAnswer(items, '第一段答案。', { eventID: 61, segmentID: 'answer-1', delta: true })
+    finishStreamingEntries(items)
+    appendFinalAnswer(items, '第二段答案。', { eventID: 62, segmentID: 'answer-1', delta: true })
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ type: 'final_answer', content: '第一段答案。', streaming: false })
+    expect(items[1]).toMatchObject({ type: 'final_answer', content: '第二段答案。', streaming: true })
+  })
+
+  it('keeps legacy answer chunks in a single final-answer segment', () => {
+    const items = resetConversationTimeline([])
+    appendFinalAnswer(items, '旧协议', { eventID: 61, segmentID: 'legacy-final-answer', delta: true })
+    appendFinalAnswer(items, '仍可显示。', { eventID: 62, segmentID: 'legacy-final-answer', delta: true })
+
+    expect(items).toEqual([expect.objectContaining({ type: 'final_answer', content: '旧协议仍可显示。' })])
+  })
+
+  it('deduplicates repeated tool results by call id', () => {
+    const items = resetConversationTimeline([])
+    appendToolCall(items, { eventID: 71, callID: 'call-1', name: 'search', label: '联网检索' })
+    const first = appendToolResult(items, { eventID: 72, callID: 'call-1', name: 'search', label: '联网检索', result: '首个结果' })
+    const second = appendToolResult(items, { eventID: 73, callID: 'call-1', name: 'search', label: '联网检索', result: '重复结果' })
+
+    expect(first).toBeDefined()
+    expect(second).toBe(first)
     expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ type: 'execution', label: 'ChatModel', state: 'success' })
+    expect(items[0]).toMatchObject({ type: 'tool_call', callID: 'call-1', result: '首个结果', eventIDs: [71, 72, 73] })
   })
 })

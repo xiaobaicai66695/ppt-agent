@@ -19,7 +19,7 @@ func UpsertTaskRecord(r *TaskRecord) error {
 	return DB.WithContext(ctx).Save(r).Error
 }
 
-// UpdateTaskRecord 向可更新字段添加 conversation_content。
+// UpdateTaskRecord 更新任务元数据；会话正文由 conversation_messages 独立维护。
 func UpdateTaskRecord(id string, updates map[string]any) error {
 	ctx, cancel := withOperationTimeout()
 	defer cancel()

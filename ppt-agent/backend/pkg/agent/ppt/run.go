@@ -38,6 +38,10 @@ import (
 const (
 	AgentEventAnswer   = "answer"
 	AgentEventToolCall = "tool_call"
+	// AgentEventLLMEnd is emitted only after all visible chunks for one model
+	// response have been forwarded. It is safe to use as a durable assistant
+	// message boundary, unlike a low-level callback which can arrive first.
+	AgentEventLLMEnd   = "llm_end"
 	AgentEventError    = "error"
 	AgentEventProgress = "progress"
 )
@@ -736,6 +740,7 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 				if streamErr := processStreamingMessage(lastMsgStream, onEvent, &answerBuf); streamErr != nil {
 					return streamErr
 				}
+				onEvent(AgentEvent{Type: AgentEventLLMEnd})
 			} else {
 				if msg := event.Output.MessageOutput.Message; msg != nil {
 					if isChunkEmittable(msg) && msg.Content != "" {
@@ -752,6 +757,7 @@ func streamAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEv
 						})
 					}
 				}
+				onEvent(AgentEvent{Type: AgentEventLLMEnd})
 			}
 		}
 

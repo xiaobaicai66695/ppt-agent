@@ -14,15 +14,19 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/session"
 )
 
-func TestConversationMessagesWithFallbackUsesFullAnswer(t *testing.T) {
-	created := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
-	messages := []session.Message{{Role: "user", Content: "生成一套演示", Timestamp: created}}
-	got := conversationMessagesWithFallback(messages, "## 完成\n\n- 第一页", "legacy", created.Add(time.Minute))
-	if len(got) != 2 {
-		t.Fatalf("len(messages) = %d, want 2", len(got))
+func TestPersistedConversationMessagesPreservesStoredTurns(t *testing.T) {
+	messages := []session.Message{
+		{Role: "user", Content: "生成一套演示"},
+		{Role: "user", Content: "生成一套演示"},
+		{Role: "assistant", Content: "## 完成\n\n- 第一页"},
+		{Role: "assistant", Content: "..."},
 	}
-	if got[1].Role != "assistant" || got[1].Content != "## 完成\n\n- 第一页" {
-		t.Fatalf("unexpected fallback message: %#v", got[1])
+	got := persistedConversationMessages(messages)
+	if len(got) != 3 {
+		t.Fatalf("len(messages) = %d, want 3", len(got))
+	}
+	if got[0].Content != got[1].Content || got[2].Role != "assistant" {
+		t.Fatalf("stored turn order was changed: %#v", got)
 	}
 }
 
@@ -175,64 +179,5 @@ func TestHandleGetRuntimeEventReturnsPersistedMetadata(t *testing.T) {
 	}
 	if payload.Kind != "tool_end" || payload.Metadata["args"] == "" || payload.Metadata["result"] == "" {
 		t.Fatalf("runtime event metadata missing: %#v", payload)
-	}
-}
-
-func TestConversationMessagesWithFallbackKeepsStructuredAssistant(t *testing.T) {
-	messages := []session.Message{
-		{Role: "user", Content: "修改第二页"},
-		{Role: "assistant", Content: "- 已调整布局\n- 已更新文件"},
-	}
-	got := conversationMessagesWithFallback(messages, "legacy answer", "legacy content", time.Time{})
-	if len(got) != 2 || got[1].Content != messages[1].Content {
-		t.Fatalf("structured messages were replaced: %#v", got)
-	}
-}
-
-func TestConversationMessagesWithFallbackDropsDuplicateFragments(t *testing.T) {
-	messages := []session.Message{
-		{Role: "assistant", Content: "完整回答"},
-		{Role: "assistant", Content: "完整回答"},
-		{Role: "assistant", Content: "..."},
-	}
-	got := conversationMessagesWithFallback(messages, "", "", time.Time{})
-	if len(got) != 1 {
-		t.Fatalf("len(messages) = %d, want 1: %#v", len(got), got)
-	}
-}
-
-func TestConversationMessagesWithFallbackTrimsCumulativeAssistantPrefix(t *testing.T) {
-	prefix := "我将为您创建一个关于微服务项目治理的20页PPT。首先，让我读取组件契约文件以了解可用的组件类型和版式。"
-	suffix := "我已了解组件契约。现在让我规划20页的微服务项目治理PPT。"
-	messages := []session.Message{
-		{Role: "assistant", Content: prefix, Timestamp: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)},
-		{Role: "assistant", Content: prefix + "\n\n" + suffix, Timestamp: time.Date(2026, 8, 24, 10, 0, 1, 0, time.UTC)},
-	}
-
-	got := conversationMessagesWithFallback(messages, "", "", time.Time{})
-
-	if len(got) != 2 {
-		t.Fatalf("len(messages) = %d, want 2: %#v", len(got), got)
-	}
-	if got[0].Content != prefix || got[1].Content != suffix {
-		t.Fatalf("messages = %#v, want prefix then suffix", got)
-	}
-}
-
-func TestConversationMessagesWithFallbackDropsContainedAssistantFragments(t *testing.T) {
-	full := "我将为您生成一份12页的PPT，主题为中小后端项目Git版本控制规范方案。\nPPT规划已完成，12页内容已提交。以下是各页概要：\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |"
-	fragment := "PPT规划已完成，12页内容已提交。以下是各页概要：\n| 页码 | 标题 |\n| --- | --- |\n| 12 | 致谢 |"
-	messages := []session.Message{
-		{Role: "assistant", Content: fragment, Timestamp: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)},
-		{Role: "assistant", Content: full, Timestamp: time.Date(2026, 8, 24, 10, 0, 1, 0, time.UTC)},
-	}
-
-	got := conversationMessagesWithFallback(messages, "", "", time.Time{})
-
-	if len(got) != 1 {
-		t.Fatalf("len(messages) = %d, want 1: %#v", len(got), got)
-	}
-	if got[0].Content != full {
-		t.Fatalf("kept content = %q, want full answer", got[0].Content)
 	}
 }

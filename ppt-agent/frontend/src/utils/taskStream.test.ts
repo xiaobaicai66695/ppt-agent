@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isTerminalTaskStreamEvent } from './taskStream'
+import { isTerminalTaskStreamEvent, taskStreamEventNames } from './taskStream'
 
 describe('task stream lifecycle', () => {
   it('keeps the stream open after the planner response ends', () => {
@@ -8,5 +8,9 @@ describe('task stream lifecycle', () => {
 
   it.each(['complete', 'continue_complete', 'conversation_complete'])('closes the stream only for %s', event => {
     expect(isTerminalTaskStreamEvent(event)).toBe(true)
+  })
+
+  it('registers explicit LLM segment events for EventSource streaming', () => {
+    expect(taskStreamEventNames).toEqual(expect.arrayContaining(['llm_start', 'llm_delta', 'llm_end']))
   })
 })

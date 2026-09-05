@@ -1,6 +1,6 @@
 # PPT Agent 当前架构设计总结
 
-更新时间：2026-08-27
+更新时间：2026-09-05
 
 本文档记录当前 PPT Agent 的架构基线，用于后续新 feature 开始前快速对齐系统边界、主流程和高风险契约。
 
@@ -134,13 +134,13 @@ base.py / python-pptx
 
 ## 7. 前端呈现边界
 
-前端主会话展示的是模型显式输出内容，不展示模型隐藏推理，也不把系统预设话术伪装成思维链。
+前端主会话展示最终回答和可观察的执行轨迹，不展示模型隐藏推理，也不把系统预设话术伪装成思维链。
 
 当前约定：
 
-- Planner、Reviewer 和 Fixer 的普通 assistant content 直接作为用户可见 Markdown 展示，不由系统重新总结或伪造隐藏思维链。
-- 工具调用参数、工具结果、token 细节保留在 runtime events / 执行观察中。
-- `/conversation` 只把 `assistant_output` 作为普通 AI 消息返回，前端用 Markdown 渲染。
+- `thought` 只承载已经可公开的 Planner 叙述或确定性的阶段摘要（例如“正在检索并核实资料”）；不得复制 `ReasoningContent`、隐藏 prompt、凭据或内部压缩内容。
+- `tool_call` 与后续 `tool_result` 作为独立 SSE 事件按实际到达顺序显示，参数与结果只使用脱敏、限长的公开摘要；工具观察不写入持久会话正文。
+- `final_answer` 是唯一持久化为助手会话消息的增量文本。`/conversation` 冷加载时只恢复用户消息和最终回答；当前页面中的短期执行轨迹可在终态后继续查看。
 
 ## 8. 后续 feature 起点
 

@@ -95,6 +95,9 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 					switch event.Type {
 					case ppt.AgentEventAnswer:
 						ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
+					case ppt.AgentEventLLMEnd:
+						// One complete model response becomes one durable assistant message.
+						ch <- task.SSERichEvent{Type: "answer_end"}
 					case ppt.AgentEventProgress:
 						ch <- task.SSERichEvent{Type: "progress", Phase: "fixing", PhaseDetail: event.PhaseDetail}
 					}

@@ -1,48 +1,204 @@
 package task
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 )
 
-func TestBroadcastCombinesToolCallAndResult(t *testing.T) {
+func TestBroadcastStreamsToolCallThenToolResultInOrder(t *testing.T) {
 	listener := make(chan SSERichEvent, 4)
 	ts := &TaskState{listeners: map[string]chan SSERichEvent{"test": listener}}
-	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolCallID: "call-1", ToolName: "search", ToolArgs: `{"query":"PPT"}`})
-	if len(ts.Events) != 0 {
-		t.Fatalf("tool call must wait for result, got %#v", ts.Events)
+	call := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-1", ToolName: "search", ToolArgs: `{"query":"PPT"}`})
+	if call.Type != SSEEventToolCall || call.ID == 0 {
+		t.Fatalf("tool call = %#v, want immediate tool_call with an event ID", call)
 	}
-	merged := ts.Broadcast(SSERichEvent{Type: "tool_result", ToolCallID: "call-1", ToolName: "search", PhaseDetail: "找到 3 条资料"})
-	if merged.Type != "tool_call" || merged.ToolStatus != "success" || merged.ToolResult != "找到 3 条资料" {
-		t.Fatalf("merged event = %#v", merged)
-	}
-	if len(ts.Events) != 1 || ts.Events[0].ID == 0 || ts.Events[0].ToolCallID != "call-1" {
-		t.Fatalf("replay event = %#v", ts.Events)
+	if len(ts.Events) != 1 || ts.Events[0].Type != SSEEventToolCall || ts.Events[0].ID != call.ID {
+		t.Fatalf("tool call was not immediately replayable: %#v", ts.Events)
 	}
 	select {
 	case event := <-listener:
-		if event.Type != "tool_call" || event.ToolResult != "找到 3 条资料" {
-			t.Fatalf("listener event = %#v, want merged tool_call", event)
+		if event.Type != SSEEventToolCall || event.ID != call.ID || event.ToolResult != "" {
+			t.Fatalf("listener tool call = %#v", event)
 		}
 	default:
-		t.Fatal("listener did not receive merged tool call")
+		t.Fatal("listener did not receive the immediate tool call")
+	}
+
+	result := ts.Broadcast(SSERichEvent{Type: SSEEventToolResult, ToolCallID: "call-1", ToolResult: "找到 3 条资料"})
+	if result.Type != SSEEventToolResult || result.ID <= call.ID || result.ToolName != "search" || result.ToolStatus != "success" || result.ToolResult != "找到 3 条资料" {
+		t.Fatalf("tool result = %#v", result)
+	}
+	if len(ts.Events) != 2 || ts.Events[1].Type != SSEEventToolResult || ts.Events[1].ID != result.ID || ts.Events[1].ToolCallID != "call-1" {
+		t.Fatalf("replay events = %#v, want call followed by result", ts.Events)
 	}
 	select {
 	case event := <-listener:
-		t.Fatalf("listener received a separate tool result: %#v", event)
+		if event.Type != SSEEventToolResult || event.ID != result.ID || event.ToolResult != "找到 3 条资料" {
+			t.Fatalf("listener tool result = %#v", event)
+		}
+	default:
+		t.Fatal("listener did not receive the independent tool result")
+	}
+	if len(ts.pendingTools) != 0 {
+		t.Fatalf("pending tools = %#v, want result to close the call", ts.pendingTools)
+	}
+}
+
+func TestBroadcastStreamsToolFailureAsToolResult(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	call := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-images", ToolName: "search_images"})
+	result := ts.Broadcast(SSERichEvent{Type: SSEEventToolResult, ToolCallID: "call-images", Error: "图片搜索不可用"})
+	if result.Type != SSEEventToolResult || result.ToolStatus != "error" || !strings.Contains(result.ToolResult, "不可用") {
+		t.Fatalf("tool failure = %#v", result)
+	}
+	if len(ts.Events) != 2 || ts.Events[0].ID != call.ID || ts.Events[1].ID != result.ID || ts.Events[1].Type != SSEEventToolResult {
+		t.Fatalf("events = %#v, want distinct call and failed result", ts.Events)
+	}
+}
+
+func TestBroadcastCorrelatesRepeatedToolNamesByArgumentPreview(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	first := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-first", ToolName: "search", ToolArgs: `{"query":"first"}`})
+	second := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-second", ToolName: "search", ToolArgs: `{"query":"second"}`})
+
+	firstResult := ts.Broadcast(SSERichEvent{Type: SSEEventToolResult, ToolName: "search", ToolArgs: `{"query":"first"}`, ToolResult: "first result"})
+	secondResult := ts.Broadcast(SSERichEvent{Type: SSEEventToolResult, ToolName: "search", ToolArgs: `{"query":"second"}`, ToolResult: "second result"})
+
+	if firstResult.ToolCallID != first.ToolCallID || secondResult.ToolCallID != second.ToolCallID {
+		t.Fatalf("result correlation = (%q, %q), want (%q, %q)", firstResult.ToolCallID, secondResult.ToolCallID, first.ToolCallID, second.ToolCallID)
+	}
+	if len(ts.pendingTools) != 0 {
+		t.Fatalf("pending tools = %#v, want both matching calls closed", ts.pendingTools)
+	}
+	if got := []string{ts.Events[0].Type, ts.Events[1].Type, ts.Events[2].Type, ts.Events[3].Type}; strings.Join(got, ",") != "tool_call,tool_call,tool_result,tool_result" {
+		t.Fatalf("source order = %#v", ts.Events)
+	}
+}
+
+func TestBroadcastSuppressesDuplicateToolCompletion(t *testing.T) {
+	listener := make(chan SSERichEvent, 4)
+	ts := &TaskState{listeners: map[string]chan SSERichEvent{"test": listener}}
+
+	ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-duplicate", ToolName: "search"})
+	first := ts.Broadcast(SSERichEvent{Type: SSEEventToolResult, ToolCallID: "call-duplicate", ToolResult: "首个结果"})
+	duplicate := ts.Broadcast(SSERichEvent{Type: SSEEventToolResult, ToolCallID: "call-duplicate", ToolResult: "重复结果"})
+
+	if duplicate.Type != "" || duplicate.ID != 0 || duplicate.ToolCallID != "" {
+		t.Fatalf("duplicate completion = %#v, want suppressed zero event", duplicate)
+	}
+	if len(ts.Events) != 2 || ts.Events[0].Type != SSEEventToolCall || ts.Events[1].Type != SSEEventToolResult || ts.Events[1].ID != first.ID || ts.Events[1].ToolResult != "首个结果" {
+		t.Fatalf("events = %#v, want one call and one terminal result", ts.Events)
+	}
+	if _, completed := ts.completedTools["call-duplicate"]; !completed {
+		t.Fatal("completed tool call was not recorded")
+	}
+	if len(ts.pendingTools) != 0 {
+		t.Fatalf("pending tools = %#v, want none after terminal result", ts.pendingTools)
+	}
+	for _, wantType := range []string{SSEEventToolCall, SSEEventToolResult} {
+		select {
+		case event := <-listener:
+			if event.Type != wantType {
+				t.Fatalf("listener event type = %q, want %q", event.Type, wantType)
+			}
+		default:
+			t.Fatalf("listener missing %s event", wantType)
+		}
+	}
+	select {
+	case event := <-listener:
+		t.Fatalf("listener received duplicate completion: %#v", event)
 	default:
 	}
 }
 
-func TestBroadcastCombinesToolFailure(t *testing.T) {
+func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *testing.T) {
 	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
-	ts.Broadcast(SSERichEvent{Type: "tool_call", ToolName: "search_images"})
-	merged := ts.Broadcast(SSERichEvent{Type: "tool_result", ToolName: "search_images", Error: "图片搜索不可用"})
-	if merged.Type != "tool_call" || merged.ToolStatus != "error" || !strings.Contains(merged.ToolResult, "不可用") {
-		t.Fatalf("merged failure = %#v", merged)
+
+	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
+		Kind: "llm_start",
+		Name: "ChatModel",
+	}))
+	if len(ts.Events) != 0 {
+		t.Fatalf("llm runtime summary leaked into SSE: %#v", ts.Events)
+	}
+
+	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
+		Kind:  "slide_render_start",
+		Name:  "generate_slide",
+		Phase: "rendering",
+		Metadata: map[string]any{
+			"args": `{"task_id":"slide-1"}`,
+		},
+	}))
+	if len(ts.Events) != 1 || ts.Events[0].Type != SSEEventToolCall || ts.Events[0].ToolName != "generate_slide" || ts.Events[0].ToolArgs == "" {
+		t.Fatalf("slide render start = %#v", ts.Events)
+	}
+
+	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
+		Kind:  "slide_render_end",
+		Name:  "generate_slide",
+		Phase: "rendering",
+		Status: "ok",
+		Metadata: map[string]any{
+			"args":   `{"task_id":"slide-1"}`,
+			"result": "render complete",
+		},
+	}))
+	if len(ts.Events) != 2 || ts.Events[1].Type != SSEEventToolResult || ts.Events[1].ToolCallID == "" || ts.Events[1].ToolResult != "render complete" {
+		t.Fatalf("slide render end = %#v", ts.Events)
+	}
+}
+
+func TestCompletePendingToolsEmitsSuccessfulResultForEachOpenCall(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	firstCall := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-read", ToolName: "read_file"})
+	secondCall := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-search", ToolName: "search"})
+
+	ts.CompletePendingTools(nil)
+
+	if len(ts.pendingTools) != 0 {
+		t.Fatalf("pending tools = %#v, want all calls closed", ts.pendingTools)
+	}
+	if len(ts.Events) != 4 {
+		t.Fatalf("events = %#v, want calls followed by two terminal results", ts.Events)
+	}
+	for index, wantID := range []string{"call-read", "call-search"} {
+		result := ts.Events[index+2]
+		if result.Type != SSEEventToolResult || result.ToolCallID != wantID || result.ToolStatus != "success" || result.ToolResult != "工具调用已完成" || result.Error != "" {
+			t.Fatalf("terminal result[%d] = %#v", index, result)
+		}
+	}
+	if ts.Events[0].ID != firstCall.ID || ts.Events[1].ID != secondCall.ID || ts.Events[2].ID <= secondCall.ID || ts.Events[3].ID <= ts.Events[2].ID {
+		t.Fatalf("event IDs are not ordered: %#v", ts.Events)
+	}
+
+	ts.CompletePendingTools(nil)
+	if len(ts.Events) != 4 {
+		t.Fatalf("second completion pass emitted duplicate results: %#v", ts.Events)
+	}
+}
+
+func TestCompletePendingToolsMarksUnfinishedCallsAsErrors(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-read", ToolName: "read_file"})
+
+	ts.CompletePendingTools(errors.New("planner stopped"))
+
+	if len(ts.pendingTools) != 0 {
+		t.Fatalf("pending tools = %#v, want all calls closed", ts.pendingTools)
+	}
+	if len(ts.Events) != 2 {
+		t.Fatalf("events = %#v, want one call followed by one terminal result", ts.Events)
+	}
+	result := ts.Events[1]
+	if result.Type != SSEEventToolResult || result.ToolCallID != "call-read" || result.ToolStatus != "error" || result.ToolResult != "工具调用未完成" || result.Error != "工具调用未完成" {
+		t.Fatalf("terminal error result = %#v", result)
 	}
 }
 
