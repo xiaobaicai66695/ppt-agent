@@ -11,7 +11,7 @@ import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetch
 import type { AuthUser, TaskInfo, TaskStreamEvent } from '../types'
 import { appendDeliveryDirectives, shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent, taskStreamEventNames } from '../utils/taskStream'
-import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, resetConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
+import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, resetConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -131,7 +131,7 @@ function consume(raw: string, eventID?: number) {
         delta: data.delta,
       })
     } else if (data.type === 'llm_start') {
-      finishStreamingEntries(timeline.value)
+      finishTimelineEntries(timeline.value, { includeTools: false })
     } else if (data.type === 'llm_delta') {
       const isThought = data.phase === 'analysis' || data.phase === 'reasoning' || data.phase === 'thought'
       const text = data.content || data.phase_detail || data.message || ''
@@ -150,7 +150,7 @@ function consume(raw: string, eventID?: number) {
         })
       }
     } else if (data.type === 'llm_end') {
-      finishStreamingEntries(timeline.value)
+      finishTimelineEntries(timeline.value, { includeTools: false })
     } else if (data.type === 'final_answer' || data.type === 'answer') {
       appendFinalAnswer(timeline.value, data.content || '', {
         eventID: sourceID,
@@ -186,6 +186,7 @@ function consume(raw: string, eventID?: number) {
           callID: data.tool_call_id,
           name: data.tool_name || 'unknown',
           label: toolLabel(data.tool_name),
+          args: data.tool_args,
           result: data.tool_result || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
           state: toolState,
           preview: data.tool_preview,
@@ -198,6 +199,7 @@ function consume(raw: string, eventID?: number) {
         callID: data.tool_call_id,
         name: data.tool_name || 'unknown',
         label: toolLabel(data.tool_name),
+        args: data.tool_args,
         result: data.tool_result || data.error || data.phase_detail || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
         state: toolState,
         preview: data.tool_preview,
@@ -211,7 +213,7 @@ function consume(raw: string, eventID?: number) {
       thumbnailRevision.value += 1
       addExecution('缩略图已就绪', data.files?.length ? `已准备 ${data.files.length} 张预览` : '可以查看演示预览', 'success', sourceID)
     } else if (data.type === 'answer_end') {
-      finishStreamingEntries(timeline.value)
+      finishTimelineEntries(timeline.value, { includeTools: false })
       addExecution('规划说明已完成', '正在开始生成演示页面', 'success', sourceID)
     } else if (isTerminalTaskStreamEvent(data.type)) {
       busy.value = false

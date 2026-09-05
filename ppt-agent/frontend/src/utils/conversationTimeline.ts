@@ -56,6 +56,40 @@ function appendDelta(current: string, incoming: string) {
   return current + incoming
 }
 
+function isPlaceholderToolResult(result?: string) {
+  const normalized = result?.trim()
+  return !normalized || normalized === '工具调用已完成' || normalized === '工具调用失败' || normalized === '工具调用未返回结果' || normalized === '工具调用未完成' || normalized === '工具结果尚未返回'
+}
+
+function findToolCallForResult(
+  items: ConversationTimelineItem[],
+  payload: { callID?: string; name?: string; args?: string },
+) {
+  const callID = payload.callID?.trim()
+  const name = payload.name?.trim()
+  const args = payload.args?.trim()
+  if (callID) {
+    const byID = [...items]
+      .reverse()
+      .find((item): item is Extract<ConversationTimelineItem, { type: 'tool_call' }> => item.type === 'tool_call' && item.callID === callID)
+    if (byID) return byID
+  }
+  const candidates = [...items]
+    .reverse()
+    .filter((item): item is Extract<ConversationTimelineItem, { type: 'tool_call' }> => item.type === 'tool_call' && (!name || item.name === name))
+  const unresolved = candidates.find(item => item.state === 'running' || isPlaceholderToolResult(item.result))
+  if (unresolved) {
+    if (callID) unresolved.callID = callID
+    return unresolved
+  }
+  if (args) {
+    const sameArgs = candidates.find(item => item.args?.trim() === args)
+    if (sameArgs && callID) sameArgs.callID = callID
+    if (sameArgs) return sameArgs
+  }
+  return undefined
+}
+
 export function resetConversationTimeline(messages: ConversationMessage[]): ConversationTimelineItem[] {
   ordinal = 0
   return messages.map(message => ({ id: nextID('message'), type: 'message' as const, message }))
@@ -114,16 +148,16 @@ export function appendToolCall(
 
 export function appendToolResult(
   items: ConversationTimelineItem[],
-  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; result?: string; state?: ExecutionState; preview?: ToolPreview },
+  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; args?: string; result?: string; state?: ExecutionState; preview?: ToolPreview },
 ) {
   if (eventAlreadyRendered(items, 'tool_call', payload.eventID)) return undefined
   const callID = payload.callID || `call-${payload.eventID || nextID('call')}`
-  const call = [...items].reverse().find((item): item is Extract<ConversationTimelineItem, { type: 'tool_call' }> => item.type === 'tool_call' && (item.callID === callID || (!payload.callID && item.name === payload.name && item.state === 'running')))
+  const call = findToolCallForResult(items, { callID: payload.callID, name: payload.name, args: payload.args })
   const result = payload.result || (payload.state === 'error' ? '工具调用失败' : '工具调用已完成')
   if (call) {
     if (payload.state) call.state = payload.state
     else if (result) call.state = 'success'
-    if (result && (!call.result || call.result === '工具调用已完成' || call.result === '工具调用失败' || call.result.length < result.length)) {
+    if (result && (isPlaceholderToolResult(call.result) || (call.result?.length ?? 0) < result.length)) {
       call.result = result
     }
     if (payload.preview && !call.preview) call.preview = payload.preview
@@ -175,12 +209,17 @@ export function appendFinalAnswer(
 }
 
 export function finishStreamingEntries(items: ConversationTimelineItem[]) {
+  finishTimelineEntries(items)
+}
+
+export function finishTimelineEntries(items: ConversationTimelineItem[], options: { includeTools?: boolean } = {}) {
+  const includeTools = options.includeTools ?? true
   for (const item of items) {
     if (item.type === 'thought') {
       item.streaming = false
       if (item.state === 'running') item.state = 'success'
     }
-    if (item.type === 'tool_call' && item.state === 'running') {
+    if (includeTools && item.type === 'tool_call' && item.state === 'running') {
       item.state = item.result ? 'success' : 'error'
       if (!item.result) item.result = '工具调用未返回结果'
     }

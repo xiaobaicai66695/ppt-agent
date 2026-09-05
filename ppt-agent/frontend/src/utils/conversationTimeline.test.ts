@@ -5,6 +5,7 @@ import {
   appendToolCall,
   appendToolResult,
   finishStreamingEntries,
+  finishTimelineEntries,
   resetConversationTimeline,
   toggleTimelineItem,
 } from './conversationTimeline'
@@ -81,6 +82,33 @@ describe('conversation timeline', () => {
 
     expect(items.map(item => item.type)).toEqual(['thought', 'tool_call', 'final_answer'])
     expect(items[2]).toMatchObject({ type: 'final_answer', streaming: false })
+  })
+
+  it('keeps a tool call collapsible between llm_end and the next llm_start', () => {
+    const items = resetConversationTimeline([])
+
+    appendThought(items, '先确定需要检索。', { eventID: 51, segmentID: 'thought-1', delta: true })
+    finishTimelineEntries(items, { includeTools: false })
+    appendToolCall(items, { eventID: 52, name: 'search', label: '联网检索', args: '{"query":"同义词"}' })
+    finishTimelineEntries(items, { includeTools: false })
+    appendToolResult(items, { eventID: 53, name: 'search', label: '联网检索', args: '{"query":"同义词"}', result: '已获取同义词资料' })
+    appendThought(items, '根据检索结果继续回答。', { eventID: 54, segmentID: 'thought-2', delta: true })
+
+    expect(items.map(item => item.type)).toEqual(['thought', 'tool_call', 'thought'])
+    expect(items[1]).toMatchObject({ type: 'tool_call', state: 'success', expanded: true, result: '已获取同义词资料' })
+    expect(toggleTimelineItem(items, items[1].id)).toBe(false)
+    expect(items[1]).toMatchObject({ expanded: false })
+  })
+
+  it('repairs a late tool result after an older boundary marked the call unfinished', () => {
+    const items = resetConversationTimeline([])
+
+    appendToolCall(items, { eventID: 61, name: 'search', label: '联网检索' })
+    finishStreamingEntries(items)
+    appendToolResult(items, { eventID: 62, name: 'search', label: '联网检索', result: '迟到的真实结果' })
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ type: 'tool_call', state: 'success', result: '迟到的真实结果' })
   })
 
   it('starts a fresh thought card after a finished segment receives the same segment id again', () => {
