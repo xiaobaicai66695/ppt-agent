@@ -192,13 +192,7 @@ Planner 负责整体规划，目标态的 Reviewer / Refiner 负责渲染前计�
 
 ## 模型与回退
 
-模型配置通过环境变量提供。主模型不可用或遇到限流时，会按备用模型顺序回退：
-
-```text
-ARK_MODEL → ARK_MODEL_BACKUP1 → ARK_MODEL_BACKUP2 → ARK_MODEL_BACKUP3 → ARK_MODEL_BACKUP4
-```
-
-轻量意图识别可使用 `ARK_TEXT_MODEL`。视觉质量审查可使用 `ARK_QA_MODEL`。
+模型配置采用 provider-aware 环境变量：通过 `MODEL_CHAIN` 声明模型链，并为每个条目设置 `MODEL_<ENTRY>_PROVIDER`、`MODEL_<ENTRY>_NAME` 和 `MODEL_<ENTRY>_API_KEY_ENV`。轻量文本任务使用 `MODEL_TEXT_*` 配置。
 
 ## 上下文压缩与观测
 
@@ -265,15 +259,13 @@ npm run build
 
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `ARK_API_KEY` | 模型服务密钥 | 必填 |
-| `ARK_BASE_URL` | 模型服务地址 | 必填 |
-| `ARK_MODEL` | 主模型 | 必填 |
-| `ARK_MODEL_BACKUP1` 到 `ARK_MODEL_BACKUP4` | 备用模型 | 可选 |
-| `ARK_TEXT_MODEL` | 轻量文本模型 | 可选 |
-| `ARK_QA_MODEL` | 视觉审查模型 | 可选 |
+| `MODEL_CHAIN` | 模型链条目，逗号分隔 | `primary` |
+| `MODEL_<ENTRY>_PROVIDER` | 指定条目的模型供应商 | 必填 |
+| `MODEL_<ENTRY>_NAME` | 指定条目的模型名称 | 必填 |
+| `MODEL_<ENTRY>_API_KEY_ENV` | 保存该条目密钥的环境变量名称 | 必填 |
+| `MODEL_TEXT_PROVIDER`、`MODEL_TEXT_NAME`、`MODEL_TEXT_API_KEY_ENV` | 轻量文本模型配置 | 可选 |
 | `AGENT_MODE` | 执行模式 | `planner` |
 | `PLANNER_CONCURRENCY` | 分页生成并发数 | `5` |
-| `ENABLE_QA` | 是否启用 QA | `false` |
 | `STREAM_TIMEOUT` | 单次流式调用超时 | `3m` |
 | `PYTHON_BIN` | Python 可执行文件 | `/root/pptx_env/bin/python` |
 | `MYSQL_DSN` | MySQL 数据源 | 可选 |
