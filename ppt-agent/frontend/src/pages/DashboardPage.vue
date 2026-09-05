@@ -35,6 +35,8 @@ let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 let streamCursor = 0
 let reconnectAttempts = 0
 let streamGeneration = 0
+let selectionGeneration = 0
+let stickRequestPending = false
 
 const activeTitle = computed(() => selected.value?.query || '新的创作会话')
 const sorted = computed(() => [...tasks.value].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)))
@@ -52,7 +54,7 @@ function closeStream() {
 
 function addExecution(label: string, detail = '', state: ExecutionState = 'running', eventID?: number) {
   appendExecutionStep(timeline.value, label, detail, state, eventID)
-  void nextTick(stickToLatestMessage)
+  requestStickToLatestMessage()
 }
 
 function handleTimelineScroll() {
@@ -66,16 +68,37 @@ function stickToLatestMessage() {
   container.scrollTop = container.scrollHeight
 }
 
+// Coalesce scroll writes when SSE delivers many frames in a single turn.
+function requestStickToLatestMessage() {
+  if (stickRequestPending) return
+  stickRequestPending = true
+  void nextTick(() => {
+    stickRequestPending = false
+    stickToLatestMessage()
+  })
+}
+
+function timelineMemoKey(item: ConversationTimelineItem) {
+  if (item.type === 'message') return item.id
+  if (item.type === 'thought') return `${item.id}:${item.content.length}:${item.state}:${item.expanded}:${item.streaming}`
+  if (item.type === 'tool_call') return `${item.id}:${item.state}:${item.expanded}:${item.result?.length || 0}:${item.preview?.images?.length || 0}`
+  if (item.type === 'final_answer') return `${item.id}:${item.content.length}:${item.streaming}`
+  if (item.type === 'error') return `${item.id}:${item.content.length}`
+  return `${item.id}:${item.state}:${item.detail || ''}`
+}
+
 async function loadTasks() {
   tasks.value = await fetchTasks()
 }
 
 async function select(task: TaskInfo) {
+  const currentSelection = ++selectionGeneration
   closeStream()
   shouldFollowStream.value = true
   selected.value = task
   error.value = ''
   const session = await fetchConversation(task.id)
+  if (currentSelection !== selectionGeneration || selected.value?.id !== task.id) return
   const history = session.messages || []
   timeline.value = resetConversationTimeline(history)
   if (session.conversation_streaming || task.status === 'running') {
@@ -223,7 +246,7 @@ function consume(raw: string, eventID?: number) {
       addExecution(data.type === 'conversation_complete' ? '回答完成' : paused ? '生成已暂停，可继续恢复' : '生成阶段结束', '', paused ? 'error' : 'success', sourceID)
       void refreshSelected(data.type !== 'conversation_complete')
     }
-    void nextTick(stickToLatestMessage)
+    requestStickToLatestMessage()
   } catch {
     // Ignore SSE keepalive frames.
   }
@@ -246,7 +269,8 @@ async function submit() {
   appendTimelineMessage(timeline.value, { role: 'user', content: text, timestamp: new Date().toISOString() })
   prompt.value = ''
   busy.value = true
-  await nextTick(stickToLatestMessage)
+  await nextTick()
+  requestStickToLatestMessage()
 
   try {
     if (selected.value?.status === 'completed' || selected.value?.status === 'failed' || selected.value?.status === 'cancelled' || selected.value?.status === 'paused_retryable') {
@@ -385,10 +409,10 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
           <div><span class="canvas-kicker">{{ selected ? taskLabel(selected.status) : '准备就绪' }}</span><h2>{{ activeTitle }}</h2></div>
           <div v-if="selected" class="canvas-actions"><button v-if="selected.status === 'running'" class="outline-button" @click="stop"><CircleStop :size="15" />停止</button><button v-if="selected.status === 'paused_retryable'" class="outline-button" :disabled="busy" @click="resumePausedTask"><RefreshCw :size="15" />继续恢复</button><a v-for="file in selected.files" :key="file" class="download" :href="taskDownloadUrl(selected.id, file)"><FileDown :size="15" />下载</a></div>
         </header>
-        <div ref="messagesContainer" class="messages" aria-live="polite" @scroll.passive="handleTimelineScroll">
+        <div ref="messagesContainer" class="messages" @scroll.passive="handleTimelineScroll">
           <div v-if="!hasTimeline" class="blank-canvas"><span><Bot :size="25" /></span><h3>从一个问题开始。</h3><p>可以让它解释、梳理资料，或直接开始一份演示。明确需求会让成稿更接近你的表达。</p><div><button @click="prompt = '为一场产品发布会规划 8 页叙事'">规划一份发布会演示</button><button @click="prompt = '总结这份资料的核心观点'">先梳理一个主题</button></div></div>
           <div v-if="timeline.length" class="timeline-list" role="list" aria-label="对话与执行时间线">
-            <ConversationTimelineItemCard v-for="item in timeline" :key="item.id" :item="item" @toggle="toggleTimelineEntry" />
+            <ConversationTimelineItemCard v-for="item in timeline" :key="item.id" v-memo="[timelineMemoKey(item)]" :item="item" @toggle="toggleTimelineEntry" />
           </div>
           <TaskDeliveryPreview v-if="selected?.status === 'completed'" :task="selected" :revision="thumbnailRevision" />
           <button v-if="selected?.status === 'completed'" type="button" class="feedback-trigger" @click="feedbackDialogOpen = true">{{ selected.feedback ? '修改评价' : '评价这份演示' }}</button>

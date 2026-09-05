@@ -39,53 +39,67 @@ export function parseMarkdownInline(source: string): MarkdownInline[] {
   const tokens: MarkdownInline[] = []
   let index = 0
   while (index < source.length) {
-    const rest = source.slice(index)
-    const image = rest.match(/^!\[([^\]]*)\]\(\s*([^)]+?)\s*\)/)
-    if (image) {
-      const src = safeMarkdownDestination(image[2])
-      if (src) {
-        tokens.push({ type: 'image', alt: image[1] || '图片参考', src })
-        index += image[0].length
+    // Keep this scanner linear in the input length. The previous implementation
+    // ran several anchored regexes against `source.slice(index)` for every
+    // character, making long streamed answers increasingly expensive to render.
+    const imageStart = source.startsWith('![', index)
+    const linkStart = source[index] === '['
+    if (imageStart || linkStart) {
+      const labelStart = index + (imageStart ? 2 : 1)
+      const labelEnd = source.indexOf(']', labelStart)
+      if (labelEnd >= 0 && source[labelEnd + 1] === '(') {
+        const destinationEnd = source.indexOf(')', labelEnd + 2)
+        if (destinationEnd >= 0) {
+          const label = source.slice(labelStart, labelEnd)
+          const destination = source.slice(labelEnd + 2, destinationEnd).trim()
+          const safeDestination = safeMarkdownDestination(destination)
+          if (safeDestination) {
+            tokens.push(imageStart
+              ? { type: 'image', alt: label || '图片参考', src: safeDestination }
+              : { type: 'link', label, href: safeDestination })
+            index = destinationEnd + 1
+            continue
+          }
+        }
+      }
+    }
+    if (source[index] === '`') {
+      const end = source.indexOf('`', index + 1)
+      if (end > index + 1) {
+        tokens.push({ type: 'code', value: source.slice(index + 1, end) })
+        index = end + 1
         continue
       }
     }
-    const link = rest.match(/^\[([^\]]+)\]\(\s*([^)]+?)\s*\)/)
-    if (link) {
-      const href = safeMarkdownDestination(link[2])
-      if (href) {
-        tokens.push({ type: 'link', label: link[1], href })
-        index += link[0].length
+    if (source.startsWith('**', index)) {
+      const end = source.indexOf('**', index + 2)
+      if (end > index + 2) {
+        tokens.push({ type: 'strong', value: source.slice(index + 2, end) })
+        index = end + 2
         continue
       }
-    }
-    const code = rest.match(/^`([^`]+)`/)
-    if (code) {
-      tokens.push({ type: 'code', value: code[1] })
-      index += code[0].length
-      continue
-    }
-    const strong = rest.match(/^\*\*([^*]+)\*\*/)
-    if (strong) {
-      tokens.push({ type: 'strong', value: strong[1] })
-      index += strong[0].length
-      continue
     }
     // A streamed Markdown media/link token is not valid until its closing
     // parenthesis arrives. Preserve the whole partial token as text instead
     // of turning only the URL suffix into a link and hiding the syntax.
-    if (/^!\[[^\]]*\]\([^)]*$/.test(rest) || /^\[[^\]]+\]\([^)]*$/.test(rest)) {
-      appendText(tokens, rest)
-      break
+    if (imageStart || linkStart) {
+      const labelStart = index + (imageStart ? 2 : 1)
+      const labelEnd = source.indexOf(']', labelStart)
+      if (labelEnd >= 0 && source[labelEnd + 1] === '(' && source.indexOf(')', labelEnd + 2) < 0) {
+        appendText(tokens, source.slice(index))
+        break
+      }
     }
-    const bareURL = rest.match(/^https?:\/\/[^\s<>'"]+/)
-    if (bareURL) {
-      const value = bareURL[0]
+    if (source.startsWith('http://', index) || source.startsWith('https://', index)) {
+      let end = index
+      while (end < source.length && !/[\s<>'"]/.test(source[end])) end += 1
+      const value = source.slice(index, end)
       const trimmed = value.replace(/[.,;:!?]+$/, '')
       const href = safeURL(trimmed)
       if (href) {
         tokens.push({ type: 'link', label: trimmed, href })
         appendText(tokens, value.slice(trimmed.length))
-        index += value.length
+        index = end
         continue
       }
     }
