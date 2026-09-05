@@ -21,13 +21,3 @@ type UserAPIKey struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
-
-// VerificationCode — 邮箱验证码。
-type VerificationCode struct {
-	ID        uint      `gorm:"primaryKey" json:"-"`
-	Email     string    `gorm:"size:120;index;not null" json:"email"`
-	Code      string    `gorm:"size:10;not null" json:"-"`
-	Used      bool      `gorm:"default:false" json:"-"`
-	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-}

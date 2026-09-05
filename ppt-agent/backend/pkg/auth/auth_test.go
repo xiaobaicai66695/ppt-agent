@@ -2,11 +2,42 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
 )
+
+type fakeVerificationCodeStore struct {
+	issued   bool
+	consumed bool
+	err      error
+}
+
+func (s *fakeVerificationCodeStore) Issue(context.Context, string, string, time.Duration, int) (bool, error) {
+	return s.issued, s.err
+}
+
+func (s *fakeVerificationCodeStore) Consume(context.Context, string, string) (bool, error) {
+	return s.consumed, s.err
+}
+
+func (s *fakeVerificationCodeStore) Close() error { return nil }
+
+func useVerificationStoreForTest(t *testing.T, store verificationCodeStore) {
+	t.Helper()
+	verificationStoreMu.Lock()
+	previous := verificationStore
+	verificationStore = store
+	verificationStoreMu.Unlock()
+	t.Cleanup(func() {
+		verificationStoreMu.Lock()
+		verificationStore = previous
+		verificationStoreMu.Unlock()
+	})
+}
 
 func TestValidateSessionDoesNotRequireDatabase(t *testing.T) {
 	previousDB := db.DB
@@ -104,5 +135,53 @@ func TestValidatePassword(t *testing.T) {
 				t.Fatalf("ValidatePassword(%q) error = %v, wantErr %v", tt.password, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestConsumeVerificationCodeRequiresConfiguredStore(t *testing.T) {
+	useVerificationStoreForTest(t, nil)
+	if err := consumeVerificationCode("user@example.com", "123456"); err == nil || !strings.Contains(err.Error(), "暂不可用") {
+		t.Fatalf("consumeVerificationCode() error = %v, want unavailable-store error", err)
+	}
+}
+
+func TestSendCodeRejectsUnavailableOrRateLimitedStore(t *testing.T) {
+	useVerificationStoreForTest(t, nil)
+	if err := SendCode("user@example.com"); err == nil || !strings.Contains(err.Error(), "暂不可用") {
+		t.Fatalf("SendCode() error = %v, want unavailable-store error", err)
+	}
+
+	useVerificationStoreForTest(t, &fakeVerificationCodeStore{issued: false})
+	if err := SendCode("user@example.com"); err == nil || !strings.Contains(err.Error(), "发送过于频繁") {
+		t.Fatalf("SendCode() error = %v, want rate-limit error", err)
+	}
+}
+
+func TestConsumeVerificationCodeRejectsReuse(t *testing.T) {
+	useVerificationStoreForTest(t, &fakeVerificationCodeStore{consumed: true})
+	if err := consumeVerificationCode("user@example.com", "123456"); err != nil {
+		t.Fatalf("consumeVerificationCode() error = %v", err)
+	}
+
+	useVerificationStoreForTest(t, &fakeVerificationCodeStore{consumed: false})
+	if err := consumeVerificationCode("user@example.com", "123456"); err == nil || !strings.Contains(err.Error(), "错误或已过期") {
+		t.Fatalf("consumeVerificationCode() error = %v, want expired-code error", err)
+	}
+}
+
+func TestConsumeVerificationCodeWrapsRedisFailure(t *testing.T) {
+	useVerificationStoreForTest(t, &fakeVerificationCodeStore{err: errors.New("redis unavailable")})
+	if err := consumeVerificationCode("user@example.com", "123456"); err == nil || !strings.Contains(err.Error(), "验证失败") {
+		t.Fatalf("consumeVerificationCode() error = %v, want verification failure", err)
+	}
+}
+
+func TestVerificationRedisKeysDoNotExposeEmail(t *testing.T) {
+	email := "user@example.com"
+	if key := verificationCodeKey(email); strings.Contains(key, email) {
+		t.Fatalf("verification code key exposes email: %q", key)
+	}
+	if key := verificationAttemptsKey(email); strings.Contains(key, email) {
+		t.Fatalf("verification attempts key exposes email: %q", key)
 	}
 }

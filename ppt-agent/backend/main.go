@@ -119,6 +119,17 @@ func main() {
 // ---------------------------------------------------------------------------
 
 func runWebMode(pwd, skillsDir, addr string) {
+	if err := auth.InitVerificationStoreFromEnv(context.Background()); err != nil {
+		logger.Error("email_verification_redis_init_failed", "error", err.Error())
+		return
+	}
+	defer func() {
+		if err := auth.CloseVerificationStore(); err != nil {
+			logger.Warn("email_verification_redis_close_failed", "error", err.Error())
+		}
+	}()
+	logger.Info("email_verification_redis_ready")
+
 	outputBase := filepath.Join(pwd, "..", "weboutput")
 
 	// Shared operator (stateless, safe to reuse).

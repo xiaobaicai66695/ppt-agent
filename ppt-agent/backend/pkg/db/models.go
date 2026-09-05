@@ -7,7 +7,6 @@ import "github.com/cloudwego/ppt-agent/pkg/db/internal/model"
 type (
 	User                     = model.User
 	UserAPIKey               = model.UserAPIKey
-	VerificationCode         = model.VerificationCode
 	TaskRecord               = model.TaskRecord
 	TaskFeedback             = model.TaskFeedback
 	PlanDraftRecord          = model.PlanDraftRecord

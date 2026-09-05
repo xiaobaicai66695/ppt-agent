@@ -14,12 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-
-	"github.com/cloudwego/ppt-agent/pkg/db"
-	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 const (
@@ -44,23 +43,17 @@ func SendCode(email string) error {
 		return errors.New("请输入有效的邮箱地址")
 	}
 
-	var recentCount int64
-	db.DB.Model(&db.VerificationCode{}).
-		Where("email = ? AND created_at > ?", email, time.Now().Add(-codeDuration)).
-		Count(&recentCount)
-	if recentCount >= codeMaxAttempts {
-		return errors.New("验证码发送过于频繁，请稍后再试")
-	}
-
 	code := generateCode(6)
-
-	vc := &db.VerificationCode{
-		Email:     email,
-		Code:      code,
-		ExpiresAt: time.Now().Add(codeDuration),
+	store := currentVerificationStore()
+	if store == nil {
+		return errors.New("邮箱验证码服务暂不可用")
 	}
-	if err := db.DB.Create(vc).Error; err != nil {
+	issued, err := store.Issue(context.Background(), email, code, codeDuration, codeMaxAttempts)
+	if err != nil {
 		return fmt.Errorf("保存验证码失败: %w", err)
+	}
+	if !issued {
+		return errors.New("验证码发送过于频繁，请稍后再试")
 	}
 
 	if err := SendVerificationCode(email, code); err != nil {
@@ -84,7 +77,7 @@ func LoginWithCode(email, code string) (token string, user *db.User, err error) 
 		}
 		return "", nil, fmt.Errorf("查询用户失败: %w", err)
 	}
-	if err := consumeVerificationCode(db.DB, email, code); err != nil {
+	if err := consumeVerificationCode(email, code); err != nil {
 		return "", nil, err
 	}
 	token, err = createToken(u)
@@ -95,8 +88,8 @@ func LoginWithCode(email, code string) (token string, user *db.User, err error) 
 }
 
 // Register verifies an email code and creates an account with a compliant
-// password. The verification code is consumed only when the account is
-// successfully created.
+// password. Redis and MySQL cannot share a transaction, so the code is
+// consumed immediately before the account creation attempt.
 func Register(email, code, password string) (token string, user *db.User, err error) {
 	email = normalizeEmail(email)
 	if !looksLikeEmail(email) || code == "" {
@@ -110,24 +103,19 @@ func Register(email, code, password string) (token string, user *db.User, err er
 	if err != nil {
 		return "", nil, fmt.Errorf("密码加密失败: %w", err)
 	}
-	u := &db.User{Email: email, Password: string(hash)}
-	err = db.DB.Transaction(func(tx *gorm.DB) error {
-		var existing db.User
-		if err := tx.Where("email = ?", email).First(&existing).Error; err == nil {
-			return errors.New("该邮箱已注册，请直接登录")
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("查询用户失败: %w", err)
-		}
-		if err := consumeVerificationCode(tx, email, code); err != nil {
-			return err
-		}
-		if err := tx.Create(u).Error; err != nil {
-			return fmt.Errorf("创建用户失败: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
+	var existing db.User
+	if err := db.DB.Where("email = ?", email).First(&existing).Error; err == nil {
+		return "", nil, errors.New("该邮箱已注册，请直接登录")
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil, fmt.Errorf("查询用户失败: %w", err)
+	}
+	if err := consumeVerificationCode(email, code); err != nil {
 		return "", nil, err
+	}
+	u := &db.User{Email: email, Password: string(hash)}
+	err = db.DB.Create(u).Error
+	if err != nil {
+		return "", nil, fmt.Errorf("创建用户失败: %w", err)
 	}
 	token, err = createToken(u)
 	if err != nil {
@@ -136,17 +124,17 @@ func Register(email, code, password string) (token string, user *db.User, err er
 	return token, u, nil
 }
 
-func consumeVerificationCode(database *gorm.DB, email, code string) error {
-	var vc db.VerificationCode
-	if err := database.Where("email = ? AND code = ? AND used = false AND expires_at > ?",
-		email, code, time.Now()).Order("id DESC").First(&vc).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("验证码错误或已过期")
-		}
+func consumeVerificationCode(email, code string) error {
+	store := currentVerificationStore()
+	if store == nil {
+		return errors.New("邮箱验证码服务暂不可用")
+	}
+	consumed, err := store.Consume(context.Background(), email, code)
+	if err != nil {
 		return fmt.Errorf("验证失败: %w", err)
 	}
-	if err := database.Model(&vc).Update("used", true).Error; err != nil {
-		return fmt.Errorf("更新验证码状态失败: %w", err)
+	if !consumed {
+		return errors.New("验证码错误或已过期")
 	}
 	return nil
 }

@@ -277,6 +277,9 @@ npm run build
 | `STREAM_TIMEOUT` | 单次流式调用超时 | `3m` |
 | `PYTHON_BIN` | Python 可执行文件 | `/root/pptx_env/bin/python` |
 | `MYSQL_DSN` | MySQL 数据源 | 可选 |
+| `EMAIL_VERIFICATION_REDIS_ADDR` | 邮箱验证码 Redis 地址（Web 模式必填） | 无 |
+| `EMAIL_VERIFICATION_REDIS_PASSWORD` | 邮箱验证码 Redis 密码 | 可选 |
+| `EMAIL_VERIFICATION_REDIS_DB` | 邮箱验证码 Redis DB 序号 | `0` |
 | `COZELOOP_API_TOKEN` | CozeLoop 令牌 | 可选 |
 | `COZELOOP_WORKSPACE_ID` | CozeLoop 工作区 | 可选 |
 
