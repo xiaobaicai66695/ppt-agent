@@ -607,8 +607,11 @@ func materializePlannedImageAssetsWithClient(ctx context.Context, workDir string
 	for _, err := range errs {
 		if err != nil {
 			if isRecoverableAssetError(err) {
-				logger.Warn("image_asset_skipped", "error", err.Error())
-				continue
+				// An image component is a required rendered visual. Unlike a
+				// background, there is no safe generic fallback that preserves its
+				// layout contract, so do not leave an unresolved component for the
+				// Python validator to discover later.
+				return 0, fmt.Errorf("foreground image asset could not be materialized: %w", err)
 			}
 			return 0, err
 		}

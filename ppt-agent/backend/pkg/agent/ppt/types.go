@@ -82,7 +82,7 @@ type CompressorConfig = agentutils.CompressorConfig
 type TasksManifest struct {
 	Title        string         `json:"title"`
 	ContentBank  map[string]any `json:"content_bank,omitempty"`
-	Sections     []PPTSection  `json:"sections,omitempty"`
+	Sections     []PPTSection   `json:"sections,omitempty"`
 	VisualPolicy *VisualPolicy  `json:"visual_policy,omitempty"`
 	Tasks        []*TaskItem    `json:"tasks"`
 }
@@ -91,10 +91,12 @@ type TasksManifest struct {
 // Missing policy defaults to required so regular ppts cannot silently lose
 // their backgrounds; mode=none is an explicit benchmark/test exemption.
 type VisualPolicy struct {
-	Mode          string   `json:"mode,omitempty"` // required | optional | none
-	MinImagePages int      `json:"min_image_pages,omitempty"`
-	RequiredRoles []string `json:"required_roles,omitempty"`
-	Reason        string   `json:"reason,omitempty"`
+	Mode                   string   `json:"mode,omitempty"` // required | optional | none
+	MinImagePages          int      `json:"min_image_pages,omitempty"`
+	RequiredRoles          []string `json:"required_roles,omitempty"`
+	UserDeclinedBackground bool     `json:"user_declined_background,omitempty"`
+	DeclineReason          string   `json:"decline_reason,omitempty"`
+	Reason                 string   `json:"reason,omitempty"`
 }
 
 type TaskItem struct {

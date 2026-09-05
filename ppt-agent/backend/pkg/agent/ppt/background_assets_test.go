@@ -261,7 +261,7 @@ func TestMaterializePlannedBackgroundsReturnsLLMRevisionRequestForHTTP410(t *tes
 	}
 }
 
-func TestMaterializePlannedImageAssetsSkipsRecoverableSearchFailures(t *testing.T) {
+func TestMaterializePlannedImageAssetsRejectsRecoverableSearchFailures(t *testing.T) {
 	workDir := t.TempDir()
 	query := "removed press briefing photo"
 	manifest := &TasksManifest{Tasks: []*TaskItem{{
@@ -281,8 +281,8 @@ func TestMaterializePlannedImageAssetsSkipsRecoverableSearchFailures(t *testing.
 		query: fmt.Errorf("unsplash API HTTP 410: Content removed"),
 	}}
 	count, err := materializePlannedImageAssetsWithClient(context.Background(), workDir, targets, client)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("expected foreground image materialization error")
 	}
 	if count != 0 {
 		t.Fatalf("expected no foreground images to be materialized, got %d", count)

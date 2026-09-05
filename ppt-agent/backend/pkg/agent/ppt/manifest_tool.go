@@ -60,13 +60,37 @@ var manifestTaskPatchSchema = map[string]*schema.ParameterInfo{
 	},
 }
 
+var visualPolicySchema = map[string]*schema.ParameterInfo{
+	"mode": {
+		Type: schema.String,
+		Desc: "视觉素材策略：required/optional/none；常规生成使用 required。required 时后端会要求所有页使用 background。",
+	},
+	"min_image_pages": {
+		Type: schema.Integer,
+		Desc: "required 模式下的最小图片页数；留空时后端按全部页面数补齐。",
+	},
+	"required_roles": {
+		Type:     schema.Array,
+		Desc:     "required 模式下必须包含 background；留空时后端补齐。",
+		ElemInfo: &schema.ParameterInfo{Type: schema.String},
+	},
+	"user_declined_background": {
+		Type: schema.Boolean,
+		Desc: "仅 mode=none 且用户明确拒绝背景图时为 true。",
+	},
+	"decline_reason": {
+		Type: schema.String,
+		Desc: "仅 mode=none 时记录用户明确拒绝背景图的原因。",
+	},
+}
+
 var plannerManifestToolInfo = &schema.ToolInfo{
 	Name: "update_tasks_manifest",
 	Desc: "一次性初始化完整 PPTSpec 规划草稿。Planner 只能使用 initialize，审查、修订和提交由后续阶段负责。",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"mode":          {Type: schema.String, Required: true, Desc: "固定填写 initialize"},
 		"title":         {Type: schema.String, Desc: "PPT 标题；缺省时系统会从任务上下文推断"},
-		"visual_policy": {Type: schema.Object, Desc: "整套视觉素材策略；mode 为 required/optional/none，常规生成保持 required"},
+		"visual_policy": {Type: schema.Object, Desc: "整套视觉素材策略；mode 为 required/optional/none，常规生成保持 required", SubParams: visualPolicySchema},
 		"tasks": {
 			Type:     schema.Array,
 			Required: true,
@@ -92,7 +116,7 @@ type manifestToolInput struct {
 	Mode         string              `json:"mode"`
 	Title        string              `json:"title,omitempty"`
 	ContentBank  map[string]any      `json:"content_bank,omitempty"`
-	Sections     []PPTSection       `json:"sections,omitempty"`
+	Sections     []PPTSection        `json:"sections,omitempty"`
 	VisualPolicy *VisualPolicy       `json:"visual_policy,omitempty"`
 	Tasks        []manifestTaskPatch `json:"tasks"`
 }
@@ -101,7 +125,7 @@ type manifestToolRawInput struct {
 	Mode         string          `json:"mode"`
 	Title        string          `json:"title,omitempty"`
 	ContentBank  map[string]any  `json:"content_bank,omitempty"`
-	Sections     []PPTSection   `json:"sections,omitempty"`
+	Sections     []PPTSection    `json:"sections,omitempty"`
 	VisualPolicy *VisualPolicy   `json:"visual_policy,omitempty"`
 	Tasks        json.RawMessage `json:"tasks"`
 }
@@ -306,8 +330,49 @@ func normalizePlannerInitialManifest(manifest *TasksManifest) {
 	if manifest == nil {
 		return
 	}
+	normalizeVisualPolicy(manifest)
 	for _, item := range manifest.Tasks {
 		normalizePlannerInitialTask(item)
+	}
+}
+
+// normalizeVisualPolicy keeps the Go-side plan contract aligned with the
+// Python visual validator. Planner output may omit derived coverage fields,
+// but a required policy cannot reach rendering without them.
+func normalizeVisualPolicy(manifest *TasksManifest) {
+	if manifest == nil {
+		return
+	}
+	if manifest.VisualPolicy == nil {
+		manifest.VisualPolicy = &VisualPolicy{}
+	}
+	policy := manifest.VisualPolicy
+	policy.Mode = strings.ToLower(strings.TrimSpace(policy.Mode))
+	if policy.Mode == "" {
+		policy.Mode = "required"
+	}
+	if policy.Mode != "required" {
+		return
+	}
+	roles := make([]string, 0, len(policy.RequiredRoles)+1)
+	seen := make(map[string]struct{}, len(policy.RequiredRoles)+1)
+	for _, role := range policy.RequiredRoles {
+		role = strings.TrimSpace(role)
+		if role == "" {
+			continue
+		}
+		if _, ok := seen[role]; ok {
+			continue
+		}
+		seen[role] = struct{}{}
+		roles = append(roles, role)
+	}
+	if _, ok := seen["background"]; !ok {
+		roles = append(roles, "background")
+	}
+	policy.RequiredRoles = roles
+	if policy.MinImagePages < len(manifest.Tasks) {
+		policy.MinImagePages = len(manifest.Tasks)
 	}
 }
 
@@ -773,6 +838,7 @@ func applyManifestPatches(manifest *TasksManifest, input manifestToolInput) (*Ta
 		}
 		applyManifestPatch(item, patch)
 	}
+	normalizeVisualPolicy(manifest)
 	return manifest, nil
 }
 
@@ -974,6 +1040,9 @@ func validateContentPlanContract(item *TaskItem) error {
 		if component.Type == "section_marker" && strings.TrimSpace(component.Text) == "" {
 			return fmt.Errorf("component %q of type section_marker requires text such as 01", component.ID)
 		}
+		if component.Type == "image" && strings.TrimSpace(component.LocalPath) == "" && strings.TrimSpace(component.AssetQuery) == "" {
+			return fmt.Errorf("image component %q requires local_path or asset_query before rendering", component.ID)
+		}
 		if strings.TrimSpace(component.Title) == "" && strings.TrimSpace(component.Text) == "" &&
 			strings.TrimSpace(component.Body) == "" && len(component.Items) == 0 && len(component.Data) == 0 &&
 			strings.TrimSpace(component.Role) == "" && strings.TrimSpace(component.Relation) == "" &&
@@ -1012,14 +1081,20 @@ func validPlanComponentType(componentType string) bool {
 
 func maxComponentsForContentType(contentType string) int {
 	switch strings.TrimSpace(contentType) {
-	case "title_slide", "section_divider", "quote_slide":
+	case "title_slide":
 		return 4
-	case "agenda", "kpi_dashboard":
+	case "agenda", "timeline", "chart_slide":
 		return 6
-	case "timeline", "card_grid", "swot_analysis", "brand_focus":
+	case "section_divider", "quote_slide":
+		return 3
+	case "kpi_dashboard":
+		return 4
+	case "comparison_table":
+		return 5
+	case "content_slide", "card_grid", "swot_analysis", "brand_focus":
 		return 8
-	case "chart_slide", "comparison_table", "image_text":
-		return 10
+	case "image_text":
+		return 6
 	case "kanban":
 		return 10
 	default:

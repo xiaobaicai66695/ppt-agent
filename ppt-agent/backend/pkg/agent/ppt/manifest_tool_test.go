@@ -54,6 +54,39 @@ func TestPlannerManifestToolOnlyInitializesDraft(t *testing.T) {
 	}
 }
 
+func TestNormalizeVisualPolicyMatchesRequiredPythonContract(t *testing.T) {
+	manifest := &TasksManifest{Tasks: []*TaskItem{{}, {}}, VisualPolicy: &VisualPolicy{Mode: "required"}}
+	normalizePlannerInitialManifest(manifest)
+	if manifest.VisualPolicy.MinImagePages != 2 {
+		t.Fatalf("min_image_pages = %d, want 2", manifest.VisualPolicy.MinImagePages)
+	}
+	if len(manifest.VisualPolicy.RequiredRoles) != 1 || manifest.VisualPolicy.RequiredRoles[0] != "background" {
+		t.Fatalf("required_roles = %#v, want [background]", manifest.VisualPolicy.RequiredRoles)
+	}
+}
+
+func TestMaxComponentsForContentTypeMatchesGeneratorContracts(t *testing.T) {
+	want := map[string]int{
+		"section_divider": 3, "quote_slide": 3, "image_text": 6,
+		"timeline": 6, "kpi_dashboard": 4, "chart_slide": 6,
+		"comparison_table": 5, "card_grid": 8, "kanban": 10,
+	}
+	for contentType, limit := range want {
+		if got := maxComponentsForContentType(contentType); got != limit {
+			t.Errorf("%s max components = %d, want %d", contentType, got, limit)
+		}
+	}
+}
+
+func TestValidateContentPlanRejectsImageWithoutMaterializationRoute(t *testing.T) {
+	err := validateContentPlanContract(&TaskItem{ContentType: "content_slide", ContentPlan: &ContentPlan{Components: []PlanComponent{{
+		ID: "image-1", Type: "image", AssetPurpose: "scene",
+	}}}})
+	if err == nil || !strings.Contains(err.Error(), "requires local_path or asset_query") {
+		t.Fatalf("expected missing image materialization route error, got %v", err)
+	}
+}
+
 func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{
