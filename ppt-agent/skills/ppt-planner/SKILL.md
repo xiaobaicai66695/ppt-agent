@@ -90,6 +90,8 @@ unsplash fetch --work-dir <work-dir>
 
 `unsplash auth` 会显示 `accessToken（输入后不会回显）:`；粘贴或输入 Access Key 后按 Enter，输入字符不可见是正常的保护行为。服务器部署可在已加载环境变量后执行 `unsplash auth --from-env`，它读取 `UNSPLASH_ACCESS_KEY`（兼容 `UNSPLASH_ACCESS_TOKEN`）且不会回显密钥。认证信息保存到 skill 根目录、已被 Git 忽略的 `auth.txt`。Access Key 在 Unsplash Developers 控制台创建应用后可获得；不要写入 `tasks.json`、日志、prompt、命令参数或仓库文件。下载成功后脚本会回写 `local_path`、`source_url`、`attribution` 和图片元数据。
 
+若任务清单中已有项目内 `search_images` 返回的候选字段（如 `asset_id`/`id`、`image_url`、`preview_url`、`source_url`、`download_location`、`photographer`、`photographer_url`、`attribution`），仍必须先运行 `unsplash fetch --work-dir <work-dir>`，由 CLI 下载并写回真实 `local_path` 后再执行校验和渲染；不能把远程 `image_url` 当作本地图片路径。
+
 ## 校验与渲染入口
 
 渲染前运行确定性预检：

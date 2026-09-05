@@ -19,7 +19,7 @@ func TestImageSearchToolReturnsAttributableCandidates(t *testing.T) {
 			t.Fatalf("per_page = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"photo-1","urls":{"regular":"https://images.unsplash.com/photo-1","small":"https://images.unsplash.com/photo-1-small"},"links":{"html":"https://unsplash.com/photos/photo-1"},"user":{"name":"Photographer","links":{"html":"https://unsplash.com/@photographer"}}}]}`))
+		_, _ = w.Write([]byte(`{"results":[{"id":"photo-1","urls":{"regular":"https://images.unsplash.com/photo-1","small":"https://images.unsplash.com/photo-1-small"},"links":{"html":"https://unsplash.com/photos/photo-1","download_location":"https://api.unsplash.com/photos/photo-1/download"},"user":{"name":"Photographer","links":{"html":"https://unsplash.com/@photographer"}}}]}`))
 	}))
 	defer server.Close()
 
@@ -41,6 +41,9 @@ func TestImageSearchToolReturnsAttributableCandidates(t *testing.T) {
 	photo := response.Photos[0]
 	if photo.PreviewURL != "https://images.unsplash.com/photo-1-small" || photo.Attribution != "Photo by Photographer on Unsplash" {
 		t.Fatalf("photo = %#v", photo)
+	}
+	if photo.AssetID != "photo-1" || photo.AssetQuery != "northwest china landscape" || photo.DownloadLocation != "https://api.unsplash.com/photos/photo-1/download" {
+		t.Fatalf("PPTSpec-compatible fields missing: %#v", photo)
 	}
 	if photo.SourceURL == "https://unsplash.com/photos/photo-1" || photo.PhotographerURL == "https://unsplash.com/@photographer" {
 		t.Fatalf("Unsplash referral tags are missing: %#v", photo)

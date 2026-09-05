@@ -50,6 +50,84 @@ test("fetch reuses one background asset for every page with the same content_typ
   }
 });
 
+test("fetch materializes foreground image components and selected search_images candidates", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "ppt-planner-unsplash-"));
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.UNSPLASH_ACCESS_KEY;
+  let searchCalls = 0;
+  let imageCalls = 0;
+  try {
+    await writeFile(join(workDir, "tasks.json"), JSON.stringify({
+      tasks: [
+        {
+          task_id: "slide-1",
+          content_type: "image_text",
+          content_plan: {
+            visual_intent: {
+              asset_purpose: "background",
+              asset_query: "city skyline",
+              asset_subject: "city skyline",
+              composition: "wide landscape",
+              orientation: "landscape",
+            },
+            components: [
+              {
+                id: "scene",
+                type: "image",
+                asset_purpose: "scene",
+                asset_query: "AI control room operators reviewing dashboard",
+                asset_subject: "AI control room",
+              },
+              {
+                id: "selected",
+                type: "image",
+                asset_purpose: "evidence",
+                asset_id: "selected-photo",
+                image_url: "https://images.unsplash.com/selected-photo.jpg",
+                preview_url: "https://images.unsplash.com/selected-photo-small.jpg",
+                source_url: "https://unsplash.com/photos/selected-photo",
+                attribution: "Photo by Selected Photographer on Unsplash",
+              },
+            ],
+          },
+        },
+      ],
+    }));
+    process.env.UNSPLASH_ACCESS_KEY = "test-key";
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/search/photos")) {
+        searchCalls += 1;
+        return jsonResponse({ results: [photo(`photo-${searchCalls}`)] });
+      }
+      if (url.includes("/download")) return jsonResponse({});
+      imageCalls += 1;
+      return imageResponse();
+    };
+
+    await hydrateUnsplashAssets(["--external-agent", "--work-dir", workDir]);
+
+    const manifest = JSON.parse(await readFile(join(workDir, "tasks.json"), "utf8"));
+    const visualIntent = manifest.tasks[0].content_plan.visual_intent;
+    const [scene, selected] = manifest.tasks[0].content_plan.components;
+    assert.equal(searchCalls, 2, "background and query-only foreground image should search once each");
+    assert.equal(imageCalls, 3, "background, query-only foreground, and selected candidate should all download");
+    assert.ok(visualIntent.local_path);
+    assert.ok(scene.local_path);
+    assert.ok(selected.local_path);
+    assert.equal(scene.provider, "unsplash");
+    assert.equal(scene.search_status, "resolved");
+    assert.equal(selected.asset_id, "selected-photo");
+    assert.equal(selected.source_url, "https://unsplash.com/photos/selected-photo");
+    assert.equal(selected.attribution, "Photo by Selected Photographer on Unsplash");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.UNSPLASH_ACCESS_KEY;
+    else process.env.UNSPLASH_ACCESS_KEY = originalKey;
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
+
 function task(taskID: string, contentType: string, query: string) {
   return {
     task_id: taskID,

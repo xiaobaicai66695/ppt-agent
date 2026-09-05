@@ -23,7 +23,7 @@ const (
 
 var searchToolInfo = &schema.ToolInfo{
 	Name: "search_images",
-	Desc: "在 Unsplash 搜索图片候选。适合项目内闲聊 Agent 为用户展示可点击的图片参考；返回图片预览、来源页和摄影师署名。PPT Planner 不应调用本工具。",
+	Desc: "在 Unsplash 搜索图片候选。适合项目内闲聊 Agent 为用户展示可点击的图片参考；返回图片预览、来源页、摄影师署名和可被 PPTSpec/Unsplash CLI 继续物化的候选字段。PPT Planner 不应调用本工具。",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"query": {
 			Type:     "string",
@@ -55,13 +55,16 @@ type ImageSearchResponse struct {
 }
 
 type ImagePhoto struct {
-	ID              string `json:"id"`
-	ImageURL        string `json:"image_url"`
-	PreviewURL      string `json:"preview_url,omitempty"`
-	SourceURL       string `json:"source_url"`
-	Photographer    string `json:"photographer,omitempty"`
-	PhotographerURL string `json:"photographer_url,omitempty"`
-	Attribution     string `json:"attribution"`
+	ID               string `json:"id"`
+	AssetID          string `json:"asset_id,omitempty"`
+	AssetQuery       string `json:"asset_query,omitempty"`
+	ImageURL         string `json:"image_url"`
+	PreviewURL       string `json:"preview_url,omitempty"`
+	SourceURL        string `json:"source_url"`
+	DownloadLocation string `json:"download_location,omitempty"`
+	Photographer     string `json:"photographer,omitempty"`
+	PhotographerURL  string `json:"photographer_url,omitempty"`
+	Attribution      string `json:"attribution"`
 }
 
 // NewImageSearchTool creates a project-agent tool. The caller decides whether
@@ -108,10 +111,12 @@ func (t *imageSearchTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 	for _, photo := range result.Results {
 		photographer := firstNonEmpty(photo.User.Name, photo.User.Username)
 		response.Photos = append(response.Photos, ImagePhoto{
-			ID: photo.ID, ImageURL: firstNonEmpty(photo.URLs.Regular, photo.URLs.Full, photo.URLs.Small),
+			ID: photo.ID, AssetID: photo.ID, AssetQuery: input.Query,
+			ImageURL: firstNonEmpty(photo.URLs.Regular, photo.URLs.Full, photo.URLs.Small),
 			PreviewURL: firstNonEmpty(photo.URLs.Small, photo.URLs.Thumb),
-			SourceURL:  unsplash.AttributionURL(photo.Links.HTML), Photographer: photographer,
-			PhotographerURL: unsplash.AttributionURL(photo.User.Links.HTML), Attribution: attributionFor(photographer),
+			SourceURL:  unsplash.AttributionURL(photo.Links.HTML), DownloadLocation: photo.Links.DownloadLocation,
+			Photographer: photographer, PhotographerURL: unsplash.AttributionURL(photo.User.Links.HTML),
+			Attribution: attributionFor(photographer),
 		})
 	}
 	data, err := json.Marshal(response)

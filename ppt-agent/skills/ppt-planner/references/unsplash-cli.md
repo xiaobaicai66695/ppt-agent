@@ -58,4 +58,4 @@ accessToken（输入后不会回显）:
 unsplash fetch --work-dir <work-dir>
 ```
 
-`fetch` 会把本地路径、来源链接和署名写回全部已声明的视觉资产。下载失败时不会写回部分 manifest；修正查询后重试即可。
+`fetch` 会把本地路径、来源链接和署名写回全部已声明的视觉资产：背景按 `content_type` 共享，前景 `components[].type="image"` 按组件独立下载。若组件已经带有项目内 `search_images` 候选字段（`asset_id`/`id`、`image_url`、`preview_url`、`source_url`、`download_location`、`photographer`、`photographer_url`、`attribution`），CLI 会直接下载该候选并写回 `local_path`，不再重复搜索。下载失败时不会写回部分 manifest；修正查询或候选后重试即可。

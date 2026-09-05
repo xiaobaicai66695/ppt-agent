@@ -2,8 +2,9 @@
 /**
  * Hydrate planned PPTSpec visuals with Unsplash images for an external Agent.
  *
- * Images are optional for a ppt. This CLI only resolves tasks that explicitly
- * contain content_plan.visual_intent; tasks without one remain text-first.
+ * Images are optional for a ppt. This CLI resolves planned backgrounds from
+ * content_plan.visual_intent and foreground image components from
+ * content_plan.components.
  */
 
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
@@ -24,13 +25,21 @@ interface VisualIntent extends JsonObject {
   asset_subject: string;
   composition: string;
   orientation: "landscape" | "portrait" | "squarish";
+  asset_id?: string;
+  id?: string;
   local_path?: string;
+  image_path?: string;
+  asset_path?: string;
+  path?: string;
   image_url?: string;
   preview_url?: string;
   source_url?: string;
   attribution?: string;
   provider?: string;
   search_status?: string;
+  download_location?: string;
+  photographer?: string;
+  photographer_url?: string;
 }
 
 interface PlannedVisual {
@@ -39,7 +48,7 @@ interface PlannedVisual {
   intent: VisualIntent;
 }
 
-type MaterializedAsset = Pick<VisualIntent, "local_path" | "image_url" | "preview_url" | "source_url" | "attribution" | "provider" | "search_status">;
+type MaterializedAsset = Pick<VisualIntent, "asset_id" | "local_path" | "image_url" | "preview_url" | "source_url" | "attribution" | "provider" | "search_status">;
 
 interface UnsplashPhoto {
   id: string;
@@ -108,25 +117,76 @@ function requiredText(value: unknown, field: string): string {
   return value.trim();
 }
 
+function cleanText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function firstPathValue(intent: VisualIntent): string {
+  for (const key of ["local_path", "image_path", "asset_path", "path"] as const) {
+    const value = cleanText(intent[key]);
+    if (value) return value;
+  }
+  return "";
+}
+
+function firstQueryValue(intent: VisualIntent): string {
+  return cleanText(intent.asset_query) || cleanText(intent.asset_subject);
+}
+
+function normalizePathAliases(intent: VisualIntent): void {
+  const path = firstPathValue(intent);
+  if (path && !cleanText(intent.local_path)) {
+    intent.local_path = path;
+  }
+}
+
+function normalizePlannedVisual(intent: VisualIntent, fieldPrefix: string, defaultPurpose: string): void {
+  normalizePathAliases(intent);
+  const hasPath = Boolean(firstPathValue(intent));
+  const hasRemoteURL = Boolean(cleanText(intent.image_url));
+  intent.asset_purpose = cleanText(intent.asset_purpose) || defaultPurpose;
+  allowedAssetPurpose(intent.asset_purpose, `${fieldPrefix}.asset_purpose`);
+  const query = firstQueryValue(intent);
+  if (query) {
+    intent.asset_query = query;
+  } else if (!hasPath && !hasRemoteURL) {
+    requiredText(intent.asset_query, `${fieldPrefix}.asset_query`);
+  }
+  intent.asset_subject = cleanText(intent.asset_subject) || cleanText(intent.asset_query);
+  intent.composition = cleanText(intent.composition) || "wide landscape";
+  const orientation = cleanText(intent.orientation) || "landscape";
+  if (orientation !== "landscape" && orientation !== "portrait" && orientation !== "squarish") {
+    fail(`${fieldPrefix}.orientation 必须是 landscape、portrait 或 squarish。`);
+  }
+  intent.orientation = orientation;
+}
+
 function visualIntentFor(task: JsonObject, taskLabel: string): VisualIntent | null {
   const contentPlan = asObject(task.content_plan, `${taskLabel}.content_plan`);
   if (contentPlan.visual_intent === undefined || contentPlan.visual_intent === null) return null;
   const intent = asObject(contentPlan.visual_intent, `${taskLabel}.content_plan.visual_intent`) as VisualIntent;
-  intent.asset_purpose = requiredText(intent.asset_purpose, `${taskLabel}.visual_intent.asset_purpose`);
-  intent.asset_query = requiredText(intent.asset_query, `${taskLabel}.visual_intent.asset_query`);
-  intent.asset_subject = requiredText(intent.asset_subject, `${taskLabel}.visual_intent.asset_subject`);
-  intent.composition = requiredText(intent.composition, `${taskLabel}.visual_intent.composition`);
-  const orientation = requiredText(intent.orientation, `${taskLabel}.visual_intent.orientation`);
-  if (orientation !== "landscape" && orientation !== "portrait" && orientation !== "squarish") {
-    fail(`${taskLabel}.visual_intent.orientation 必须是 landscape、portrait 或 squarish。`);
-  }
-  intent.orientation = orientation;
+  normalizePlannedVisual(intent, `${taskLabel}.visual_intent`, "background");
   return intent;
 }
 
-function allowedAssetPurpose(value: string, taskLabel: string): void {
+function imageComponentVisualsFor(task: JsonObject, taskLabel: string): PlannedVisual[] {
+  const contentPlan = asObject(task.content_plan, `${taskLabel}.content_plan`);
+  if (contentPlan.components === undefined || contentPlan.components === null) return [];
+  if (!Array.isArray(contentPlan.components)) fail(`${taskLabel}.content_plan.components 必须是数组。`);
+  const visuals: PlannedVisual[] = [];
+  for (let index = 0; index < contentPlan.components.length; index += 1) {
+    const component = asObject(contentPlan.components[index], `${taskLabel}.content_plan.components[${index}]`) as VisualIntent;
+    if (cleanText(component.type) !== "image") continue;
+    const componentLabel = `${taskLabel}.content_plan.components[${index}]`;
+    normalizePlannedVisual(component, componentLabel, "scene");
+    visuals.push({ taskLabel: componentLabel, contentType: contentTypeKey(task), intent: component });
+  }
+  return visuals;
+}
+
+function allowedAssetPurpose(value: string, field: string): void {
   if (!new Set(["background", "scene", "evidence", "decorative"]).has(value)) {
-    fail(`${taskLabel}.visual_intent.asset_purpose 必须是 background、scene、evidence 或 decorative。`);
+    fail(`${field} 必须是 background、scene、evidence 或 decorative。`);
   }
 }
 
@@ -197,7 +257,7 @@ function extensionFor(contentType: string, sourceUrl: string): string {
   fail(`Unsplash 返回了不受支持的图片类型: ${contentType || "未知"}`);
 }
 
-async function downloadPhoto(photo: UnsplashPhoto, workDir: string, key: string): Promise<Pick<VisualIntent, "local_path" | "image_url" | "preview_url" | "source_url" | "attribution">> {
+async function downloadPhoto(photo: UnsplashPhoto, workDir: string, key: string): Promise<Pick<VisualIntent, "asset_id" | "local_path" | "image_url" | "preview_url" | "source_url" | "attribution">> {
   const imageUrl = photo.urls.regular ?? photo.urls.full ?? photo.urls.small;
   if (!imageUrl || !isUnsplashUrl(imageUrl, false)) fail("Unsplash 返回了不可信的图片地址。");
   if (photo.links.download_location) {
@@ -218,6 +278,7 @@ async function downloadPhoto(photo: UnsplashPhoto, workDir: string, key: string)
   await rename(temp, output);
   const photographer = photo.user.name?.trim() || photo.user.username?.trim();
   return {
+    asset_id: photo.id,
     local_path: relative(workDir, output).replaceAll("\\", "/"),
     image_url: imageUrl,
     preview_url: photo.urls.small ?? imageUrl,
@@ -227,6 +288,7 @@ async function downloadPhoto(photo: UnsplashPhoto, workDir: string, key: string)
 }
 
 async function hasResolvedImage(intent: VisualIntent, workDir: string): Promise<boolean> {
+  normalizePathAliases(intent);
   if (intent.provider !== "unsplash" || intent.search_status !== "resolved" || !intent.local_path || !intent.source_url || !intent.attribution) return false;
   const path = safeWorkPath(workDir, intent.local_path);
   try {
@@ -234,6 +296,79 @@ async function hasResolvedImage(intent: VisualIntent, workDir: string): Promise<
   } catch {
     return false;
   }
+}
+
+async function hasLocalImage(intent: VisualIntent, workDir: string): Promise<boolean> {
+  normalizePathAliases(intent);
+  if (!intent.local_path) return false;
+  const path = safeWorkPath(workDir, intent.local_path);
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function remotePhotoFromIntent(intent: VisualIntent): UnsplashPhoto | null {
+  const imageUrl = cleanText(intent.image_url);
+  if (!imageUrl) return null;
+  if (!isUnsplashUrl(imageUrl, false)) fail("image_url 必须是可信的 Unsplash 图片地址。");
+  const previewUrl = cleanText(intent.preview_url);
+  if (previewUrl && !isUnsplashUrl(previewUrl, false)) fail("preview_url 必须是可信的 Unsplash 图片地址。");
+  const downloadLocation = cleanText(intent.download_location);
+  if (downloadLocation && !isUnsplashUrl(downloadLocation, true)) fail("download_location 必须是可信的 Unsplash API 地址。");
+  return {
+    id: cleanText(intent.asset_id) || cleanText(intent.id) || "selected",
+    width: 1,
+    height: 1,
+    urls: {
+      regular: imageUrl,
+      small: previewUrl || imageUrl,
+    },
+    links: {
+      html: cleanText(intent.source_url),
+      download_location: downloadLocation,
+    },
+    user: {
+      name: cleanText(intent.photographer),
+      links: { html: cleanText(intent.photographer_url) },
+    },
+  };
+}
+
+function resolvedMetadata(intent: VisualIntent, photo: UnsplashPhoto, downloaded: Awaited<ReturnType<typeof downloadPhoto>>): MaterializedAsset {
+  return {
+    ...downloaded,
+    source_url: downloaded.source_url || cleanText(intent.source_url),
+    attribution: downloaded.attribution === "Photo on Unsplash" && cleanText(intent.attribution) ? cleanText(intent.attribution) : downloaded.attribution,
+    asset_id: downloaded.asset_id || cleanText(intent.asset_id) || cleanText(intent.id) || photo.id,
+    provider: "unsplash",
+    search_status: "resolved",
+  };
+}
+
+async function hydrateStandaloneVisual(taskLabel: string, intent: VisualIntent, workDir: string, perPage: number, completed: string[]): Promise<void> {
+  if (await hasLocalImage(intent, workDir)) {
+    completed.push(`${taskLabel}: 已存在`);
+    return;
+  }
+  const accessToken = await readAccessToken();
+  const remotePhoto = remotePhotoFromIntent(intent);
+  if (remotePhoto) {
+    const downloaded = await downloadPhoto(remotePhoto, workDir, accessToken);
+    Object.assign(intent, resolvedMetadata(intent, remotePhoto, downloaded));
+    completed.push(`${taskLabel}: 已下载已选 Unsplash 图片 ${intent.asset_id}`);
+    return;
+  }
+  const query = firstQueryValue(intent);
+  if (!query) {
+    fail(`${taskLabel}.asset_query 是必填项。请先提供 asset_query，或提供可下载的 image_url。`);
+  }
+  intent.asset_query = query;
+  const photo = await searchPhoto(intent, accessToken, perPage);
+  const downloaded = await downloadPhoto(photo, workDir, accessToken);
+  Object.assign(intent, resolvedMetadata(intent, photo, downloaded));
+  completed.push(`${taskLabel}: 已下载 unsplash_${photo.id}`);
 }
 
 function isBackgroundIntent(intent: VisualIntent): boolean {
@@ -250,6 +385,7 @@ function contentTypeKey(task: JsonObject): string {
 
 function materializedAsset(intent: VisualIntent): MaterializedAsset {
   return {
+    asset_id: intent.asset_id,
     local_path: intent.local_path,
     image_url: intent.image_url,
     preview_url: intent.preview_url,
@@ -272,12 +408,12 @@ async function hydrateSharedBackgroundGroup(group: PlannedVisual[], workDir: str
   const source = reusable ?? group[0];
   if (!reusable) {
     const accessToken = await readAccessToken();
-    const photo = await searchPhoto(source.intent, accessToken, perPage);
-    Object.assign(source.intent, await downloadPhoto(photo, workDir, accessToken), {
-      provider: "unsplash",
-      search_status: "resolved",
-    });
-    completed.push(`${source.taskLabel}: 已下载 unsplash_${photo.id}（${key} 共享背景）`);
+    const remotePhoto = remotePhotoFromIntent(source.intent);
+    const photo = remotePhoto ?? await searchPhoto(source.intent, accessToken, perPage);
+    const downloaded = await downloadPhoto(photo, workDir, accessToken);
+    Object.assign(source.intent, resolvedMetadata(source.intent, photo, downloaded));
+    const sourceLabel = remotePhoto ? `已下载已选 Unsplash 图片 ${source.intent.asset_id}` : `已下载 unsplash_${photo.id}`;
+    completed.push(`${source.taskLabel}: ${sourceLabel}（${key} 共享背景）`);
   } else {
     completed.push(`${source.taskLabel}: 已存在（${key} 共享背景）`);
   }
@@ -315,12 +451,13 @@ export async function hydrateUnsplashAssets(argv: string[]): Promise<void> {
     const task = asObject(manifest.tasks[index], `tasks[${index}]`);
     const taskLabel = String(task.task_id || task.page_index || index + 1);
     const intent = visualIntentFor(task, `tasks[${index}](${taskLabel})`);
-    if (!intent) {
-      skipped.push(taskLabel);
-      continue;
+    if (intent) {
+      allowedAssetPurpose(intent.asset_purpose, `tasks[${index}](${taskLabel}).visual_intent.asset_purpose`);
+      plannedVisuals.push({ taskLabel, contentType: contentTypeKey(task), intent });
     }
-    allowedAssetPurpose(intent.asset_purpose, `tasks[${index}](${taskLabel})`);
-    plannedVisuals.push({ taskLabel, contentType: contentTypeKey(task), intent });
+    const imageComponents = imageComponentVisualsFor(task, `tasks[${index}](${taskLabel})`);
+    plannedVisuals.push(...imageComponents);
+    if (!intent && !imageComponents.length) skipped.push(taskLabel);
   }
   if (!plannedVisuals.length) {
     console.log(JSON.stringify({ ok: true, work_dir: options.workDir, assets: [], skipped_no_visual_intent: skipped }, null, 2));
@@ -341,17 +478,7 @@ export async function hydrateUnsplashAssets(argv: string[]): Promise<void> {
 
   for (const { taskLabel, intent } of plannedVisuals) {
     if (isBackgroundIntent(intent)) continue;
-    if (await hasResolvedImage(intent, options.workDir)) {
-      completed.push(`${taskLabel}: 已存在`);
-      continue;
-    }
-    const accessToken = await readAccessToken();
-    const photo = await searchPhoto(intent, accessToken, options.perPage);
-    Object.assign(intent, await downloadPhoto(photo, options.workDir, accessToken), {
-      provider: "unsplash",
-      search_status: "resolved",
-    });
-    completed.push(`${taskLabel}: 已下载 unsplash_${photo.id}`);
+    await hydrateStandaloneVisual(taskLabel, intent, options.workDir, options.perPage, completed);
   }
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   console.log(JSON.stringify({ ok: true, work_dir: options.workDir, assets: completed }, null, 2));
