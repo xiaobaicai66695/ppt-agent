@@ -56,8 +56,7 @@ return 0
 `)
 
 // InitVerificationStoreFromEnv initializes the Redis-only verification-code
-// store. EMAIL_VERIFICATION_REDIS_ADDR is required in web mode; password and
-// database index use the matching EMAIL_VERIFICATION_REDIS_* variables.
+// store using the shared REDIS_* connection settings.
 func InitVerificationStoreFromEnv(ctx context.Context) error {
 	store, err := newRedisVerificationCodeStoreFromEnv(ctx)
 	if err != nil {
@@ -86,21 +85,22 @@ func CloseVerificationStore() error {
 }
 
 func newRedisVerificationCodeStoreFromEnv(ctx context.Context) (*redisVerificationCodeStore, error) {
-	addr := strings.TrimSpace(os.Getenv("EMAIL_VERIFICATION_REDIS_ADDR"))
+	addr := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
 	if addr == "" {
-		return nil, errors.New("EMAIL_VERIFICATION_REDIS_ADDR is not configured")
+		return nil, errors.New("REDIS_ADDR is not configured")
 	}
 	dbIndex := 0
-	if raw := strings.TrimSpace(os.Getenv("EMAIL_VERIFICATION_REDIS_DB")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("REDIS_DB")); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 0 {
-			return nil, errors.New("invalid EMAIL_VERIFICATION_REDIS_DB")
+			return nil, errors.New("invalid REDIS_DB")
 		}
 		dbIndex = value
 	}
 	client := redis.NewClient(&redis.Options{
 		Addr:         addr,
-		Password:     os.Getenv("EMAIL_VERIFICATION_REDIS_PASSWORD"),
+		Username:     os.Getenv("REDIS_USERNAME"),
+		Password:     os.Getenv("REDIS_PASSWORD"),
 		DB:           dbIndex,
 		DialTimeout:  2 * time.Second,
 		ReadTimeout:  2 * time.Second,

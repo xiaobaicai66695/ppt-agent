@@ -44,19 +44,19 @@ type RedisStore struct {
 	ttl    time.Duration
 }
 
-// NewFromEnv connects only when CHAT_TRACE_REDIS_ADDR is configured. An empty
-// setting disables persistence rather than accidentally writing execution data
-// to another store. CHAT_TRACE_REDIS_TTL accepts a Go duration (default 1h).
+// NewFromEnv connects only when REDIS_ADDR is configured. An empty setting
+// disables persistence rather than accidentally writing execution data to
+// another store. CHAT_TRACE_REDIS_TTL accepts a Go duration (default 1h).
 func NewFromEnv(ctx context.Context) (Store, error) {
-	addr := strings.TrimSpace(os.Getenv("CHAT_TRACE_REDIS_ADDR"))
+	addr := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
 	if addr == "" {
 		return nil, nil
 	}
 	dbIndex := 0
-	if raw := strings.TrimSpace(os.Getenv("CHAT_TRACE_REDIS_DB")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("REDIS_DB")); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 0 {
-			return nil, fmt.Errorf("invalid CHAT_TRACE_REDIS_DB")
+			return nil, fmt.Errorf("invalid REDIS_DB")
 		}
 		dbIndex = value
 	}
@@ -68,7 +68,7 @@ func NewFromEnv(ctx context.Context) (Store, error) {
 		}
 		ttl = value
 	}
-	client := redis.NewClient(&redis.Options{Addr: addr, Password: os.Getenv("CHAT_TRACE_REDIS_PASSWORD"), DB: dbIndex})
+	client := redis.NewClient(&redis.Options{Addr: addr, Username: os.Getenv("REDIS_USERNAME"), Password: os.Getenv("REDIS_PASSWORD"), DB: dbIndex})
 	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {

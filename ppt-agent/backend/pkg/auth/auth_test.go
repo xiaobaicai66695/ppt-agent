@@ -185,3 +185,10 @@ func TestVerificationRedisKeysDoNotExposeEmail(t *testing.T) {
 		t.Fatalf("verification attempts key exposes email: %q", key)
 	}
 }
+
+func TestVerificationStoreRequiresSharedRedisAddress(t *testing.T) {
+	t.Setenv("REDIS_ADDR", "")
+	if _, err := newRedisVerificationCodeStoreFromEnv(context.Background()); err == nil || !strings.Contains(err.Error(), "REDIS_ADDR") {
+		t.Fatalf("newRedisVerificationCodeStoreFromEnv() error = %v, want REDIS_ADDR error", err)
+	}
+}

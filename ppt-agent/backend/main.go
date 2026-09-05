@@ -138,7 +138,7 @@ func runWebMode(pwd, skillsDir, addr string) {
 	if traceErr != nil {
 		logger.Warn("chat_trace_redis_unavailable", "error", traceErr.Error())
 	} else if chatTraceStore == nil {
-		logger.Warn("chat_trace_redis_not_configured", "env", "CHAT_TRACE_REDIS_ADDR")
+		logger.Warn("chat_trace_redis_not_configured", "env", "REDIS_ADDR")
 	} else {
 		defer chatTraceStore.Close()
 		logger.Info("chat_trace_redis_ready")
