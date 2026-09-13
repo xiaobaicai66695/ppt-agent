@@ -33,6 +33,24 @@ func TestTaskStateBroadcastAssignsIncreasingEventIDs(t *testing.T) {
 	}
 }
 
+func TestTaskStatePersistsLLMBoundariesForTimelineReplay(t *testing.T) {
+	var persisted []SSERichEvent
+	ts := &TaskState{
+		Info:      TaskInfo{ID: "task-llm-boundaries", Status: TaskStatusRunning},
+		listeners: make(map[string]chan SSERichEvent),
+		timelineEventFn: func(_ string, event SSERichEvent) {
+			persisted = append(persisted, event)
+		},
+	}
+
+	ts.Broadcast(SSERichEvent{Type: SSEEventLLMStart, SegmentID: "turn-1"})
+	ts.Broadcast(SSERichEvent{Type: SSEEventLLMEnd, SegmentID: "turn-1"})
+
+	if len(persisted) != 2 || persisted[0].Type != SSEEventLLMStart || persisted[1].Type != SSEEventLLMEnd {
+		t.Fatalf("persisted boundaries = %#v, want llm_start then llm_end", persisted)
+	}
+}
+
 func TestTaskInfoToRecordDropsFourByteRunesForLegacyMySQL(t *testing.T) {
 	record := taskInfoToRecord(&TaskInfo{
 		ID:    "task-emoji",

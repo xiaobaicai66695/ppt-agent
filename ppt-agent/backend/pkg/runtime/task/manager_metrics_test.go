@@ -117,7 +117,7 @@ func TestBroadcastSuppressesDuplicateToolCompletion(t *testing.T) {
 	}
 }
 
-func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *testing.T) {
+func TestBroadcastRuntimeSummaryForwardsLLMBoundariesAndKeepsSlideRenderTools(t *testing.T) {
 	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
 	fullArgs := `{"task_id":"slide-1","notes":"` + strings.Repeat("x", 24000) + `"}`
 	fullResult := "render complete\n" + strings.TrimSuffix(strings.Repeat("output line\n", 1800), "\n")
@@ -126,8 +126,12 @@ func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *test
 		Kind: "llm_start",
 		Name: "ChatModel",
 	}))
-	if len(ts.Events) != 0 {
-		t.Fatalf("llm runtime summary leaked into SSE: %#v", ts.Events)
+	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
+		Kind: "llm_end",
+		Name: "ChatModel",
+	}))
+	if len(ts.Events) != 2 || ts.Events[0].Type != SSEEventLLMStart || ts.Events[1].Type != SSEEventLLMEnd {
+		t.Fatalf("llm runtime summaries = %#v, want start/end SSE boundaries", ts.Events)
 	}
 
 	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
@@ -138,7 +142,7 @@ func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *test
 			"args": fullArgs,
 		},
 	}))
-	if len(ts.Events) != 1 || ts.Events[0].Type != SSEEventToolCall || ts.Events[0].ToolName != "generate_slide" || ts.Events[0].ToolArgs != fullArgs {
+	if len(ts.Events) != 3 || ts.Events[2].Type != SSEEventToolCall || ts.Events[2].ToolName != "generate_slide" || ts.Events[2].ToolArgs != fullArgs {
 		t.Fatal("slide render start did not retain the complete arguments")
 	}
 
@@ -152,7 +156,7 @@ func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *test
 			"result": fullResult,
 		},
 	}))
-	if len(ts.Events) != 2 || ts.Events[1].Type != SSEEventToolResult || ts.Events[1].ToolCallID == "" || ts.Events[1].ToolResult != fullResult {
+	if len(ts.Events) != 4 || ts.Events[3].Type != SSEEventToolResult || ts.Events[3].ToolCallID == "" || ts.Events[3].ToolResult != fullResult {
 		t.Fatal("slide render end did not retain the complete result")
 	}
 }

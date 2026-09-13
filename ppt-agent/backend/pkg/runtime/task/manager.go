@@ -449,7 +449,7 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 
 func shouldPersistTimelineEvent(event SSERichEvent) bool {
 	switch event.Type {
-	case SSEEventThought, SSEEventToolCall, SSEEventToolResult,
+	case SSEEventThought, SSEEventLLMStart, SSEEventLLMEnd, SSEEventToolCall, SSEEventToolResult,
 		"system_step", "progress", "file_ready", "thumbnail_ready", "error":
 		return true
 	default:
@@ -1104,6 +1104,17 @@ func runtimeMetadataString(metadata map[string]any, key string) string {
 
 func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
 	if ts == nil {
+		return
+	}
+	if summary.Kind == SSEEventLLMStart || summary.Kind == SSEEventLLMEnd {
+		// RuntimeMeta receives the model lifecycle callbacks in the same order as
+		// the tool callbacks. Forward these public boundaries so the client can
+		// identify the exact tool batch between one response and the next model
+		// request, both over live SSE and after a history reload.
+		ts.Broadcast(SSERichEvent{
+			Type:  summary.Kind,
+			Phase: summary.Phase,
+		})
 		return
 	}
 	if isRuntimeToolStart(summary.Kind) {
