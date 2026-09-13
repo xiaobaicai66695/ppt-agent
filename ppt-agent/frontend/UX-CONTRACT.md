@@ -38,7 +38,7 @@
 | CRUD | 任务 API 与 Dashboard | `src/api.ts`、后端任务状态 | create / continue / cancel | API + browser flow |
 | Long-running progress | SSE 状态机 | `DashboardPage.vue`、后端 `pkg/web/streamer.go` | conversation / PPT generation / continue | unit + browser flow |
 | Observable ReAct timeline | `conversationTimeline` + `ConversationTimelineItem.vue` | `src/utils/conversationTimeline.ts`、`src/components/ConversationTimelineItem.vue`、`DashboardPage.vue`、后端 `conversation_trace_events` | 活跃与历史会话的安全 thought / paired tool call-result / delivery event | unit + browser keyboard flow |
-| Delivery preview and feedback | `TaskDeliveryPreview.vue`、`AppModal.vue` | `DashboardPage.vue`、任务缩略图/反馈 API | inline / side-rail / thumbnail unavailable / rated | build + browser flow |
+| Delivery preview and feedback | `TaskDeliveryPreview.vue`、`AppModal.vue` | `DashboardPage.vue`、任务缩略图/反馈 API | inline / side-rail / thumbnail unavailable / media preview / rated | build + browser flow |
 
 ## Flow ledger
 
@@ -62,7 +62,8 @@
 
 ## Navigation and responsive behavior
 
-- Sidebar/drawer transformation: Dashboard 宽屏在右侧保留已完成 PPT 的交付预览栏；中等宽度隐藏会话列表以保护主画布和预览栏，窄屏将预览栏下移。应用导航与会话列表在各自既有窄屏断点隐藏；主操作仍可见。
+- Sidebar/drawer transformation: Dashboard 宽屏在右侧保留已完成 PPT 的交付预览栏；中等宽度隐藏会话列表以保护主画布和预览栏，窄屏将预览栏下移。中栏必须允许收缩，长工具内容只能在其中换行或内部滚动，不得挤压、覆盖或遮挡交付栏。应用导航与会话列表在各自既有窄屏断点隐藏；主操作仍可见。
+- Delivery thumbnail interaction: 可用缩略图是带可访问名称的按钮，点击后使用共享 `AppModal` 的 `media` 变体放大预览；Escape、点击遮罩和关闭按钮都会关闭，并把焦点还原到触发缩略图。缩略图加载失败显示不可用状态，下载操作保持独立可用。
 - Truncation/full-value access: 会话标题允许单行截断；消息正文和错误信息允许读取完整内容。
 - Focus restoration and sticky-obstruction policy: native button/input 保持可见焦点；不在任务完成时抢夺焦点。
 

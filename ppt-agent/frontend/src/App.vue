@@ -16,6 +16,7 @@ useTheme()
   --accent:#6ce5ca; --accent-strong:#9af1dc; --accent-soft:rgba(102,225,202,.1); --accent-on:#03201f;
   --info:#79c6e5; --danger:#ef9892; --message-user:#173846; --message-user-label:#94d7ce; --message-assistant:#f0f1e9;
   --scrollbar-track:var(--surface-raised); --scrollbar-thumb:var(--border-strong); --scrollbar-thumb-hover:var(--text-subtle); --scrollbar-thumb-active:var(--text-muted);
+  --z-dialog:600; --z-toast:900;
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #07131f; }

@@ -454,7 +454,7 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
 
 <style scoped>
 .compose-link { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--accent-strong); background: var(--surface-raised); font-size: 12px; }
-.workbench { display: grid; flex: 1; grid-template-columns: 254px minmax(460px, 1fr) minmax(300px, 360px); min-height: 0; overflow: hidden; background: var(--surface-base); }
+.workbench { display: grid; flex: 1; grid-template-columns: 254px minmax(0, 1fr) minmax(300px, 360px); min-height: 0; overflow: hidden; background: var(--surface-base); }
 .conversations { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-subtle); background: var(--surface-raised); }
 .conversation-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 16px 14px; color: var(--text-muted); font-size: 12px; }
 .conversation-head button { display: grid; width: 27px; height: 27px; place-items: center; border: 0; border-radius: 5px; color: var(--accent-strong); background: var(--surface-accent); }
@@ -475,22 +475,23 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
 .delete-task:hover { background: color-mix(in srgb,var(--danger) 12%,transparent); opacity: 1; }
 .task-row:hover .delete-task, .delete-task:focus-visible { opacity: 1; }
 .empty-list { padding: 18px 8px; color: var(--text-subtle); font-size: 12px; line-height: 1.7; }
-.canvas { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; background: var(--surface-base); }
-.canvas-head { display: flex; justify-content: space-between; gap: 20px; padding: 17px 30px; border-bottom: 1px solid var(--border-subtle); }
+.canvas { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: var(--surface-base); }
+.canvas-head { display: flex; min-width: 0; justify-content: space-between; gap: 20px; padding: 17px 30px; border-bottom: 1px solid var(--border-subtle); }
+.canvas-head > div:first-child { min-width: 0; flex: 1; }
 .canvas-kicker { color: var(--accent); font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; }
 .canvas-head h2 { max-width: 690px; margin: 4px 0 0; overflow: hidden; color: var(--text-strong); font: 700 18px 'Noto Serif SC', serif; text-overflow: ellipsis; white-space: nowrap; }
-.canvas-actions { display: flex; align-items: center; gap: 8px; }
-.outline-button, .download, .feedback-trigger { display: flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-muted); background: var(--surface-raised); font-size: 12px; }
+.canvas-actions { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 8px; overflow-x: auto; }
+.outline-button, .download, .feedback-trigger { display: flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-muted); background: var(--surface-raised); font-size: 12px; white-space: nowrap; }
 .outline-button:hover, .feedback-trigger:hover { color: var(--text-strong); background: var(--surface-hover); }
 .download { border-color: var(--accent); color: var(--accent-on); background: var(--accent); }
-.messages { min-height: 0; overflow: auto; padding: 27px max(25px, 7%); scrollbar-gutter: stable; }
+.messages { min-width: 0; min-height: 0; overflow: auto; padding: 27px max(25px, 7%); scrollbar-gutter: stable; }
 .blank-canvas { max-width: 570px; margin: 8vh auto; text-align: center; }
 .blank-canvas > span { display: grid; width: 53px; height: 53px; margin: auto; place-items: center; border-radius: 16px 16px 4px 16px; color: var(--accent-strong); background: var(--surface-accent); }
 .blank-canvas h3 { margin: 19px 0 9px; color: var(--text-strong); font: 700 28px 'Noto Serif SC', serif; }
 .blank-canvas p { max-width: 450px; margin: auto; color: var(--text-muted); font-size: 14px; line-height: 1.8; }
 .blank-canvas div { display: flex; justify-content: center; gap: 8px; margin-top: 25px; }
 .blank-canvas button { padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-muted); background: var(--surface-raised); font-size: 12px; }
-.timeline-list { display: flow-root; max-width: 760px; margin: 0 auto; }
+.timeline-list { display: flow-root; min-width: 0; max-width: 760px; margin: 0 auto; }
 .delivery-rail { min-width: 0; overflow: auto; padding: 20px 16px; border-left: 1px solid var(--border-subtle); background: var(--surface-raised); scrollbar-gutter: stable; }
 .feedback-trigger { width: 100%; justify-content: center; margin-top: 12px; color: var(--accent); font-weight: 600; }
 .composer { padding: 12px 30px 18px; border-top: 1px solid var(--border-subtle); background: var(--surface-base); }

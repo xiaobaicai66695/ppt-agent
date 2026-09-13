@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 
-const props = defineProps<{ open: boolean; title: string; description?: string }>()
+const props = withDefaults(defineProps<{ open: boolean; title: string; description?: string; variant?: 'default' | 'media' }>(), { variant: 'default' })
 const emit = defineEmits<{ close: [] }>()
 
 const dialog = ref<HTMLElement>()
@@ -42,7 +42,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 <template>
   <Teleport to="body">
     <div v-if="open" class="modal-backdrop" @mousedown.self="close">
-      <section ref="dialog" class="modal" role="dialog" aria-modal="true" :aria-label="title">
+      <section ref="dialog" class="modal" :class="`modal--${variant}`" role="dialog" aria-modal="true" :aria-label="title">
         <header class="modal-head">
           <div><h2>{{ title }}</h2><p v-if="description">{{ description }}</p></div>
           <button class="modal-close" type="button" aria-label="关闭弹窗" @click="close"><X :size="18" /></button>
@@ -54,11 +54,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 </template>
 
 <style scoped>
-.modal-backdrop{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:20px;background:rgba(3,16,25,.62)}
+.modal-backdrop{position:fixed;z-index:var(--z-dialog);inset:0;display:grid;place-items:center;padding:20px;background:rgba(3,16,25,.62)}
 .modal{width:min(100%,460px);max-height:min(680px,calc(100vh - 40px));overflow:auto;border:1px solid var(--border-strong);border-radius:10px;color:var(--text-strong);background:var(--surface-raised);box-shadow:0 22px 70px rgba(0,0,0,.38)}
+.modal--media{width:min(100%,1040px);max-height:calc(100dvh - 40px)}
 .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:19px 20px 15px;border-bottom:1px solid var(--border-subtle)}
 .modal-head h2{margin:0;color:var(--text-strong);font:700 19px 'Noto Serif SC',serif}.modal-head p{margin:5px 0 0;color:var(--text-subtle);font-size:12px;line-height:1.55}
 .modal-close{display:grid;place-items:center;flex:none;width:31px;height:31px;border:1px solid var(--border-strong);border-radius:5px;color:var(--text-muted);background:transparent}.modal-close:hover{color:var(--text-strong);background:var(--surface-hover)}
 .modal-content{padding:18px 20px 20px}
+.modal--media .modal-content{padding:14px 16px 16px}
 @media(max-width:520px){.modal-backdrop{padding:12px}.modal-head{padding:16px 16px 13px}.modal-content{padding:15px 16px 16px}}
 </style>
