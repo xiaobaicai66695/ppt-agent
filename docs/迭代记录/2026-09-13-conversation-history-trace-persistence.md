@@ -16,7 +16,8 @@
 - 部署：`remote-dev:/ppt/ppt-agent`，替换后端源码、skills、Linux 二进制和前端 `dist`；保留远端 `backend/.env` 与 `weboutput`。
 - 新进程：PID `1404404`，`/api/health` 返回 200，启动日志确认 MySQL 连接和单实例锁正常。
 - 线上低成本冒烟：临时检索对话的历史接口返回 `message, thought, tool_call, tool_result`；数据库写入 4 条安全轨迹记录。临时任务、消息、轨迹和工作目录均已清理。
-- 追加发布（`b75754e`，2026-09-13）：工具调用的已脱敏参数和返回内容改为完整传递与持久化，前端以最多约 196px 高的卡内滚动文本区查看。`remote-dev:/ppt/ppt-agent` 已按全量后端源码、skill、Linux 二进制和前端 `dist` 替换；保留远端 `backend/.env` 与 `weboutput`。新进程 PID `1408933`，内网与公网 `/api/health`、`/api/templates/layouts`、首页均为 200；二进制含 `args_display`，发布 CSS 含 `max-height:196px`。未创建消耗模型额度的线上对话，完整内容传递由本地超过 24KB 的单元回归覆盖。
+- 追加发布（`b75754e`，2026-09-13）：工具调用的已脱敏参数和返回内容改为完整传递与持久化，前端以最多约 196px 高的卡内滚动文本区查看。`remote-dev:/ppt/ppt-agent` 已按全量后端源码、skill、Linux 二进制和前端 `dist` 替换；保留远端 `backend/.env` 与 `weboutput`。二进制含 `args_display`，发布 CSS 含 `max-height:196px`。未创建消耗模型额度的线上对话，完整内容传递由本地超过 24KB 的单元回归覆盖。
+- 追加前端发布（`116e0ba`，2026-09-13）：每个 `llm_end → llm_start` 窗口中的工具调用默认合并折叠为一张“工具调用（N 项）”卡，展开后显示各项完整参数、返回内容和图片预览；历史回放采用相同边界。发布替换 `frontend/dist` 后，服务改由 transient `ppt-agent.service` 的非阻塞 systemd 单元托管，最终 PID `1414137`，20 秒稳定检查无重启；内网与公网 `/api/health`、首页和 Dashboard 均为 200，入口 JS 为 `index-BM5n9jed.js`。
 
 ## 遗留边界
 
