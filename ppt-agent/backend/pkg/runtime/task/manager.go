@@ -141,6 +141,7 @@ type TaskState struct {
 
 	answerTurn      strings.Builder
 	assistantTurnFn func(taskID, workDir, content string)
+	timelineEventFn func(taskID string, event SSERichEvent)
 	done            chan struct{}
 	// pendingTools correlates independently emitted tool_call/tool_result
 	// events. Calls are never buffered here: every call is assigned an event ID
@@ -426,9 +427,13 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 		}
 	}
 	turnCallback := ts.assistantTurnFn
+	timelineCallback := ts.timelineEventFn
 	taskID := ts.Info.ID
 	workDir := ts.Info.WorkDir
 	ts.Mu.Unlock()
+	if timelineCallback != nil && shouldPersistTimelineEvent(event) {
+		timelineCallback(taskID, event)
+	}
 	if completedTurn != "" && turnCallback != nil {
 		turnCallback(taskID, workDir, completedTurn)
 	}
@@ -440,6 +445,16 @@ func (ts *TaskState) Broadcast(event SSERichEvent) SSERichEvent {
 		ts.Mu.Unlock()
 	}
 	return event
+}
+
+func shouldPersistTimelineEvent(event SSERichEvent) bool {
+	switch event.Type {
+	case SSEEventThought, SSEEventToolCall, SSEEventToolResult,
+		"system_step", "progress", "file_ready", "thumbnail_ready", "error":
+		return true
+	default:
+		return false
+	}
 }
 
 func (ts *TaskState) pendingToolIndexLocked(callID, name, args string) int {
@@ -686,6 +701,7 @@ type TaskManager struct {
 	onTaskContinue  func(taskID string) // 任务完成且有待处理消息时触发
 	onFileReady     func(taskID string, workDir string, filename string)
 	onAssistantTurn func(taskID string, workDir string, content string)
+	onTimelineEvent func(taskID string, event SSERichEvent)
 }
 
 // NewTaskManager 创建一个新的 TaskManager。baseDir 是父目录，
@@ -733,6 +749,19 @@ func (tm *TaskManager) SetAssistantTurnCallback(callback func(taskID string, wor
 	for _, ts := range tm.tasks {
 		ts.Mu.Lock()
 		ts.assistantTurnFn = callback
+		ts.Mu.Unlock()
+	}
+	tm.mu.Unlock()
+}
+
+// SetTimelineEventCallback registers the durable sink for already-public
+// timeline events. It deliberately excludes private model reasoning.
+func (tm *TaskManager) SetTimelineEventCallback(callback func(taskID string, event SSERichEvent)) {
+	tm.mu.Lock()
+	tm.onTimelineEvent = callback
+	for _, ts := range tm.tasks {
+		ts.Mu.Lock()
+		ts.timelineEventFn = callback
 		ts.Mu.Unlock()
 	}
 	tm.mu.Unlock()
@@ -969,6 +998,7 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 		reportedFiles:   make(map[string]bool),
 		runtimeMeta:     runtimeMeta,
 		assistantTurnFn: tm.onAssistantTurn,
+		timelineEventFn: tm.onTimelineEvent,
 		done:            make(chan struct{}),
 	}
 	cfg.OnFixerTriggered = ts.RecordFixerRun
@@ -1017,7 +1047,7 @@ func (tm *TaskManager) CreateConversationTask(taskID, query string, userID int) 
 	ts := &TaskState{Info: TaskInfo{
 		ID: taskID, UserID: userID, Query: query, Status: TaskStatusConversation,
 		WorkDir: workDir, CreatedAt: time.Now(), Intent: "conversation", ConversationID: taskID,
-	}, listeners: make(map[string]chan SSERichEvent), reportedFiles: make(map[string]bool), assistantTurnFn: tm.onAssistantTurn}
+	}, listeners: make(map[string]chan SSERichEvent), reportedFiles: make(map[string]bool), assistantTurnFn: tm.onAssistantTurn, timelineEventFn: tm.onTimelineEvent}
 	tm.mu.Lock()
 	tm.tasks[taskID] = ts
 	tm.mu.Unlock()
@@ -1762,6 +1792,7 @@ func (tm *TaskManager) NewColdTaskState(info TaskInfo) *TaskState {
 		listeners:       make(map[string]chan SSERichEvent),
 		reportedFiles:   make(map[string]bool),
 		assistantTurnFn: tm.onAssistantTurn,
+		timelineEventFn: tm.onTimelineEvent,
 	}
 	tm.mu.Lock()
 	tm.tasks[info.ID] = ts
@@ -1885,6 +1916,9 @@ func (tm *TaskManager) DeleteTask(id string) error {
 		// 级联删除会话消息。
 		if err := session.DeleteSessionFromDB(id); err != nil {
 			logger.Error("db_delete_conversation_failed", "task_id", id, "error", err.Error())
+		}
+		if err := db.DeleteConversationTraceEvents(id); err != nil {
+			logger.Error("db_delete_conversation_trace_failed", "task_id", id, "error", err.Error())
 		}
 	}
 

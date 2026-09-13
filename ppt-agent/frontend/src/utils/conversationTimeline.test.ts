@@ -7,10 +7,26 @@ import {
   finishStreamingEntries,
   finishTimelineEntries,
   resetConversationTimeline,
+  restoreConversationTimeline,
   toggleTimelineItem,
 } from './conversationTimeline'
 
 describe('conversation timeline', () => {
+  it('restores durable messages and tool trace cards in chronological order', () => {
+    const items = restoreConversationTimeline([
+      { type: 'message', message: { role: 'user', content: '储能解决方案提案', timestamp: '2026-09-13T09:00:00Z' } },
+      { type: 'thought', id: 11, segment_id: 'plan-1', content: '正在规划页面结构', phase: 'planning' },
+      { type: 'tool_call', id: 12, tool_call_id: 'tool-1', tool_name: 'read_file', tool_args: '{"path":"contract.json"}' },
+      { type: 'tool_result', id: 13, tool_call_id: 'tool-1', tool_name: 'read_file', tool_result: '已读取组件契约', tool_status: 'success' },
+      { type: 'message', message: { role: 'assistant', content: 'PPT 已完成交付，共 14 页。', timestamp: '2026-09-13T09:01:00Z' } },
+    ], [])
+
+    expect(items.map(item => item.type)).toEqual(['message', 'thought', 'tool_call', 'message'])
+    expect(items[1]).toMatchObject({ type: 'thought', content: '正在规划页面结构', streaming: false })
+    expect(items[2]).toMatchObject({ type: 'tool_call', callID: 'tool-1', state: 'success', result: '已读取组件契约' })
+    expect(items[3]).toMatchObject({ type: 'message', message: { role: 'assistant', content: 'PPT 已完成交付，共 14 页。' } })
+  })
+
   it('keeps thoughts, paired tool cards, and final answers in arrival order', () => {
     const items = resetConversationTimeline([{ role: 'user', content: '找两张图片', timestamp: '2026-09-04T00:00:00Z' }])
 

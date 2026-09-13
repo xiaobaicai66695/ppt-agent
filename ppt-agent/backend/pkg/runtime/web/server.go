@@ -148,6 +148,7 @@ func NewServer(cfg *ServerConfig) *Server {
 			logger.Error("assistant_turn_persist_failed", "task_id", taskID, "error", err.Error())
 		}
 	})
+	s.tasks.SetTimelineEventCallback(s.persistConversationTimelineEvent)
 
 	// 页面能力只从 component_contracts.json 加载。
 	s.templateLoader = templates.NewComponentLoader(filepath.Join(cfg.SkillsDir, "ppt-planner"))

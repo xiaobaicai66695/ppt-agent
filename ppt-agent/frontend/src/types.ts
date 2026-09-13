@@ -38,6 +38,7 @@ export interface ConversationSession {
   replay_after_event_id?: number
   conversation_streaming?: boolean
   messages: ConversationMessage[]
+  timeline?: ConversationTimelineEvent[]
   status?: TaskStatus
   done_count?: number
   total_count?: number
@@ -100,6 +101,10 @@ export interface TaskStreamEvent {
     images?: Array<{ thumbnail_url?: string; image_url?: string; source_url?: string; alt?: string; attribution?: string }>
   }
 }
+
+export type ConversationTimelineEvent =
+  | { type: 'message'; message: ConversationMessage }
+  | TaskStreamEvent
 
 export interface AtomicLayout {
   name: string

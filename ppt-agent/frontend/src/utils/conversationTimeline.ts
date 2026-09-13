@@ -1,4 +1,4 @@
-import type { ConversationMessage } from '../types'
+import type { ConversationMessage, ConversationTimelineEvent, TaskStreamEvent } from '../types'
 
 export type ExecutionState = 'running' | 'success' | 'error'
 export type TimelineEventID = string | number
@@ -93,6 +93,47 @@ function findToolCallForResult(
 export function resetConversationTimeline(messages: ConversationMessage[]): ConversationTimelineItem[] {
   ordinal = 0
   return messages.map(message => ({ id: nextID('message'), type: 'message' as const, message }))
+}
+
+// restoreConversationTimeline rebuilds a completed task's public execution
+// narrative. Older servers only return messages, so that remains a safe
+// compatibility fallback.
+export function restoreConversationTimeline(history: ConversationTimelineEvent[] | undefined, messages: ConversationMessage[]): ConversationTimelineItem[] {
+  if (!history?.length) return resetConversationTimeline(messages)
+  ordinal = 0
+  const items: ConversationTimelineItem[] = []
+  for (const event of history) {
+    if (event.type === 'message') {
+      appendTimelineMessage(items, event.message)
+      continue
+    }
+    appendHistoricalEvent(items, event)
+  }
+  finishStreamingEntries(items)
+  return items
+}
+
+function appendHistoricalEvent(items: ConversationTimelineItem[], event: TaskStreamEvent) {
+  const eventID = event.id
+  if (event.type === 'thought') {
+    appendThought(items, event.content || event.phase_detail || event.message || '正在推进任务', { eventID, segmentID: event.segment_id, phase: event.phase, delta: event.delta ?? false })
+  } else if (event.type === 'tool_call') {
+    appendToolCall(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, detail: event.phase_detail || event.message })
+  } else if (event.type === 'tool_result') {
+    appendToolResult(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, result: event.tool_result || event.error || event.phase_detail, state: event.tool_status === 'error' ? 'error' : 'success', preview: event.tool_preview })
+  } else if (event.type === 'final_answer' || event.type === 'answer' || event.type === 'llm_delta') {
+    appendFinalAnswer(items, event.content || '', { eventID, segmentID: event.segment_id, delta: event.delta ?? false })
+  } else if (event.type === 'system_step') {
+    appendThought(items, event.content || event.phase_detail || event.message || '正在推进任务', { eventID, segmentID: event.segment_id || `system-${eventID || 'step'}`, phase: event.phase || '系统步骤', delta: false })
+  } else if (event.type === 'progress') {
+    appendExecutionStep(items, event.phase_detail || event.phase || '推进生成', event.message || '', 'success', eventID)
+  } else if (event.type === 'file_ready') {
+    appendExecutionStep(items, '演示文件已生成', '可以下载并继续修改', 'success', eventID)
+  } else if (event.type === 'thumbnail_ready') {
+    appendExecutionStep(items, '缩略图已就绪', event.files?.length ? `已准备 ${event.files.length} 张预览` : '可以查看演示预览', 'success', eventID)
+  } else if (event.type === 'error') {
+    appendTimelineError(items, event.error || '任务出现错误', eventID)
+  }
 }
 
 export function appendTimelineMessage(items: ConversationTimelineItem[], message: ConversationMessage) {

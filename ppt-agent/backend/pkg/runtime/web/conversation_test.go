@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -120,7 +121,6 @@ func TestHandleGetConversationDoesNotLoadPersistedRuntimeTimeline(t *testing.T) 
 	workDir := t.TempDir()
 	oldListRuntimeEvents := listRuntimeEvents
 	listRuntimeEvents = func(taskID string) ([]db.RuntimeEventRecord, error) {
-		t.Fatalf("conversation snapshot must not query runtime events for %s", taskID)
 		return nil, nil
 	}
 	defer func() { listRuntimeEvents = oldListRuntimeEvents }()
@@ -142,6 +142,76 @@ func TestHandleGetConversationDoesNotLoadPersistedRuntimeTimeline(t *testing.T) 
 	}
 	if _, exists := payload["runtime_meta"]; exists {
 		t.Fatal("conversation snapshot must omit runtime metadata")
+	}
+}
+
+func TestConversationTimelineMergesMessagesWithDurableTrace(t *testing.T) {
+	oldListTrace := listConversationTraceEvents
+	listConversationTraceEvents = func(taskID string) ([]db.ConversationTraceEvent, error) {
+		if taskID != "task-history" {
+			t.Fatalf("task id = %q", taskID)
+		}
+		payload := func(event task.SSERichEvent) string {
+			data, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(data)
+		}
+		base := time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC)
+		return []db.ConversationTraceEvent{
+			{ID: 1, TaskID: taskID, Type: task.SSEEventThought, Timestamp: base.Add(time.Second), Payload: payload(task.SSERichEvent{ID: 11, Type: task.SSEEventThought, Content: "正在规划", Phase: "planning"})},
+			{ID: 2, TaskID: taskID, Type: task.SSEEventToolCall, Timestamp: base.Add(2 * time.Second), Payload: payload(task.SSERichEvent{ID: 12, Type: task.SSEEventToolCall, ToolCallID: "tool-12", ToolName: "read_file"})},
+			{ID: 3, TaskID: taskID, Type: task.SSEEventToolResult, Timestamp: base.Add(3 * time.Second), Payload: payload(task.SSERichEvent{ID: 13, Type: task.SSEEventToolResult, ToolCallID: "tool-12", ToolName: "read_file", ToolResult: "已读取"})},
+		}, nil
+	}
+	defer func() { listConversationTraceEvents = oldListTrace }()
+
+	base := time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC)
+	timeline := conversationTimeline("task-history", []session.Message{
+		{Role: "user", Content: "做一份储能方案", Timestamp: base},
+		{Role: "assistant", Content: "PPT 已完成交付", Timestamp: base.Add(4 * time.Second)},
+	})
+	if len(timeline) != 5 {
+		t.Fatalf("timeline length = %d, want 5", len(timeline))
+	}
+	encoded, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type":"message"`, `"type":"thought"`, `"type":"tool_call"`, `"type":"tool_result"`, "PPT 已完成交付"} {
+		if !bytes.Contains(encoded, []byte(want)) {
+			t.Fatalf("timeline %s does not contain %q", encoded, want)
+		}
+	}
+}
+
+func TestConversationTimelineFallsBackToLegacyRuntimeTools(t *testing.T) {
+	oldListTrace := listConversationTraceEvents
+	oldListRuntimeEvents := listRuntimeEvents
+	listConversationTraceEvents = func(string) ([]db.ConversationTraceEvent, error) { return nil, nil }
+	listRuntimeEvents = func(taskID string) ([]db.RuntimeEventRecord, error) {
+		base := time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC)
+		return []db.RuntimeEventRecord{
+			{ID: 20, TaskID: taskID, EventID: 101, Timestamp: base, Kind: "tool_start", Name: "search", Status: "running", Metadata: `{"args":"{\"query\":\"储能\"}"}`},
+			{ID: 21, TaskID: taskID, EventID: 102, Timestamp: base.Add(time.Second), Kind: "tool_end", Name: "search", Status: "ok", Metadata: `{"args":"{\"query\":\"储能\"}","result":"已找到资料"}`},
+		}, nil
+	}
+	defer func() {
+		listConversationTraceEvents = oldListTrace
+		listRuntimeEvents = oldListRuntimeEvents
+	}()
+
+	timeline := conversationTimeline("legacy-task", nil)
+	if len(timeline) != 2 {
+		t.Fatalf("legacy timeline length = %d, want 2", len(timeline))
+	}
+	encoded, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"type":"tool_call"`)) || !bytes.Contains(encoded, []byte(`"type":"tool_result"`)) || !bytes.Contains(encoded, []byte(`"tool_call_id":"runtime-101"`)) {
+		t.Fatalf("legacy runtime tools were not reconstructed: %s", encoded)
 	}
 }
 

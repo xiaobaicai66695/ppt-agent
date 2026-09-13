@@ -1,8 +1,10 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -285,6 +287,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 			"replay_after_event_id":  replayAfterEventID,
 			"conversation_streaming": info.Status == task.TaskStatusConversation && ts.IsConversationStreamActive(),
 			"messages":               messages,
+			"timeline":               conversationTimeline(taskID, messages),
 			"status":                 info.Status,
 			"done_count":             info.DoneCount,
 			"total_count":            info.TotalCount,
@@ -314,6 +317,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		"latest_event_id":       uint64(0),
 		"replay_after_event_id": uint64(0),
 		"messages":              messages,
+		"timeline":              conversationTimeline(taskID, messages),
 		"status":                info.Status,
 		"done_count":            info.DoneCount,
 		"total_count":           info.TotalCount,
@@ -327,8 +331,150 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	})
 }
 
+var listConversationTraceEvents = db.ListConversationTraceEvents
 var listRuntimeEvents = db.ListRuntimeEventSummaries
 var getRuntimeEvent = db.GetRuntimeEvent
+
+const persistedTimelineTextLimit = 12 * 1024
+
+// persistConversationTimelineEvent stores only the same bounded, public event
+// shape already sent over SSE. It never stores TaskState internals or private
+// model reasoning.
+func (s *Server) persistConversationTimelineEvent(taskID string, event task.SSERichEvent) {
+	event = publicTimelineEvent(event)
+	payload, err := json.Marshal(event)
+	if err != nil {
+		logger.Warn("conversation_timeline_encode_failed", "task_id", taskID, "event_type", event.Type, "error", err.Error())
+		return
+	}
+	if err := db.CreateConversationTraceEvent(&db.ConversationTraceEvent{
+		TaskID: taskID, SourceEventID: event.ID, Type: event.Type, Payload: string(payload), Timestamp: time.Now(),
+	}); err != nil {
+		logger.Warn("conversation_timeline_persist_failed", "task_id", taskID, "event_type", event.Type, "error", err.Error())
+	}
+}
+
+func publicTimelineEvent(event task.SSERichEvent) task.SSERichEvent {
+	// Keep the durable payload intentionally small and identical to the public
+	// timeline contract. Task lists, runtime snapshots and token details have
+	// their own APIs and would make historical reloads noisy and expensive.
+	event.Content = limitTimelineText(event.Content)
+	event.ToolArgs = limitTimelineText(event.ToolArgs)
+	event.ToolResult = limitTimelineText(event.ToolResult)
+	event.Error = limitTimelineText(event.Error)
+	event.Message = limitTimelineText(event.Message)
+	event.PhaseDetail = limitTimelineText(event.PhaseDetail)
+	event.Tasks = nil
+	event.RuntimeEvent = nil
+	if encoded, err := json.Marshal(event.ToolPreview); err != nil || len(encoded) > persistedTimelineTextLimit {
+		event.ToolPreview = nil
+	}
+	return event
+}
+
+func limitTimelineText(value string) string {
+	runes := []rune(value)
+	if len(runes) <= persistedTimelineTextLimit {
+		return value
+	}
+	return string(runes[:persistedTimelineTextLimit]) + "…"
+}
+
+type conversationTimelineEntry struct {
+	timestamp time.Time
+	order     uint64
+	value     any
+}
+
+// conversationTimeline merges durable messages with the observable trace so
+// history has the same chronological narrative as a live workbench session.
+func conversationTimeline(taskID string, messages []session.Message) []any {
+	entries := make([]conversationTimelineEntry, 0, len(messages))
+	for index, message := range messages {
+		entries = append(entries, conversationTimelineEntry{
+			timestamp: message.Timestamp,
+			order:     uint64(index),
+			value:     gin.H{"type": "message", "message": message},
+		})
+	}
+	traces, err := listConversationTraceEvents(taskID)
+	if err == nil && len(traces) > 0 {
+		for _, trace := range traces {
+			var event task.SSERichEvent
+			if err := json.Unmarshal([]byte(trace.Payload), &event); err != nil || event.Type == "" {
+				continue
+			}
+			entries = append(entries, conversationTimelineEntry{timestamp: trace.Timestamp, order: uint64(trace.ID), value: event})
+		}
+	} else {
+		entries = append(entries, legacyRuntimeTimeline(taskID)...)
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].timestamp.Equal(entries[j].timestamp) {
+			return entries[i].order < entries[j].order
+		}
+		return entries[i].timestamp.Before(entries[j].timestamp)
+	})
+	timeline := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		timeline = append(timeline, entry.value)
+	}
+	return timeline
+}
+
+// legacyRuntimeTimeline lets tasks created before conversation_trace_events
+// recover their persisted tool history on a best-effort basis.
+func legacyRuntimeTimeline(taskID string) []conversationTimelineEntry {
+	records, err := listRuntimeEvents(taskID)
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	entries := make([]conversationTimelineEntry, 0, len(records))
+	pending := map[string][]string{}
+	for _, record := range records {
+		event := runtimeEventFromRecord(record, false)
+		kind := strings.ToLower(strings.TrimSpace(event.Kind))
+		args := timelineMetadataString(event.Metadata, "args_preview")
+		key := event.Name + "\n" + args
+		var trace task.SSERichEvent
+		switch kind {
+		case "tool_start", "slide_render_start":
+			callID := fmt.Sprintf("runtime-%d", event.ID)
+			pending[key] = append(pending[key], callID)
+			trace = task.SSERichEvent{ID: uint64(event.ID), Type: task.SSEEventToolCall, ToolCallID: callID, ToolName: event.Name, ToolArgs: args, Phase: event.Phase, PhaseDetail: firstNonEmpty(event.Detail, "正在调用工具")}
+		case "tool_end", "slide_render_end", "tool_error", "slide_render_error":
+			calls := pending[key]
+			callID := fmt.Sprintf("runtime-%d", event.ID)
+			if len(calls) > 0 {
+				callID = calls[0]
+				pending[key] = calls[1:]
+			}
+			status := "success"
+			result := timelineMetadataString(event.Metadata, "result_preview")
+			if strings.HasSuffix(kind, "_error") || strings.EqualFold(event.Status, "error") {
+				status, result = "error", firstNonEmpty(timelineMetadataString(event.Metadata, "error"), event.Detail, "工具调用失败")
+			}
+			trace = task.SSERichEvent{ID: uint64(event.ID), Type: task.SSEEventToolResult, ToolCallID: callID, ToolName: event.Name, ToolArgs: args, ToolResult: firstNonEmpty(result, "工具调用已完成"), ToolStatus: status, Phase: event.Phase, PhaseDetail: event.Detail}
+		case "phase_changed":
+			if strings.TrimSpace(event.Detail) == "" {
+				continue
+			}
+			trace = task.SSERichEvent{ID: uint64(event.ID), Type: task.SSEEventThought, SegmentID: fmt.Sprintf("runtime-phase-%d", event.ID), Content: event.Detail, Phase: event.Phase}
+		default:
+			continue
+		}
+		entries = append(entries, conversationTimelineEntry{timestamp: record.Timestamp, order: uint64(record.ID), value: trace})
+	}
+	return entries
+}
+
+func timelineMetadataString(metadata map[string]any, key string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	value, _ := metadata[key].(string)
+	return strings.TrimSpace(value)
+}
 
 func conversationRuntimeMeta(taskID, workDir string) *agentutils.RuntimeMetaSnapshot {
 	snapshot, _ := agentutils.LoadRuntimeMetaSnapshot(workDir)

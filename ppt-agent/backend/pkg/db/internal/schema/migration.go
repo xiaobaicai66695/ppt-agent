@@ -19,6 +19,7 @@ func Migrate(db *gorm.DB) error {
 		&model.TaskFeedback{},
 		&model.PlanDraftRecord{},
 		&model.ConversationMessage{},
+		&model.ConversationTraceEvent{},
 		&model.RuntimeEventRecord{},
 		&model.TaskErrorAnalysis{},
 	); err != nil {

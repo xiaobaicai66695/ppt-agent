@@ -11,7 +11,7 @@ import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetch
 import type { AuthUser, TaskInfo, TaskStreamEvent } from '../types'
 import { appendDeliveryDirectives, shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent, taskStreamEventNames } from '../utils/taskStream'
-import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, resetConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
+import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, restoreConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -100,10 +100,12 @@ async function select(task: TaskInfo) {
   error.value = ''
   const session = await fetchConversation(task.id)
   if (currentSelection !== selectionGeneration || selected.value?.id !== task.id) return
-  const history = session.messages || []
-  timeline.value = resetConversationTimeline(history)
+  timeline.value = restoreConversationTimeline(session.timeline, session.messages || [])
   if (session.conversation_streaming || task.status === 'running') {
-    openStream(task.id, session.replay_after_event_id || session.latest_event_id || 0)
+    // The durable timeline above already includes every event available at
+    // snapshot time. Resume strictly after it so historical cards are never
+    // duplicated when reconnecting to an active task.
+    openStream(task.id, session.latest_event_id || session.replay_after_event_id || 0)
   }
 }
 
