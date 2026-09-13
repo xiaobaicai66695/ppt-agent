@@ -20,6 +20,7 @@
 - 追加前端发布（`116e0ba`，2026-09-13）：每个 `llm_end → llm_start` 窗口中的工具调用默认合并折叠为一张“工具调用（N 项）”卡，展开后显示各项完整参数、返回内容和图片预览；历史回放采用相同边界。发布替换 `frontend/dist` 后，服务改由 transient `ppt-agent.service` 的非阻塞 systemd 单元托管，最终 PID `1414137`，20 秒稳定检查无重启；内网与公网 `/api/health`、首页和 Dashboard 均为 200，入口 JS 为 `index-BM5n9jed.js`。
 - 追加前端发布（`170ba95`，2026-09-13）：兼容没有 `llm_start` / `llm_end` 的旧任务回放，将连续的工具调用隐式合并为默认折叠的“工具调用（N 项）”卡；思考、回答或其他时间线事件会结束该组。已仅替换 `remote-dev:/ppt/ppt-agent/frontend/dist`，不改后端与任务数据；`ppt-agent.service` 为 active、`:8080` 正在监听，内网 `/api/health` 与 Dashboard 均为 200。该行为由前端 28 项单元回归、生产构建和严格设计审计覆盖，未发起消耗模型额度的线上任务。
 - 追加后端发布（`c4161bd`，2026-09-13）：修复 RuntimeMeta 已记录但未被时间线转发的 `llm_start` / `llm_end`。新生成任务会通过 SSE 并写入 `conversation_trace_events` 保存这两个边界，因此工具调用可严格按“前一轮 `llm_end` 到下一轮 `llm_start`”分组；已完成的旧记录不会伪造边界，继续使用连续工具调用兼容分组。按发布规范完整替换远端后端源码和 `skills`、保留 `backend/.env` 与 `weboutput`，并安装 Linux 交付二进制。服务 transient 单元因停止后自动移除，已以非阻塞方式重新注册；PID `1424158`，20 秒稳定检查 `NRestarts=0`，内外网 `/api/health` 和 Dashboard 均为 200。未发起消耗模型额度的线上任务。
+- 追加前端发布（`65192d7`，2026-09-13）：交付缩略图改为可访问按钮，点击后通过共享 `AppModal` 的媒体变体放大预览，并支持 Escape、遮罩关闭与触发焦点恢复；下载链接仍独立可用。Dashboard 中栏和消息时间线补齐可收缩的 Grid/overflow 约束，长工具详情不再撑开中栏并覆盖右侧交付预览。仅替换 `remote-dev:/ppt/ppt-agent/frontend/dist`；入口脚本为 `index-ELgD5bUK.js`，服务保持 active，内外网 `/api/health` 和 Dashboard 均为 200。前端 28 项单元回归、类型生产构建和严格 UI 审计通过；`DESIGN.md` lint 无 error（5 项既有 token 引用 warning），浏览器自动化 CLI 未返回可执行工作流，因此未自动截图验证。
 
 ## 遗留边界
 
