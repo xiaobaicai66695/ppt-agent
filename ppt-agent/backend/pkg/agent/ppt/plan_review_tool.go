@@ -82,11 +82,17 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "error", Message: "缺少整套 PPT 标题。"})
 	}
 	if err := validateManifestForWrite(manifest); err != nil {
-		report.Issues = append(report.Issues, PlanReviewIssue{
+		issue := PlanReviewIssue{
 			Code:     "invalid_component_schema",
 			Severity: "error",
 			Message:  err.Error(),
-		})
+		}
+		// validateManifestForWrite intentionally returns a compact error. Its
+		// task id is still enough to scope a repair, so retain the corresponding
+		// page index. Without it the Reviewer receives an empty authorization
+		// slice, attempts the obvious repair, and is rejected for every round.
+		issue.PageIndex = validationErrorPageIndex(manifest, issue.Message)
+		report.Issues = append(report.Issues, issue)
 	}
 	backgroundMode := manifestBackgroundMode(manifest)
 	for _, task := range manifest.Tasks {
@@ -95,6 +101,29 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 	reviewPPTBackgroundVariety(manifest, report)
 	reviewPPTVisualMix(manifest, report)
 	return finalizePlanReviewReport(report, manifest)
+}
+
+func validationErrorPageIndex(manifest *TasksManifest, message string) int {
+	if manifest == nil {
+		return 0
+	}
+	const taskPrefix = `task "`
+	start := strings.Index(message, taskPrefix)
+	if start < 0 {
+		return 0
+	}
+	remainder := message[start+len(taskPrefix):]
+	end := strings.Index(remainder, `"`)
+	if end <= 0 {
+		return 0
+	}
+	taskID := remainder[:end]
+	for _, task := range manifest.Tasks {
+		if task != nil && task.TaskID == taskID {
+			return task.PageIndex
+		}
+	}
+	return 0
 }
 
 func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode string) {

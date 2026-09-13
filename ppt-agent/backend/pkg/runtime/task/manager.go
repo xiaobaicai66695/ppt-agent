@@ -1219,12 +1219,6 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		cancelRun(errDeliveryMetadataComplete)
 	})
 
-	var thoughtSegment int
-	currentThoughtSegment := ""
-	nextThoughtSegment := func() string {
-		thoughtSegment++
-		return fmt.Sprintf("planner-thought-%d", thoughtSegment)
-	}
 	result, err := ppt.RunPPTPlannerWithCallback(runCtx, agent, cfg, query, func(event ppt.AgentEvent) {
 		if event.Type == ppt.AgentEventProgress {
 			ts.Broadcast(SSERichEvent{
@@ -1245,40 +1239,19 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			// The model event still provides an early, user-safe phase summary.
 			if event.Type == "tool_call" {
 				detectAndBroadcastPhase(ts, event, false)
-				currentThoughtSegment = ""
 			}
 			return
 		}
 		if event.Type == ppt.AgentEventAnswer {
-			if currentThoughtSegment == "" {
-				currentThoughtSegment = nextThoughtSegment()
-				ts.Broadcast(SSERichEvent{
-					Type:      SSEEventLLMStart,
-					SegmentID: currentThoughtSegment,
-					Phase:     "thought",
-				})
-			}
-			ts.Broadcast(SSERichEvent{
-				Type:      SSEEventThought,
-				Content:   event.Content,
-				SegmentID: currentThoughtSegment,
-				Delta:     true,
-			})
+			// Planner and Reviewer prose is internal tool-orchestration chatter,
+			// not a user-facing thought process. Public progress is emitted from
+			// deterministic workflow phases and actual tool events instead.
 			return
 		}
 		if event.Type == ppt.AgentEventLLMEnd {
-			// AgentEventLLMEnd is emitted after this model response's visible
-			// chunks. Use the existing explicit answer boundary so reconnect
-			// cursors and durable assistant rows remain aligned.
-			if currentThoughtSegment != "" {
-				ts.Broadcast(SSERichEvent{
-					Type:      SSEEventLLMEnd,
-					SegmentID: currentThoughtSegment,
-					Phase:     "thought",
-				})
-			}
-			ts.Broadcast(SSERichEvent{Type: "answer_end"})
-			currentThoughtSegment = ""
+			// One task can contain many LLM turns. Treating every turn as a
+			// planning completion produced repeated and misleading "开始生成"
+			// entries while the Reviewer was still working.
 			return
 		}
 		ts.Broadcast(SSERichEvent{
@@ -1290,11 +1263,46 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 		})
 	})
 	ts.CompletePendingTools(err)
-	ts.Broadcast(SSERichEvent{Type: "answer_end"})
+	if err == nil && ctx.Err() == nil {
+		ts.Broadcast(SSERichEvent{Type: "answer_end"})
+		ts.Broadcast(SSERichEvent{Type: "progress", Phase: "assets", PhaseDetail: "规划审核已通过，正在检索图片素材并准备渲染"})
+	}
 
 	if err == nil && ctx.Err() == nil {
 		renderResult, renderErr := ppt.RenderPPT(ctx, cfg, func(event ppt.PPTRenderEvent) {
 			switch event.Type {
+			case "asset_search_start":
+				ts.Broadcast(SSERichEvent{
+					Type:        SSEEventToolCall,
+					ToolCallID:  event.ToolCallID,
+					ToolName:    event.ToolName,
+					ToolArgs:    event.ToolArgs,
+					Phase:       "assets",
+					PhaseDetail: event.Detail,
+				})
+			case "asset_search_done":
+				ts.Broadcast(SSERichEvent{
+					Type:        SSEEventToolResult,
+					ToolCallID:  event.ToolCallID,
+					ToolName:    event.ToolName,
+					ToolArgs:    event.ToolArgs,
+					ToolResult:  event.ToolResult,
+					ToolPreview: event.ToolPreview,
+					ToolStatus:  "success",
+					Phase:       "assets",
+				})
+			case "asset_search_error":
+				ts.Broadcast(SSERichEvent{
+					Type:        SSEEventToolResult,
+					ToolCallID:  event.ToolCallID,
+					ToolName:    event.ToolName,
+					ToolArgs:    event.ToolArgs,
+					ToolResult:  event.ToolResult,
+					ToolPreview: event.ToolPreview,
+					ToolStatus:  "error",
+					Error:       event.ToolResult,
+					Phase:       "assets",
+				})
 			case "workflow_start":
 				ts.Broadcast(SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail})
 			case "slide_start":

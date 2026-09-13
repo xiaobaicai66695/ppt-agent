@@ -240,7 +240,7 @@ function consume(raw: string, eventID?: number) {
       addExecution('缩略图已就绪', data.files?.length ? `已准备 ${data.files.length} 张预览` : '可以查看演示预览', 'success', sourceID)
     } else if (data.type === 'answer_end') {
       finishTimelineEntries(timeline.value, { includeTools: false })
-      addExecution('规划说明已完成', '正在开始生成演示页面', 'success', sourceID)
+      addExecution('规划审核已完成', '正在准备图片素材和演示页面', 'success', sourceID)
     } else if (isTerminalTaskStreamEvent(data.type)) {
       busy.value = false
       closeStream()

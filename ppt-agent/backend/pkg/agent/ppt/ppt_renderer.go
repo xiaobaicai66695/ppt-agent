@@ -3,6 +3,7 @@ package ppt
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,12 +22,17 @@ import (
 )
 
 type PPTRenderEvent struct {
-	Type       string
-	TaskID     string
-	PageIndex  int
-	OutputFile string
-	Detail     string
-	Error      string
+	Type        string
+	ToolCallID  string
+	ToolName    string
+	ToolArgs    string
+	ToolResult  string
+	ToolPreview map[string]any
+	TaskID      string
+	PageIndex   int
+	OutputFile  string
+	Detail      string
+	Error       string
 }
 
 type PPTRenderEventCallback func(event PPTRenderEvent)
@@ -82,15 +88,28 @@ func preparePPTImages(ctx context.Context, ppt *pptRenderContext) (*pptRenderCon
 		// Only hydrate pages selected for this render pass. The task pointers are
 		// shared with ppt.Manifest, so successful metadata is persisted below.
 		pendingManifest := &TasksManifest{Tasks: ppt.Tasks, VisualPolicy: ppt.Manifest.VisualPolicy}
+		assetToolCallID, assetToolArgs := plannedAssetSearchToolCall(ppt.Config.WorkDir, pendingManifest, revisionAttempt)
+		if assetToolCallID != "" {
+			emitRenderEvent(ppt.Callback, PPTRenderEvent{
+				Type:       "asset_search_start",
+				ToolCallID: assetToolCallID,
+				ToolName:   "search_images",
+				ToolArgs:   assetToolArgs,
+				Detail:     "正在检索并下载 PPT 所需图片素材",
+			})
+		}
 		counts, err := DownloadPPTAssets(ctx, ppt.Config.WorkDir, pendingManifest)
 		if errors.Is(err, unsplash.ErrMissingAccessKey) {
+			emitAssetSearchResult(ppt.Callback, assetToolCallID, assetToolArgs, "图片素材服务未配置", nil, true)
 			return nil, fmt.Errorf("图片素材服务未配置，无法交付带背景图片的 PPT: %w", err)
 		}
 		if err != nil {
 			var revision *assetQueryRevisionError
 			if !errors.As(err, &revision) {
+				emitAssetSearchResult(ppt.Callback, assetToolCallID, assetToolArgs, err.Error(), nil, true)
 				return nil, fmt.Errorf("prepare PPT images: %w", err)
 			}
+			emitAssetSearchResult(ppt.Callback, assetToolCallID, assetToolArgs, "图片搜索词需要修订后重试", nil, true)
 			handled, revisionErr := backgroundSearchRetryFactory.Execute(ctx, retry.OperationUnsplashSearch, err, revisionAttempt, func(ctx context.Context, decision retry.Decision) error {
 				return reviseBackgroundSearchTermsWithFixer(ctx, ppt, revision, decision)
 			})
@@ -106,8 +125,10 @@ func preparePPTImages(ctx context.Context, ppt *pptRenderContext) (*pptRenderCon
 			continue
 		}
 		if missingPages := missingMaterializedBackgroundPages(ppt.Config.WorkDir, pendingManifest); len(missingPages) > 0 {
+			emitAssetSearchResult(ppt.Callback, assetToolCallID, assetToolArgs, fmt.Sprintf("第 %s 页背景图片未成功物化", formatPageIndexes(missingPages)), nil, true)
 			return nil, fmt.Errorf("背景图片未物化到本地，拒绝交付无背景 PPT：第 %s 页", formatPageIndexes(missingPages))
 		}
+		emitAssetSearchResult(ppt.Callback, assetToolCallID, assetToolArgs, fmt.Sprintf("已物化 %d 个背景素材和 %d 个图文素材", counts.Backgrounds, counts.Images), materializedAssetPreview(pendingManifest), false)
 		if counts.Backgrounds == 0 && counts.Images == 0 {
 			return ppt, nil
 		}
@@ -122,6 +143,115 @@ func preparePPTImages(ctx context.Context, ppt *pptRenderContext) (*pptRenderCon
 		}
 		return ppt, nil
 	}
+}
+
+func plannedAssetSearchToolCall(workDir string, manifest *TasksManifest, attempt int) (string, string) {
+	backgroundTargets, backgroundErr := collectPendingBackgroundTargets(workDir, manifest)
+	imageTargets, imageErr := collectPendingImageAssetTargets(workDir, manifest)
+	if backgroundErr != nil || imageErr != nil || (len(backgroundTargets) == 0 && len(imageTargets) == 0) {
+		return "", ""
+	}
+	backgroundQueries := make(map[string]bool)
+	imageQueries := make(map[string]bool)
+	for _, target := range backgroundTargets {
+		if query := strings.TrimSpace(target.query); query != "" {
+			backgroundQueries[query] = true
+		}
+	}
+	for _, target := range imageTargets {
+		if query := strings.TrimSpace(target.query); query != "" {
+			imageQueries[query] = true
+		}
+	}
+	payload := map[string]any{
+		"provider":           "unsplash",
+		"background_queries": sortedAssetQueries(backgroundQueries),
+		"image_queries":      sortedAssetQueries(imageQueries),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", ""
+	}
+	return fmt.Sprintf("asset-search-%d", attempt), string(encoded)
+}
+
+func sortedAssetQueries(values map[string]bool) []string {
+	queries := make([]string, 0, len(values))
+	for query := range values {
+		queries = append(queries, query)
+	}
+	sort.Strings(queries)
+	return queries
+}
+
+func emitAssetSearchResult(callback PPTRenderEventCallback, callID, args, result string, preview map[string]any, failed bool) {
+	if callID == "" {
+		return
+	}
+	eventType := "asset_search_done"
+	if failed {
+		eventType = "asset_search_error"
+	}
+	emitRenderEvent(callback, PPTRenderEvent{
+		Type:        eventType,
+		ToolCallID:  callID,
+		ToolName:    "search_images",
+		ToolArgs:    args,
+		ToolResult:  result,
+		ToolPreview: preview,
+		Detail:      result,
+	})
+}
+
+func materializedAssetPreview(manifest *TasksManifest) map[string]any {
+	if manifest == nil {
+		return nil
+	}
+	images := make([]map[string]string, 0, 6)
+	seen := map[string]bool{}
+	add := func(pageIndex int, label, previewURL, imageURL, sourceURL, attribution string) {
+		previewURL = safeAssetPreviewURL(previewURL)
+		imageURL = safeAssetPreviewURL(imageURL)
+		sourceURL = safeAssetPreviewURL(sourceURL)
+		key := firstNonEmptyString(previewURL, imageURL)
+		if key == "" || seen[key] || len(images) >= 6 {
+			return
+		}
+		seen[key] = true
+		images = append(images, map[string]string{
+			"thumbnail_url": previewURL,
+			"image_url":     imageURL,
+			"source_url":    sourceURL,
+			"alt":           fmt.Sprintf("第 %d 页%s", pageIndex, label),
+			"attribution":   strings.TrimSpace(attribution),
+		})
+	}
+	for _, task := range manifest.Tasks {
+		if task == nil || task.ContentPlan == nil {
+			continue
+		}
+		if visual := task.ContentPlan.VisualIntent; visual != nil {
+			add(task.PageIndex, "背景素材", visual.PreviewURL, visual.ImageURL, visual.SourceURL, visual.Attribution)
+		}
+		for index := range task.ContentPlan.Components {
+			component := &task.ContentPlan.Components[index]
+			if component.Type == "image" {
+				add(task.PageIndex, "图片素材", component.PreviewURL, component.ImageURL, component.SourceURL, component.Attribution)
+			}
+		}
+	}
+	if len(images) == 0 {
+		return nil
+	}
+	return map[string]any{"images": images}
+}
+
+func safeAssetPreviewURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(raw), "https://") {
+		return raw
+	}
+	return ""
 }
 
 // reviseBackgroundSearchTermsWithFixer asks the PPT fixer to change only the
