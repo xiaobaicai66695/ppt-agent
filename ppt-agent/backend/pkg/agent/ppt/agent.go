@@ -34,6 +34,7 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
+	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
@@ -45,7 +46,7 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
 	searchTool := tools.NewSearchTool(tools.WithSearchContentSummarizer(newPlanningSearchContentSummarizer(cfg)))
 	manifestTool := newPlannerManifestTool(cfg.WorkDir, cfg.Outline, cfg.Query)
-	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
+	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool, newPPTImageSearchTool()}
 
 	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "PPTPlanner",
@@ -62,6 +63,18 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 	}
 
 	return planner, nil
+}
+
+// newPPTImageSearchTool is registered even when the provider is unavailable so
+// the agent receives a clear, user-safe observation instead of silently losing
+// an advertised capability. The deterministic renderer remains responsible for
+// downloading task-local assets before it renders a slide.
+func newPPTImageSearchTool() tool.InvokableTool {
+	client, err := unsplash.NewClientFromEnv()
+	if err != nil {
+		return tools.NewImageSearchTool(nil)
+	}
+	return tools.NewImageSearchTool(client)
 }
 
 // newPlanningSearchContentSummarizer creates the inexpensive text model only
@@ -120,6 +133,7 @@ func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedPa
 	reviewerTools := []tool.BaseTool{
 		newScopedDraftTasksPatchTool(cfg.WorkDir, allowedPageIndexes),
 		tools.NewReadFileTool(cfg.Operator),
+		newPPTImageSearchTool(),
 	}
 
 	reviewer, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{

@@ -1129,6 +1129,7 @@ func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
 			ToolArgs:    firstRuntimeDetail(runtimeMetadataString(summary.Metadata, "args_display"), runtimeMetadataString(summary.Metadata, "args_preview")),
 			ToolResult:  firstRuntimeDetail(result, "工具调用已完成"),
 			ToolStatus:  toolStatus,
+			ToolPreview: runtimeImageToolPreview(summary.Metadata),
 			Phase:       summary.Phase,
 			PhaseDetail: summary.Detail,
 		})
@@ -1149,6 +1150,39 @@ func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
 			PhaseDetail: firstRuntimeDetail(summary.Detail, "正在压缩较早对话，保留你的最新要求"),
 		})
 	}
+}
+
+func runtimeImageToolPreview(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	values, ok := metadata["image_results"].([]any)
+	if !ok {
+		return nil
+	}
+	images := make([]map[string]string, 0, len(values))
+	for _, value := range values {
+		item, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		previewURL := runtimeMetadataString(item, "thumbnail_url")
+		imageURL := runtimeMetadataString(item, "image_url")
+		if previewURL == "" && imageURL == "" {
+			continue
+		}
+		images = append(images, map[string]string{
+			"thumbnail_url": previewURL,
+			"image_url":     imageURL,
+			"source_url":    runtimeMetadataString(item, "source_url"),
+			"alt":           runtimeMetadataString(item, "alt"),
+			"attribution":   runtimeMetadataString(item, "attribution"),
+		})
+	}
+	if len(images) == 0 {
+		return nil
+	}
+	return map[string]any{"images": images}
 }
 
 func isRuntimeToolStart(kind string) bool {

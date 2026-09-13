@@ -1019,6 +1019,18 @@ func addToolObservationFields(metadata map[string]any, name, args, result string
 		}
 	case "read_file":
 		addJSONFieldAs(metadata, args, "path", "file_path")
+	case "search_images":
+		addJSONFieldAs(metadata, args, "query", "image_query")
+		provider, images, errText := extractImageSearchSummary(result, 6)
+		if provider != "" {
+			metadata["provider"] = provider
+		}
+		if len(images) > 0 {
+			metadata["image_results"] = images
+		}
+		if errText != "" {
+			metadata["error"] = errText
+		}
 	case "update_tasks_manifest":
 		if count := countManifestTasks(args); count > 0 {
 			metadata["slide_count"] = count
@@ -1137,6 +1149,61 @@ func extractSearchURLs(raw string, limit int) []string {
 		}
 	}
 	return urls
+}
+
+func extractImageSearchSummary(raw string, limit int) (string, []map[string]any, string) {
+	if strings.TrimSpace(raw) == "" || limit <= 0 {
+		return "", nil, ""
+	}
+	var parsed struct {
+		Provider string `json:"provider"`
+		Photos   []struct {
+			PreviewURL   string `json:"preview_url"`
+			ImageURL     string `json:"image_url"`
+			SourceURL    string `json:"source_url"`
+			Attribution  string `json:"attribution"`
+			Photographer string `json:"photographer"`
+		} `json:"photos"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", nil, ""
+	}
+	images := make([]map[string]any, 0, minInt(len(parsed.Photos), limit))
+	seen := map[string]struct{}{}
+	for _, photo := range parsed.Photos {
+		previewURL := publicImageURL(photo.PreviewURL)
+		imageURL := publicImageURL(photo.ImageURL)
+		sourceURL := publicImageURL(photo.SourceURL)
+		key := firstNonEmpty(previewURL, imageURL)
+		if key == "" {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		item := map[string]any{
+			"thumbnail_url": previewURL,
+			"image_url":     imageURL,
+			"source_url":    sourceURL,
+			"alt":           truncateString(strings.TrimSpace(photo.Photographer), 120),
+			"attribution":   truncateString(strings.TrimSpace(photo.Attribution), 160),
+		}
+		images = append(images, item)
+		if len(images) >= limit {
+			break
+		}
+	}
+	return truncateString(strings.TrimSpace(parsed.Provider), 40), images, truncateString(strings.TrimSpace(parsed.Error), 180)
+}
+
+func publicImageURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(raw), "https://") {
+		return raw
+	}
+	return ""
 }
 
 func compactRuntimeMetadata(metadata map[string]any, depth int) map[string]any {

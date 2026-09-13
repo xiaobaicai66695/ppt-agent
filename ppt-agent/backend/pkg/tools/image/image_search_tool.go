@@ -23,7 +23,7 @@ const (
 
 var searchToolInfo = &schema.ToolInfo{
 	Name: "search_images",
-	Desc: "在 Unsplash 搜索图片候选。适合项目内闲聊 Agent 为用户展示可点击的图片参考；返回图片预览、来源页、摄影师署名和可被 PPTSpec/Unsplash CLI 继续物化的候选字段。PPT Planner 不应调用本工具。",
+	Desc: "在 Unsplash 搜索图片候选。返回图片预览、来源页、摄影师署名和可被 PPTSpec/确定性素材物化阶段继续使用的候选字段。PPT Planner 与 Task Reviewer 可将真实返回字段写入其授权页面的 visual_intent 或 image 组件，但不负责下载本地素材。",
 	ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"query": {
 			Type:     "string",
