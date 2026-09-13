@@ -38,7 +38,7 @@
 | CRUD | 任务 API 与 Dashboard | `src/api.ts`、后端任务状态 | create / continue / cancel | API + browser flow |
 | Long-running progress | SSE 状态机 | `DashboardPage.vue`、后端 `pkg/web/streamer.go` | conversation / PPT generation / continue | unit + browser flow |
 | Observable ReAct timeline | `conversationTimeline` + `ConversationTimelineItem.vue` | `src/utils/conversationTimeline.ts`、`src/components/ConversationTimelineItem.vue`、`DashboardPage.vue` | 仅活跃会话的 thought / paired tool call-result / final answer / delivery event | unit + browser keyboard flow |
-| Delivery preview and feedback | `TaskDeliveryPreview.vue`、`AppModal.vue` | `DashboardPage.vue`、任务缩略图/反馈 API | completed / thumbnail unavailable / rated | build + browser flow |
+| Delivery preview and feedback | `TaskDeliveryPreview.vue`、`AppModal.vue` | `DashboardPage.vue`、任务缩略图/反馈 API | inline / side-rail / thumbnail unavailable / rated | build + browser flow |
 
 ## Flow ledger
 
@@ -62,7 +62,7 @@
 
 ## Navigation and responsive behavior
 
-- Sidebar/drawer transformation: 桌面保持侧栏，窄屏隐藏导航和会话列表；主操作仍可见。
+- Sidebar/drawer transformation: Dashboard 宽屏在右侧保留已完成 PPT 的交付预览栏；中等宽度隐藏会话列表以保护主画布和预览栏，窄屏将预览栏下移。应用导航与会话列表在各自既有窄屏断点隐藏；主操作仍可见。
 - Truncation/full-value access: 会话标题允许单行截断；消息正文和错误信息允许读取完整内容。
 - Focus restoration and sticky-obstruction policy: native button/input 保持可见焦点；不在任务完成时抢夺焦点。
 

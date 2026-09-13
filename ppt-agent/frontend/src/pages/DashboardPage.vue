@@ -41,6 +41,7 @@ let stickRequestPending = false
 const activeTitle = computed(() => selected.value?.query || '新的创作会话')
 const sorted = computed(() => [...tasks.value].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)))
 const hasTimeline = computed(() => busy.value || timeline.value.length > 0)
+const hasDeliveryPreview = computed(() => selected.value?.status === 'completed' && Boolean(selected.value.files?.some(file => /\.pptx$/i.test(file))))
 const taskLabel = (status: string) => ({ running: '生成中', completed: '已交付', paused_retryable: '可继续恢复', failed: '需要处理', conversation: '对话中', cancelled: '已取消' } as Record<string, string>)[status] || status
 const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图片搜索', generate_slide: '幻灯片渲染', slide_render: '幻灯片渲染', update_tasks_manifest: '写入任务清单', patch_tasks_draft: '修正规划草稿', read_file: '读取文件', shell: 'Shell', bash: 'Shell', command: '命令行', terminal: '终端' } as Record<string, string>)[name] || name || '调用工具'
 
@@ -414,8 +415,6 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
           <div v-if="timeline.length" class="timeline-list" role="list" aria-label="对话与执行时间线">
             <ConversationTimelineItemCard v-for="item in timeline" :key="item.id" v-memo="[timelineMemoKey(item)]" :item="item" @toggle="toggleTimelineEntry" />
           </div>
-          <TaskDeliveryPreview v-if="selected?.status === 'completed'" :task="selected" :revision="thumbnailRevision" />
-          <button v-if="selected?.status === 'completed'" type="button" class="feedback-trigger" @click="feedbackDialogOpen = true">{{ selected.feedback ? '修改评价' : '评价这份演示' }}</button>
         </div>
         <form class="composer" novalidate @submit.prevent="submit">
           <div class="modebar"><button type="button" :class="{ on: mode === 'chat' }" @click="mode = 'chat'"><MessageSquareText :size="14" />对话</button><button type="button" :class="{ on: mode === 'pptagent' }" @click="mode = 'pptagent'"><WandSparkles :size="14" />PPT 生成</button><label><input v-model="web" type="checkbox">联网资料</label><label><input v-model="images" type="checkbox"><Image :size="13" />图片参考</label></div>
@@ -423,6 +422,10 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
           <p v-if="error" class="inline-error">{{ error }}</p>
         </form>
       </section>
+      <aside v-if="hasDeliveryPreview && selected" class="delivery-rail" aria-label="PPT 交付预览">
+        <TaskDeliveryPreview :task="selected" :revision="thumbnailRevision" layout="side-rail" />
+        <button type="button" class="feedback-trigger" @click="feedbackDialogOpen = true">{{ selected.feedback ? '修改评价' : '评价这份演示' }}</button>
+      </aside>
     </div>
     <AppModal :open="feedbackDialogOpen" title="为这份演示评分" description="你的反馈会帮助我们改进下一次生成。" @close="feedbackDialogOpen = false"><DeliveryFeedbackForm v-if="selected" :task-id="selected.id" :feedback="selected.feedback" @saved="handleFeedbackSaved" /></AppModal>
     <AppModal :open="Boolean(pendingDeletion)" title="删除这个会话？" description="会话与已交付文件将被删除，且无法恢复。" @close="pendingDeletion = undefined"><div class="delete-confirm"><button type="button" class="outline-button" @click="pendingDeletion = undefined">取消</button><button type="button" class="danger-button" @click="remove">删除会话</button></div></AppModal>
@@ -431,7 +434,7 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
 
 <style scoped>
 .compose-link { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--accent-strong); background: var(--surface-raised); font-size: 12px; }
-.workbench { display: grid; flex: 1; grid-template-columns: 254px minmax(0, 1fr); min-height: 0; overflow: hidden; background: var(--surface-base); }
+.workbench { display: grid; flex: 1; grid-template-columns: 254px minmax(460px, 1fr) minmax(300px, 360px); min-height: 0; overflow: hidden; background: var(--surface-base); }
 .conversations { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-subtle); background: var(--surface-raised); }
 .conversation-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 16px 14px; color: var(--text-muted); font-size: 12px; }
 .conversation-head button { display: grid; width: 27px; height: 27px; place-items: center; border: 0; border-radius: 5px; color: var(--accent-strong); background: var(--surface-accent); }
@@ -468,7 +471,8 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
 .blank-canvas div { display: flex; justify-content: center; gap: 8px; margin-top: 25px; }
 .blank-canvas button { padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-muted); background: var(--surface-raised); font-size: 12px; }
 .timeline-list { display: flow-root; max-width: 760px; margin: 0 auto; }
-.feedback-trigger { margin: 0 auto 22px; color: var(--accent); font-weight: 600; }
+.delivery-rail { min-width: 0; overflow: auto; padding: 20px 16px; border-left: 1px solid var(--border-subtle); background: var(--surface-raised); scrollbar-gutter: stable; }
+.feedback-trigger { width: 100%; justify-content: center; margin-top: 12px; color: var(--accent); font-weight: 600; }
 .composer { padding: 12px 30px 18px; border-top: 1px solid var(--border-subtle); background: var(--surface-base); }
 .modebar { display: flex; align-items: center; gap: 5px; margin: 0 0 7px; }
 .modebar button, .modebar label { display: flex; align-items: center; gap: 4px; padding: 5px 7px; border: 0; color: var(--text-subtle); background: transparent; font-size: 11px; }
@@ -483,9 +487,15 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
 .delete-confirm { display: flex; justify-content: flex-end; gap: 9px; }
 .danger-button { padding: 7px 10px; border: 1px solid var(--danger); border-radius: 5px; color: #411515; background: var(--danger); font-size: 12px; font-weight: 700; }
 .danger-button:hover { filter: brightness(1.08); }
-@media (max-width: 850px) {
-  .workbench { grid-template-columns: 1fr; }
+@media (max-width: 1280px) {
+  .workbench { grid-template-columns: minmax(0, 1fr) minmax(300px, 350px); }
   .conversations { display: none; }
+}
+@media (max-width: 920px) {
+  .workbench { grid-template-columns: 1fr; grid-template-rows: minmax(520px, 1fr) auto; overflow: auto; }
+  .delivery-rail { max-height: none; padding: 18px; border-top: 1px solid var(--border-subtle); border-left: 0; }
+}
+@media (max-width: 850px) {
   .canvas-head, .composer { padding-right: 18px; padding-left: 18px; }
   .messages { padding: 22px 18px; }
   .modebar label { display: none; }
