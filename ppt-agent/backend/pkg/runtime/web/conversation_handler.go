@@ -356,11 +356,10 @@ func (s *Server) persistConversationTimelineEvent(taskID string, event task.SSER
 
 func publicTimelineEvent(event task.SSERichEvent) task.SSERichEvent {
 	// Keep the durable payload intentionally small and identical to the public
-	// timeline contract. Task lists, runtime snapshots and token details have
-	// their own APIs and would make historical reloads noisy and expensive.
+	// timeline contract. Tool arguments and results are the exception: they are
+	// already safe public values and must remain intact so a history reload can
+	// populate the same scrollable full-value view as the live SSE stream.
 	event.Content = limitTimelineText(event.Content)
-	event.ToolArgs = limitTimelineText(event.ToolArgs)
-	event.ToolResult = limitTimelineText(event.ToolResult)
 	event.Error = limitTimelineText(event.Error)
 	event.Message = limitTimelineText(event.Message)
 	event.PhaseDetail = limitTimelineText(event.PhaseDetail)
@@ -434,7 +433,7 @@ func legacyRuntimeTimeline(taskID string) []conversationTimelineEntry {
 	for _, record := range records {
 		event := runtimeEventFromRecord(record, false)
 		kind := strings.ToLower(strings.TrimSpace(event.Kind))
-		args := timelineMetadataString(event.Metadata, "args_preview")
+		args := firstNonEmpty(timelineMetadataString(event.Metadata, "args_display"), timelineMetadataString(event.Metadata, "args_preview"))
 		key := event.Name + "\n" + args
 		var trace task.SSERichEvent
 		switch kind {
@@ -450,7 +449,7 @@ func legacyRuntimeTimeline(taskID string) []conversationTimelineEntry {
 				pending[key] = calls[1:]
 			}
 			status := "success"
-			result := timelineMetadataString(event.Metadata, "result_preview")
+			result := firstNonEmpty(timelineMetadataString(event.Metadata, "result_display"), timelineMetadataString(event.Metadata, "result_preview"))
 			if strings.HasSuffix(kind, "_error") || strings.EqualFold(event.Status, "error") {
 				status, result = "error", firstNonEmpty(timelineMetadataString(event.Metadata, "error"), event.Detail, "工具调用失败")
 			}

@@ -108,8 +108,8 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	meta.SetEventSink(func(event RuntimeEvent) {
 		events = append(events, event)
 	})
-	fullArgs := `{"code":"print(\"hello\")","notes":"keep the complete payload"}`
-	fullResult := "stdout:\nhello\nfull result body"
+	fullArgs := `{"code":"print(\"hello\")","notes":"` + strings.Repeat("x", 24000) + `"}`
+	fullResult := "stdout:\n" + strings.TrimSuffix(strings.Repeat("full result body\n", 1800), "\n")
 	meta.RecordToolStart("python3", fullArgs)
 	meta.RecordToolEnd("python3", fullArgs, fullResult)
 	meta.RecordLLMStartDetails("ChatModel", map[string]any{
@@ -156,6 +156,9 @@ func TestRuntimeMetaEmitsCompactEventDetailsToSink(t *testing.T) {
 	}
 	if snapshot.RecentEvents[0].Metadata["args"] != nil || snapshot.RecentEvents[1].Metadata["result"] != nil || snapshot.RecentEvents[2].Metadata != nil {
 		t.Fatalf("snapshot summary should omit raw tool payloads and llm inputs: %#v", snapshot.RecentEvents)
+	}
+	if snapshot.RecentEvents[0].Metadata["args_display"] != fullArgs || snapshot.RecentEvents[1].Metadata["result_display"] != fullResult {
+		t.Fatal("snapshot summary should retain complete safe tool payloads")
 	}
 	if got := snapshot.RecentEvents[3].Metadata["assistant_output"]; got != "done" {
 		t.Fatalf("snapshot summary should keep assistant output, got %#v", snapshot.RecentEvents[3].Metadata)

@@ -1110,7 +1110,7 @@ func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
 		ts.Broadcast(SSERichEvent{
 			Type:        SSEEventToolCall,
 			ToolName:    summary.Name,
-			ToolArgs:    runtimeMetadataString(summary.Metadata, "args_preview"),
+			ToolArgs:    firstRuntimeDetail(runtimeMetadataString(summary.Metadata, "args_display"), runtimeMetadataString(summary.Metadata, "args_preview")),
 			Phase:       summary.Phase,
 			PhaseDetail: firstRuntimeDetail(summary.Detail, "正在调用工具"),
 		})
@@ -1118,7 +1118,7 @@ func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
 	}
 	if isRuntimeToolTerminal(summary.Kind) {
 		toolStatus := "success"
-		result := runtimeMetadataString(summary.Metadata, "result_preview")
+		result := firstRuntimeDetail(runtimeMetadataString(summary.Metadata, "result_display"), runtimeMetadataString(summary.Metadata, "result_preview"))
 		if strings.HasSuffix(strings.ToLower(summary.Kind), "_error") || strings.EqualFold(summary.Status, "error") {
 			toolStatus = "error"
 			result = firstRuntimeDetail(runtimeMetadataString(summary.Metadata, "error"), summary.Detail, "工具调用失败")
@@ -1126,7 +1126,7 @@ func broadcastRuntimeSummary(ts *TaskState, summary utils.RuntimeEvent) {
 		ts.Broadcast(SSERichEvent{
 			Type:        SSEEventToolResult,
 			ToolName:    summary.Name,
-			ToolArgs:    runtimeMetadataString(summary.Metadata, "args_preview"),
+			ToolArgs:    firstRuntimeDetail(runtimeMetadataString(summary.Metadata, "args_display"), runtimeMetadataString(summary.Metadata, "args_preview")),
 			ToolResult:  firstRuntimeDetail(result, "工具调用已完成"),
 			ToolStatus:  toolStatus,
 			Phase:       summary.Phase,

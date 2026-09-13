@@ -895,8 +895,18 @@ func publicToolRuntimeEventMetadata(name string, metadata map[string]any) map[st
 	for key, value := range metadata {
 		normalized[key] = value
 	}
+	// Tool arguments and results have already passed compactRuntimeMetadata's
+	// redaction before reaching this public projection. Keep that safe, complete
+	// value under an explicit display key so the workbench can provide an
+	// internally scrollable full-value view without exposing audit-only fields.
+	if args, _ := normalized["args"].(string); strings.TrimSpace(args) != "" {
+		normalized["args_display"] = args
+	}
+	if result, _ := normalized["result"].(string); strings.TrimSpace(result) != "" {
+		normalized["result_display"] = result
+	}
 	allowed := map[string]struct{}{
-		"args_preview": {}, "result_preview": {}, "error": {},
+		"args_preview": {}, "result_preview": {}, "args_display": {}, "result_display": {}, "error": {},
 		"search_query": {}, "search_reason": {}, "source_count": {}, "source_titles": {}, "source_urls": {}, "search_results": {},
 		"image_query": {}, "asset_query": {}, "asset_purpose": {}, "asset_subject": {}, "composition": {},
 		"provider": {}, "total": {}, "total_pages": {}, "image_results": {},
@@ -1167,11 +1177,15 @@ func compactRuntimeValue(key string, value any, depth int) (any, bool) {
 		if v == "" {
 			return "", false
 		}
+		redacted := redactRuntimeMetadataString(key, v)
+		if isFullToolPayloadKey(key) {
+			return redacted, true
+		}
 		limit := runtimeMetadataPreviewStringLimit
 		if isRawRuntimeMetadataKey(key) {
 			limit = runtimeMetadataRawStringLimit
 		}
-		return truncateString(redactRuntimeMetadataString(key, v), limit), true
+		return truncateString(redacted, limit), true
 	case int, int64, float64, bool:
 		return v, true
 	case []string:
@@ -1209,6 +1223,15 @@ func compactRuntimeValue(key string, value any, depth int) (any, bool) {
 			return nil, false
 		}
 		return truncateString(text, 240), true
+	}
+}
+
+func isFullToolPayloadKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "args", "result":
+		return true
+	default:
+		return false
 	}
 }
 

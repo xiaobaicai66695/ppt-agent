@@ -54,7 +54,7 @@
 - Mutation default: 任务创建、继续和取消均等待服务端确认，防止重复提交。
 - Idempotency and duplicate-submit policy: `busy` 期间禁用发送；运行中的任务只允许取消。
 - Long-running progress and return path: 用户可在会话间切换；重新选择运行中的任务时，先恢复服务端给出的完整持久化时间线，再从该快照的最后 SSE 事件后连接。新到达的 `thought`、工具调用/返回卡与 `final_answer` 必须以服务端事件 ID 的到达顺序嵌入当前对话时间线；`tool_call` 立即创建一张调用卡，`tool_result` 只能回填同一张卡的结果与状态，不能另起底部结果条目，也不能复制出第二张同名工具卡。
-- Observable ReAct timeline: 界面仅显示后端发送的安全思考摘要、工具名称、调用参数、已净化的结果摘要和最终回答，绝不展示或伪造模型私有推理。思考摘要和工具调用/返回卡各自独立展开/收起；进行中的调用默认展开，长结果在卡内完整保留并使用内部滚动区展示，收起后仍显示工具名称和文字状态。图片预览仅消费已净化的 HTTPS 缩略图/来源字段。会话快照将 `conversation_messages` 与 `conversation_trace_events` 按时间顺序合并；旧任务缺少轨迹记录时，可从已保存的运行事件最佳努力恢复工具与阶段卡。`answer_end` / `llm_end` 到达后只结束当前文本段；下一次 `llm_start` 后即使服务端复用同一 `segment_id`，前端也必须新建文本卡，不得继续追加到上一段。`complete`、`continue_complete`、`conversation_complete` 到达后结束流式状态但保留本次页面会话中的轨迹。
+- Observable ReAct timeline: 界面仅显示后端发送的安全思考摘要、工具名称、已脱敏的完整调用参数、已脱敏的完整工具返回值和最终回答，绝不展示或伪造模型私有推理。思考摘要和工具调用/返回卡各自独立展开/收起；进行中的调用默认展开，完整工具参数和结果使用卡内的有限高度滚动文本区展示，收起后仍显示工具名称和文字状态。图片预览仅消费已净化的 HTTPS 缩略图/来源字段。会话快照将 `conversation_messages` 与 `conversation_trace_events` 按时间顺序合并；旧任务缺少轨迹记录时，可从已保存的运行事件最佳努力恢复工具与阶段卡。`answer_end` / `llm_end` 到达后只结束当前文本段；下一次 `llm_start` 后即使服务端复用同一 `segment_id`，前端也必须新建文本卡，不得继续追加到上一段。`complete`、`continue_complete`、`conversation_complete` 到达后结束流式状态但保留本次页面会话中的轨迹。
 - Stale-request cancellation/invalidation and pending-state ownership: 重开流前关闭现有 `EventSource`；只有 `complete`、`continue_complete`、`conversation_complete` 是终态。`answer_end` 仅结束文本回答，不关闭流。
 - Stream scroll behavior: 仅当消息容器已在底部 96px 范围内时，新增事件自动跟随到底部；用户手动向上滚动后不得被新事件拉回，回到该范围后自动跟随恢复。
 - Failure recovery: 错误保留在当前会话中，随后刷新任务快照，不能把 SSE 连接意外关闭误报为任务交付。

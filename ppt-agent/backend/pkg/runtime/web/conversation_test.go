@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,15 @@ import (
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	"github.com/cloudwego/ppt-agent/pkg/session"
 )
+
+func TestPublicTimelineEventKeepsCompleteToolPayloads(t *testing.T) {
+	args := `{"notes":"` + strings.Repeat("x", persistedTimelineTextLimit+64) + `"}`
+	result := strings.Repeat("tool output\n", persistedTimelineTextLimit+64)
+	event := publicTimelineEvent(task.SSERichEvent{Type: task.SSEEventToolResult, ToolArgs: args, ToolResult: result})
+	if event.ToolArgs != args || event.ToolResult != result {
+		t.Fatalf("tool payload was truncated: %#v", event)
+	}
+}
 
 func TestPersistedConversationMessagesPreservesStoredTurns(t *testing.T) {
 	messages := []session.Message{

@@ -119,6 +119,8 @@ func TestBroadcastSuppressesDuplicateToolCompletion(t *testing.T) {
 
 func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *testing.T) {
 	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	fullArgs := `{"task_id":"slide-1","notes":"` + strings.Repeat("x", 24000) + `"}`
+	fullResult := "render complete\n" + strings.TrimSuffix(strings.Repeat("output line\n", 1800), "\n")
 
 	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
 		Kind: "llm_start",
@@ -133,25 +135,25 @@ func TestBroadcastRuntimeSummaryIgnoresLLMEventsButKeepsSlideRenderTools(t *test
 		Name:  "generate_slide",
 		Phase: "rendering",
 		Metadata: map[string]any{
-			"args": `{"task_id":"slide-1"}`,
+			"args": fullArgs,
 		},
 	}))
-	if len(ts.Events) != 1 || ts.Events[0].Type != SSEEventToolCall || ts.Events[0].ToolName != "generate_slide" || ts.Events[0].ToolArgs == "" {
-		t.Fatalf("slide render start = %#v", ts.Events)
+	if len(ts.Events) != 1 || ts.Events[0].Type != SSEEventToolCall || ts.Events[0].ToolName != "generate_slide" || ts.Events[0].ToolArgs != fullArgs {
+		t.Fatal("slide render start did not retain the complete arguments")
 	}
 
 	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
-		Kind:  "slide_render_end",
-		Name:  "generate_slide",
-		Phase: "rendering",
+		Kind:   "slide_render_end",
+		Name:   "generate_slide",
+		Phase:  "rendering",
 		Status: "ok",
 		Metadata: map[string]any{
-			"args":   `{"task_id":"slide-1"}`,
-			"result": "render complete",
+			"args":   fullArgs,
+			"result": fullResult,
 		},
 	}))
-	if len(ts.Events) != 2 || ts.Events[1].Type != SSEEventToolResult || ts.Events[1].ToolCallID == "" || ts.Events[1].ToolResult != "render complete" {
-		t.Fatalf("slide render end = %#v", ts.Events)
+	if len(ts.Events) != 2 || ts.Events[1].Type != SSEEventToolResult || ts.Events[1].ToolCallID == "" || ts.Events[1].ToolResult != fullResult {
+		t.Fatal("slide render end did not retain the complete result")
 	}
 }
 
