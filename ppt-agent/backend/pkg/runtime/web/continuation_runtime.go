@@ -42,7 +42,8 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			OutputFile:  fmt.Sprintf("%d_%s.pptx", nextPage, title),
 			Status:      ppt.StatusPending,
 			ContentPlan: &ppt.ContentPlan{
-				Summary: fmt.Sprintf("补充说明用户要求：%s", continueMessage),
+				Summary:     fmt.Sprintf("补充说明用户要求：%s", continueMessage),
+				SlideIntent: "在现有演示末尾补充用户要求的内容，并保持叙事与视觉风格连续。",
 				Components: []ppt.PlanComponent{{
 					Type:  "bullet_list",
 					Items: []string{continueMessage, "围绕原演示主题补充新的信息点", "保持与前后页面一致的叙事和视觉风格"},
@@ -51,6 +52,45 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		}
 		manifest.Tasks = append(manifest.Tasks, newTask)
 		ch <- task.SSERichEvent{Type: "answer", Content: fmt.Sprintf("新增第%d页: %s\n", newTask.PageIndex, newTask.Title)}
+
+		// Persist a provisional page first so Fixer can receive an isolated
+		// snapshot and turn the user's request into the final component plan.
+		// WriteTasksManifest derives omitted component IDs for this transitional
+		// plan, rather than rejecting the user request on an internal field.
+		if err := ppt.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
+			ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("创建新增页草稿失败: %v", err)}
+			markTaskFailed(ts, err.Error())
+			return
+		}
+		fixerCfg := &ppt.PPTTaskConfig{
+			WorkDir: ts.Info.WorkDir, TaskID: taskID, Query: ts.Info.Query,
+			SkillsDir: s.skillDir, Operator: s.operator, UserID: ts.Info.UserID,
+			OnFixerTriggered: ts.RecordFixerRun, ModelAPIKey: credential.APIKey, ModelProvider: credential.Provider,
+		}
+		fixerCtx, cancelFixer := context.WithTimeout(s.runtimeContext(), 5*time.Minute)
+		defer cancelFixer()
+		fixer, fixerErr := ppt.NewPPTFixerAgentForTasks(fixerCtx, fixerCfg, []string{newTask.TaskID})
+		if fixerErr == nil {
+			fixerCfg.NotifyFixerTriggered()
+			fixerErr = ppt.RunPPTFixerWithCallback(fixerCtx, fixer,
+				fmt.Sprintf("用户要求新增第%d页：%s\n请将这张刚创建的页面直接规划为满足该要求的完整组件计划；只修改第%d页。", newTask.PageIndex, continueMessage, newTask.PageIndex),
+				func(event ppt.AgentEvent) {
+					switch event.Type {
+					case ppt.AgentEventAnswer:
+						ch <- task.SSERichEvent{Type: "answer", Content: event.Content}
+					case ppt.AgentEventLLMEnd:
+						ch <- task.SSERichEvent{Type: "answer_end"}
+					case ppt.AgentEventProgress:
+						ch <- task.SSERichEvent{Type: "progress", Phase: "fixing", PhaseDetail: event.PhaseDetail}
+					}
+				})
+		}
+		if fixerErr != nil {
+			logger.Warn("ppt_add_page_fixer_failed_using_provisional_plan", "task_id", taskID, "error", fixerErr.Error())
+			ch <- task.SSERichEvent{Type: "answer", Content: "新增页的定点规划未完成，系统将使用基础页面计划继续生成。\n"}
+		} else if updated, readErr := ppt.ReadTasksManifest(ts.Info.WorkDir); readErr == nil && updated != nil {
+			manifest = updated
+		}
 	case "fix":
 		pages := route.TargetPages
 		if len(pages) == 0 {

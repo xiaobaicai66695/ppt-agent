@@ -87,6 +87,20 @@ func TestValidateContentPlanRejectsImageWithoutMaterializationRoute(t *testing.T
 	}
 }
 
+func TestValidateContentPlanAssignsMissingComponentID(t *testing.T) {
+	item := &TaskItem{
+		TaskID: "slide-13", PageIndex: 13, Title: "补充说明", ContentType: "content_slide",
+		OutputFile: "slide_13.pptx", Status: StatusPending,
+		ContentPlan: &ContentPlan{Components: []PlanComponent{{Type: "bullet_list", Items: []string{"新增总结"}}}},
+	}
+	if err := validateManifestForWrite(&TasksManifest{Tasks: []*TaskItem{item}}); err != nil {
+		t.Fatalf("missing internal component ID should be normalized: %v", err)
+	}
+	if got, want := item.ContentPlan.Components[0].ID, "component-13-1"; got != want {
+		t.Fatalf("component ID = %q, want %q", got, want)
+	}
+}
+
 func TestDraftPatchToolUpdatesExistingTaskWithoutPublishing(t *testing.T) {
 	workDir := t.TempDir()
 	manifest := &TasksManifest{

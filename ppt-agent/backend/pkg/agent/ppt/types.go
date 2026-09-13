@@ -187,6 +187,12 @@ func WriteTasksManifest(workDir string, manifest *TasksManifest) error {
 	tasksManifestMu.Lock()
 	defer tasksManifestMu.Unlock()
 
+	// Component IDs are internal identities used by the renderer.  Models and
+	// continuation flows should not fail solely because they omitted one, so
+	// materialize a stable ID before the manifest becomes visible to Fixer or
+	// the render workflow.
+	normalizeManifestComponentIDs(manifest)
+
 	// 读取现有数据以补齐调用方没有携带的运行时状态。调用方显式传入的新
 	// status 必须被尊重，否则 done 会被旧的 pending 覆盖。
 	data, err := os.ReadFile(filepath.Join(workDir, "tasks.json"))
@@ -211,6 +217,24 @@ func WriteTasksManifest(workDir string, manifest *TasksManifest) error {
 	}
 
 	return writeTasksManifestUnlocked(workDir, manifest)
+}
+
+func normalizeManifestComponentIDs(manifest *TasksManifest) {
+	if manifest == nil {
+		return
+	}
+	for _, task := range manifest.Tasks {
+		if task == nil || task.ContentPlan == nil {
+			continue
+		}
+		for index := range task.ContentPlan.Components {
+			component := &task.ContentPlan.Components[index]
+			component.ID = strings.TrimSpace(component.ID)
+			if component.ID == "" {
+				component.ID = fmt.Sprintf("component-%d-%d", task.PageIndex, index+1)
+			}
+		}
+	}
 }
 
 func writeTasksManifestUnlocked(workDir string, manifest *TasksManifest) error {

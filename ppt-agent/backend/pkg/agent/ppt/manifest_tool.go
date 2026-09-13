@@ -388,8 +388,8 @@ func normalizePlannerInitialTask(item *TaskItem) {
 	if strings.TrimSpace(item.ContentType) == "kpi_dashboard" && len(plan.Components) > 0 && !hasNarrativeAnchor(plan.Components) {
 		plan.Components = appendInsightWithinLimit(plan.Components, limit, "insight_auto", "关键判断", summaryForAutoInsight(item))
 	}
-	for i := range plan.Components {
-		component := &plan.Components[i]
+	for componentIndex := range plan.Components {
+		component := &plan.Components[componentIndex]
 		if strings.TrimSpace(component.Type) == "argument_block" &&
 			runeLen(firstNonEmptyString(component.Body, component.Text)) < argumentBlockTargetMinChars {
 			component.Type = "insight"
@@ -988,6 +988,7 @@ func validateManifestForWrite(manifest *TasksManifest) error {
 	if manifest == nil || len(manifest.Tasks) == 0 {
 		return fmt.Errorf("manifest must contain tasks")
 	}
+	normalizeManifestComponentIDs(manifest)
 	seenIDs := make(map[string]bool, len(manifest.Tasks))
 	seenPages := make(map[int]bool, len(manifest.Tasks))
 	for _, item := range manifest.Tasks {
@@ -1033,9 +1034,6 @@ func validateContentPlanContract(item *TaskItem) error {
 		}
 		if strings.TrimSpace(component.Type) == "" {
 			return fmt.Errorf("component %q missing type", component.ID)
-		}
-		if strings.TrimSpace(component.ID) == "" {
-			return fmt.Errorf("component at index %d requires a non-empty id", i)
 		}
 		if component.Type == "section_marker" && strings.TrimSpace(component.Text) == "" {
 			return fmt.Errorf("component %q of type section_marker requires text such as 01", component.ID)
