@@ -15,10 +15,14 @@ export type ToolPreview = {
 
 type TimelineBase = { id: string; eventID?: TimelineEventID; eventIDs?: TimelineEventID[] }
 
+export type ToolCallTimelineItem = TimelineBase & { type: 'tool_call'; callID: string; name: string; label: string; args?: string; detail?: string; result?: string; state: ExecutionState; expanded: boolean; preview?: ToolPreview; batchID?: string }
+export type ToolBatchTimelineItem = TimelineBase & { type: 'tool_batch'; batchID: string; tools: ToolCallTimelineItem[]; state: ExecutionState; expanded: boolean }
+
 export type ConversationTimelineItem =
   | (TimelineBase & { type: 'message'; message: ConversationMessage })
   | (TimelineBase & { type: 'thought'; segmentID: string; content: string; phase?: string; state: ExecutionState; expanded: boolean; streaming: boolean })
-  | (TimelineBase & { type: 'tool_call'; callID: string; name: string; label: string; args?: string; detail?: string; result?: string; state: ExecutionState; expanded: boolean; preview?: ToolPreview })
+  | ToolCallTimelineItem
+  | ToolBatchTimelineItem
   | (TimelineBase & { type: 'final_answer'; segmentID: string; content: string; streaming: boolean })
   | (TimelineBase & { type: 'execution'; label: string; detail?: string; state: ExecutionState })
   | (TimelineBase & { type: 'error'; content: string })
@@ -102,25 +106,34 @@ export function restoreConversationTimeline(history: ConversationTimelineEvent[]
   if (!history?.length) return resetConversationTimeline(messages)
   ordinal = 0
   const items: ConversationTimelineItem[] = []
+  let activeToolBatchID: string | undefined
   for (const event of history) {
     if (event.type === 'message') {
       appendTimelineMessage(items, event.message)
       continue
     }
-    appendHistoricalEvent(items, event)
+    if (event.type === 'llm_end') {
+      activeToolBatchID = `llm-end-${event.id ?? nextID('batch')}`
+      continue
+    }
+    if (event.type === 'llm_start') {
+      activeToolBatchID = undefined
+      continue
+    }
+    appendHistoricalEvent(items, event, activeToolBatchID)
   }
   finishStreamingEntries(items)
   return items
 }
 
-function appendHistoricalEvent(items: ConversationTimelineItem[], event: TaskStreamEvent) {
+function appendHistoricalEvent(items: ConversationTimelineItem[], event: TaskStreamEvent, batchID?: string) {
   const eventID = event.id
   if (event.type === 'thought') {
     appendThought(items, event.content || event.phase_detail || event.message || '正在推进任务', { eventID, segmentID: event.segment_id, phase: event.phase, delta: event.delta ?? false })
   } else if (event.type === 'tool_call') {
-    appendToolCall(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, detail: event.phase_detail || event.message })
+    appendToolCall(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, detail: event.phase_detail || event.message, batchID })
   } else if (event.type === 'tool_result') {
-    appendToolResult(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, result: event.tool_result || event.error || event.phase_detail, state: event.tool_status === 'error' ? 'error' : 'success', preview: event.tool_preview })
+    appendToolResult(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, result: event.tool_result || event.error || event.phase_detail, state: event.tool_status === 'error' ? 'error' : 'success', preview: event.tool_preview, batchID })
   } else if (event.type === 'final_answer' || event.type === 'answer' || event.type === 'llm_delta') {
     appendFinalAnswer(items, event.content || '', { eventID, segmentID: event.segment_id, delta: event.delta ?? false })
   } else if (event.type === 'system_step') {
@@ -164,7 +177,7 @@ export function appendThought(
 
 export function appendToolCall(
   items: ConversationTimelineItem[],
-  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; args?: string; detail?: string },
+  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; args?: string; detail?: string; batchID?: string },
 ) {
   if (eventAlreadyRendered(items, 'tool_call', payload.eventID)) return undefined
   const callID = payload.callID || `call-${payload.eventID || nextID('call')}`
@@ -174,6 +187,7 @@ export function appendToolCall(
     existing.label = payload.label || existing.label
     if (payload.args && !existing.args) existing.args = payload.args
     if (payload.detail && !existing.detail) existing.detail = payload.detail
+    if (payload.batchID && !existing.batchID) existing.batchID = payload.batchID
     rememberEventID(existing, payload.eventID)
     return existing.id
   }
@@ -183,13 +197,13 @@ export function appendToolCall(
     activeThought.streaming = false
   }
   const id = eventItemID('tool-call', payload.eventID)
-  items.push({ id, eventID: payload.eventID, eventIDs: payload.eventID === undefined ? undefined : [payload.eventID], type: 'tool_call', callID, name: payload.name, label: payload.label, args: payload.args, detail: payload.detail, state: 'running', expanded: true })
+  items.push({ id, eventID: payload.eventID, eventIDs: payload.eventID === undefined ? undefined : [payload.eventID], type: 'tool_call', callID, name: payload.name, label: payload.label, args: payload.args, detail: payload.detail, state: 'running', expanded: true, batchID: payload.batchID })
   return id
 }
 
 export function appendToolResult(
   items: ConversationTimelineItem[],
-  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; args?: string; result?: string; state?: ExecutionState; preview?: ToolPreview },
+  payload: { eventID?: TimelineEventID; callID?: string; name: string; label: string; args?: string; result?: string; state?: ExecutionState; preview?: ToolPreview; batchID?: string },
 ) {
   if (eventAlreadyRendered(items, 'tool_call', payload.eventID)) return undefined
   const callID = payload.callID || `call-${payload.eventID || nextID('call')}`
@@ -201,6 +215,7 @@ export function appendToolResult(
     if (result && (isPlaceholderToolResult(call.result) || (call.result?.length ?? 0) < result.length)) {
       call.result = result
     }
+    if (payload.batchID && !call.batchID) call.batchID = payload.batchID
     if (payload.preview && !call.preview) call.preview = payload.preview
     if (payload.eventID !== undefined) rememberEventID(call, payload.eventID)
     return call.id
@@ -218,6 +233,7 @@ export function appendToolResult(
     state: payload.state || 'success',
     preview: payload.preview,
     expanded: true,
+    batchID: payload.batchID,
   })
   return id
 }
@@ -282,6 +298,32 @@ export function toggleTimelineItem(items: ConversationTimelineItem[], itemID: st
     return item.expanded
   }
   return undefined
+}
+
+export function groupToolCalls(items: ConversationTimelineItem[], expandedBatches: Record<string, boolean>): ConversationTimelineItem[] {
+  const toolsByBatch = new Map<string, ToolCallTimelineItem[]>()
+  for (const item of items) {
+    if (item.type !== 'tool_call' || !item.batchID) continue
+    const tools = toolsByBatch.get(item.batchID) || []
+    tools.push(item)
+    toolsByBatch.set(item.batchID, tools)
+  }
+
+  const rendered: ConversationTimelineItem[] = []
+  const emittedBatches = new Set<string>()
+  for (const item of items) {
+    if (item.type !== 'tool_call' || !item.batchID) {
+      rendered.push(item)
+      continue
+    }
+    if (emittedBatches.has(item.batchID)) continue
+    emittedBatches.add(item.batchID)
+    const tools = toolsByBatch.get(item.batchID) || [item]
+    const state: ExecutionState = tools.some(tool => tool.state === 'running') ? 'running' : tools.some(tool => tool.state === 'error') ? 'error' : 'success'
+    const id = `tool-batch-${item.batchID}`
+    rendered.push({ id, type: 'tool_batch', batchID: item.batchID, tools, state, expanded: expandedBatches[id] ?? false })
+  }
+  return rendered
 }
 
 export function appendExecutionStep(items: ConversationTimelineItem[], label: string, detail = '', state: ExecutionState = 'running', eventID?: TimelineEventID) {

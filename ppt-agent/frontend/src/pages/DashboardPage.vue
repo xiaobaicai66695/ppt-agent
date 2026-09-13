@@ -11,7 +11,7 @@ import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetch
 import type { AuthUser, TaskInfo, TaskStreamEvent } from '../types'
 import { appendDeliveryDirectives, shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent, taskStreamEventNames } from '../utils/taskStream'
-import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, restoreConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
+import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, groupToolCalls, restoreConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -19,6 +19,7 @@ const user = ref<AuthUser>()
 const tasks = ref<TaskInfo[]>([])
 const selected = ref<TaskInfo>()
 const timeline = ref<ConversationTimelineItem[]>([])
+const expandedToolBatches = ref<Record<string, boolean>>({})
 const prompt = ref('')
 const busy = ref(false)
 const mode = ref<'chat' | 'pptagent'>('chat')
@@ -37,10 +38,13 @@ let reconnectAttempts = 0
 let streamGeneration = 0
 let selectionGeneration = 0
 let stickRequestPending = false
+let activeToolBatchID: string | undefined
+let toolBatchOrdinal = 0
 
 const activeTitle = computed(() => selected.value?.query || '新的创作会话')
 const sorted = computed(() => [...tasks.value].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)))
 const hasTimeline = computed(() => busy.value || timeline.value.length > 0)
+const renderedTimeline = computed(() => groupToolCalls(timeline.value, expandedToolBatches.value))
 const hasDeliveryPreview = computed(() => selected.value?.status === 'completed' && Boolean(selected.value.files?.some(file => /\.pptx$/i.test(file))))
 const taskLabel = (status: string) => ({ running: '生成中', completed: '已交付', paused_retryable: '可继续恢复', failed: '需要处理', conversation: '对话中', cancelled: '已取消' } as Record<string, string>)[status] || status
 const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图片搜索', generate_slide: '幻灯片渲染', slide_render: '幻灯片渲染', update_tasks_manifest: '写入任务清单', patch_tasks_draft: '修正规划草稿', read_file: '读取文件', shell: 'Shell', bash: 'Shell', command: '命令行', terminal: '终端' } as Record<string, string>)[name] || name || '调用工具'
@@ -83,6 +87,7 @@ function timelineMemoKey(item: ConversationTimelineItem) {
   if (item.type === 'message') return item.id
   if (item.type === 'thought') return `${item.id}:${item.content.length}:${item.state}:${item.expanded}:${item.streaming}`
   if (item.type === 'tool_call') return `${item.id}:${item.state}:${item.expanded}:${item.result?.length || 0}:${item.preview?.images?.length || 0}`
+  if (item.type === 'tool_batch') return `${item.id}:${item.state}:${item.expanded}:${item.tools.map(tool => `${tool.id}:${tool.state}:${tool.result?.length || 0}`).join('|')}`
   if (item.type === 'final_answer') return `${item.id}:${item.content.length}:${item.streaming}`
   if (item.type === 'error') return `${item.id}:${item.content.length}`
   return `${item.id}:${item.state}:${item.detail || ''}`
@@ -98,6 +103,9 @@ async function select(task: TaskInfo) {
   shouldFollowStream.value = true
   selected.value = task
   error.value = ''
+  activeToolBatchID = undefined
+  toolBatchOrdinal = 0
+  expandedToolBatches.value = {}
   const session = await fetchConversation(task.id)
   if (currentSelection !== selectionGeneration || selected.value?.id !== task.id) return
   timeline.value = restoreConversationTimeline(session.timeline, session.messages || [])
@@ -158,6 +166,7 @@ function consume(raw: string, eventID?: number) {
       })
     } else if (data.type === 'llm_start') {
       finishTimelineEntries(timeline.value, { includeTools: false })
+      activeToolBatchID = undefined
     } else if (data.type === 'llm_delta') {
       const isThought = data.phase === 'analysis' || data.phase === 'reasoning' || data.phase === 'thought'
       const text = data.content || data.phase_detail || data.message || ''
@@ -177,6 +186,7 @@ function consume(raw: string, eventID?: number) {
       }
     } else if (data.type === 'llm_end') {
       finishTimelineEntries(timeline.value, { includeTools: false })
+      activeToolBatchID = `llm-end-${sourceID ?? ++toolBatchOrdinal}`
     } else if (data.type === 'final_answer' || data.type === 'answer') {
       appendFinalAnswer(timeline.value, data.content || '', {
         eventID: sourceID,
@@ -203,6 +213,7 @@ function consume(raw: string, eventID?: number) {
         label: toolLabel(data.tool_name),
         args: data.tool_args,
         detail: data.phase_detail || data.message || '正在调用工具',
+        batchID: activeToolBatchID,
       })
       // During rolling deploys, an older backend can still merge the observation
       // into a tool_call frame. Split it locally without changing arrival order.
@@ -216,6 +227,7 @@ function consume(raw: string, eventID?: number) {
           result: data.tool_result || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
           state: toolState,
           preview: data.tool_preview,
+          batchID: activeToolBatchID,
         })
       }
     } else if (data.type === 'tool_result') {
@@ -229,6 +241,7 @@ function consume(raw: string, eventID?: number) {
         result: data.tool_result || data.error || data.phase_detail || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
         state: toolState,
         preview: data.tool_preview,
+        batchID: activeToolBatchID,
       })
     } else if (data.type === 'progress') {
       addExecution(data.phase_detail || data.phase || '推进生成', data.message || '', 'running', sourceID)
@@ -362,6 +375,11 @@ function newConversation() {
 }
 
 function toggleTimelineEntry(itemID: string) {
+  if (itemID.startsWith('tool-batch-')) {
+    const batch = renderedTimeline.value.find((item): item is Extract<ConversationTimelineItem, { type: 'tool_batch' }> => item.type === 'tool_batch' && item.id === itemID)
+    if (batch) expandedToolBatches.value = { ...expandedToolBatches.value, [itemID]: !batch.expanded }
+    return
+  }
   toggleTimelineItem(timeline.value, itemID)
 }
 
@@ -415,7 +433,7 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
         <div ref="messagesContainer" class="messages" @scroll.passive="handleTimelineScroll">
           <div v-if="!hasTimeline" class="blank-canvas"><span><Bot :size="25" /></span><h3>从一个问题开始。</h3><p>可以让它解释、梳理资料，或直接开始一份演示。明确需求会让成稿更接近你的表达。</p><div><button @click="prompt = '为一场产品发布会规划 8 页叙事'">规划一份发布会演示</button><button @click="prompt = '总结这份资料的核心观点'">先梳理一个主题</button></div></div>
           <div v-if="timeline.length" class="timeline-list" role="list" aria-label="对话与执行时间线">
-            <ConversationTimelineItemCard v-for="item in timeline" :key="item.id" v-memo="[timelineMemoKey(item)]" :item="item" @toggle="toggleTimelineEntry" />
+            <ConversationTimelineItemCard v-for="item in renderedTimeline" :key="item.id" v-memo="[timelineMemoKey(item)]" :item="item" @toggle="toggleTimelineEntry" />
           </div>
         </div>
         <form class="composer" novalidate @submit.prevent="submit">

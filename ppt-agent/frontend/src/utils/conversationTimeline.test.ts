@@ -6,6 +6,7 @@ import {
   appendToolResult,
   finishStreamingEntries,
   finishTimelineEntries,
+  groupToolCalls,
   resetConversationTimeline,
   restoreConversationTimeline,
   toggleTimelineItem,
@@ -114,6 +115,23 @@ describe('conversation timeline', () => {
     expect(items[1]).toMatchObject({ type: 'tool_call', state: 'success', expanded: true, result: '已获取同义词资料' })
     expect(toggleTimelineItem(items, items[1].id)).toBe(false)
     expect(items[1]).toMatchObject({ expanded: false })
+  })
+
+  it('groups every tool call in one llm boundary window behind a single collapsed control', () => {
+    const items = resetConversationTimeline([])
+
+    appendToolCall(items, { eventID: 81, callID: 'call-1', name: 'search', label: '联网检索', batchID: 'llm-end-80' })
+    appendToolResult(items, { eventID: 82, callID: 'call-1', name: 'search', label: '联网检索', result: '已获取资料', batchID: 'llm-end-80' })
+    appendToolCall(items, { eventID: 83, callID: 'call-2', name: 'read_file', label: '读取文件', batchID: 'llm-end-80' })
+    appendToolResult(items, { eventID: 84, callID: 'call-2', name: 'read_file', label: '读取文件', result: '已读取契约', batchID: 'llm-end-80' })
+    appendFinalAnswer(items, '继续生成答案。', { eventID: 85, segmentID: 'answer-1', delta: true })
+
+    const collapsed = groupToolCalls(items, {})
+    expect(collapsed.map(item => item.type)).toEqual(['tool_batch', 'final_answer'])
+    expect(collapsed[0]).toMatchObject({ type: 'tool_batch', expanded: false, state: 'success', tools: [{ callID: 'call-1' }, { callID: 'call-2' }] })
+
+    const expanded = groupToolCalls(items, { 'tool-batch-llm-end-80': true })
+    expect(expanded[0]).toMatchObject({ type: 'tool_batch', expanded: true })
   })
 
   it('repairs a late tool result after an older boundary marked the call unfinished', () => {
