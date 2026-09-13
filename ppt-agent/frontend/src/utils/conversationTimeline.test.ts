@@ -134,6 +134,22 @@ describe('conversation timeline', () => {
     expect(expanded[0]).toMatchObject({ type: 'tool_batch', expanded: true })
   })
 
+  it('groups consecutive legacy tool calls without llm boundary markers by default', () => {
+    const items = resetConversationTimeline([])
+
+    appendThought(items, '先读取生成器契约。', { eventID: 91, segmentID: 'thought-1', delta: false })
+    appendToolCall(items, { eventID: 92, callID: 'call-1', name: 'read_file', label: '读取文件' })
+    appendToolResult(items, { eventID: 93, callID: 'call-1', name: 'read_file', label: '读取文件', result: '已读取第一个文件' })
+    appendToolCall(items, { eventID: 94, callID: 'call-2', name: 'read_file', label: '读取文件' })
+    appendToolResult(items, { eventID: 95, callID: 'call-2', name: 'read_file', label: '读取文件', result: '已读取第二个文件' })
+    appendFinalAnswer(items, '继续处理。', { eventID: 96, segmentID: 'answer-1', delta: false })
+
+    const collapsed = groupToolCalls(items, {})
+
+    expect(collapsed.map(item => item.type)).toEqual(['thought', 'tool_batch', 'final_answer'])
+    expect(collapsed[1]).toMatchObject({ type: 'tool_batch', expanded: false, tools: [{ callID: 'call-1' }, { callID: 'call-2' }] })
+  })
+
   it('repairs a late tool result after an older boundary marked the call unfinished', () => {
     const items = resetConversationTimeline([])
 

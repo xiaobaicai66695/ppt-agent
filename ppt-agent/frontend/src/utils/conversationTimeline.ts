@@ -302,26 +302,38 @@ export function toggleTimelineItem(items: ConversationTimelineItem[], itemID: st
 
 export function groupToolCalls(items: ConversationTimelineItem[], expandedBatches: Record<string, boolean>): ConversationTimelineItem[] {
   const toolsByBatch = new Map<string, ToolCallTimelineItem[]>()
+  const batchIDByToolID = new Map<string, string>()
+  let legacyBatchID: string | undefined
   for (const item of items) {
-    if (item.type !== 'tool_call' || !item.batchID) continue
-    const tools = toolsByBatch.get(item.batchID) || []
+    if (item.type !== 'tool_call') {
+      legacyBatchID = undefined
+      continue
+    }
+    // Older task traces do not contain llm_start/llm_end. Preserve their
+    // execution rhythm by treating every uninterrupted run of tool calls as
+    // one implicit batch, instead of exposing a wall of individual cards.
+    const batchID = item.batchID || legacyBatchID || `legacy-tools-${item.id}`
+    legacyBatchID = item.batchID ? undefined : batchID
+    batchIDByToolID.set(item.id, batchID)
+    const tools = toolsByBatch.get(batchID) || []
     tools.push(item)
-    toolsByBatch.set(item.batchID, tools)
+    toolsByBatch.set(batchID, tools)
   }
 
   const rendered: ConversationTimelineItem[] = []
   const emittedBatches = new Set<string>()
   for (const item of items) {
-    if (item.type !== 'tool_call' || !item.batchID) {
+    if (item.type !== 'tool_call') {
       rendered.push(item)
       continue
     }
-    if (emittedBatches.has(item.batchID)) continue
-    emittedBatches.add(item.batchID)
-    const tools = toolsByBatch.get(item.batchID) || [item]
+    const batchID = batchIDByToolID.get(item.id) || item.batchID || `legacy-tools-${item.id}`
+    if (emittedBatches.has(batchID)) continue
+    emittedBatches.add(batchID)
+    const tools = toolsByBatch.get(batchID) || [item]
     const state: ExecutionState = tools.some(tool => tool.state === 'running') ? 'running' : tools.some(tool => tool.state === 'error') ? 'error' : 'success'
-    const id = `tool-batch-${item.batchID}`
-    rendered.push({ id, type: 'tool_batch', batchID: item.batchID, tools, state, expanded: expandedBatches[id] ?? false })
+    const id = `tool-batch-${batchID}`
+    rendered.push({ id, type: 'tool_batch', batchID, tools, state, expanded: expandedBatches[id] ?? false })
   }
   return rendered
 }
