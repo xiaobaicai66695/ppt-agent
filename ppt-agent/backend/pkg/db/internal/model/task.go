@@ -4,8 +4,11 @@ import "time"
 
 // TaskRecord — 持久化的任务元数据，用于历史记录和恢复。
 type TaskRecord struct {
-	ID                   string     `gorm:"size:64;primaryKey" json:"id"`
-	UserID               uint       `gorm:"index;not null" json:"user_id"`
+	ID string `gorm:"size:64;primaryKey" json:"id"`
+	// ListTaskRecordsByUser filters by user_id then orders by created_at.
+	// This composite index keeps the workbench task list from sorting a user's
+	// full history in memory as the account accumulates conversations.
+	UserID               uint       `gorm:"index;index:idx_task_records_user_created,priority:1;not null" json:"user_id"`
 	Query                string     `gorm:"type:text" json:"query"`
 	Status               string     `gorm:"size:20;not null;default:'running'" json:"status"`
 	WorkDir              string     `gorm:"size:512" json:"work_dir"`
@@ -25,7 +28,7 @@ type TaskRecord struct {
 	GenerationFinishedAt *time.Time `json:"generation_finished_at,omitempty"`
 	GenerationDurationMS int64      `gorm:"default:0" json:"generation_duration_ms"`
 	FixerRunCount        int        `gorm:"default:0" json:"fixer_run_count"`
-	CreatedAt            time.Time  `json:"created_at"`
+	CreatedAt            time.Time  `gorm:"index:idx_task_records_user_created,priority:2" json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
