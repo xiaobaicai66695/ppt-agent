@@ -27,3 +27,9 @@
 ## 遗留风险
 
 - 当前浏览器会话需要刷新，以移除已被清理的临时任务卡片；若某一页在两次转换后仍失败，用户可使用卡片上的“重试缩略图”或下载 PPT，不会再被错误地长期标注为“暂不可用”。
+
+## 补充发布：可修复任务的交付文件可见性
+
+- 发现一个 12 页任务处于“需要处理”状态，但其 `slide_01.pptx` 至 `slide_12.pptx` 均已生成；原工作台把右侧交付栏错误限制为 `completed`，因此文件存在时仍会让用户误以为 PPT 消失。
+- 发布提交 `67767e0 fix: keep generated files visible for repairable tasks`：只要任务含有效 PPT 文件即显示右侧预览和每页下载；评分继续限制在 `completed`。顶部不再水平罗列全部下载按钮，避免长文件列表挤压任务标题；切换任务时会立即清空旧时间线并关闭旧任务的 busy 状态，等待新会话快照返回。
+- 本地 `npm test`（28 项）、`npm run build`、Premium strict audit 均通过。线上替换 `/ppt/ppt-agent/frontend/dist` 后，公网首页、新资源 `index-CccziXpD.js` 与 `/api/health` 返回 200；服务为 active，并再次确认该任务首尾 PPT 文件存在且非空。

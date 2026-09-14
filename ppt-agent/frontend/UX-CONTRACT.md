@@ -44,7 +44,7 @@
 
 | Operation | Trigger | Pending | Success destination | Success feedback | Failure recovery | Focus outcome | Source ref |
 |---|---|---|---|---|---|---|---|
-| 创建 PPT | 发送 create 意图或手动 PPT 模式 | SSE 保持打开；显示规划和渲染阶段 | 当前会话 | 仅 `complete` 后显示交付、文件下载、缩略图和页数；未评分时弹出评分对话框 | 缩略图失败明确显示“暂不可用”；生成错误保留会话 | 评分对话框关闭后还原触发焦点 | 架构基线 §2 |
+| 创建 PPT | 发送 create 意图或手动 PPT 模式 | SSE 保持打开；显示规划和渲染阶段 | 当前会话 | 只要任务已有 PPT 文件即显示下载和缩略图；仅 `complete` 后开放评分 | 缩略图失败明确显示“暂不可用”；生成错误保留会话与已写入文件 | 评分对话框关闭后还原触发焦点 | 架构基线 §2 |
 | 普通对话 | 发送 chat 意图 | assistant 流 | 当前会话 | `conversation_complete` 后结束回答 | 行内错误 | 输入区域保留 | `api.ts` |
 | 继续修订 | 已交付任务中再次发送 | SSE 保持打开 | 当前会话 | `continue_complete` 后刷新任务 | 行内错误，保留原交付 | 输入区域保留 | `api.ts` |
 | 停止任务 | 运行中的停止按钮 | 请求取消 | 当前会话 | 任务状态刷新为 cancelled | 显示 API 错误 | 停止按钮失效后输入恢复 | `api.ts` |
@@ -62,7 +62,7 @@
 
 ## Navigation and responsive behavior
 
-- Sidebar/drawer transformation: Dashboard 宽屏在右侧保留已完成 PPT 的交付预览栏；中等宽度隐藏会话列表以保护主画布和预览栏，窄屏将预览栏下移。中栏必须允许收缩，长工具内容只能在其中换行或内部滚动，不得挤压、覆盖或遮挡交付栏。应用导航与会话列表在各自既有窄屏断点隐藏；主操作仍可见。
+- Sidebar/drawer transformation: Dashboard 宽屏在右侧保留已有 PPT 文件的交付预览栏；中等宽度隐藏会话列表以保护主画布和预览栏，窄屏将预览栏下移。中栏必须允许收缩，长工具内容只能在其中换行或内部滚动，不得挤压、覆盖或遮挡交付栏。应用导航与会话列表在各自既有窄屏断点隐藏；主操作仍可见。
 - Delivery thumbnail interaction: 可用缩略图是带可访问名称的按钮，点击后使用共享 `AppModal` 的 `media` 变体放大预览；Escape、点击遮罩和关闭按钮都会关闭，并把焦点还原到触发缩略图。缩略图加载失败显示不可用状态，下载操作保持独立可用。
 - Truncation/full-value access: 会话标题允许单行截断；消息正文和错误信息允许读取完整内容。
 - Focus restoration and sticky-obstruction policy: native button/input 保持可见焦点；不在任务完成时抢夺焦点。
