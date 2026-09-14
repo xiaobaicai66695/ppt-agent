@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bot, CircleStop, FileDown, Image, MessageSquareText, Plus, RefreshCw, Send, Trash2, WandSparkles } from 'lucide-vue-next'
+import { Bot, CircleStop, Image, MessageSquareText, Plus, RefreshCw, Send, Trash2, WandSparkles } from 'lucide-vue-next'
 import AppShell from '../components/AppShell.vue'
 import AppModal from '../components/AppModal.vue'
 import ConversationTimelineItemCard from '../components/ConversationTimelineItem.vue'
 import DeliveryFeedbackForm from '../components/DeliveryFeedbackForm.vue'
 import TaskDeliveryPreview from '../components/TaskDeliveryPreview.vue'
-import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetchTasks, routeMessage, startTask, taskDownloadUrl } from '../api'
+import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetchTasks, routeMessage, startTask } from '../api'
 import type { AuthUser, TaskInfo, TaskStreamEvent } from '../types'
 import { appendDeliveryDirectives, shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent, taskStreamEventNames } from '../utils/taskStream'
@@ -45,7 +45,10 @@ const activeTitle = computed(() => selected.value?.query || '新的创作会话'
 const sorted = computed(() => [...tasks.value].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)))
 const hasTimeline = computed(() => busy.value || timeline.value.length > 0)
 const renderedTimeline = computed(() => groupToolCalls(timeline.value, expandedToolBatches.value))
-const hasDeliveryPreview = computed(() => selected.value?.status === 'completed' && Boolean(selected.value.files?.some(file => /\.pptx$/i.test(file))))
+// A task may finish in a repairable state after writing valid slide files.
+// The delivery rail remains the canonical place to inspect and download those
+// artifacts; only scoring remains limited to fully completed tasks.
+const hasDeliveryPreview = computed(() => Boolean(selected.value?.files?.some(file => /\.pptx$/i.test(file))))
 const taskLabel = (status: string) => ({ running: '生成中', completed: '已交付', paused_retryable: '可继续恢复', failed: '需要处理', conversation: '对话中', cancelled: '已取消' } as Record<string, string>)[status] || status
 const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图片搜索', generate_slide: '幻灯片渲染', slide_render: '幻灯片渲染', update_tasks_manifest: '写入任务清单', patch_tasks_draft: '修正规划草稿', read_file: '读取文件', shell: 'Shell', bash: 'Shell', command: '命令行', terminal: '终端' } as Record<string, string>)[name] || name || '调用工具'
 
@@ -100,9 +103,12 @@ async function loadTasks() {
 async function select(task: TaskInfo) {
   const currentSelection = ++selectionGeneration
   closeStream()
+  busy.value = false
   shouldFollowStream.value = true
   selected.value = task
+  timeline.value = resetConversationTimeline(task.query ? [{ role: 'user', content: task.query, timestamp: task.created_at }] : [])
   error.value = ''
+  thumbnailRevision.value = 0
   activeToolBatchID = undefined
   toolBatchOrdinal = 0
   expandedToolBatches.value = {}
@@ -438,7 +444,7 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
       <section class="canvas">
         <header class="canvas-head">
           <div><span class="canvas-kicker">{{ selected ? taskLabel(selected.status) : '准备就绪' }}</span><h2>{{ activeTitle }}</h2></div>
-          <div v-if="selected" class="canvas-actions"><button v-if="selected.status === 'running'" class="outline-button" @click="stop"><CircleStop :size="15" />停止</button><button v-if="selected.status === 'paused_retryable'" class="outline-button" :disabled="busy" @click="resumePausedTask"><RefreshCw :size="15" />继续恢复</button><a v-for="file in selected.files" :key="file" class="download" :href="taskDownloadUrl(selected.id, file)"><FileDown :size="15" />下载</a></div>
+          <div v-if="selected" class="canvas-actions"><button v-if="selected.status === 'running'" class="outline-button" @click="stop"><CircleStop :size="15" />停止</button><button v-if="selected.status === 'paused_retryable'" class="outline-button" :disabled="busy" @click="resumePausedTask"><RefreshCw :size="15" />继续恢复</button></div>
         </header>
         <div ref="messagesContainer" class="messages" @scroll.passive="handleTimelineScroll">
           <div v-if="!hasTimeline" class="blank-canvas"><span><Bot :size="25" /></span><h3>从一个问题开始。</h3><p>可以让它解释、梳理资料，或直接开始一份演示。明确需求会让成稿更接近你的表达。</p><div><button @click="prompt = '为一场产品发布会规划 8 页叙事'">规划一份发布会演示</button><button @click="prompt = '总结这份资料的核心观点'">先梳理一个主题</button></div></div>
@@ -454,7 +460,7 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
       </section>
       <aside v-if="hasDeliveryPreview && selected" class="delivery-rail" aria-label="PPT 交付预览">
         <TaskDeliveryPreview :task="selected" :revision="thumbnailRevision" layout="side-rail" />
-        <button type="button" class="feedback-trigger" @click="feedbackDialogOpen = true">{{ selected.feedback ? '修改评价' : '评价这份演示' }}</button>
+        <button v-if="selected.status === 'completed'" type="button" class="feedback-trigger" @click="feedbackDialogOpen = true">{{ selected.feedback ? '修改评价' : '评价这份演示' }}</button>
       </aside>
     </div>
     <AppModal :open="feedbackDialogOpen" title="为这份演示评分" description="你的反馈会帮助我们改进下一次生成。" @close="feedbackDialogOpen = false"><DeliveryFeedbackForm v-if="selected" :task-id="selected.id" :feedback="selected.feedback" @saved="handleFeedbackSaved" /></AppModal>
