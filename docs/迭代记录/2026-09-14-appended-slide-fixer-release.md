@@ -27,4 +27,4 @@
 - 会话恢复：历史任务在缺少旧版持久化 transcript 时至少回放原始用户请求；前端对单个会话快照请求失败保留可见任务主题，并显示明确错误，不再让整个工作台显示为空白。
 - 本地验证：`go test ./pkg/runtime/web ./pkg/agent/ppt ./pkg/runtime/task`、`npm run build` 均通过。
 - 发布：停止旧进程后完整替换 `remote-dev:/ppt/ppt-agent/backend` 源码内容与 `skills`，保留 `backend/.env`、`weboutput`；更新前端 `dist` 和 Linux 二进制。新进程 PID `1708982`，二进制 SHA-256 `24341f92f219e92a28728cf407f82b30b0040efc8ae0c216462960761ca3fcbb`。
-- 冒烟：内网及公网 `GET /api/health` 返回 200，公网首页返回 200；线上静态产物包含会话加载容错文案，启动日志确认 MySQL、PPT skill、Redis 与 `:8080` 监听正常。为避免额外模型与素材成本，本次未创建新的完整 PPT 冒烟任务；用户原有失败任务和产物未改写。
+- 冒烟：内网及公网 `GET /api/health` 返回 200，公网首页返回 200；线上静态产物包含会话加载容错文案，启动日志确认 MySQL、PPT skill、Redis 与 `:8080` 监听正常。额外创建了 1 页访客任务：Planner 实际调用 `search_images`，并生成 `slide_01.pptx`、`tasks.json`、`tasks.review.json`，最终记录 `done=1/total=1`；测试目录已删除。用户原有失败任务和产物未改写。
