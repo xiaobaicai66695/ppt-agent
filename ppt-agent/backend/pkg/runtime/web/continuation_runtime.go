@@ -44,6 +44,10 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			ContentPlan: &ppt.ContentPlan{
 				Summary:     fmt.Sprintf("补充说明用户要求：%s", continueMessage),
 				SlideIntent: "在现有演示末尾补充用户要求的内容，并保持叙事与视觉风格连续。",
+				// A continuation page must be renderable even if the Fixer only
+				// refines its text components. Required visual policy rejects a
+				// page with no executable background plan before rendering starts.
+				VisualIntent: continuationBackgroundIntent(manifest),
 				Components: []ppt.PlanComponent{{
 					Type:  "bullet_list",
 					Items: []string{continueMessage, "围绕原演示主题补充新的信息点", "保持与前后页面一致的叙事和视觉风格"},
@@ -192,6 +196,14 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		ch <- task.SSERichEvent{Type: "answer", Content: "所有页面已标记为待重新生成\n"}
 	}
 
+	// Fixer patches are intentionally semantic and may leave an older
+	// provisional continuation page without visual_intent. Heal every pending
+	// continuation page before the renderer validates the required visual
+	// contract, so a successful user edit always reaches the render stage.
+	if repaired := ensurePendingContinuationVisuals(manifest); repaired > 0 {
+		ch <- task.SSERichEvent{Type: "progress", Phase: "fixing", PhaseDetail: fmt.Sprintf("已为 %d 个待生成页面补齐可执行背景素材计划", repaired)}
+	}
+
 	if err := ppt.WriteTasksManifest(ts.Info.WorkDir, manifest); err != nil {
 		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("更新任务清单失败: %v", err)}
 		markTaskFailed(ts, err.Error())
@@ -200,6 +212,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 
 	runtimeMeta := agentutils.NewRuntimeMeta(taskID, ts.Info.WorkDir)
 	runtimeMeta.RecordPhase("rendering", "继续请求已写入 PPTSpec，开始并发渲染")
+	ch <- task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: "页面计划已更新，正在准备图片素材并触发 PPT 渲染"}
 	cfg := &ppt.PPTTaskConfig{
 		WorkDir:     ts.Info.WorkDir,
 		TaskID:      taskID,
@@ -216,6 +229,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 	}); err != nil {
 		ch <- task.SSERichEvent{Type: "error", Error: fmt.Sprintf("幻灯片生成出错: %v", err)}
 		markTaskFailed(ts, err.Error())
+		return
 	}
 
 	s.refreshFileList(ts, ch)
@@ -273,6 +287,72 @@ func markTaskForFixRerender(workDir string, item *ppt.TaskItem, instruction stri
 	}
 }
 
+func continuationBackgroundIntent(manifest *ppt.TasksManifest) *ppt.VisualIntent {
+	if manifest != nil {
+		for index := len(manifest.Tasks) - 1; index >= 0; index-- {
+			item := manifest.Tasks[index]
+			if item == nil || item.ContentPlan == nil || item.ContentPlan.VisualIntent == nil {
+				continue
+			}
+			visual := item.ContentPlan.VisualIntent
+			if isContinuationBackground(visual) {
+				copy := *visual
+				return &copy
+			}
+		}
+	}
+	return &ppt.VisualIntent{
+		Role:         "supporting_photo",
+		AssetPurpose: "background",
+		AssetSubject: "professional presentation closing background",
+		AssetQuery:   "professional presentation closing background",
+		Composition:  "wide landscape, clean negative space on left",
+		Provider:     "unsplash",
+	}
+}
+
+func ensurePendingContinuationVisuals(manifest *ppt.TasksManifest) int {
+	if manifest == nil || !requiresContinuationBackgrounds(manifest) {
+		return 0
+	}
+	repaired := 0
+	for _, item := range manifest.Tasks {
+		if item == nil || item.Status != ppt.StatusPending {
+			continue
+		}
+		if item.ContentPlan == nil {
+			item.ContentPlan = &ppt.ContentPlan{}
+		}
+		if isContinuationBackground(item.ContentPlan.VisualIntent) {
+			continue
+		}
+		item.ContentPlan.VisualIntent = continuationBackgroundIntent(manifest)
+		repaired++
+	}
+	if manifest.VisualPolicy != nil && manifest.VisualPolicy.MinImagePages < len(manifest.Tasks) {
+		manifest.VisualPolicy.MinImagePages = len(manifest.Tasks)
+	}
+	return repaired
+}
+
+func requiresContinuationBackgrounds(manifest *ppt.TasksManifest) bool {
+	if manifest == nil || manifest.VisualPolicy == nil {
+		return true
+	}
+	return !strings.EqualFold(strings.TrimSpace(manifest.VisualPolicy.Mode), "none") &&
+		!strings.EqualFold(strings.TrimSpace(manifest.VisualPolicy.Mode), "optional")
+}
+
+func isContinuationBackground(visual *ppt.VisualIntent) bool {
+	if visual == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(visual.AssetPurpose), "background") ||
+		strings.EqualFold(strings.TrimSpace(visual.ImagePosition), "background") ||
+		strings.EqualFold(strings.TrimSpace(visual.Role), "hero_photo") ||
+		strings.EqualFold(strings.TrimSpace(visual.Role), "supporting_photo")
+}
+
 func buildContinueInstruction(route *RouteResult, message string) string {
 	if route != nil && route.FixDetails != nil {
 		return fmt.Sprintf("用户继续请求：%s；调整方面=%s；具体要求=%s；目标元素=%s",
@@ -286,6 +366,12 @@ func buildContinueInstruction(route *RouteResult, message string) string {
 
 func pptRenderSSE(event ppt.PPTRenderEvent) task.SSERichEvent {
 	switch event.Type {
+	case "asset_search_start":
+		return task.SSERichEvent{Type: task.SSEEventToolCall, ToolCallID: event.ToolCallID, ToolName: event.ToolName, ToolArgs: event.ToolArgs, Phase: "rendering", PhaseDetail: event.Detail}
+	case "asset_search_done":
+		return task.SSERichEvent{Type: task.SSEEventToolResult, ToolCallID: event.ToolCallID, ToolName: event.ToolName, ToolArgs: event.ToolArgs, ToolResult: event.ToolResult, ToolStatus: "success", ToolPreview: event.ToolPreview, Phase: "rendering", PhaseDetail: event.Detail}
+	case "asset_search_error":
+		return task.SSERichEvent{Type: task.SSEEventToolResult, ToolCallID: event.ToolCallID, ToolName: event.ToolName, ToolArgs: event.ToolArgs, ToolResult: event.ToolResult, ToolStatus: "error", ToolPreview: event.ToolPreview, Phase: "rendering", PhaseDetail: event.Detail}
 	case "workflow_start":
 		return task.SSERichEvent{Type: "progress", Phase: "rendering", PhaseDetail: event.Detail}
 	case "slide_start":

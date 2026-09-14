@@ -41,6 +41,17 @@ func TestPersistedConversationMessagesPreservesStoredTurns(t *testing.T) {
 	}
 }
 
+func TestConversationMessagesWithTaskFallbackKeepsHistoricalTaskVisible(t *testing.T) {
+	createdAt := time.Date(2026, 9, 14, 8, 0, 0, 0, time.UTC)
+	messages := conversationMessagesWithTaskFallback(nil, task.TaskInfo{Query: "为年度复盘制作演示", CreatedAt: createdAt})
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].Role != "user" || messages[0].Content != "为年度复盘制作演示" || !messages[0].Timestamp.Equal(createdAt) {
+		t.Fatalf("fallback message = %#v", messages[0])
+	}
+}
+
 func TestHandleGetConversationDeduplicatesCompletionFiles(t *testing.T) {
 	manager := task.NewTaskManager(t.TempDir(), nil, nil, nil)
 	manager.NewColdTaskState(task.TaskInfo{

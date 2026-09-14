@@ -277,7 +277,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		sess := s.sessionManager.GetOrCreate(taskID, ts.Info.WorkDir)
 		snapshot := sess.Snapshot()
 		info := ts.SnapshotInfo()
-		messages := persistedConversationMessages(snapshot.Messages)
+		messages := conversationMessagesWithTaskFallback(snapshot.Messages, info)
 		// The unfinished turn is replayed from replay_after_event_id via SSE;
 		// only complete rows are returned in the durable snapshot.
 		latestEventID, replayAfterEventID := ts.EventBoundaries()
@@ -310,7 +310,7 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 	}
 
 	snapshot := s.sessionManager.GetOrCreate(taskID, info.WorkDir).Snapshot()
-	messages := persistedConversationMessages(snapshot.Messages)
+	messages := conversationMessagesWithTaskFallback(snapshot.Messages, *info)
 
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":               taskID,
@@ -329,6 +329,21 @@ func (s *Server) handleGetConversation(c *gin.Context) {
 		"created_at":            snapshot.CreatedAt,
 		"updated_at":            snapshot.UpdatedAt,
 	})
+}
+
+// conversation_messages was introduced after some persisted task records
+// already existed. A missing transcript must still expose the original user
+// request rather than returning an indistinguishable blank conversation.
+func conversationMessagesWithTaskFallback(messages []session.Message, info task.TaskInfo) []session.Message {
+	messages = persistedConversationMessages(messages)
+	if len(messages) > 0 || strings.TrimSpace(info.Query) == "" {
+		return messages
+	}
+	timestamp := info.CreatedAt
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+	return []session.Message{{Role: "user", Content: info.Query, Timestamp: timestamp}}
 }
 
 var listConversationTraceEvents = db.ListConversationTraceEvents

@@ -11,7 +11,7 @@ import { cancelTask, continueTask, deleteTask, fetchConversation, fetchMe, fetch
 import type { AuthUser, TaskInfo, TaskStreamEvent } from '../types'
 import { appendDeliveryDirectives, shouldStartPPTGeneration } from '../utils/messageRouting'
 import { isTerminalTaskStreamEvent, taskStreamEventNames } from '../utils/taskStream'
-import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, groupToolCalls, restoreConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
+import { appendExecutionStep, appendFinalAnswer, appendThought, appendTimelineError, appendTimelineMessage, appendToolCall, appendToolResult, finishStreamingEntries, finishTimelineEntries, groupToolCalls, resetConversationTimeline, restoreConversationTimeline, toggleTimelineItem, type ConversationTimelineItem, type ExecutionState } from '../utils/conversationTimeline'
 
 const router = useRouter()
 const route = useRoute()
@@ -106,14 +106,24 @@ async function select(task: TaskInfo) {
   activeToolBatchID = undefined
   toolBatchOrdinal = 0
   expandedToolBatches.value = {}
-  const session = await fetchConversation(task.id)
-  if (currentSelection !== selectionGeneration || selected.value?.id !== task.id) return
-  timeline.value = restoreConversationTimeline(session.timeline, session.messages || [])
-  if (session.conversation_streaming || task.status === 'running') {
-    // The durable timeline above already includes every event available at
-    // snapshot time. Resume strictly after it so historical cards are never
-    // duplicated when reconnecting to an active task.
-    openStream(task.id, session.latest_event_id || session.replay_after_event_id || 0)
+  try {
+    const session = await fetchConversation(task.id)
+    if (currentSelection !== selectionGeneration || selected.value?.id !== task.id) return
+    timeline.value = restoreConversationTimeline(session.timeline, session.messages || [])
+    if (session.conversation_streaming || task.status === 'running') {
+      // The durable timeline above already includes every event available at
+      // snapshot time. Resume strictly after it so historical cards are never
+      // duplicated when reconnecting to an active task.
+      openStream(task.id, session.latest_event_id || session.replay_after_event_id || 0)
+    }
+  } catch (cause) {
+    if (currentSelection !== selectionGeneration || selected.value?.id !== task.id) return
+    // A single old or partially migrated conversation must not make the whole
+    // workbench look empty. Keep its durable task topic available and let an
+    // active task reconnect to SSE while the server-side transcript is retried.
+    timeline.value = resetConversationTimeline(task.query ? [{ role: 'user', content: task.query, timestamp: task.created_at }] : [])
+    error.value = cause instanceof Error ? `历史会话加载失败：${cause.message}` : '历史会话加载失败'
+    if (task.status === 'running') openStream(task.id)
   }
 }
 
