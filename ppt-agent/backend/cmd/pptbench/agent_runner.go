@@ -93,6 +93,7 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 		report.Passed = false
 		report.Summary = "benchmark case supplied review issues merged with deterministic quality gates"
 	}
+	out.ReviewAdvice = ppt.BuildPlanReviewAdvice(input.DraftTasks, 1, report)
 	inputText, allowed, err := ppt.BuildPlanReviewRevisionInput(caseDir, 1, report)
 	if err != nil {
 		out.Error = err.Error()

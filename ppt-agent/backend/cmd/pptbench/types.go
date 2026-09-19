@@ -52,6 +52,7 @@ type agentOutput struct {
 	After               any                         `json:"after,omitempty"`
 	Events              []ppt.AgentEvent            `json:"events,omitempty"`
 	DeterministicReview *ppt.PlanReviewReport       `json:"deterministic_review,omitempty"`
+	ReviewAdvice        []ppt.ReviewAdvice          `json:"review_advice,omitempty"`
 	CapacityBefore      *ppt.ManifestCapacityReport `json:"capacity_before,omitempty"`
 	CapacityAfter       *ppt.ManifestCapacityReport `json:"capacity_after,omitempty"`
 	Capacity            *ppt.ManifestCapacityReport `json:"capacity,omitempty"`
@@ -66,6 +67,7 @@ type modelOutput struct {
 	Before              any                         `json:"before,omitempty"`
 	After               any                         `json:"after,omitempty"`
 	DeterministicReview *ppt.PlanReviewReport       `json:"deterministic_review,omitempty"`
+	ReviewAdvice        []ppt.ReviewAdvice          `json:"review_advice,omitempty"`
 	CapacityBefore      *ppt.ManifestCapacityReport `json:"capacity_before,omitempty"`
 	CapacityAfter       *ppt.ManifestCapacityReport `json:"capacity_after,omitempty"`
 	Capacity            *ppt.ManifestCapacityReport `json:"capacity,omitempty"`

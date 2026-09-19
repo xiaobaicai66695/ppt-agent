@@ -10,7 +10,7 @@
 2. Go Web API 校验并补齐 outline，创建任务工作目录。
 3. Web 创建入口完成意图分类，区分新建 PPT、修改已有任务、主题澄清和闲聊；`TaskManager` 创建任务并通过 SSE 推送进度。
 4. `PPTPlanner` 无论有无 outline，都通过 `update_tasks_manifest` 一次性生成完整 `tasks.draft.json`。
-5. `TaskPlanReviewer` 根据 Go 硬校验报告批量修正草稿，Go 最多执行三轮并在通过后提交 `tasks.json`。
+5. `TaskPlanReviewer` 根据 Go 硬校验报告输出结构化 advice，`PlannerRefiner` 按 advice 限权修订草稿；Go 最多执行三轮并在通过后提交 `tasks.json`。
 6. `PPTRenderWorkflow` 按 `task_id` 并发调用 Python `render_task.py`，由 `generators` 包生成单页 `.pptx`。
 7. 后端轮询 `tasks.json` 和工作目录，发现 PPTX 后推送 `file_ready`，前端请求下载和缩略图。
 
@@ -25,8 +25,9 @@ flowchart LR
   CR --> TM
   TM --> PL["backend/pkg/agent/ppt<br/>PPTPlanner"]
   PL --> D["tasks.draft.json<br/>规划草稿"]
-  D --> RV["TaskPlanReviewer<br/>按 Go issues 批量修正"]
-  RV --> D
+  D --> RV["TaskPlanReviewer<br/>诊断并输出 advice"]
+  RV --> RF["PlannerRefiner<br/>按 advice 限权修订"]
+  RF --> D
   D --> M["Go Validator / Commit<br/>tasks.json"]
   M --> DR["PPTRenderWorkflow<br/>按 task_id 并发"]
   DR --> PY["render_task.py"]
@@ -206,7 +207,7 @@ interface TaskOutline {
 - 检查每页是否有明确 `role_in_ppt`，是否重复、空洞或信息过载。
 - 检查 `content_type`、`layout_variant` 和组件计划是否符合模板容量。
 - 输出结构化 issues，例如 `intent_mismatch`、`weak_narrative`、`low_information_density`、`overload_capacity`、`invalid_component_schema`、`missing_data_or_fact`、`layout_mismatch`。
-- Reviewer 只根据 issues 批量修订 PPTSpec，不做文学化改写，也不改底层视觉参数。
+- Reviewer 只输出结构化 issues/advice，不调用 `patch_tasks_draft`，不修改草稿。`PlannerRefiner` 根据 advice 批量修订 PPTSpec，不做文学化改写，也不改底层视觉参数。
 
 循环策略：
 
@@ -366,7 +367,7 @@ Planner 输出不得直接视为可渲染。当前主流程由 TaskPlanReviewer 
 - `missing_data_or_fact`：图表、KPI、案例页缺必要数据。
 - `layout_mismatch`：内容类型和 `content_type` / `layout_variant` 不匹配。
 
-Go 先输出结构化问题，TaskPlanReviewer 只修正对应草稿；通过后由 Go 锁定并提交 PPTSpec，避免渲染阶段再发生无约束改写。
+Go 先输出结构化问题，TaskPlanReviewer 诊断并输出 advice，PlannerRefiner 只修正对应草稿；通过后由 Go 锁定并提交 PPTSpec，避免渲染阶段再发生无约束改写。
 
 ### 8.4 图片与配色
 

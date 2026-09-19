@@ -30,12 +30,13 @@
 - 一次性调用 `update_tasks_manifest(mode="initialize")` 写入完整页面数组，不逐页 patch，不审查、不 commit。
 - 负责主题理解、资料准备、叙事拆页、组件语义和视觉意图。
 
-### TaskPlanReviewer
+### TaskPlanReviewer / PlannerRefiner
 
-- 只审查和修正 PPTSpec 草稿，不参与首轮内容发散。
-- Go 先执行确定性审查并生成结构化 issues；Reviewer 根据 issues 批量调用一次 `patch_tasks_draft`。
+- Reviewer 只审查 PPTSpec 草稿，不参与首轮内容发散，也不直接修改草稿。
+- PlannerRefiner 根据 Reviewer advice 修正 PPTSpec 草稿，不参与全量重新规划。
+- Go 先执行确定性审查并生成结构化 issues；Reviewer 将 issues 转成 advice，PlannerRefiner 根据 advice 批量调用一次 `patch_tasks_draft`。
 - 每轮之后由 Go 重新校验，最多三轮；通过后由 Go 原子提交正式 `tasks.json`。
-- Reviewer 工具在代码层面没有 initialize/commit 权限。
+- Reviewer 工具在代码层面没有 initialize/patch/commit 权限；PlannerRefiner 只有 scoped `patch_tasks_draft` 权限。
 
 ### PPTFixer
 

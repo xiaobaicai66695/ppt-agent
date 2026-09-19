@@ -55,7 +55,7 @@ benchmark/runs/<run>/reviewer/<case-id>/model_output.json
 优先把失败分成四类：
 
 - Case 问题：输入 fixture 本身不符合当前 PPTSpec 契约，或一个 case 混入多个无关缺陷。
-- Agent 问题：模型输出没有满足任务目标，例如 Planner 首稿漏字段、Reviewer 没修目标 error、Fixer 越权修改。
+- Agent 问题：模型输出没有满足任务目标，例如 Planner 首稿漏字段、Reviewer 没有覆盖目标问题的 advice、PlannerRefiner 没按 advice 修目标 error、Fixer 越权修改。
 - Judge 问题：评分理由和 `model_output.json` 明显不一致，或 rubric 表述导致误判。
 - 环境问题：模型 key、provider、额度、网络、超时导致 `error`，不是能力低分。
 
@@ -115,7 +115,7 @@ Planner benchmark 不执行图片下载，只评估图片语义规划。`search_
 
 不要修改 Reviewer 来掩盖 Planner 首稿问题。
 
-### Reviewer
+### Reviewer / PlannerRefiner
 
 看：
 
@@ -129,7 +129,8 @@ case.json -> expected.allowed_change_pages / must_not_change_pages
 
 常见失败：
 
-- 指定 error 没修复。
+- Reviewer 没有为指定 issue 输出结构化 advice。
+- PlannerRefiner 没按 advice 修复指定 error。
 - 修改了未授权页面。
 - 新增、删除或重排页面。
 - patch 太大，把整页或整套重写了。
@@ -137,9 +138,9 @@ case.json -> expected.allowed_change_pages / must_not_change_pages
 
 优先修改：
 
-- Reviewer prompt：`backend/pkg/prompts/reviewer/master_instruction.tmpl`
+- Reviewer prompt：`backend/pkg/prompts/reviewer/master_instruction.tmpl`；Refiner prompt：`backend/pkg/prompts/planner/refiner_instruction.tmpl`
 - Reviewer 切片输入：`backend/pkg/agent/ppt/plan_review_revision.go`
-- 草稿 patch 工具：`backend/pkg/agent/ppt/fixer_manifest_tool.go`
+- 草稿 patch 工具：`backend/pkg/agent/ppt/fixer_manifest_tool.go`，仅由 PlannerRefiner 调用
 - 审查规则：`backend/pkg/agent/ppt/plan_review_tool.go`
 
 如果 `before` 本身有很多非目标错误，优先修 case fixture，而不是调 Reviewer。
@@ -176,7 +177,7 @@ Fixer case 应尽量显式写 `allowed_page_indexes`，避免把页码推断问�
 可以改 case 的情况：
 
 - `draft_tasks` 或 `base_tasks` 使用了当前契约不支持的组件类型。
-- Reviewer case 同时触发多个无关 error，无法隔离被测缺陷。
+- Reviewer case 同时触发多个无关 error，无法隔离被测缺陷。当前 suite 的主产物是 Reviewer advice + Refiner 修复后的 draft。
 - `expected` 和用户请求不一致。
 - case 缺少必要上下文，例如 Fixer 没有给 `allowed_page_indexes`。
 - case 的目标不是当前 suite 的职责，例如 Planner case 要求 Reviewer 才能完成的修复能力。

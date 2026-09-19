@@ -12,7 +12,7 @@
 
 - `router`：评估创建入口和继续任务的意图识别，确认请求进入正确链路。评测输出使用稳定词汇 `create_ppt`、`fix_existing`、`fix`、`regenerate_all`；创建入口 HTTP API 内部的 `create`、`fix` 会在 benchmark 适配层映射为前两者，并保留实际下游 Agent 和原始请求。
 - `planner`：只评估 Planner 首稿 `tasks.draft.json`，不让 Reviewer 修补后再评分；benchmark 中不挂载图片下载工具，只评价图片语义规划。
-- `reviewer`：用带缺陷的 draft 和 review issue 评估 Reviewer 是否精准修补。
+- `reviewer`：用带缺陷的 draft 和 review issue 评估 Reviewer 是否准确诊断并输出 advice，再由 PlannerRefiner 在授权页面内完成修补。
 - `fixer`：用真实用户追改请求评估 Fixer 是否只改授权页面和必要字段；不运行 Reviewer 或全量 PPTSpec review。
 
 旧的 `backend/test/plan_benchmark` 只保留为低成本契约 smoke。Agent 效果评测以本目录和 `cmd/pptbench` 为主。
@@ -65,7 +65,7 @@ cd ppt-agent/backend
 
 Planner benchmark 不执行图片下载，不依赖 `UNSPLASH_ACCESS_KEY`、网络状态或本地图片落盘。评分只看是否规划了合理的 `visual_policy`、`asset_query`、`asset_subject`、`composition` 和 `search_status="planned"`，不要求出现 `local_path`。同一 PPT 内相同 `content_type` 的页面必须规划相同的背景 `asset_query`；生产物化层与 skill CLI 会把它们收敛为同一张本地背景图。
 
-容量控制证据写入 `model_output.json` 的 `capacity`（Planner）或 `capacity_before`/`capacity_after`（Reviewer），其中包含契约版本/hash、每页实际组件数、推荐范围和硬上限。`actual_components > recommended_max` 是需要关注的密度问题，`actual_components > max_components` 是首稿硬失败；不要只看最终 Reviewer 是否修好，而要分别记录首稿和修复后的状态。
+容量控制证据写入 `model_output.json` 的 `capacity`（Planner）或 `capacity_before`/`capacity_after`（Reviewer/Refiner），其中包含契约版本/hash、每页实际组件数、推荐范围和硬上限。Reviewer suite 还应保留 advice 作为诊断证据。`actual_components > recommended_max` 是需要关注的密度问题，`actual_components > max_components` 是首稿硬失败；不要只看最终 Reviewer 是否修好，而要分别记录首稿和修复后的状态。
 
 如果模型额度、Key、Provider 配置异常，输出会显式写入 `agent_error` 或 `judge_error`，不会被隐藏成成功。
 
@@ -166,7 +166,7 @@ benchmark/runs/20260829-150405-test-all/
 - `summary.json`：机器可读汇总。
 - `summary.md`：人工可读汇总。
 - `case.json`：本次实际使用的 case 快照。
-- `model_output.json`：给人审阅的核心模型/Agent 产物，例如 Planner 首稿 task.json、Reviewer 修补前后结果、Fixer 定点修改前后结果。
+- `model_output.json`：给人审阅的核心模型/Agent 产物，例如 Planner 首稿 task.json、Reviewer advice 与 Refiner 修补前后结果、Fixer 定点修改前后结果。
 - `trace.json`：完整调试轨迹，包含事件和耗时；正常审阅不必看。
 - `judge_input.json`：发送给 Judge LLM 的完整输入。
 - `score.json`：Judge 的 1-5 分结构化评分。
@@ -211,7 +211,7 @@ Hard failure 最高只能 2 分，包括：
 - 使用非法 `content_type`。
 - Router 路由到错误 Agent 或错误主流程。
 - Planner 漏掉核心用户请求。
-- Reviewer 没修复指定 error。
+- Reviewer 未输出覆盖指定 error 的 advice，或 PlannerRefiner 未按 advice 修复指定 error。
 - Fixer 修改了禁止修改的页面或字段。
 - Fixer 破坏被修改页的基本可渲染结构。
 
@@ -219,7 +219,7 @@ Hard failure 最高只能 2 分，包括：
 
 `planner` case 应评估首稿质量，不写“Reviewer 可以补齐”的期待。重点看页面结构、事实覆盖、字段完整度、图片语义规划和 PPTSpec 合法性。Planner benchmark 不测图片下载，所以不要把缺少 `local_path` 作为失败条件。
 
-`reviewer` case 应只放一个或少数明确缺陷，避免混入无关错误。否则无法判断 Reviewer 到底修复了目标问题，还是被其它问题干扰。
+`reviewer` case 应只放一个或少数明确缺陷，避免混入无关错误。Judge 必须分别检查 Reviewer 的诊断 advice、Refiner 的授权范围和修复后的确定性 review，不能只看最终 draft。
 
 `fixer` case 必须写清授权页面和禁止改动范围。推荐在 `input.allowed_page_indexes` 明确授权页，避免 benchmark 依赖页码推断。
 

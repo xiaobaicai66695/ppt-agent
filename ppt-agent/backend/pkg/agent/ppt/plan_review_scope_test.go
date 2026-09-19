@@ -1,6 +1,9 @@
 package ppt
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPlanReviewScopesManifestValidationErrorToItsTaskPage(t *testing.T) {
 	manifest := &TasksManifest{Tasks: []*TaskItem{{
@@ -64,5 +67,33 @@ func TestBuildReviewAdviceCarriesCapacityFacts(t *testing.T) {
 	}
 	if got.RecommendedChange == "" {
 		t.Fatal("advice should include recommended change")
+	}
+}
+
+func TestPlanReviewRevisionInputContainsAdviceForRefiner(t *testing.T) {
+	workDir := t.TempDir()
+	manifest := &TasksManifest{Title: "容量回归", Tasks: []*TaskItem{{
+		PageIndex: 4, Title: "核心事实", ContentType: "card_grid", OutputFile: "4.pptx", Status: StatusPending,
+		ContentPlan: &ContentPlan{Summary: "保留核心事实", SlideIntent: "支持决策", Components: []PlanComponent{{ID: "headline", Type: "headline", Text: "结论"}}},
+	}}}
+	if err := WriteTasksDraftManifest(workDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	report := &PlanReviewReport{Summary: "需要压缩组件", Issues: []PlanReviewIssue{{
+		Code: "overload_capacity", Severity: "error", PageIndex: 4,
+		ActualComponents: 7, RecommendedMax: 5, MaxComponents: 6, OverflowComponents: 1,
+		Message: "组件超过硬上限",
+	}}}
+	input, allowed, err := BuildPlanReviewRevisionInput(workDir, 1, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"PlannerRefiner", `"advice"`, `"issue_code": "overload_capacity"`} {
+		if !strings.Contains(input, want) {
+			t.Fatalf("revision input missing %q: %s", want, input)
+		}
+	}
+	if len(allowed) != 1 || allowed[0] != 4 {
+		t.Fatalf("allowed pages = %#v, want [4]", allowed)
 	}
 }

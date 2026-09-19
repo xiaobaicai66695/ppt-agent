@@ -34,7 +34,7 @@ LLM 负责：
   ↓
 PPTPlanner 生成 PPTSpec 草稿
   ↓
-TaskPlanReviewer 根据 Go 审查报告检查并修正需求偏差、叙事、容量和组件 schema
+TaskPlanReviewer 根据 Go 审查报告诊断需求偏差、叙事、容量和组件 schema；PlannerRefiner 根据 advice 修订
   ↓
 Go 最多执行 3 轮校验/修正循环
   ↓

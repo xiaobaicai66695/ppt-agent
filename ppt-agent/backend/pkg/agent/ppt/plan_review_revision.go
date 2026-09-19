@@ -37,6 +37,14 @@ type planReviewTask struct {
 	ContentPlan   *ContentPlan `json:"content_plan,omitempty"`
 }
 
+// BuildPlanReviewAdvice returns the scoped, structured advice that the PlannerRefiner receives for a review round.
+func BuildPlanReviewAdvice(manifest *TasksManifest, round int, report *PlanReviewReport) []ReviewAdvice {
+	if manifest == nil || report == nil {
+		return nil
+	}
+	return buildPlanReviewRevisionPayload(manifest, round, report).Advice
+}
+
 func buildPlanReviewRevisionInput(workDir string, round int, report *PlanReviewReport) (string, []int, error) {
 	if report == nil {
 		return "", nil, fmt.Errorf("review report is nil")

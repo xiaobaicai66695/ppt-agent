@@ -36,10 +36,10 @@ func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
 	}
 }
 
-func TestReviewerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
+func TestReviewerRefinerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
 	cfg := &PPTTaskConfig{WorkDir: "/tmp/work", SkillsDir: "/tmp/skills", Query: "用户主题"}
 	reviewer := buildReviewerInstruction(cfg)
-	for _, want := range []string{"TaskPlanReviewer", "tasks.draft.json", "patch_tasks_draft", "所有必要修正合并为一次 patch"} {
+	for _, want := range []string{"TaskPlanReviewer", "tasks.draft.json", "结构化 advice", "不调用 `patch_tasks_draft`", "PlannerRefiner"} {
 		if !strings.Contains(reviewer, want) {
 			t.Fatalf("reviewer prompt missing %q", want)
 		}
@@ -59,5 +59,15 @@ func TestReviewerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
 	}
 	if strings.Contains(fixer, "/tmp/work/tasks.json") || strings.Contains(fixer, "tasks.draft.json") {
 		t.Fatal("fixer must only consume its selected task snapshot")
+	}
+
+	refiner := buildPlannerRefinerInstruction(cfg)
+	for _, want := range []string{"PlannerRefiner", "Reviewer 提供的结构化 advice", "patch_tasks_draft", "一次合并本轮修复", "禁止新增、删除、重排页面"} {
+		if !strings.Contains(refiner, want) {
+			t.Fatalf("refiner prompt missing %q", want)
+		}
+	}
+	if strings.Contains(refiner, "TaskPlanReviewer，专门诊断") {
+		t.Fatal("refiner prompt should not adopt reviewer diagnosis role")
 	}
 }
