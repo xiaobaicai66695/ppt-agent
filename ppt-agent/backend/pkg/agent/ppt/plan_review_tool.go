@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
 const planReviewFileName = "tasks.review.json"
@@ -36,6 +38,10 @@ type PlanReviewReport struct {
 }
 
 func ReviewTasksDraftManifest(workDir string, round int) (*PlanReviewReport, error) {
+	return ReviewTasksDraftManifestWithContract(workDir, round, templates.BuiltInContractSummary())
+}
+
+func ReviewTasksDraftManifestWithContract(workDir string, round int, contract *templates.ContractSummary) (*PlanReviewReport, error) {
 	manifest, err := ReadTasksDraftManifest(workDir)
 	target := "tasks.draft.json"
 	if err != nil {
@@ -51,7 +57,7 @@ func ReviewTasksDraftManifest(workDir string, round int) (*PlanReviewReport, err
 	if round <= 0 {
 		round = 1
 	}
-	report := ReviewTasksManifest(manifest, target, round)
+	report := ReviewTasksManifestWithContract(manifest, target, round, contract)
 	if target == "tasks.draft.json" {
 		report.Fingerprint = fingerprintTasksManifest(manifest)
 	}
@@ -62,6 +68,20 @@ func ReviewTasksDraftManifest(workDir string, round int) (*PlanReviewReport, err
 }
 
 func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *PlanReviewReport {
+	return ReviewTasksManifestWithContract(manifest, target, round, templates.BuiltInContractSummary())
+}
+
+// ReviewTasksManifestFromSkills applies the exact contract file used by the
+// selected skill directory. It is used by benchmark and standalone callers
+// that need evidence tied to the current contract hash.
+func ReviewTasksManifestFromSkills(manifest *TasksManifest, target string, round int, skillsDir string) *PlanReviewReport {
+	return ReviewTasksManifestWithContract(manifest, target, round, contractForSkills(skillsDir))
+}
+
+func ReviewTasksManifestWithContract(manifest *TasksManifest, target string, round int, contract *templates.ContractSummary) *PlanReviewReport {
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
+	}
 	report := &PlanReviewReport{
 		OK:         true,
 		Target:     target,
@@ -81,22 +101,27 @@ func ReviewTasksManifest(manifest *TasksManifest, target string, round int) *Pla
 	if strings.TrimSpace(manifest.Title) == "" {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "error", Message: "缺少整套 PPT 标题。"})
 	}
-	if err := validateManifestForWrite(manifest); err != nil {
-		issue := PlanReviewIssue{
-			Code:     "invalid_component_schema",
-			Severity: "error",
-			Message:  err.Error(),
+	if err := validateManifestForWriteWithContract(manifest, contract); err != nil {
+		// Capacity failures are emitted below with structured numbers. Keep the
+		// generic schema issue for all other validation errors so the Reviewer
+		// still receives a page-scoped repair target.
+		if !strings.Contains(err.Error(), "too many components") {
+			issue := PlanReviewIssue{
+				Code:     "invalid_component_schema",
+				Severity: "error",
+				Message:  err.Error(),
+			}
+			// validateManifestForWrite intentionally returns a compact error. Its
+			// task id is still enough to scope a repair, so retain the corresponding
+			// page index. Without it the Reviewer receives an empty authorization
+			// slice, attempts the obvious repair, and is rejected for every round.
+			issue.PageIndex = validationErrorPageIndex(manifest, issue.Message)
+			report.Issues = append(report.Issues, issue)
 		}
-		// validateManifestForWrite intentionally returns a compact error. Its
-		// task id is still enough to scope a repair, so retain the corresponding
-		// page index. Without it the Reviewer receives an empty authorization
-		// slice, attempts the obvious repair, and is rejected for every round.
-		issue.PageIndex = validationErrorPageIndex(manifest, issue.Message)
-		report.Issues = append(report.Issues, issue)
 	}
 	backgroundMode := manifestBackgroundMode(manifest)
 	for _, task := range manifest.Tasks {
-		reviewTaskPlan(task, report, backgroundMode)
+		reviewTaskPlan(task, report, backgroundMode, contract)
 	}
 	reviewPPTBackgroundVariety(manifest, report)
 	reviewPPTVisualMix(manifest, report)
@@ -126,7 +151,7 @@ func validationErrorPageIndex(manifest *TasksManifest, message string) int {
 	return 0
 }
 
-func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode string) {
+func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode string, contract *templates.ContractSummary) {
 	if task == nil {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "invalid_component_schema", Severity: "error", Message: "存在空页面任务。"})
 		return
@@ -142,6 +167,9 @@ func reviewTaskPlan(task *TaskItem, report *PlanReviewReport, backgroundMode str
 		return
 	}
 	plan := task.ContentPlan
+	if capacityIssue := componentCapacityIssue(task, contract); capacityIssue != nil {
+		report.Issues = append(report.Issues, *capacityIssue)
+	}
 	if !hasPlanNarrativeSummary(plan) {
 		report.Issues = append(report.Issues, PlanReviewIssue{Code: "weak_narrative", Severity: "error", PageIndex: page, Message: "content_plan.summary 为空。"})
 	}
@@ -241,7 +269,11 @@ func manifestBackgroundMode(manifest *TasksManifest) string {
 // based on ReviewTasksManifest avoids a second set of thresholds drifting from
 // the review gate.
 func plannerPreflightIssues(manifest *TasksManifest) []PlanReviewIssue {
-	report := ReviewTasksManifest(manifest, "planner_initialize", 0)
+	return plannerPreflightIssuesWithContract(manifest, templates.BuiltInContractSummary())
+}
+
+func plannerPreflightIssuesWithContract(manifest *TasksManifest, contract *templates.ContractSummary) []PlanReviewIssue {
+	report := ReviewTasksManifestWithContract(manifest, "planner_initialize", 0, contract)
 	if report == nil || len(report.Issues) == 0 {
 		return nil
 	}
@@ -257,6 +289,42 @@ func plannerPreflightIssues(manifest *TasksManifest) []PlanReviewIssue {
 		}
 	}
 	return issues
+}
+
+func componentCapacityIssue(task *TaskItem, contract *templates.ContractSummary) *PlanReviewIssue {
+	if task == nil || task.ContentPlan == nil {
+		return nil
+	}
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
+	}
+	capacity := contract.CapacityFor(task.ContentType)
+	actual := len(task.ContentPlan.Components)
+	if actual <= capacity.RecommendedMax {
+		return nil
+	}
+	severity := "warning"
+	code := "overload_capacity"
+	message := fmt.Sprintf("%s 页面组件数为 %d，超过推荐范围 %d-%d；建议合并次要组件或拆页。硬上限为 %d。", task.ContentType, actual, capacity.RecommendedMin, capacity.RecommendedMax, capacity.MaxComponents)
+	overflow := actual - capacity.RecommendedMax
+	if actual > capacity.MaxComponents {
+		severity = "error"
+		overflow = actual - capacity.MaxComponents
+		message = fmt.Sprintf("%s 页面组件数为 %d，超过硬上限 %d；必须合并/删除至少 %d 个组件，或拆分页面。推荐范围为 %d-%d。", task.ContentType, actual, capacity.MaxComponents, overflow, capacity.RecommendedMin, capacity.RecommendedMax)
+	}
+	return &PlanReviewIssue{
+		Code:               code,
+		Severity:           severity,
+		Message:            message,
+		PageIndex:          task.PageIndex,
+		ActualComponents:   actual,
+		RecommendedMin:     capacity.RecommendedMin,
+		RecommendedMax:     capacity.RecommendedMax,
+		MaxComponents:      capacity.MaxComponents,
+		OverflowComponents: overflow,
+		ContractVersion:    fmt.Sprintf("%d", contract.Version),
+		ContractSHA256:     contract.SHA256,
+	}
 }
 
 func finalizePlanReviewReport(report *PlanReviewReport, manifest *TasksManifest) *PlanReviewReport {
@@ -318,6 +386,8 @@ func planReviewActionForCode(code string) string {
 		return "补充页面观点锚点和 slide_intent，形成观点-论据结构"
 	case "invalid_component_schema":
 		return "按 component_contracts.json 修正 content_type、components 和容量字段"
+	case "overload_capacity":
+		return "按容量诊断合并或删除低优先级组件；超过硬上限时必须压到 max_components 以内，必要时拆页"
 	case "layout_mismatch":
 		return "修正 layout_variant、页面类型和组件匹配关系"
 	default:

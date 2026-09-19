@@ -65,6 +65,8 @@ cd ppt-agent/backend
 
 Planner benchmark 不执行图片下载，不依赖 `UNSPLASH_ACCESS_KEY`、网络状态或本地图片落盘。评分只看是否规划了合理的 `visual_policy`、`asset_query`、`asset_subject`、`composition` 和 `search_status="planned"`，不要求出现 `local_path`。同一 PPT 内相同 `content_type` 的页面必须规划相同的背景 `asset_query`；生产物化层与 skill CLI 会把它们收敛为同一张本地背景图。
 
+容量控制证据写入 `model_output.json` 的 `capacity`（Planner）或 `capacity_before`/`capacity_after`（Reviewer），其中包含契约版本/hash、每页实际组件数、推荐范围和硬上限。`actual_components > recommended_max` 是需要关注的密度问题，`actual_components > max_components` 是首稿硬失败；不要只看最终 Reviewer 是否修好，而要分别记录首稿和修复后的状态。
+
 如果模型额度、Key、Provider 配置异常，输出会显式写入 `agent_error` 或 `judge_error`，不会被隐藏成成功。
 
 ## 常用命令

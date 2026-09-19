@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
 var selectedTasksPatchToolInfo = &schema.ToolInfo{
@@ -37,23 +38,28 @@ var draftTasksPatchToolInfo = &schema.ToolInfo{
 }
 
 type draftTasksPatchTool struct {
-	workDir string
-	scoped  bool
-	allowed map[int]bool
+	workDir  string
+	scoped   bool
+	allowed  map[int]bool
+	contract *templates.ContractSummary
 }
 
 func newDraftTasksPatchTool(workDir string) tool.InvokableTool {
-	return &draftTasksPatchTool{workDir: workDir}
+	return &draftTasksPatchTool{workDir: workDir, contract: templates.BuiltInContractSummary()}
 }
 
-func newScopedDraftTasksPatchTool(workDir string, allowedPageIndexes []int) tool.InvokableTool {
+func newScopedDraftTasksPatchTool(workDir string, allowedPageIndexes []int, contracts ...*templates.ContractSummary) tool.InvokableTool {
 	allowed := make(map[int]bool, len(allowedPageIndexes))
 	for _, pageIndex := range allowedPageIndexes {
 		if pageIndex > 0 {
 			allowed[pageIndex] = true
 		}
 	}
-	return &draftTasksPatchTool{workDir: workDir, scoped: true, allowed: allowed}
+	contract := templates.BuiltInContractSummary()
+	if len(contracts) > 0 && contracts[0] != nil {
+		contract = contracts[0]
+	}
+	return &draftTasksPatchTool{workDir: workDir, scoped: true, allowed: allowed, contract: contract}
 }
 
 func (t *draftTasksPatchTool) Info(context.Context) (*schema.ToolInfo, error) {
@@ -86,7 +92,7 @@ func (t *draftTasksPatchTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	if err != nil {
 		return "", err
 	}
-	return (&manifestTool{workDir: t.workDir, draftFirst: true}).InvokableRun(ctx, string(payload), opts...)
+	return (&manifestTool{workDir: t.workDir, draftFirst: true, contract: t.contract}).InvokableRun(ctx, string(payload), opts...)
 }
 
 type selectedTasksPatchTool struct {

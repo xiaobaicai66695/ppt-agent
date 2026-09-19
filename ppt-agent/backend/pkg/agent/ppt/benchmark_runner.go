@@ -82,8 +82,8 @@ func RunPPTPlannerDraftWithCallback(ctx context.Context, agent adk.Agent, cfg *P
 	return manifest, result, err
 }
 
-// RunTaskPlanReviewerWithCallback runs one scoped reviewer repair pass against
-// tasks.draft.json. The caller owns deterministic pre/post review and scoring.
+// RunTaskPlanReviewerWithCallback runs one scoped reviewer diagnosis pass.
+// The caller owns deterministic pre/post review and scoring.
 func RunTaskPlanReviewerWithCallback(ctx context.Context, agent adk.Agent, userInput string, onEvent AgentEventCallback) error {
 	return runAgentWithCallback(ctx, agent, userInput, onEvent)
 }

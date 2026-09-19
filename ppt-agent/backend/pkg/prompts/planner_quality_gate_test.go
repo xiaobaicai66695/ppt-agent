@@ -25,7 +25,7 @@ func TestPlannerPromptCarriesFirstDraftQualityGate(t *testing.T) {
 		"section_marker",
 		"440–840",
 		"clean_text_only",
-		"默认每页都必须规划图片检索意图",
+		"图片只规划 `visual_intent` 或 `image` 组件的语义字段",
 		"不得把文本、图表或卡片可表达当成跳过视觉规划的理由",
 		"确定性素材物化阶段会搜索下载",
 	} {

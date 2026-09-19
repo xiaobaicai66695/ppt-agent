@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/cloudwego/ppt-agent/pkg/templates"
 )
 
 const tasksDraftFileName = "tasks.draft.json"
@@ -134,19 +135,29 @@ type manifestTool struct {
 	workDir       string
 	fallbackTitle string
 	draftFirst    bool
+	contract      *templates.ContractSummary
 }
 
 type plannerManifestTool struct{ inner *manifestTool }
 
-func newPlannerManifestTool(workDir string, outline *TaskOutline, query string) tool.InvokableTool {
-	return &plannerManifestTool{inner: newDraftManifestTool(workDir, outline, query)}
+func newPlannerManifestTool(workDir string, outline *TaskOutline, query string, skillsDirs ...string) tool.InvokableTool {
+	contract := templates.BuiltInContractSummary()
+	if len(skillsDirs) > 0 {
+		contract = contractForSkills(skillsDirs[0])
+	}
+	return &plannerManifestTool{inner: newDraftManifestToolWithContract(workDir, outline, query, contract)}
 }
 
 func newDraftManifestTool(workDir string, outline *TaskOutline, query string) *manifestTool {
+	return newDraftManifestToolWithContract(workDir, outline, query, templates.BuiltInContractSummary())
+}
+
+func newDraftManifestToolWithContract(workDir string, outline *TaskOutline, query string, contract *templates.ContractSummary) *manifestTool {
 	inner := &manifestTool{
 		workDir:       workDir,
 		fallbackTitle: compactManifestTitle(query),
 		draftFirst:    true,
+		contract:      contract,
 	}
 	if outline != nil && strings.TrimSpace(outline.Title) != "" {
 		inner.fallbackTitle = compactManifestTitle(outline.Title)
@@ -155,7 +166,11 @@ func newDraftManifestTool(workDir string, outline *TaskOutline, query string) *m
 }
 
 func (t *plannerManifestTool) Info(context.Context) (*schema.ToolInfo, error) {
-	return plannerManifestToolInfo, nil
+	info := *plannerManifestToolInfo
+	if t != nil && t.inner != nil && t.inner.contract != nil {
+		info.Desc += "\n当前运行时容量契约：\n" + t.inner.contract.PromptText()
+	}
+	return &info, nil
 }
 
 func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
@@ -178,8 +193,8 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 		return manifestToolRecoverableError(input.Mode, "draft", err), nil
 	}
 	normalizeManifestLayoutVariants(manifest)
-	normalizePlannerInitialManifest(manifest)
-	if issues := plannerPreflightIssues(manifest); len(issues) > 0 {
+	normalizePlannerInitialManifestWithContract(manifest, t.inner.contract)
+	if issues := plannerPreflightIssuesWithContract(manifest, t.inner.contract); len(issues) > 0 {
 		if err := t.inner.writeManifest(manifest); err != nil {
 			return "", err
 		}
@@ -190,6 +205,7 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 			"quality_gate_passed": false,
 			"issue_count":         len(issues),
 			"issues":              issues,
+			"capacity_contract":   contractMetadata(t.inner.contract),
 			"next_action":         "草稿已写入 tasks.draft.json；停止全量重写，等待 Task Reviewer 按失败页/章节切片 patch。",
 		})
 		return string(payload), nil
@@ -199,12 +215,17 @@ func (t *plannerManifestTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	}
 	result, _ := json.Marshal(map[string]any{
 		"ok": true, "mode": "initialize", "target": "draft", "updated": len(manifest.Tasks), "total": len(manifest.Tasks),
+		"capacity_contract": contractMetadata(t.inner.contract),
 	})
 	return string(result), nil
 }
 
 func (t *manifestTool) Info(context.Context) (*schema.ToolInfo, error) {
-	return plannerManifestToolInfo, nil
+	info := *plannerManifestToolInfo
+	if t != nil && t.contract != nil {
+		info.Desc += "\n当前运行时容量契约：\n" + t.contract.PromptText()
+	}
+	return &info, nil
 }
 
 func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
@@ -236,8 +257,8 @@ func (t *manifestTool) InvokableRun(_ context.Context, argumentsInJSON string, _
 	}
 	normalizeManifestLayoutVariants(manifest)
 	if !t.shouldDeferValidation() {
-		if err := validateManifestForWrite(manifest); err != nil {
-			return manifestToolRecoverableError(input.Mode, target, err), nil
+		if err := validateManifestForWriteWithContract(manifest, t.contract); err != nil {
+			return manifestToolRecoverableErrorWithManifest(input.Mode, target, err, manifest, t.contract), nil
 		}
 	}
 	if err := t.writeManifest(manifest); err != nil {
@@ -269,6 +290,25 @@ func manifestToolRecoverableError(mode, target string, err error) string {
 	}
 	if payload["target"] == "" {
 		payload["target"] = "draft"
+	}
+	result, _ := json.Marshal(payload)
+	return string(result)
+}
+
+func manifestToolRecoverableErrorWithManifest(mode, target string, err error, manifest *TasksManifest, contract *templates.ContractSummary) string {
+	var payload map[string]any
+	_ = json.Unmarshal([]byte(manifestToolRecoverableError(mode, target, err)), &payload)
+	var issues []PlanReviewIssue
+	if manifest != nil {
+		for _, task := range manifest.Tasks {
+			if issue := componentCapacityIssue(task, contract); issue != nil {
+				issues = append(issues, *issue)
+			}
+		}
+	}
+	if len(issues) > 0 {
+		payload["issues"] = issues
+		payload["capacity_contract"] = contractMetadata(contract)
 	}
 	result, _ := json.Marshal(payload)
 	return string(result)
@@ -327,12 +367,19 @@ func normalizeManifestLayoutVariants(manifest *TasksManifest) {
 }
 
 func normalizePlannerInitialManifest(manifest *TasksManifest) {
+	normalizePlannerInitialManifestWithContract(manifest, templates.BuiltInContractSummary())
+}
+
+func normalizePlannerInitialManifestWithContract(manifest *TasksManifest, contract *templates.ContractSummary) {
 	if manifest == nil {
 		return
 	}
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
+	}
 	normalizeVisualPolicy(manifest)
 	for _, item := range manifest.Tasks {
-		normalizePlannerInitialTask(item)
+		normalizePlannerInitialTaskWithContract(item, contract)
 	}
 }
 
@@ -377,11 +424,18 @@ func normalizeVisualPolicy(manifest *TasksManifest) {
 }
 
 func normalizePlannerInitialTask(item *TaskItem) {
+	normalizePlannerInitialTaskWithContract(item, templates.BuiltInContractSummary())
+}
+
+func normalizePlannerInitialTaskWithContract(item *TaskItem, contract *templates.ContractSummary) {
 	if item == nil || item.ContentPlan == nil {
 		return
 	}
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
+	}
 	plan := item.ContentPlan
-	limit := maxComponentsForContentType(item.ContentType)
+	limit := maxComponentsForContentTypeWithContract(item.ContentType, contract)
 	if strings.TrimSpace(item.ContentType) == "agenda" {
 		plan.Components = compactAgendaComponents(item, plan.Components, limit)
 	}
@@ -985,6 +1039,13 @@ func mergeVisualIntentPatch(current, patch *VisualIntent) *VisualIntent {
 }
 
 func validateManifestForWrite(manifest *TasksManifest) error {
+	return validateManifestForWriteWithContract(manifest, templates.BuiltInContractSummary())
+}
+
+func validateManifestForWriteWithContract(manifest *TasksManifest, contract *templates.ContractSummary) error {
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
+	}
 	if manifest == nil || len(manifest.Tasks) == 0 {
 		return fmt.Errorf("manifest must contain tasks")
 	}
@@ -1005,7 +1066,7 @@ func validateManifestForWrite(manifest *TasksManifest) error {
 		if !validTaskStatus(item.Status) {
 			return fmt.Errorf("task %q has invalid status %q", item.TaskID, item.Status)
 		}
-		if err := validateContentPlanContract(item); err != nil {
+		if err := validateContentPlanContractWithContract(item, contract); err != nil {
 			return fmt.Errorf("task %q has invalid content_plan: %w", item.TaskID, err)
 		}
 	}
@@ -1022,8 +1083,15 @@ func validTaskStatus(status string) bool {
 }
 
 func validateContentPlanContract(item *TaskItem) error {
+	return validateContentPlanContractWithContract(item, templates.BuiltInContractSummary())
+}
+
+func validateContentPlanContractWithContract(item *TaskItem, contract *templates.ContractSummary) error {
 	if item == nil || item.ContentPlan == nil {
 		return nil
+	}
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
 	}
 	plan := item.ContentPlan
 	for i := range plan.Components {
@@ -1052,8 +1120,9 @@ func validateContentPlanContract(item *TaskItem) error {
 			return fmt.Errorf("component %q has no content", component.ID)
 		}
 	}
-	if len(plan.Components) > maxComponentsForContentType(item.ContentType) {
-		return fmt.Errorf("too many components for %s: %d > %d", item.ContentType, len(plan.Components), maxComponentsForContentType(item.ContentType))
+	capacity := contract.CapacityFor(item.ContentType)
+	if len(plan.Components) > capacity.MaxComponents {
+		return fmt.Errorf("too many components for %s: %d > %d (recommended %d-%d)", item.ContentType, len(plan.Components), capacity.MaxComponents, capacity.RecommendedMin, capacity.RecommendedMax)
 	}
 	return nil
 }
@@ -1078,24 +1147,19 @@ func validPlanComponentType(componentType string) bool {
 }
 
 func maxComponentsForContentType(contentType string) int {
-	switch strings.TrimSpace(contentType) {
-	case "title_slide":
-		return 4
-	case "agenda", "timeline", "chart_slide":
-		return 6
-	case "section_divider", "quote_slide":
-		return 3
-	case "kpi_dashboard":
-		return 4
-	case "comparison_table":
-		return 5
-	case "content_slide", "card_grid", "swot_analysis", "brand_focus":
-		return 8
-	case "image_text":
-		return 6
-	case "kanban":
-		return 10
-	default:
-		return 8
+	return templates.BuiltInContractSummary().CapacityFor(contentType).MaxComponents
+}
+
+func maxComponentsForContentTypeWithContract(contentType string, contract *templates.ContractSummary) int {
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
 	}
+	return contract.CapacityFor(contentType).MaxComponents
+}
+
+func contractMetadata(contract *templates.ContractSummary) map[string]string {
+	if contract == nil {
+		contract = templates.BuiltInContractSummary()
+	}
+	return map[string]string{"version": fmt.Sprintf("%d", contract.Version), "sha256": contract.SHA256, "source": contract.Source}
 }

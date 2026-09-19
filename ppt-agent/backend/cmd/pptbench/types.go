@@ -28,50 +28,56 @@ type benchCase struct {
 }
 
 type caseInput struct {
-	UserRequest         string                 `json:"user_request"`
-	UserMessage         string                 `json:"user_message"`
-	HasOutline          bool                   `json:"has_outline"`
-	HasExistingTask     bool                   `json:"has_existing_task"`
-	TasksSummary        string                 `json:"tasks_summary"`
-	ConversationContext []string               `json:"conversation_context"`
+	UserRequest         string                `json:"user_request"`
+	UserMessage         string                `json:"user_message"`
+	HasOutline          bool                  `json:"has_outline"`
+	HasExistingTask     bool                  `json:"has_existing_task"`
+	TasksSummary        string                `json:"tasks_summary"`
+	ConversationContext []string              `json:"conversation_context"`
 	DraftTasks          *ppt.TasksManifest    `json:"draft_tasks"`
 	BaseTasks           *ppt.TasksManifest    `json:"base_tasks"`
 	ReviewIssues        []ppt.PlanReviewIssue `json:"review_issues"`
-	AllowedPageIndexes  []int                  `json:"allowed_page_indexes"`
-	SourceMaterials     []any                  `json:"source_materials"`
-	Requirements        []string               `json:"requirements"`
+	AllowedPageIndexes  []int                 `json:"allowed_page_indexes"`
+	SourceMaterials     []any                 `json:"source_materials"`
+	Requirements        []string              `json:"requirements"`
 }
 
 type agentOutput struct {
-	CaseID              string                 `json:"case_id"`
-	Suite               string                 `json:"suite"`
-	StartedAt           string                 `json:"started_at"`
-	DurationMS          int64                  `json:"duration_ms"`
-	Output              any                    `json:"output,omitempty"`
-	Before              any                    `json:"before,omitempty"`
-	After               any                    `json:"after,omitempty"`
-	Events              []ppt.AgentEvent      `json:"events,omitempty"`
-	DeterministicReview *ppt.PlanReviewReport `json:"deterministic_review,omitempty"`
-	ContentQuality      *contentQualityReport  `json:"content_quality,omitempty"`
-	Error               string                 `json:"error,omitempty"`
+	CaseID              string                      `json:"case_id"`
+	Suite               string                      `json:"suite"`
+	StartedAt           string                      `json:"started_at"`
+	DurationMS          int64                       `json:"duration_ms"`
+	Output              any                         `json:"output,omitempty"`
+	Before              any                         `json:"before,omitempty"`
+	After               any                         `json:"after,omitempty"`
+	Events              []ppt.AgentEvent            `json:"events,omitempty"`
+	DeterministicReview *ppt.PlanReviewReport       `json:"deterministic_review,omitempty"`
+	CapacityBefore      *ppt.ManifestCapacityReport `json:"capacity_before,omitempty"`
+	CapacityAfter       *ppt.ManifestCapacityReport `json:"capacity_after,omitempty"`
+	Capacity            *ppt.ManifestCapacityReport `json:"capacity,omitempty"`
+	ContentQuality      *contentQualityReport       `json:"content_quality,omitempty"`
+	Error               string                      `json:"error,omitempty"`
 }
 
 type modelOutput struct {
-	CaseID              string                 `json:"case_id"`
-	Suite               string                 `json:"suite"`
-	Output              any                    `json:"output,omitempty"`
-	Before              any                    `json:"before,omitempty"`
-	After               any                    `json:"after,omitempty"`
-	DeterministicReview *ppt.PlanReviewReport `json:"deterministic_review,omitempty"`
-	ContentQuality      *contentQualityReport  `json:"content_quality,omitempty"`
-	Error               string                 `json:"error,omitempty"`
+	CaseID              string                      `json:"case_id"`
+	Suite               string                      `json:"suite"`
+	Output              any                         `json:"output,omitempty"`
+	Before              any                         `json:"before,omitempty"`
+	After               any                         `json:"after,omitempty"`
+	DeterministicReview *ppt.PlanReviewReport       `json:"deterministic_review,omitempty"`
+	CapacityBefore      *ppt.ManifestCapacityReport `json:"capacity_before,omitempty"`
+	CapacityAfter       *ppt.ManifestCapacityReport `json:"capacity_after,omitempty"`
+	Capacity            *ppt.ManifestCapacityReport `json:"capacity,omitempty"`
+	ContentQuality      *contentQualityReport       `json:"content_quality,omitempty"`
+	Error               string                      `json:"error,omitempty"`
 }
 
 // contentQualityReport provides evidence for the Judge rather than pretending
 // that a word-count gate can decide whether a ppt says something coherent.
 // Semantic alignment remains an LLM judgment against each case's expectations.
 type contentQualityReport struct {
-	PPTClaim                     string                `json:"ppt_claim,omitempty"`
+	PPTClaim                      string                `json:"ppt_claim,omitempty"`
 	PageClaims                    []contentPageClaim    `json:"page_claims,omitempty"`
 	MissingClaimPages             []int                 `json:"missing_claim_pages,omitempty"`
 	DuplicateClaimGroups          [][]int               `json:"duplicate_claim_groups,omitempty"`

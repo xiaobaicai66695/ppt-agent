@@ -48,10 +48,17 @@ type CompressorConfig struct {
 	MinMessagesSinceLastCompression int
 	MinTokensSinceLastCompression   int
 	MinCompressionInterval          time.Duration
+	CapacityContractSummary         string
 }
 
 // CompressorOption 压缩器配置选项
 type CompressorOption func(*CompressorConfig)
+
+func WithCapacityContractSummary(summary string) CompressorOption {
+	return func(c *CompressorConfig) {
+		c.CapacityContractSummary = strings.TrimSpace(summary)
+	}
+}
 
 type CompressionEvent struct {
 	Stage          string
@@ -153,6 +160,8 @@ type CompressionSummary struct {
 
 	// ConversationSummary 自由格式对话摘要，描述中间轮次的交互过程
 	ConversationSummary string `json:"conversation_summary"`
+
+	CapacityContractSummary string `json:"capacity_contract_summary,omitempty"`
 }
 
 // ExtractKeyDecisions 从对话历史中解析关键决策
@@ -339,6 +348,7 @@ func conversationToSummary(ctx context.Context, summarizer model.ToolCallingChat
 		append(append([]string{}, base.PreservedRequirements...), parsed.PreservedRequirements...), 8, 360)
 	result.ProgressSummary = truncateString(strings.TrimSpace(parsed.ProgressSummary), 240)
 	result.ConversationSummary = truncateString(strings.TrimSpace(parsed.ConversationSummary), 240)
+	result.CapacityContractSummary = firstNonEmptyCompressionString(parsed.CapacityContractSummary, base.CapacityContractSummary)
 	return &result, summaryPrompt, nil
 }
 
@@ -637,6 +647,7 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 
 	// 第一步：从全部消息中结构化提取关键决策（不过滤中间段）
 	keyDecisions := ExtractKeyDecisions(messages)
+	keyDecisions.CapacityContractSummary = c.cfg.CapacityContractSummary
 	previousHandoffs := previousCompressionHandoffs(messages)
 	latestUser := latestRealUserRequest(messages)
 
@@ -681,6 +692,9 @@ func (c *ChatModelCompressor) compress(ctx context.Context, messages []*schema.M
 		handoff = keyDecisions
 		handoff.ProgressSummary = fmt.Sprintf("已压缩 %d 轮早期规划上下文，保留 %d 轮近期上下文", len(headPairs), preservePairs)
 		handoff.ConversationSummary = "早期规划上下文已压缩，用户目标与明确要求由确定性锚点保留"
+	}
+	if handoff.CapacityContractSummary == "" {
+		handoff.CapacityContractSummary = c.cfg.CapacityContractSummary
 	}
 
 	// 第三步：构建以用户请求为锚点的结构化摘要消息。

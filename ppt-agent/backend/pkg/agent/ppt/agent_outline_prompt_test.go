@@ -31,8 +31,8 @@ func TestPlannerPromptKeepsBackgroundPolicyInSkill(t *testing.T) {
 			t.Fatalf("planner prompt missing skill boundary %q", want)
 		}
 	}
-	if !strings.Contains(prompt, "search_images") {
-		t.Fatal("planner should advertise the image-search tool")
+	if !strings.Contains(prompt, "不调用 `search_images`") {
+		t.Fatal("planner should defer image search to deterministic materialization")
 	}
 }
 
@@ -44,8 +44,8 @@ func TestReviewerAndFixerPromptsHaveSeparateScopes(t *testing.T) {
 			t.Fatalf("reviewer prompt missing %q", want)
 		}
 	}
-	if !strings.Contains(reviewer, "search_images") {
-		t.Fatal("reviewer should advertise the image-search tool")
+	if !strings.Contains(reviewer, "Reviewer 不调用 `search_images`") {
+		t.Fatal("reviewer should not own image search")
 	}
 	if strings.Contains(reviewer, "PPTFixer") {
 		t.Fatal("reviewer prompt should not include generated-ppt fixer")

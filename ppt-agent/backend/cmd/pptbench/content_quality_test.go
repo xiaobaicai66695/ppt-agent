@@ -58,3 +58,17 @@ func TestAssessContentQualityReportsAgendaSubtitleContract(t *testing.T) {
 		t.Fatalf("expected distinct agenda subtitle issues, got %#v", report.AgendaSubtitleIssues)
 	}
 }
+
+func TestBenchmarkCapacityEvidenceKeepsContractAndOverflowFacts(t *testing.T) {
+	manifest := &ppt.TasksManifest{Tasks: []*ppt.TaskItem{
+		{PageIndex: 1, ContentType: "content_slide", ContentPlan: &ppt.ContentPlan{Components: make([]ppt.PlanComponent, 7)}},
+		{PageIndex: 2, ContentType: "kpi_dashboard", ContentPlan: &ppt.ContentPlan{Components: make([]ppt.PlanComponent, 5)}},
+	}}
+	report := ppt.InspectManifestCapacity(manifest, "")
+	if report.ContractVersion == "" || len(report.Pages) != 2 {
+		t.Fatalf("benchmark capacity report missing contract metadata: %#v", report)
+	}
+	if len(report.AboveRecommendedPages) != 2 || len(report.OverLimitPages) != 1 || report.OverLimitPages[0] != 2 {
+		t.Fatalf("benchmark capacity report = %#v", report)
+	}
+}

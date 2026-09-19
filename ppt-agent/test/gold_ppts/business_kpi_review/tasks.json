@@ -119,11 +119,6 @@
         "slide_intent": "用 KPI 看板快速给出经营结果判断。",
         "components": [
           {
-            "id": "headline_auto",
-            "type": "headline",
-            "text": "Q2 收入与新增客户跑赢目标，但续费率低于目标形成下季度主要风险。"
-          },
-          {
             "id": "kpi_revenue",
             "type": "kpi_metric",
             "title": "收入",

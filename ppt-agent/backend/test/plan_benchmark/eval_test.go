@@ -55,15 +55,16 @@ type benchmarkCase struct {
 }
 
 type benchmarkSummary struct {
-	CaseID       string                 `json:"case_id"`
-	Query        string                 `json:"query"`
-	StartedAt    string                 `json:"started_at"`
-	DurationMS   int64                  `json:"duration_ms"`
-	TotalSlides  int                    `json:"total_slides"`
-	DoneSlides   int                    `json:"done_slides"`
-	EventCounts  map[string]int         `json:"event_counts"`
-	ReviewReport *ppt.PlanReviewReport `json:"review_report,omitempty"`
-	Error        string                 `json:"error,omitempty"`
+	CaseID       string                      `json:"case_id"`
+	Query        string                      `json:"query"`
+	StartedAt    string                      `json:"started_at"`
+	DurationMS   int64                       `json:"duration_ms"`
+	TotalSlides  int                         `json:"total_slides"`
+	DoneSlides   int                         `json:"done_slides"`
+	EventCounts  map[string]int              `json:"event_counts"`
+	ReviewReport *ppt.PlanReviewReport       `json:"review_report,omitempty"`
+	Capacity     *ppt.ManifestCapacityReport `json:"capacity,omitempty"`
+	Error        string                      `json:"error,omitempty"`
 }
 
 type judgeResult struct {
@@ -78,7 +79,7 @@ func TestGoldPPTSpecsPassReviewer(t *testing.T) {
 	for _, c := range loadBenchmarkCases(t) {
 		t.Run(c.ID, func(t *testing.T) {
 			manifest := loadManifestFile(t, resolveCasePath(t, c.casesRoot, c.GoldManifest))
-			report := ppt.ReviewTasksManifest(manifest, "gold:"+c.ID, 1)
+			report := ppt.ReviewTasksManifestFromSkills(manifest, "gold:"+c.ID, 1, filepath.Join(projectRoot(t), "skills"))
 			if !report.Passed {
 				t.Fatalf("gold PPTSpec should pass reviewer: %s issues=%s", report.Summary, mustJSON(report.Issues))
 			}
@@ -152,8 +153,9 @@ func TestPlannerWorkflowGeneratesReviewedPPTSpec(t *testing.T) {
 				summary.Error = err.Error()
 				t.Fatal(err)
 			}
-			report := ppt.ReviewTasksManifest(manifest, "generated:"+c.ID, 1)
+			report := ppt.ReviewTasksManifestFromSkills(manifest, "generated:"+c.ID, 1, filepath.Join(projectRoot(t), "skills"))
 			summary.ReviewReport = report
+			summary.Capacity = ppt.InspectManifestCapacity(manifest, filepath.Join(projectRoot(t), "skills"))
 			summary.TotalSlides = result.TotalSlides
 			summary.DoneSlides = result.DoneSlides
 			if !report.Passed {
@@ -191,7 +193,7 @@ func TestPlanJudgeAPIScoresPPTSpecs(t *testing.T) {
 	for _, target := range targets {
 		t.Run(target.caseID, func(t *testing.T) {
 			manifest := loadManifestFile(t, target.manifestPath)
-			report := ppt.ReviewTasksManifest(manifest, target.manifestPath, 1)
+			report := ppt.ReviewTasksManifestFromSkills(manifest, target.manifestPath, 1, filepath.Join(projectRoot(t), "skills"))
 			if !report.Passed {
 				t.Fatalf("manifest must pass deterministic reviewer before Judge: %s issues=%s", report.Summary, mustJSON(report.Issues))
 			}
