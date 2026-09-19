@@ -437,7 +437,7 @@ func reviewAndCommitPPTSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Age
 		if err := writePlanReviewCheckpoint(cfg.WorkDir, round); err != nil {
 			return nil, err
 		}
-		report, err := ReviewTasksDraftManifest(cfg.WorkDir, round)
+		report, err := ReviewTasksDraftManifestWithContract(cfg.WorkDir, round, contractForSkills(cfg.SkillsDir))
 		if err != nil {
 			return nil, fmt.Errorf("第 %d 轮 PPTSpec 硬校验失败: %w", round, err)
 		}
@@ -445,7 +445,7 @@ func reviewAndCommitPPTSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Age
 		onEvent(AgentEvent{
 			Type:        AgentEventProgress,
 			Phase:       "reviewing",
-			PhaseDetail: fmt.Sprintf("Task Reviewer 第 %d/%d 轮：%s", round, maxPlanReviewRounds, report.Summary),
+			PhaseDetail: fmt.Sprintf("Task Reviewer 第 %d/%d 轮诊断：%s", round, maxPlanReviewRounds, report.Summary),
 		})
 		if cfg.RuntimeMeta != nil {
 			status := "needs_revision"
@@ -482,7 +482,7 @@ func reviewAndCommitPPTSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Age
 			return nil, fmt.Errorf("构建第 %d 轮 Reviewer 切片输入失败: %w", round, err)
 		}
 		if cfg.RuntimeMeta != nil {
-			cfg.RuntimeMeta.RecordEvent("ppt_spec_review_slice", "TaskPlanReviewer", "needs_revision", fmt.Sprintf("scoped review patch for %d pages", len(allowedPageIndexes)), map[string]any{
+			cfg.RuntimeMeta.RecordEvent("ppt_spec_review_slice", "TaskPlanReviewer", "needs_revision", fmt.Sprintf("scoped advice for %d pages", len(allowedPageIndexes)), map[string]any{
 				"round":                round,
 				"allowed_page_indexes": allowedPageIndexes,
 				"allowed_count":        len(allowedPageIndexes),
@@ -494,7 +494,14 @@ func reviewAndCommitPPTSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Age
 			return nil, err
 		}
 		if err := runAgentWithCallback(ctx, reviewer, input, onEvent); err != nil {
-			return nil, fmt.Errorf("Task Reviewer 第 %d 轮修正失败: %w", round, err)
+			return nil, fmt.Errorf("Task Reviewer 第 %d 轮诊断失败: %w", round, err)
+		}
+		refiner, err := NewPlannerRefinerAgent(ctx, cfg, allowedPageIndexes)
+		if err != nil {
+			return nil, err
+		}
+		if err := runAgentWithCallback(ctx, refiner, input, onEvent); err != nil {
+			return nil, fmt.Errorf("PlannerRefiner 第 %d 轮修正失败: %w", round, err)
 		}
 	}
 	if latest == nil {

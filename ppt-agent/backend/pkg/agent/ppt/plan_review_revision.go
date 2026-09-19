@@ -14,13 +14,14 @@ type planReviewRevisionPayload struct {
 	Issues        []PlanReviewIssue `json:"issues"`
 	IncludedTasks []planReviewTask  `json:"included_tasks,omitempty"`
 	Instructions  []string          `json:"instructions"`
+	Advice        []ReviewAdvice    `json:"advice,omitempty"`
 }
 
 type planReviewScope struct {
 	PageIndexes        []int    `json:"page_indexes,omitempty"`
 	SectionIDs         []string `json:"section_ids,omitempty"`
 	AllowedPageIndexes []int    `json:"allowed_page_indexes,omitempty"`
-	IncludesPPTLevel  bool     `json:"includes_ppt_level,omitempty"`
+	IncludesPPTLevel   bool     `json:"includes_ppt_level,omitempty"`
 	Reason             string   `json:"reason"`
 }
 
@@ -49,9 +50,9 @@ func buildPlanReviewRevisionInput(workDir string, round int, report *PlanReviewR
 	if err != nil {
 		return "", nil, err
 	}
-	input := fmt.Sprintf(`这是第 %d 轮 Task Reviewer 修正输入。
+	input := fmt.Sprintf(`这是第 %d 轮 PlannerRefiner 修正输入。
 
-后端已经把完整 tasks.draft.json 按审查报告压缩为 item 切片。不要读取、复述或重写完整 tasks.draft.json；只基于 included_tasks 和 issues 修正 scope.allowed_page_indexes 中的页面。若 issues 只有 ppt 级字段问题，可以只 patch title，不要附带无关页面。
+后端已经把完整 tasks.draft.json 按审查报告压缩为 item 切片，并把 Reviewer 的结构化建议写入 advice。不要读取、复述或重写完整 tasks.draft.json；只基于 included_tasks、issues 和 advice 修正 scope.allowed_page_indexes 中的页面。若 issues 只有 ppt 级字段问题，可以只 patch title，不要附带无关页面。
 
 调用 patch_tasks_draft 时只提交这些 page_index 的 patch，并把同一轮必要修正合并为一次工具调用：
 %s`, round, string(data))
@@ -133,7 +134,7 @@ func buildPlanReviewRevisionPayload(manifest *TasksManifest, round int, report *
 			PageIndexes:        pageIndexes,
 			SectionIDs:         sectionIDs,
 			AllowedPageIndexes: pageIndexes,
-			IncludesPPTLevel:  pptLevel,
+			IncludesPPTLevel:   pptLevel,
 			Reason:             reason,
 		},
 		Issues:        filteredIssues,
@@ -143,7 +144,29 @@ func buildPlanReviewRevisionPayload(manifest *TasksManifest, round int, report *
 			"patch_tasks_draft 必须使用 page_index 定位；不要修改 output_file 或 status。",
 			"不要输出完整 JSON；完成一次 patch 后用 1-3 句中文说明修改了哪些页和问题类别。",
 		},
+		Advice: buildReviewAdvice(included, filteredIssues),
 	}
+}
+
+func buildReviewAdvice(tasks []*TaskItem, issues []PlanReviewIssue) []ReviewAdvice {
+	byPage := make(map[int]*TaskItem, len(tasks))
+	for _, task := range tasks {
+		if task != nil {
+			byPage[task.PageIndex] = task
+		}
+	}
+	out := make([]ReviewAdvice, 0, len(issues))
+	for _, issue := range issues {
+		if issue.PageIndex <= 0 {
+			continue
+		}
+		a := ReviewAdvice{PageIndex: issue.PageIndex, IssueCode: issue.Code, CurrentComponents: issue.ActualComponents, RecommendedMin: issue.RecommendedMin, RecommendedMax: issue.RecommendedMax, MaxComponents: issue.MaxComponents, OverflowComponents: issue.OverflowComponents, RecommendedChange: planReviewActionForCode(issue.Code), SourceMessage: issue.Message}
+		if task := byPage[issue.PageIndex]; task != nil {
+			a.ContentType = task.ContentType
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 func planReviewTasksFromItems(items []*TaskItem) []planReviewTask {

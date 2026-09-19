@@ -33,8 +33,8 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/prompts"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
+	"github.com/cloudwego/ppt-agent/pkg/templates"
 	"github.com/cloudwego/ppt-agent/pkg/tools"
-	"github.com/cloudwego/ppt-agent/pkg/utils/unsplash"
 )
 
 func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, error) {
@@ -45,8 +45,8 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 
 	readFileTool := tools.NewReadFileTool(cfg.Operator)
 	searchTool := tools.NewSearchTool(tools.WithSearchContentSummarizer(newPlanningSearchContentSummarizer(cfg)))
-	manifestTool := newPlannerManifestTool(cfg.WorkDir, cfg.Outline, cfg.Query)
-	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool, newPPTImageSearchTool()}
+	manifestTool := newPlannerManifestTool(cfg.WorkDir, cfg.Outline, cfg.Query, cfg.SkillsDir)
+	plannerTools := []tool.BaseTool{manifestTool, readFileTool, searchTool}
 
 	planner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "PPTPlanner",
@@ -69,14 +69,6 @@ func NewPPTPlannerAgent(ctx context.Context, cfg *PPTTaskConfig) (adk.Agent, err
 // the agent receives a clear, user-safe observation instead of silently losing
 // an advertised capability. The deterministic renderer remains responsible for
 // downloading task-local assets before it renders a slide.
-func newPPTImageSearchTool() tool.InvokableTool {
-	client, err := unsplash.NewClientFromEnv()
-	if err != nil {
-		return tools.NewImageSearchTool(nil)
-	}
-	return tools.NewImageSearchTool(client)
-}
-
 // newPlanningSearchContentSummarizer creates the inexpensive text model only
 // if Planner actually performs a web retrieval. This keeps raw search pages out
 // of the agent tool message while avoiding model setup for offline plans.
@@ -122,34 +114,41 @@ func newPlanningSearchContentSummarizer(cfg *PPTTaskConfig) func(context.Context
 	}
 }
 
-// NewTaskPlanReviewerAgent 创建独立的 PPTSpec 质量审查与修正 Agent。
-// 硬校验、轮次上限和最终提交由 Go workflow 负责。
+// NewTaskPlanReviewerAgent creates a read-only semantic Reviewer. Go owns the
+// deterministic checks; this agent only turns the scoped report into advice.
 func NewTaskPlanReviewerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedPageIndexes []int) (adk.Agent, error) {
-	chatModel, err := newPlanningChatModel(ctx, cfg, 32768)
+	chatModel, err := newPlanningChatModel(ctx, cfg, 16384)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Reviewer 模型失败: %w", err)
 	}
-
-	reviewerTools := []tool.BaseTool{
-		newScopedDraftTasksPatchTool(cfg.WorkDir, allowedPageIndexes),
-		tools.NewReadFileTool(cfg.Operator),
-		newPPTImageSearchTool(),
-	}
-
 	reviewer, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "TaskPlanReviewer",
-		Description: "PPTSpec 质量审查代理，只根据审查报告修正 tasks.draft.json，不负责渲染或生成后的定点修复。",
-		Model:       chatModel,
-		Instruction: buildReviewerInstruction(cfg),
-		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: reviewerTools},
-		},
-		MaxIterations: agentutils.EnvInt("PLAN_REVIEWER_MAX_ITERATIONS", 12),
+		Name: "TaskPlanReviewer", Description: "PPTSpec 质量诊断代理，只输出结构化修复建议，不修改草稿。", Model: chatModel,
+		Instruction:   buildReviewerInstruction(cfg),
+		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{tools.NewReadFileTool(cfg.Operator)}}},
+		MaxIterations: agentutils.EnvInt("PLAN_REVIEWER_MAX_ITERATIONS", 8),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("创建 TaskPlanReviewer Agent 失败: %w", err)
 	}
 	return reviewer, nil
+}
+
+// NewPlannerRefinerAgent creates the bounded patching agent used after review.
+func NewPlannerRefinerAgent(ctx context.Context, cfg *PPTTaskConfig, allowedPageIndexes []int) (adk.Agent, error) {
+	chatModel, err := newPlanningChatModel(ctx, cfg, 32768)
+	if err != nil {
+		return nil, fmt.Errorf("创建 PlannerRefiner 模型失败: %w", err)
+	}
+	refiner, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name: "PlannerRefiner", Description: "受限 PPTSpec 修订代理，只修改 Reviewer 授权页面。", Model: chatModel,
+		Instruction:   buildPlannerRefinerInstruction(cfg),
+		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{newScopedDraftTasksPatchTool(cfg.WorkDir, allowedPageIndexes, contractForSkills(cfg.SkillsDir)), tools.NewReadFileTool(cfg.Operator)}}},
+		MaxIterations: agentutils.EnvInt("PLANNER_REFINER_MAX_ITERATIONS", 12),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("创建 PlannerRefiner Agent 失败: %w", err)
+	}
+	return refiner, nil
 }
 
 // NewPPTFixerAgent 创建生成后定点修复 Agent。页码只用于旧调用方定位，
@@ -292,6 +291,7 @@ func newPlanningChatModel(ctx context.Context, cfg *PPTTaskConfig, maxTokens int
 		agentutils.WithCompressThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_MESSAGE_THRESHOLD", 80)),
 		agentutils.WithTokenThreshold(agentutils.EnvInt("PLANNER_COMPRESSOR_TOKEN_THRESHOLD", 80000)),
 		agentutils.WithPreserveCount(agentutils.EnvInt("PLANNER_COMPRESSOR_PRESERVE_COUNT", 12)),
+		agentutils.WithCapacityContractSummary(contractForSkills(cfg.SkillsDir).PromptText()),
 	)
 	if cfg.CompressorTracker != nil {
 		if compressor, ok := chatModel.(*agentutils.ChatModelCompressor); ok {
@@ -312,9 +312,10 @@ func buildPlannerInstruction(workDir string, skillsDir string, query string) str
 	tasksJSON := filepath.Join(workDir, tasksDraftFileName)
 
 	data := &prompts.TemplateData{
-		TasksJSON:    tasksJSON,
-		OutlineQuery: query,
-		SkillsDir:    skillsDir,
+		TasksJSON:        tasksJSON,
+		OutlineQuery:     query,
+		SkillsDir:        skillsDir,
+		CapacityContract: contractForSkills(skillsDir).PromptText(),
 	}
 
 	instruction, err := prompts.RenderPlanner("master_instruction", data)
@@ -326,13 +327,27 @@ func buildPlannerInstruction(workDir string, skillsDir string, query string) str
 
 func buildReviewerInstruction(cfg *PPTTaskConfig) string {
 	data := &prompts.TemplateData{
-		TasksJSON:    filepath.Join(cfg.WorkDir, tasksDraftFileName),
-		OutlineQuery: cfg.Query,
-		SkillsDir:    cfg.SkillsDir,
+		TasksJSON:        filepath.Join(cfg.WorkDir, tasksDraftFileName),
+		OutlineQuery:     cfg.Query,
+		SkillsDir:        cfg.SkillsDir,
+		CapacityContract: contractForSkills(cfg.SkillsDir).PromptText(),
 	}
 	instruction, err := prompts.RenderReviewer("master_instruction", data)
 	if err != nil {
 		panic("failed to render reviewer instruction template: " + err.Error())
+	}
+	return instruction
+}
+
+func contractForSkills(skillsDir string) *templates.ContractSummary {
+	return templates.LoadComponentContractOrFallback(filepath.Join(skillsDir, "ppt-planner"))
+}
+
+func buildPlannerRefinerInstruction(cfg *PPTTaskConfig) string {
+	data := &prompts.TemplateData{TasksJSON: filepath.Join(cfg.WorkDir, tasksDraftFileName), OutlineQuery: cfg.Query, SkillsDir: cfg.SkillsDir, CapacityContract: contractForSkills(cfg.SkillsDir).PromptText()}
+	instruction, err := prompts.RenderPlannerRefiner("refiner_instruction", data)
+	if err != nil {
+		panic("failed to render planner refiner instruction template: " + err.Error())
 	}
 	return instruction
 }

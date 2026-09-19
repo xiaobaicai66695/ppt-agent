@@ -60,6 +60,7 @@ type TemplateData struct {
 	TasksJSON         string
 	FixerTaskSnapshot string
 	OutlineQuery      string
+	CapacityContract  string
 }
 
 // Render 使用给定数据执行命名模板并返回渲染后的字符串。
@@ -85,6 +86,10 @@ func RenderPlanner(name string, data *TemplateData) (string, error) {
 // RenderReviewer 渲染 PPTSpec Reviewer 模板。
 func RenderReviewer(name string, data *TemplateData) (string, error) {
 	return Render("reviewer/"+name, data)
+}
+
+func RenderPlannerRefiner(name string, data *TemplateData) (string, error) {
+	return Render("planner/"+name, data)
 }
 
 // RenderFixer 渲染生成后定点修复模板。

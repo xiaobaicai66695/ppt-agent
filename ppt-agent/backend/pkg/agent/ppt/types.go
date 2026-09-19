@@ -556,14 +556,34 @@ func (c *PlanComponent) UnmarshalJSON(data []byte) error {
 }
 
 type PlanReviewIssue struct {
-	Code        string `json:"code"`
-	Severity    string `json:"severity,omitempty"`
-	Message     string `json:"message,omitempty"`
-	PageIndex   int    `json:"page_index,omitempty"`
-	ComponentID string `json:"component_id,omitempty"`
+	Code               string `json:"code"`
+	Severity           string `json:"severity,omitempty"`
+	Message            string `json:"message,omitempty"`
+	PageIndex          int    `json:"page_index,omitempty"`
+	ComponentID        string `json:"component_id,omitempty"`
+	ActualComponents   int    `json:"actual_components,omitempty"`
+	RecommendedMin     int    `json:"recommended_min,omitempty"`
+	RecommendedMax     int    `json:"recommended_max,omitempty"`
+	MaxComponents      int    `json:"max_components,omitempty"`
+	OverflowComponents int    `json:"overflow_components,omitempty"`
+	ContractVersion    string `json:"contract_version,omitempty"`
+	ContractSHA256     string `json:"contract_sha256,omitempty"`
 }
 
 // ContentPlan 描述单页幻灯片的组件级内容规划。
+type ReviewAdvice struct {
+	PageIndex          int      `json:"page_index,omitempty"`
+	IssueCode          string   `json:"issue_code"`
+	ContentType        string   `json:"content_type,omitempty"`
+	CurrentComponents  int      `json:"current_components,omitempty"`
+	RecommendedMin     int      `json:"recommended_min,omitempty"`
+	RecommendedMax     int      `json:"recommended_max,omitempty"`
+	MaxComponents      int      `json:"max_components,omitempty"`
+	OverflowComponents int      `json:"overflow_components,omitempty"`
+	MustPreserve       []string `json:"must_preserve,omitempty"`
+	RecommendedChange  string   `json:"recommended_change"`
+	SourceMessage      string   `json:"source_message,omitempty"`
+}
 type ContentPlan struct {
 	Summary       string          `json:"summary,omitempty"`        // one-sentence core summary
 	SlideIntent   string          `json:"slide_intent,omitempty"`   // semantic goal of this page in the ppt

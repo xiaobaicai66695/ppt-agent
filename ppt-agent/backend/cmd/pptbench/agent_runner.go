@@ -63,7 +63,8 @@ func runPlannerCase(ctx context.Context, out *agentOutput, c benchCase, input ca
 	out.Error = firstEventError(events)
 	out.Output = manifest
 	if manifest != nil {
-		out.DeterministicReview = ppt.ReviewTasksManifest(manifest, "planner_draft", 1)
+		out.DeterministicReview = ppt.ReviewTasksManifestFromSkills(manifest, "planner_draft", 1, filepath.Join(projectRoot(), "skills"))
+		out.Capacity = ppt.InspectManifestCapacity(manifest, filepath.Join(projectRoot(), "skills"))
 		out.ContentQuality = assessContentQuality(manifest)
 	}
 	if result != nil && out.DurationMS == 0 {
@@ -84,7 +85,8 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 		return
 	}
 	before := cloneManifest(input.DraftTasks)
-	report := ppt.ReviewTasksManifest(input.DraftTasks, "case_draft", 1)
+	out.CapacityBefore = ppt.InspectManifestCapacity(before, filepath.Join(projectRoot(), "skills"))
+	report := ppt.ReviewTasksManifestFromSkills(input.DraftTasks, "case_draft", 1, filepath.Join(projectRoot(), "skills"))
 	if len(input.ReviewIssues) > 0 {
 		report.Issues = mergeReviewerIssues(input.ReviewIssues, report.Issues)
 		report.IssueCount = len(report.Issues)
@@ -107,6 +109,14 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 		out.Error = err.Error()
 	}
 	if out.Error == "" {
+		refiner, refinerErr := ppt.NewPlannerRefinerAgent(ctx, cfg, allowed)
+		if refinerErr != nil {
+			out.Error = refinerErr.Error()
+		} else if refinerErr = ppt.RunTaskPlanReviewerWithCallback(ctx, refiner, inputText, func(e ppt.AgentEvent) { events = append(events, e) }); refinerErr != nil {
+			out.Error = refinerErr.Error()
+		}
+	}
+	if out.Error == "" {
 		out.Error = firstEventError(events)
 	}
 	after, err := ppt.ReadTasksDraftManifest(caseDir)
@@ -117,7 +127,8 @@ func runReviewerCase(ctx context.Context, out *agentOutput, c benchCase, input c
 	out.After = after
 	out.Events = events
 	if after != nil {
-		out.DeterministicReview = ppt.ReviewTasksManifest(after, "reviewer_after", 2)
+		out.DeterministicReview = ppt.ReviewTasksManifestFromSkills(after, "reviewer_after", 2, filepath.Join(projectRoot(), "skills"))
+		out.CapacityAfter = ppt.InspectManifestCapacity(after, filepath.Join(projectRoot(), "skills"))
 		out.ContentQuality = assessContentQuality(after)
 	}
 }

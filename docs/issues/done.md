@@ -11,6 +11,7 @@
 | 全项目 PPT 命名统一重构 | `PPT-NAMING-001` | 2026-09-04 | Go 包、函数、类型/字段、前端组件、Python skill、测试样例、文档及路径统一使用 `ppt` 命名；旧术语标识已清理，验证命令见本次提交。 |
 | Runtime harness、可回放执行轨迹与质量评估基线 | `PPT-HARNESS-001`、`PPT-EVAL-001`、`PPT-OBS-001`、`PPT-EVAL-002` | 2026-07-31 至 2026-09-02 | `RuntimeMeta`、持久化运行事件、Timeline、质量评估集与 test/validation 隔离；决策见 `001-agent-harness-observability.md`。 |
 | Planner → Reviewer → Commit → 并发渲染主流程 | `PPT-FLOW-001/002`、`PPT-PLAN-001/002/006`、`PPT-COMPONENT-001` | 2026-08-04 至 2026-08-27 | `tasks.draft.json` 与正式 `tasks.json` 分离，确定性审查后原子提交，组件级 PPTSpec 驱动确定性生成器；架构入口见 `docs/architecture/ppt-agent-current-architecture-summary.md`。 |
+| Reviewer 诊断 + PlannerRefiner 受限修复链路 | `PPT-PLAN-REFACTOR-20260919` | 2026-09-19 | Reviewer 只输出结构化 advice，PlannerRefiner 仅按授权页 patch，Go 继续执行容量/结构校验；benchmark reviewer runner 同步适配。验证：`go test ./...`。|
 | 任务交付与恢复闭环 | `PPT-DELIVERY-001`、`PPT-TRACE-002`、`PPT-DEPLOY-002` | 2026-08-03 至 2026-08-29 | 任务权限、SSE、渐进预览、文件对账、下载与会话恢复构成同一交付闭环；决策见 `003-generation-delivery-flow.md`。 |
 | 服务运行与部署基线 | `PPT-OPS-001`、`PPT-RELEASE-001` | 2026-08-04、2026-08-29 | MySQL 与应用同机运行；运行变更完成本地验证、Linux 构建、部署、最小冒烟与证据回填；决策见 `005-ops-governance-reliability.md`。 |
 | Web / Task / Model 运行时边界重构 | `PPT-RESILIENCE-001` | 2026-09-04 | 运行时代码归入 `pkg/runtime/{web,task,model}`，并按职责增加二级导航目录；HTTP、SSE、任务和模型契约保持不变。部署与验证证据见 [`2026-09-04-runtime-module-boundaries.md`](../迭代记录/2026-09-04-runtime-module-boundaries.md)。 |
@@ -22,6 +23,7 @@
 | 合并事项 | 覆盖历史 ID | 完成时间 | 沉淀 |
 | --- | --- | --- | --- |
 | 组件优先的 PPT Planner 与视觉质量路线 | `PPT-QUALITY-001`、`PPT-QUALITY-011/012`、`PPT-COMPONENT-001`、`PPT-SKILL-001` | 2026-08-04 至 2026-09-02 | LLM 规划语义组件与容量，Python 生成器控制排版、对比度与溢出；组件契约是 Planner、后端和生成器的共同边界。 |
+| 统一组件容量契约与 Planner/Reviewer benchmark 适配 | `PPT-QUALITY-CAPACITY-20260919` | 2026-09-19 | Go 运行时从 `skills/ppt-planner/templates/component_contracts.json` 注入版本化容量摘要，manifest 与 Reviewer 使用同一契约做推荐范围/硬上限诊断；上下文压缩保留契约摘要，Planner benchmark 输出首稿与修复后的容量证据，黄金 PPT 与评测路径同步适配。 |
 | 可追溯的图片搜索、物化与页面背景策略 | `PPT-ASSET-002`、`PPT-BG-001/002/004`、`PPT-SKILL-002/003/004/005/006/007` | 2026-08-21 至 2026-09-05 | 图片检索词在规划期确定，素材落盘至任务工作区，背景按页面类型复用并在渲染前校验；`search_images` 候选字段与独立 Unsplash CLI 对齐，CLI 会物化前景 image 组件和已选候选；不再依赖旧 Visual Designer 本地背景主题。2026-09-05 已部署至 `remote-dev:/ppt/ppt-agent`，进程 PID `2962132`，公网 `/api/health` 与首页 200；线上临时 `image_text` 冒烟物化 1 张背景和 1 张前景图，`validate_ppt.py` 0 errors，临时目录已清理。 |
 | 独立 PPT Planner skill 的运行边界 | `PPT-SKILL-001/002/003` | 2026-08-28 至 2026-08-31 | Skill 负责平台无关的视觉契约、素材物化和生成器验收；后端 Planner 只写视觉意图，避免模型、下载器和生成器职责重叠。 |
 

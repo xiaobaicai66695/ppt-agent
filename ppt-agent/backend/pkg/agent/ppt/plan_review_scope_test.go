@@ -27,16 +27,16 @@ func TestPlanReviewScopesManifestValidationErrorToItsTaskPage(t *testing.T) {
 	if report.Passed {
 		t.Fatal("over-capacity KPI page should not pass review")
 	}
-	var schemaIssue *PlanReviewIssue
+	var capacityIssue *PlanReviewIssue
 	for index := range report.Issues {
 		issue := &report.Issues[index]
-		if issue.Code == "invalid_component_schema" {
-			schemaIssue = issue
+		if issue.Code == "overload_capacity" {
+			capacityIssue = issue
 			break
 		}
 	}
-	if schemaIssue == nil || schemaIssue.PageIndex != 10 {
-		t.Fatalf("schema issue = %#v, want page_index 10", schemaIssue)
+	if capacityIssue == nil || capacityIssue.PageIndex != 10 {
+		t.Fatalf("capacity issue = %#v, want page_index 10", capacityIssue)
 	}
 
 	payload := buildPlanReviewRevisionPayload(manifest, 1, report)
@@ -45,5 +45,24 @@ func TestPlanReviewScopesManifestValidationErrorToItsTaskPage(t *testing.T) {
 	}
 	if len(payload.IncludedTasks) != 1 || payload.IncludedTasks[0].PageIndex != 10 {
 		t.Fatalf("included tasks = %#v, want slide 10", payload.IncludedTasks)
+	}
+}
+
+func TestBuildReviewAdviceCarriesCapacityFacts(t *testing.T) {
+	manifest := &TasksManifest{Tasks: []*TaskItem{{
+		PageIndex: 4, ContentType: "card_grid",
+		ContentPlan: &ContentPlan{Components: []PlanComponent{{ID: "headline", Type: "headline"}}},
+	}}}
+	issues := []PlanReviewIssue{{Code: "overload_capacity", PageIndex: 4, ActualComponents: 7, RecommendedMin: 3, RecommendedMax: 5, MaxComponents: 6, OverflowComponents: 1, Message: "too many"}}
+	advice := buildReviewAdvice(manifest.Tasks, issues)
+	if len(advice) != 1 {
+		t.Fatalf("advice length = %d", len(advice))
+	}
+	got := advice[0]
+	if got.PageIndex != 4 || got.ContentType != "card_grid" || got.CurrentComponents != 7 || got.RecommendedMax != 5 || got.MaxComponents != 6 {
+		t.Fatalf("advice = %#v", got)
+	}
+	if got.RecommendedChange == "" {
+		t.Fatal("advice should include recommended change")
 	}
 }
