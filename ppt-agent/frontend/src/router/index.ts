@@ -12,6 +12,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
   { path: '/dashboard', component: DashboardPage, meta: { auth: true } },
   { path: '/compose', component: ComposePage, meta: { auth: true } },
   { path: '/admin', component: () => import('../pages/AdminPage.vue'), meta: { auth: true } },
+  { path: '/admin/execution-records', component: () => import('../pages/ExecutionRecordsPage.vue'), meta: { auth: true } },
 ] })
 router.beforeEach(to => to.meta.auth && !isLoggedIn() ? { path: '/auth', query: { next: to.fullPath } } : true)
 export default router

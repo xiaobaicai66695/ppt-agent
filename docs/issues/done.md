@@ -39,6 +39,7 @@
 | 已完成 PPT 的反馈与运营可见性 | `PPT-DELIVERY-002`、`PPT-OPS-002` | 2026-09-02 至 2026-09-03 | owner-only 交付反馈、管理聚合指标和受保护管理 API；不输出 Key 原文或推断后端未提供的指标。 |
 | 缩略图预览与可修复任务交付恢复 | `PPT-DELIVERY-THUMBNAIL-20260914` | 2026-09-14 | 临时转换或网络失败不再永久隐藏缩略图；已有 PPT 文件的可修复任务仍展示交付栏和每页下载，评分继续受完整交付状态保护。发布与验证见 [`2026-09-14-thumbnail-preview-recovery-release.md`](../迭代记录/2026-09-14-thumbnail-preview-recovery-release.md)。 |
 | 管理员全量执行记录查询 | `PPT-OPS-EXECUTION-20260920` | 2026-09-20 | 新增管理员专用的分页执行记录 API，支持按用户过滤并返回任务状态、耗时、Token 与执行链路元数据；不返回服务端路径、交付文件名或模型 Key。验证：`go test ./pkg/db ./pkg/runtime/web ./pkg/runtime/web/router`、`go build ./...`。 |
+| 管理员执行记录页面 | `PPT-OPS-EXECUTION-UI-20260920` | 2026-09-20 | 运营后台新增执行记录入口与独立页面；支持 URL 可恢复的用户 ID 筛选、服务端分页、链路详情、加载/空态/失败恢复及深浅色窄屏适配。验证：`npm test -- --run`、`npm run build`、Premium strict audit。未部署，因本次未要求发布当前服务器。 |
 
 ## 模型、账号与安全边界
 

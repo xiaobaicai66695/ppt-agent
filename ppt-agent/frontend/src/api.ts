@@ -82,8 +82,20 @@ export interface AdminTask {
   error?: string; created_at: string; updated_at?: string
 }
 export interface AdminFeedback { task_id: string; user_id: number; user_email?: string; task_query?: string; rating: number; suggestion?: string; created_at?: string; updated_at?: string }
+export interface AdminExecutionRecord {
+  id: string; user_id: number; user_email?: string; query: string; status: string; done_count: number; total_count: number
+  duration?: string; error?: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; intent?: string
+  conversation_id?: string; source_message_id?: string; parent_task_id?: string; generation_started_at?: string; generation_finished_at?: string
+  generation_duration_ms: number; fixer_run_count: number; created_at: string; updated_at?: string
+}
+export interface AdminExecutionRecordPage { records?: AdminExecutionRecord[]; pagination?: { page: number; page_size: number; total: number } }
 
 export const fetchAdminStats = () => request<AdminStats>('/api/admin/stats')
 export const fetchAdminUsers = () => request<{ users?: AdminUser[] }>('/api/admin/users').then(data => data.users || [])
 export const fetchAdminTasks = () => request<{ tasks?: AdminTask[] }>('/api/admin/tasks').then(data => data.tasks || [])
 export const fetchAdminFeedback = () => request<{ feedback?: AdminFeedback[] }>('/api/admin/feedback?limit=100').then(data => data.feedback || [])
+export function fetchAdminExecutionRecords({ page = 1, pageSize = 50, userId }: { page?: number; pageSize?: number; userId?: number } = {}) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (userId) params.set('user_id', String(userId))
+  return request<AdminExecutionRecordPage>(`/api/admin/execution-records?${params}`)
+}
