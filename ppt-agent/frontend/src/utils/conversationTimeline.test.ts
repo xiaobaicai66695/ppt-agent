@@ -101,6 +101,15 @@ describe('conversation timeline', () => {
     expect(items[2]).toMatchObject({ type: 'final_answer', streaming: false })
   })
 
+  it('marks a call without a terminal result as unverified instead of successful', () => {
+    const items = resetConversationTimeline([])
+    appendToolCall(items, { eventID: 57, callID: 'call-missing', name: 'read_file', label: '读取文件' })
+
+    finishStreamingEntries(items)
+
+    expect(items[0]).toMatchObject({ type: 'tool_call', state: 'unverified', result: '未收到工具执行结果' })
+  })
+
   it('keeps a tool call collapsible between llm_end and the next llm_start', () => {
     const items = resetConversationTimeline([])
 

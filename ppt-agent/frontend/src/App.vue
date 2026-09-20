@@ -14,7 +14,7 @@ useTheme()
   --border-subtle:rgba(213,235,245,.1); --border-strong:#466473;
   --text-strong:#e9f1f8; --text-muted:#b5cbd0; --text-subtle:#7898a1; --text-on-accent:#d9edf0;
   --accent:#6ce5ca; --accent-strong:#9af1dc; --accent-soft:rgba(102,225,202,.1); --accent-on:#03201f;
-  --info:#79c6e5; --danger:#ef9892; --message-user:#173846; --message-user-label:#94d7ce; --message-assistant:#f0f1e9;
+  --info:#79c6e5; --warning:#f0c779; --danger:#ef9892; --message-user:#173846; --message-user-label:#94d7ce; --message-assistant:#f0f1e9;
   --scrollbar-track:var(--surface-raised); --scrollbar-thumb:var(--border-strong); --scrollbar-thumb-hover:var(--text-subtle); --scrollbar-thumb-active:var(--text-muted);
   --z-dialog:600; --z-toast:900;
 }
@@ -31,7 +31,7 @@ html[data-theme='light'] { color:#163841; background:#edf2f0;
   --border-subtle:#cfddd8; --border-strong:#9ebbb5;
   --text-strong:#183943; --text-muted:#43636a; --text-subtle:#52737a; --text-on-accent:#123b45;
   --accent:#176f72; --accent-strong:#13535a; --accent-soft:rgba(23,111,114,.14); --accent-on:#f7fffc;
-  --info:#2f7da0; --danger:#b64e4b; --message-user:#cce5e2; --message-user-label:#2a7372; --message-assistant:#ffffff;
+  --info:#2f7da0; --warning:#9a6800; --danger:#b64e4b; --message-user:#cce5e2; --message-user-label:#2a7372; --message-assistant:#ffffff;
 }
 /* Scoped screen styles predate semantic theme tokens; these controlled
    overrides keep the light-theme adapter authoritative until each screen is migrated. */

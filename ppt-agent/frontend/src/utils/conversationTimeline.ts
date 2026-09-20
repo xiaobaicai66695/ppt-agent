@@ -1,6 +1,6 @@
 import type { ConversationMessage, ConversationTimelineEvent, TaskStreamEvent } from '../types'
 
-export type ExecutionState = 'running' | 'success' | 'error'
+export type ExecutionState = 'running' | 'success' | 'error' | 'unverified'
 export type TimelineEventID = string | number
 
 export type ToolPreview = {
@@ -62,7 +62,7 @@ function appendDelta(current: string, incoming: string) {
 
 function isPlaceholderToolResult(result?: string) {
   const normalized = result?.trim()
-  return !normalized || normalized === '工具调用已完成' || normalized === '工具调用失败' || normalized === '工具调用未返回结果' || normalized === '工具调用未完成' || normalized === '工具结果尚未返回'
+  return !normalized || normalized === '工具调用已完成' || normalized === '工具调用失败' || normalized === '工具调用未返回结果' || normalized === '工具调用未完成' || normalized === '工具结果尚未返回' || normalized === '未收到工具执行结果'
 }
 
 function findToolCallForResult(
@@ -133,7 +133,7 @@ function appendHistoricalEvent(items: ConversationTimelineItem[], event: TaskStr
   } else if (event.type === 'tool_call') {
     appendToolCall(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, detail: event.phase_detail || event.message, batchID })
   } else if (event.type === 'tool_result') {
-    appendToolResult(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, result: event.tool_result || event.error || event.phase_detail, state: event.tool_status === 'error' ? 'error' : 'success', preview: event.tool_preview, batchID })
+    appendToolResult(items, { eventID, callID: event.tool_call_id, name: event.tool_name || 'unknown', label: event.tool_name || '调用工具', args: event.tool_args, result: event.tool_result || event.error || event.phase_detail, state: event.tool_status === 'error' ? 'error' : event.tool_status === 'unverified' ? 'unverified' : 'success', preview: event.tool_preview, batchID })
   } else if (event.type === 'final_answer' || event.type === 'answer' || event.type === 'llm_delta') {
     appendFinalAnswer(items, event.content || '', { eventID, segmentID: event.segment_id, delta: event.delta ?? false })
   } else if (event.type === 'system_step') {
@@ -208,7 +208,7 @@ export function appendToolResult(
   if (eventAlreadyRendered(items, 'tool_call', payload.eventID)) return undefined
   const callID = payload.callID || `call-${payload.eventID || nextID('call')}`
   const call = findToolCallForResult(items, { callID: payload.callID, name: payload.name, args: payload.args })
-  const result = payload.result || (payload.state === 'error' ? '工具调用失败' : '工具调用已完成')
+  const result = payload.result || (payload.state === 'error' ? '工具调用失败' : payload.state === 'unverified' ? '未收到工具执行结果' : '工具调用已完成')
   if (call) {
     if (payload.state) call.state = payload.state
     else if (result) call.state = 'success'
@@ -277,8 +277,8 @@ export function finishTimelineEntries(items: ConversationTimelineItem[], options
       if (item.state === 'running') item.state = 'success'
     }
     if (includeTools && item.type === 'tool_call' && item.state === 'running') {
-      item.state = item.result ? 'success' : 'error'
-      if (!item.result) item.result = '工具调用未返回结果'
+      item.state = item.result ? 'success' : 'unverified'
+      if (!item.result) item.result = '未收到工具执行结果'
     }
     if (item.type === 'final_answer') item.streaming = false
   }
@@ -331,7 +331,7 @@ export function groupToolCalls(items: ConversationTimelineItem[], expandedBatche
     if (emittedBatches.has(batchID)) continue
     emittedBatches.add(batchID)
     const tools = toolsByBatch.get(batchID) || [item]
-    const state: ExecutionState = tools.some(tool => tool.state === 'running') ? 'running' : tools.some(tool => tool.state === 'error') ? 'error' : 'success'
+    const state: ExecutionState = tools.some(tool => tool.state === 'running') ? 'running' : tools.some(tool => tool.state === 'error') ? 'error' : tools.some(tool => tool.state === 'unverified') ? 'unverified' : 'success'
     const id = `tool-batch-${batchID}`
     rendered.push({ id, type: 'tool_batch', batchID, tools, state, expanded: expandedBatches[id] ?? false })
   }

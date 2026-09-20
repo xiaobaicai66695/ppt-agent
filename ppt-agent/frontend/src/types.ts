@@ -93,7 +93,7 @@ export interface TaskStreamEvent {
   tool_name?: string
   tool_args?: string
   tool_result?: string
-  tool_status?: 'success' | 'error'
+  tool_status?: 'success' | 'error' | 'unverified'
   files?: string[]
   status?: TaskStatus
   runtime_event?: RuntimeEvent

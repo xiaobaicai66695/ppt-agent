@@ -58,7 +58,7 @@ export const startTask = (id: string) => request<TaskInfo>(`/api/tasks/${id}/sta
 export const fetchConversation = (id: string) => request<ConversationSession>(`/api/tasks/${id}/conversation`)
 export const fetchRuntimeEvent = (id: string, eventId: number) => request<RuntimeEvent>(`/api/tasks/${id}/runtime-events/${eventId}`)
 export const routeMessage = (message: string, selectedTaskId = '') => request<MessageRoute>('/api/messages', { method: 'POST', body: JSON.stringify({ message, selected_task_id: selectedTaskId }) })
-export const continueTask = (id: string, message: string) => request<{ task_id: string; after_event_id?: number }>(`/api/tasks/${id}/continue`, { method: 'POST', body: JSON.stringify({ message }) })
+export const continueTask = (id: string, message: string) => request<{ task_id: string; after_event_id?: number; status?: 'accepted' | 'queued'; message?: string }>(`/api/tasks/${id}/continue`, { method: 'POST', body: JSON.stringify({ message }) })
 export const fetchLayouts = async () => (await request<{ layouts?: AtomicLayout[] }>('/api/templates/layouts')).layouts || []
 export const createTaskWithOutline = (query: string, outline: TaskOutline) => request<TaskInfo>('/api/tasks', { method: 'POST', body: JSON.stringify({ query, outline }) })
 export const taskDownloadUrl = (id: string, name: string) => `/api/tasks/${id}/files/${encodeURIComponent(name)}`

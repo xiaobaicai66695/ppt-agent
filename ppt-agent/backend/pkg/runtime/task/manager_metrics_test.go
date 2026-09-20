@@ -161,7 +161,27 @@ func TestBroadcastRuntimeSummaryForwardsLLMBoundariesAndKeepsSlideRenderTools(t 
 	}
 }
 
-func TestCompletePendingToolsEmitsSuccessfulResultForEachOpenCall(t *testing.T) {
+func TestBroadcastRuntimeSummarySeparatesExecutedWithoutDisplayableOutput(t *testing.T) {
+	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
+	args := `{"path":"component_contracts.json"}`
+
+	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
+		Kind: "tool_start", Name: "read_file", Phase: "planning", Metadata: map[string]any{"args": args},
+	}))
+	broadcastRuntimeSummary(ts, agentutils.RuntimeEventSummary(agentutils.RuntimeEvent{
+		Kind: "tool_end", Name: "read_file", Phase: "planning", Status: "ok", Metadata: map[string]any{"args": args},
+	}))
+
+	if len(ts.Events) != 2 {
+		t.Fatalf("timeline events = %#v", ts.Events)
+	}
+	result := ts.Events[1]
+	if result.Type != SSEEventToolResult || result.ToolStatus != "success" || result.ToolResult != "工具已执行，未返回可展示内容" {
+		t.Fatalf("terminal result = %#v", result)
+	}
+}
+
+func TestCompletePendingToolsMarksUnverifiedCallsWhenNoResultCallbackArrives(t *testing.T) {
 	ts := &TaskState{listeners: make(map[string]chan SSERichEvent)}
 	firstCall := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-read", ToolName: "read_file"})
 	secondCall := ts.Broadcast(SSERichEvent{Type: SSEEventToolCall, ToolCallID: "call-search", ToolName: "search"})
@@ -176,7 +196,7 @@ func TestCompletePendingToolsEmitsSuccessfulResultForEachOpenCall(t *testing.T) 
 	}
 	for index, wantID := range []string{"call-read", "call-search"} {
 		result := ts.Events[index+2]
-		if result.Type != SSEEventToolResult || result.ToolCallID != wantID || result.ToolStatus != "success" || result.ToolResult != "工具调用已完成" || result.Error != "" {
+		if result.Type != SSEEventToolResult || result.ToolCallID != wantID || result.ToolStatus != "unverified" || result.ToolResult != "未收到工具执行结果" || result.Error != "" {
 			t.Fatalf("terminal result[%d] = %#v", index, result)
 		}
 	}

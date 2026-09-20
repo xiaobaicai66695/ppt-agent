@@ -49,6 +49,7 @@ const renderedTimeline = computed(() => groupToolCalls(timeline.value, expandedT
 // The delivery rail remains the canonical place to inspect and download those
 // artifacts; only scoring remains limited to fully completed tasks.
 const hasDeliveryPreview = computed(() => Boolean(selected.value?.files?.some(file => /\.pptx$/i.test(file))))
+const runningTaskSelected = computed(() => selected.value?.status === 'running')
 const taskLabel = (status: string) => ({ running: '生成中', completed: '已交付', paused_retryable: '可继续恢复', failed: '需要处理', conversation: '对话中', cancelled: '已取消' } as Record<string, string>)[status] || status
 const toolLabel = (name = '') => ({ search: '联网检索', search_images: '图片搜索', generate_slide: '幻灯片渲染', slide_render: '幻灯片渲染', update_tasks_manifest: '写入任务清单', patch_tasks_draft: '修正规划草稿', read_file: '读取文件', shell: 'Shell', bash: 'Shell', command: '命令行', terminal: '终端' } as Record<string, string>)[name] || name || '调用工具'
 
@@ -221,7 +222,7 @@ function consume(raw: string, eventID?: number) {
         delta: false,
       })
     } else if (data.type === 'tool_call') {
-      const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : data.tool_status === 'success' ? 'success' : 'running'
+      const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : data.tool_status === 'unverified' ? 'unverified' : data.tool_status === 'success' ? 'success' : 'running'
       appendToolCall(timeline.value, {
         eventID: sourceID,
         callID: data.tool_call_id,
@@ -240,21 +241,21 @@ function consume(raw: string, eventID?: number) {
           name: data.tool_name || 'unknown',
           label: toolLabel(data.tool_name),
           args: data.tool_args,
-          result: data.tool_result || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
+          result: data.tool_result || (toolState === 'error' ? '工具调用失败' : toolState === 'unverified' ? '未收到工具执行结果' : '工具调用已完成'),
           state: toolState,
           preview: data.tool_preview,
           batchID: activeToolBatchID,
         })
       }
     } else if (data.type === 'tool_result') {
-      const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : 'success'
+      const toolState: ExecutionState = data.tool_status === 'error' ? 'error' : data.tool_status === 'unverified' ? 'unverified' : 'success'
       appendToolResult(timeline.value, {
         eventID: sourceID,
         callID: data.tool_call_id,
         name: data.tool_name || 'unknown',
         label: toolLabel(data.tool_name),
         args: data.tool_args,
-        result: data.tool_result || data.error || data.phase_detail || (toolState === 'error' ? '工具调用失败' : '工具调用已完成'),
+        result: data.tool_result || data.error || data.phase_detail || (toolState === 'error' ? '工具调用失败' : toolState === 'unverified' ? '未收到工具执行结果' : '工具调用已完成'),
         state: toolState,
         preview: data.tool_preview,
         batchID: activeToolBatchID,
@@ -270,6 +271,8 @@ function consume(raw: string, eventID?: number) {
     } else if (data.type === 'answer_end') {
       finishTimelineEntries(timeline.value, { includeTools: false })
       addExecution('规划审核已完成', '正在准备图片素材和演示页面', 'success', sourceID)
+    } else if (data.type === 'continue_queued') {
+      addExecution('开始处理已排队反馈', '将按最新反馈继续调整当前演示', 'success', sourceID)
     } else if (isTerminalTaskStreamEvent(data.type)) {
       busy.value = false
       closeStream()
@@ -295,16 +298,22 @@ async function refreshSelected(promptForFeedback = false) {
 
 async function submit() {
   const text = prompt.value.trim()
-  if (!text || busy.value) return
+  const queueFeedback = runningTaskSelected.value
+  if (!text || (busy.value && !queueFeedback)) return
   error.value = ''
   shouldFollowStream.value = true
   appendTimelineMessage(timeline.value, { role: 'user', content: text, timestamp: new Date().toISOString() })
   prompt.value = ''
-  busy.value = true
   await nextTick()
   requestStickToLatestMessage()
 
   try {
+    if (queueFeedback && selected.value) {
+      const result = await continueTask(selected.value.id, text)
+      addExecution(result.status === 'queued' ? '反馈已排队' : '反馈已提交', result.message || '当前任务完成后会自动处理最新反馈', 'success')
+      return
+    }
+    busy.value = true
     if (selected.value?.status === 'completed' || selected.value?.status === 'failed' || selected.value?.status === 'cancelled' || selected.value?.status === 'paused_retryable') {
       addExecution('继续处理任务')
       const result = await continueTask(selected.value.id, text)
@@ -327,7 +336,7 @@ async function submit() {
     openStream(result.task_id, result.after_event_id || 0)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '无法提交这条消息'
-    busy.value = false
+    if (!queueFeedback) busy.value = false
     addExecution('提交失败', error.value, 'error')
   }
 }
@@ -454,7 +463,7 @@ watch(() => route.query.brief, value => { if (value) newConversation() })
         </div>
         <form class="composer" novalidate @submit.prevent="submit">
           <div class="modebar"><button type="button" :class="{ on: mode === 'chat' }" @click="mode = 'chat'"><MessageSquareText :size="14" />对话</button><button type="button" :class="{ on: mode === 'pptagent' }" @click="mode = 'pptagent'"><WandSparkles :size="14" />PPT 生成</button><label><input v-model="web" type="checkbox">联网资料</label><label><input v-model="images" type="checkbox"><Image :size="13" />图片参考</label></div>
-          <div class="composer-input"><textarea class="resize-none" v-model="prompt" rows="2" :disabled="busy" placeholder="写下你想完成的事… Enter 发送，Shift+Enter 换行" @keydown.enter="handleComposerEnter" /><button type="submit" :disabled="busy || !prompt.trim()" aria-label="发送消息"><Send :size="18" aria-hidden="true" /></button></div>
+          <div class="composer-input"><textarea class="resize-none" v-model="prompt" rows="2" :disabled="busy && !runningTaskSelected" :placeholder="runningTaskSelected ? '任务生成中：可提交一条反馈，完成后自动处理。Enter 排队，Shift+Enter 换行' : '写下你想完成的事… Enter 发送，Shift+Enter 换行'" @keydown.enter="handleComposerEnter" /><button type="submit" :disabled="!prompt.trim() || (busy && !runningTaskSelected)" :aria-label="runningTaskSelected ? '排队反馈' : '发送消息'" :title="runningTaskSelected ? '排队反馈' : '发送消息'"><Send :size="18" aria-hidden="true" /></button></div>
           <p v-if="error" class="inline-error">{{ error }}</p>
         </form>
       </section>
