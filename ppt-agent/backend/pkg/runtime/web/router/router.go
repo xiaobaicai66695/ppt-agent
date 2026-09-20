@@ -51,6 +51,7 @@ type Handlers struct {
 	AdminStats                       gin.HandlerFunc
 	AdminUsers                       gin.HandlerFunc
 	AdminTasks                       gin.HandlerFunc
+	AdminExecutionRecords            gin.HandlerFunc
 	AdminFeedback                    gin.HandlerFunc
 	AdminEvaluationCandidates        gin.HandlerFunc
 	AdminEvaluationCandidateEvidence gin.HandlerFunc
@@ -131,6 +132,7 @@ func Register(engine *gin.Engine, h Handlers) {
 		admin.GET("/stats", handler(h.AdminStats))
 		admin.GET("/users", handler(h.AdminUsers))
 		admin.GET("/tasks", handler(h.AdminTasks))
+		admin.GET("/execution-records", handler(h.AdminExecutionRecords))
 		admin.GET("/feedback", handler(h.AdminFeedback))
 		admin.GET("/evaluations/candidates", handler(h.AdminEvaluationCandidates))
 		admin.GET("/evaluations/candidates/:id", handler(h.AdminEvaluationCandidateEvidence))

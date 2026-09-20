@@ -29,6 +29,7 @@ func TestRegisterKeepsPublicRouteContract(t *testing.T) {
 		"GET /api/users/me/api-key",
 		"GET /api/templates/layouts",
 		"GET /api/admin/stats",
+		"GET /api/admin/execution-records",
 		"GET /api/health",
 		"GET /health/ready",
 		"GET /metrics",

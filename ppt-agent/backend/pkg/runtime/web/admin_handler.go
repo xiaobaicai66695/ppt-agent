@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,6 +26,7 @@ func (s *Server) handleAdminUsers(c *gin.Context) {
 }
 
 type adminTaskResponse = webmodel.AdminTaskResponse
+type adminExecutionRecordResponse = webmodel.AdminExecutionRecordResponse
 
 func (s *Server) handleAdminTasks(c *gin.Context) {
 	tasks, err := db.ListAllTaskRecords(100)
@@ -64,6 +66,85 @@ func (s *Server) handleAdminTasks(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"tasks": result})
+}
+
+func (s *Server) handleAdminExecutionRecords(c *gin.Context) {
+	page, pageSize, userID, err := parseAdminExecutionRecordQuery(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	records, total, err := db.ListAdminTaskRecords(page, pageSize, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询执行记录失败: " + err.Error()})
+		return
+	}
+
+	result := make([]adminExecutionRecordResponse, 0, len(records))
+	for _, record := range records {
+		result = append(result, adminExecutionRecordFromDB(record))
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"records": result,
+		"pagination": gin.H{
+			"page":      page,
+			"page_size": pageSize,
+			"total":     total,
+		},
+	})
+}
+
+func parseAdminExecutionRecordQuery(c *gin.Context) (page, pageSize int, userID uint, err error) {
+	page = 1
+	pageSize = 50
+	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
+		page, err = strconv.Atoi(raw)
+		if err != nil || page < 1 {
+			return 0, 0, 0, fmt.Errorf("page 必须是大于 0 的整数")
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("page_size")); raw != "" {
+		pageSize, err = strconv.Atoi(raw)
+		if err != nil || pageSize < 1 || pageSize > 200 {
+			return 0, 0, 0, fmt.Errorf("page_size 必须是 1 到 200 的整数")
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("user_id")); raw != "" {
+		parsed, parseErr := strconv.ParseUint(raw, 10, 64)
+		if parseErr != nil || parsed == 0 {
+			return 0, 0, 0, fmt.Errorf("user_id 必须是大于 0 的整数")
+		}
+		userID = uint(parsed)
+	}
+	return page, pageSize, userID, nil
+}
+
+func adminExecutionRecordFromDB(record db.AdminTaskRecord) adminExecutionRecordResponse {
+	return adminExecutionRecordResponse{
+		ID:                   record.ID,
+		UserID:               record.UserID,
+		UserEmail:            record.UserEmail,
+		Query:                record.Query,
+		Status:               record.Status,
+		DoneCount:            record.DoneCount,
+		TotalCount:           record.TotalCount,
+		Duration:             record.Duration,
+		Error:                record.Error,
+		PromptTokens:         record.PromptTokens,
+		CompletionTokens:     record.CompletionTokens,
+		TotalTokens:          record.TotalTokens,
+		Intent:               record.Intent,
+		ConversationID:       record.ConversationID,
+		SourceMessageID:      record.SourceMessageID,
+		ParentTaskID:         record.ParentTaskID,
+		GenerationStartedAt:  record.GenerationStartedAt,
+		GenerationFinishedAt: record.GenerationFinishedAt,
+		GenerationDurationMS: record.GenerationDurationMS,
+		FixerRunCount:        record.FixerRunCount,
+		CreatedAt:            record.CreatedAt,
+		UpdatedAt:            record.UpdatedAt,
+	}
 }
 
 func (s *Server) handleAdminStats(c *gin.Context) {

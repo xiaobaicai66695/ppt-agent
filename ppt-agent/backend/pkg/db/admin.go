@@ -1,6 +1,9 @@
 package db
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // AdminMetrics is the aggregate used by the management dashboard. Counts of
 // PPT generation deliberately exclude workbench-only conversation records.
@@ -28,6 +31,34 @@ type AdminTaskFeedback struct {
 	TaskFeedback
 	UserEmail string `json:"user_email"`
 	TaskQuery string `json:"task_query"`
+}
+
+// AdminTaskRecord is the safe, durable execution metadata available to
+// administrators. It deliberately omits work_dir and files because those are
+// server-internal paths and delivery details, not operational audit data.
+type AdminTaskRecord struct {
+	ID                   string     `json:"id"`
+	UserID               uint       `json:"user_id"`
+	UserEmail            string     `json:"user_email"`
+	Query                string     `json:"query"`
+	Status               string     `json:"status"`
+	DoneCount            int        `json:"done_count"`
+	TotalCount           int        `json:"total_count"`
+	Duration             string     `json:"duration"`
+	Error                string     `json:"error"`
+	PromptTokens         int64      `json:"prompt_tokens"`
+	CompletionTokens     int64      `json:"completion_tokens"`
+	TotalTokens          int64      `json:"total_tokens"`
+	Intent               string     `json:"intent"`
+	ConversationID       string     `json:"conversation_id"`
+	SourceMessageID      string     `json:"source_message_id"`
+	ParentTaskID         string     `json:"parent_task_id"`
+	GenerationStartedAt  *time.Time `json:"generation_started_at"`
+	GenerationFinishedAt *time.Time `json:"generation_finished_at"`
+	GenerationDurationMS int64      `json:"generation_duration_ms"`
+	FixerRunCount        int        `json:"fixer_run_count"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 // ListAllUsers 返回所有用户（供管理员查看）。
@@ -157,4 +188,37 @@ func ListAdminTaskFeedback(limit int) ([]AdminTaskFeedback, error) {
 		Limit(limit).
 		Scan(&records).Error
 	return records, err
+}
+
+// ListAdminTaskRecords returns a paginated, cross-user task execution audit
+// trail. The caller must enforce administrator authorization before invoking
+// it. An optional userID narrows results to a single account.
+func ListAdminTaskRecords(page, pageSize int, userID uint) ([]AdminTaskRecord, int64, error) {
+	if DB == nil {
+		return []AdminTaskRecord{}, 0, nil
+	}
+	query := DB.Table("task_records").Joins("LEFT JOIN users ON users.id = task_records.user_id")
+	if userID > 0 {
+		query = query.Where("task_records.user_id = ?", userID)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	records := make([]AdminTaskRecord, 0, pageSize)
+	err := query.Select(`task_records.id, task_records.user_id, users.email AS user_email,
+		task_records.query, task_records.status, task_records.done_count, task_records.total_count,
+		task_records.duration, task_records.error, task_records.prompt_tokens,
+		task_records.completion_tokens, task_records.total_tokens, task_records.intent,
+		task_records.conversation_id, task_records.source_message_id, task_records.parent_task_id,
+		task_records.generation_started_at, task_records.generation_finished_at,
+		task_records.generation_duration_ms, task_records.fixer_run_count,
+		task_records.created_at, task_records.updated_at`).
+		Order("task_records.created_at DESC, task_records.id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Scan(&records).Error
+	return records, total, err
 }

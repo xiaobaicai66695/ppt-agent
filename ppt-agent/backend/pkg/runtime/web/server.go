@@ -200,6 +200,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		AdminStats:                       s.handleAdminStats,
 		AdminUsers:                       s.handleAdminUsers,
 		AdminTasks:                       s.handleAdminTasks,
+		AdminExecutionRecords:            s.handleAdminExecutionRecords,
 		AdminFeedback:                    s.handleAdminFeedback,
 		AdminEvaluationCandidates:        s.handleAdminEvaluationCandidates,
 		AdminEvaluationCandidateEvidence: s.handleAdminEvaluationCandidateEvidence,
