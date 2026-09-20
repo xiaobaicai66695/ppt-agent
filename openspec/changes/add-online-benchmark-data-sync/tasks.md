@@ -20,6 +20,6 @@
 
 ## 5. Verification and delivery
 
-- [ ] 5.1 Add focused unit/integration tests for capture, privacy gates, dataset split isolation, export/import integrity, and imported-case execution.
-- [ ] 5.2 Update benchmark operations documentation and the completion record with dataset lifecycle, deployment evidence, and retention/withdrawal constraints.
-- [ ] 5.3 Run focused tests and build, commit the change, deploy the Linux delivery, execute a minimal production smoke capture and bundle pull, clean smoke data, and record the result.
+- [x] 5.1 Add focused unit/integration tests for capture, privacy gates, dataset split isolation, export/import integrity, and imported-case execution.
+- [x] 5.2 Update benchmark operations documentation and the completion record with dataset lifecycle, deployment evidence, and retention/withdrawal constraints.
+- [x] 5.3 Run focused tests and build, commit the change, deploy the Linux delivery, execute a minimal production smoke capture and bundle pull, clean smoke data, and record the result.
