@@ -366,9 +366,16 @@ func runPPTPlannerInternal(ctx context.Context, agent adk.Agent, cfg *PPTTaskCon
 	if plannerErr != nil {
 		return result, fmt.Errorf("Planner 执行失败: %w", plannerErr)
 	}
-	if _, err := ensurePlannerDraft(cfg, userQuery, lastMsg, onEvent); err != nil {
+	draft, err := ensurePlannerDraft(cfg, userQuery, lastMsg, onEvent)
+	if err != nil {
 		return result, err
 	}
+	cfg.CaptureEvaluationStage(ctx, EvaluationStageSnapshot{
+		Stage: "planner", Attempt: 1, Status: "captured",
+		Input:      map[string]any{"user_query": userQuery, "outline": cfg.Outline},
+		Output:     map[string]any{"planner_message": lastMsg, "draft": draft},
+		Provenance: evaluationProvenance(cfg),
+	})
 	manifest, err := reviewAndCommitPPTSpec(ctx, cfg, onEvent)
 	if err != nil {
 		return result, err
@@ -458,6 +465,12 @@ func reviewAndCommitPPTSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Age
 			})
 		}
 		if report.Passed {
+			draft, _ := ReadTasksDraftManifest(cfg.WorkDir)
+			cfg.CaptureEvaluationStage(ctx, EvaluationStageSnapshot{
+				Stage: "reviewer", Attempt: round, Status: "passed",
+				Input:  map[string]any{"query": cfg.Query, "draft": draft},
+				Output: map[string]any{"deterministic_report": report, "agent_events": []AgentEvent{}}, Provenance: evaluationProvenance(cfg),
+			})
 			manifest, ok, commitErr := CommitReviewedTasksDraftManifestIfPresent(cfg.WorkDir)
 			if commitErr != nil {
 				return nil, fmt.Errorf("提交已审查 PPTSpec 失败: %w", commitErr)
@@ -493,16 +506,38 @@ func reviewAndCommitPPTSpec(ctx context.Context, cfg *PPTTaskConfig, onEvent Age
 		if err != nil {
 			return nil, err
 		}
-		if err := runAgentWithCallback(ctx, reviewer, input, onEvent); err != nil {
-			return nil, fmt.Errorf("Task Reviewer 第 %d 轮诊断失败: %w", round, err)
+		var reviewerEvents []AgentEvent
+		reviewerErr := runAgentWithCallback(ctx, reviewer, input, func(event AgentEvent) {
+			reviewerEvents = append(reviewerEvents, event)
+			onEvent(event)
+		})
+		draft, _ := ReadTasksDraftManifest(cfg.WorkDir)
+		reviewerStatus := "captured"
+		if reviewerErr != nil {
+			reviewerStatus = "failed"
+		}
+		cfg.CaptureEvaluationStage(ctx, EvaluationStageSnapshot{
+			Stage: "reviewer", Attempt: round, Status: reviewerStatus,
+			Input:  map[string]any{"query": cfg.Query, "draft": draft, "revision_input": input, "allowed_page_indexes": allowedPageIndexes},
+			Output: map[string]any{"deterministic_report": report, "agent_events": reviewerEvents, "error": errorString(reviewerErr)}, Provenance: evaluationProvenance(cfg),
+		})
+		if reviewerErr != nil {
+			return nil, fmt.Errorf("Task Reviewer 第 %d 轮诊断失败: %w", round, reviewerErr)
 		}
 		refiner, err := NewPlannerRefinerAgent(ctx, cfg, allowedPageIndexes)
 		if err != nil {
 			return nil, err
 		}
+		beforeRefine, _ := ReadTasksDraftManifest(cfg.WorkDir)
 		if err := runAgentWithCallback(ctx, refiner, input, onEvent); err != nil {
 			return nil, fmt.Errorf("PlannerRefiner 第 %d 轮修正失败: %w", round, err)
 		}
+		afterRefine, _ := ReadTasksDraftManifest(cfg.WorkDir)
+		cfg.CaptureEvaluationStage(ctx, EvaluationStageSnapshot{
+			Stage: "planner_refiner", Attempt: round, Status: "captured",
+			Input:  map[string]any{"revision_input": input, "before_draft": beforeRefine, "review_report": report, "allowed_page_indexes": allowedPageIndexes},
+			Output: map[string]any{"after_draft": afterRefine}, Provenance: evaluationProvenance(cfg),
+		})
 	}
 	if latest == nil {
 		return nil, fmt.Errorf("Task Reviewer 未产生审查结果")
@@ -712,6 +747,45 @@ func runAgentWithCallback(ctx context.Context, agent adk.Agent, userInput string
 // RunPPTFixerWithCallback 运行生成后定点修复 Agent。
 func RunPPTFixerWithCallback(ctx context.Context, agent adk.Agent, userInput string, onEvent AgentEventCallback) error {
 	return runAgentWithCallback(ctx, agent, userInput, onEvent)
+}
+
+// RunPPTFixerWithEvaluationCallback captures the exact structured before/after
+// plan around a user-facing Fixer invocation without changing the legacy
+// benchmark helper signature.
+func RunPPTFixerWithEvaluationCallback(ctx context.Context, agent adk.Agent, cfg *PPTTaskConfig, userInput string, onEvent AgentEventCallback) error {
+	var before any
+	if cfg != nil {
+		before, _ = ReadTasksManifest(cfg.WorkDir)
+	}
+	err := runAgentWithCallback(ctx, agent, userInput, onEvent)
+	if cfg != nil {
+		after, _ := ReadTasksManifest(cfg.WorkDir)
+		status := "captured"
+		if err != nil {
+			status = "failed"
+		}
+		cfg.CaptureEvaluationStage(ctx, EvaluationStageSnapshot{
+			Stage: "fixer", Status: status,
+			Input:      map[string]any{"user_input": userInput, "before_plan": before},
+			Output:     map[string]any{"after_plan": after, "error": errorString(err)},
+			Provenance: evaluationProvenance(cfg),
+		})
+	}
+	return err
+}
+
+func evaluationProvenance(cfg *PPTTaskConfig) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+	return map[string]any{"skills_dir": cfg.SkillsDir, "intent": cfg.Intent, "model_provider": cfg.ModelProvider}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // streamAgentEvents 消费所有代理事件并通过 onEvent 转发它们

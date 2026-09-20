@@ -21,6 +21,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/chattrace"
+	"github.com/cloudwego/ppt-agent/pkg/evaluation"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	webrouter "github.com/cloudwego/ppt-agent/pkg/runtime/web/router"
 	webservice "github.com/cloudwego/ppt-agent/pkg/runtime/web/service"
@@ -45,6 +46,7 @@ type Server struct {
 	httpServer      *http.Server
 	runContext      context.Context
 	chatTrace       chattrace.Store
+	evaluation      *evaluation.Service
 	taskService     *webservice.TaskService
 	continueStarter func(taskID string, ts *task.TaskState, message string, uid int, sess *session.ConversationSession)
 	aiModelFactory  func(ctx context.Context) (interface {
@@ -129,6 +131,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		skillDir:         cfg.SkillsDir,
 		operator:         cfg.Operator,
 		chatTrace:        cfg.ChatTraceStore,
+		evaluation:       evaluation.NewService(""),
 		runContext:       context.Background(),
 	}
 
@@ -163,43 +166,51 @@ func NewServer(cfg *ServerConfig) *Server {
 		TemplateLoader: s.templateLoader,
 	})
 	webrouter.Register(engine, webrouter.Handlers{
-		AuthMiddleware:      s.authMiddleware(),
-		OwnershipMiddleware: s.taskOwnershipMiddleware(),
-		AdminMiddleware:     s.adminMiddleware(),
-		SendCode:            s.handleSendCode,
-		Register:            s.handleRegister,
-		Login:               s.handleLogin,
-		GuestLogin:          s.handleGuestLogin,
-		SetPassword:         s.handleSetPassword,
-		Logout:              s.handleLogout,
-		Me:                  s.handleMe,
-		Message:             s.handleMessage,
-		CreatePlanDraft:     s.handleCreatePlanDraft,
-		ListPlanDrafts:      s.handleListPlanDrafts,
-		GetPlanDraft:        s.handleGetPlanDraft,
-		CreateTask:          s.handleCreateTask,
-		StartTask:           s.handleStartConversationTask,
-		GetTask:             s.handleGetTask,
-		ListTasks:           s.handleListTasks,
-		StreamTask:          s.handleStreamTask,
-		DownloadFile:        s.handleDownloadFile,
-		Thumbnail:           s.handleThumbnail,
-		CancelTask:          s.handleCancelTask,
-		SaveTaskFeedback:    s.handleSaveTaskFeedback,
-		DeleteTask:          s.handleDeleteTask,
-		ContinueTask:        s.handleContinueTask,
-		GetConversation:     s.handleGetConversation,
-		GetRuntimeEvent:     s.handleGetRuntimeEvent,
-		GetUserAPIKey:       s.handleGetUserAPIKey,
-		UpdateUserAPIKey:    s.handleUpdateUserAPIKey,
-		DeleteUserAPIKey:    s.handleDeleteUserAPIKey,
-		ListLayouts:         s.handleListLayouts,
-		AdminStats:          s.handleAdminStats,
-		AdminUsers:          s.handleAdminUsers,
-		AdminTasks:          s.handleAdminTasks,
-		AdminFeedback:       s.handleAdminFeedback,
-		HealthCheck:         s.handleHealthCheck,
-		Metrics:             promhttp.Handler(),
+		AuthMiddleware:                   s.authMiddleware(),
+		OwnershipMiddleware:              s.taskOwnershipMiddleware(),
+		AdminMiddleware:                  s.adminMiddleware(),
+		SendCode:                         s.handleSendCode,
+		Register:                         s.handleRegister,
+		Login:                            s.handleLogin,
+		GuestLogin:                       s.handleGuestLogin,
+		SetPassword:                      s.handleSetPassword,
+		Logout:                           s.handleLogout,
+		Me:                               s.handleMe,
+		Message:                          s.handleMessage,
+		CreatePlanDraft:                  s.handleCreatePlanDraft,
+		ListPlanDrafts:                   s.handleListPlanDrafts,
+		GetPlanDraft:                     s.handleGetPlanDraft,
+		CreateTask:                       s.handleCreateTask,
+		StartTask:                        s.handleStartConversationTask,
+		GetTask:                          s.handleGetTask,
+		ListTasks:                        s.handleListTasks,
+		StreamTask:                       s.handleStreamTask,
+		DownloadFile:                     s.handleDownloadFile,
+		Thumbnail:                        s.handleThumbnail,
+		CancelTask:                       s.handleCancelTask,
+		SaveTaskFeedback:                 s.handleSaveTaskFeedback,
+		DeleteTask:                       s.handleDeleteTask,
+		ContinueTask:                     s.handleContinueTask,
+		GetConversation:                  s.handleGetConversation,
+		GetRuntimeEvent:                  s.handleGetRuntimeEvent,
+		GetUserAPIKey:                    s.handleGetUserAPIKey,
+		UpdateUserAPIKey:                 s.handleUpdateUserAPIKey,
+		DeleteUserAPIKey:                 s.handleDeleteUserAPIKey,
+		ListLayouts:                      s.handleListLayouts,
+		AdminStats:                       s.handleAdminStats,
+		AdminUsers:                       s.handleAdminUsers,
+		AdminTasks:                       s.handleAdminTasks,
+		AdminFeedback:                    s.handleAdminFeedback,
+		AdminEvaluationCandidates:        s.handleAdminEvaluationCandidates,
+		AdminEvaluationCandidateEvidence: s.handleAdminEvaluationCandidateEvidence,
+		AdminApproveEvaluationCandidate:  s.handleAdminApproveEvaluationCandidate,
+		AdminWithdrawEvaluationCandidate: s.handleAdminWithdrawEvaluationCandidate,
+		AdminCreateEvaluationCase:        s.handleAdminCreateEvaluationCase,
+		AdminPublishEvaluationDataset:    s.handleAdminPublishEvaluationDataset,
+		AdminCreateEvaluationExport:      s.handleAdminCreateEvaluationExport,
+		AdminDownloadEvaluationExport:    s.handleAdminDownloadEvaluationExport,
+		HealthCheck:                      s.handleHealthCheck,
+		Metrics:                          promhttp.Handler(),
 		NoRoute: func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 				c.JSON(http.StatusNotFound, gin.H{"error": "api route not found"})

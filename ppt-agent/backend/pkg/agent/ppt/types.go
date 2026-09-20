@@ -17,6 +17,7 @@
 package ppt
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -59,8 +60,48 @@ type PPTTaskConfig struct {
 	// OnFixerTriggered records each actual Fixer run. It is a runtime-only
 	// callback owned by the task layer, so it is never written to PPTSpec.
 	OnFixerTriggered func()
+	// EvaluationCapture receives authoritative stage boundaries for the private
+	// production evaluation store. It is intentionally best-effort and never
+	// changes task delivery semantics when unavailable.
+	EvaluationCapture EvaluationStageCapturer
 
 	UserID int // 用户ID
+}
+
+// EvaluationStageCapturer is implemented by the runtime evaluation package.
+// Keeping this interface in ppt avoids coupling agent workflow code to a
+// concrete database or artifact-store implementation.
+type EvaluationStageCapturer interface {
+	CaptureEvaluationStage(ctx context.Context, snapshot EvaluationStageSnapshot) error
+}
+
+// EvaluationStageSnapshot contains only canonical structured inputs and
+// outputs that affected a workflow boundary. It must not carry credentials.
+type EvaluationStageSnapshot struct {
+	TaskID           string         `json:"task_id"`
+	UserID           int            `json:"user_id,omitempty"`
+	Stage            string         `json:"stage"`
+	Attempt          int            `json:"attempt"`
+	ParentStageRunID string         `json:"parent_stage_run_id,omitempty"`
+	Status           string         `json:"status"`
+	Input            any            `json:"input"`
+	Output           any            `json:"output"`
+	Provenance       map[string]any `json:"provenance,omitempty"`
+}
+
+func (c *PPTTaskConfig) CaptureEvaluationStage(ctx context.Context, snapshot EvaluationStageSnapshot) {
+	if c == nil || c.EvaluationCapture == nil {
+		return
+	}
+	if snapshot.TaskID == "" {
+		snapshot.TaskID = c.TaskID
+	}
+	if snapshot.UserID == 0 {
+		snapshot.UserID = c.UserID
+	}
+	if err := c.EvaluationCapture.CaptureEvaluationStage(ctx, snapshot); err != nil {
+		logger.Warn("evaluation_stage_capture_failed", "task_id", snapshot.TaskID, "stage", snapshot.Stage, "attempt", snapshot.Attempt, "error", err.Error())
+	}
 }
 
 // NotifyFixerTriggered reports that this task is about to execute the Fixer.

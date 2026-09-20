@@ -23,6 +23,13 @@ func TestRouteContract(t *testing.T) {
 		"GET /api/tasks/:id/files/:filename",
 		"GET /api/tasks/:id/conversation",
 		"GET /api/tasks/:id/runtime-events/:event_id",
+		"GET /api/admin/evaluations/candidates",
+		"GET /api/admin/evaluations/candidates/:id",
+		"POST /api/admin/evaluations/candidates/:id/approve",
+		"POST /api/admin/evaluations/candidates/:id/cases",
+		"POST /api/admin/evaluations/datasets",
+		"POST /api/admin/evaluations/datasets/:id/exports",
+		"GET /api/admin/evaluations/exports/:id/download",
 		"GET /api/health",
 	} {
 		if !routes[want] {

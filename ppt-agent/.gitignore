@@ -61,6 +61,10 @@ test/plan_benchmark/results/
 # Local benchmark artifacts can contain model traces and are never committed.
 benchmark/runs/*
 !benchmark/runs/.gitkeep
+# Pulled production-derived benchmark bundles are private developer data and
+# must never be committed with the fixed regression fixtures.
+benchmark/imports/*
+!benchmark/imports/.gitkeep
 !test/gold_ppts/
 !test/gold_ppts/**
 test/gold_ppts/generated_*/

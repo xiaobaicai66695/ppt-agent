@@ -14,6 +14,7 @@ import (
 	agentrouter "github.com/cloudwego/ppt-agent/pkg/agent/router"
 	"github.com/cloudwego/ppt-agent/pkg/auth"
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/evaluation"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
 	webmodel "github.com/cloudwego/ppt-agent/pkg/runtime/web/model"
@@ -216,17 +217,18 @@ func (s *Server) resumeDraftCheckpoint(taskID string, ts *task.TaskState, ch cha
 	credential := userModelCredential(ts.Info.UserID)
 	runtimeMeta := agentutils.NewRuntimeMeta(taskID, ts.Info.WorkDir)
 	cfg := &ppt.PPTTaskConfig{
-		WorkDir:          ts.Info.WorkDir,
-		TaskID:           taskID,
-		Query:            ts.Info.Query,
-		SkillsDir:        s.skillDir,
-		Operator:         s.operator,
-		RuntimeMeta:      runtimeMeta,
-		Concurrency:      5,
-		UserID:           ts.Info.UserID,
-		OnFixerTriggered: ts.RecordFixerRun,
-		ModelAPIKey:      credential.APIKey,
-		ModelProvider:    credential.Provider,
+		WorkDir:           ts.Info.WorkDir,
+		TaskID:            taskID,
+		Query:             ts.Info.Query,
+		SkillsDir:         s.skillDir,
+		Operator:          s.operator,
+		RuntimeMeta:       runtimeMeta,
+		Concurrency:       5,
+		UserID:            ts.Info.UserID,
+		OnFixerTriggered:  ts.RecordFixerRun,
+		ModelAPIKey:       credential.APIKey,
+		ModelProvider:     credential.Provider,
+		EvaluationCapture: evaluation.NewCapturer(""),
 	}
 	if _, err := ppt.ResumePPTPlannerFromDraftWithCallback(s.runtimeContext(), cfg, func(event ppt.AgentEvent) {
 		switch event.Type {

@@ -1,12 +1,44 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestPullDatasetInstallsVerifiedPrivateCases(t *testing.T) {
+	caseJSON := []byte(`{"id":"planner_import_001","name":"导入规划","input":{"user_request":"测试"}}`)
+	digest := sha256.Sum256(caseJSON)
+	var bundle bytes.Buffer
+	zipWriter := zip.NewWriter(&bundle)
+	caseWriter, _ := zipWriter.Create("cases/case-1.json")
+	_, _ = caseWriter.Write(caseJSON)
+	manifestWriter, _ := zipWriter.Create("manifest.json")
+	_, _ = manifestWriter.Write([]byte(`{"format":1,"dataset_id":"dataset-1","name":"active-dev-2026w40","role":"active-dev","cases":[{"id":"case-1","suite":"planner","path":"cases/case-1.json","sha256":"` + hex.EncodeToString(digest[:]) + `"}]}`))
+	_ = zipWriter.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Evaluation-Export-SHA256", sha256Hex(bundle.Bytes()))
+		_, _ = w.Write(bundle.Bytes())
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	if err := pullDataset([]string{"--url", server.URL, "--root", root}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "active-dev-2026w40", "cases", "case-1.json")
+	if data, err := os.ReadFile(path); err != nil || string(data) != string(caseJSON) {
+		t.Fatalf("imported case data=%q err=%v", data, err)
+	}
+}
 
 func TestDefaultCasesPathSeparatesTestAndValidation(t *testing.T) {
 	testCases := defaultCasesPath("test", "planner")

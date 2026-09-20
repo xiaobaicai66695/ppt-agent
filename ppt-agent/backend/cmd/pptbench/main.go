@@ -9,7 +9,13 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "dataset" {
+		err = runDatasetCommand(os.Args[2:])
+	} else {
+		err = run()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -51,7 +57,7 @@ func run() error {
 func parseOptions() (options, error) {
 	var opt options
 	var timeout string
-	flag.StringVar(&opt.dataset, "dataset", "test", "test|validation")
+	flag.StringVar(&opt.dataset, "dataset", "test", "test|validation|<imported-dataset>")
 	flag.StringVar(&opt.suite, "s", "all", "router|planner|reviewer|fixer|all")
 	flag.StringVar(&opt.step, "p", "model", "model|judge|all")
 	flag.StringVar(&opt.casesPath, "cases", "", "case file or directory; defaults to benchmark/cases/<suite> or benchmark/validation_cases/<suite>")
@@ -69,6 +75,9 @@ func parseOptions() (options, error) {
 	}
 	if !validDataset(opt.dataset) {
 		return opt, fmt.Errorf("unsupported dataset %q", opt.dataset)
+	}
+	if opt.dataset != "test" && opt.dataset != "validation" && opt.suite == "router" {
+		return opt, fmt.Errorf("router only supports fixed test or validation fixtures")
 	}
 	if !validStep(opt.step) {
 		return opt, fmt.Errorf("unsupported step %q", opt.step)
@@ -94,7 +103,7 @@ func runConfig(opt options) map[string]any {
 }
 
 func validDataset(dataset string) bool {
-	return dataset == "test" || dataset == "validation"
+	return dataset == "test" || dataset == "validation" || validImportedDatasetName(dataset)
 }
 
 func validStep(step string) bool {

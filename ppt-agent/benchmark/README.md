@@ -40,6 +40,8 @@ benchmark/
     fixer/
   runs/
     .gitkeep
+  imports/                  # 本地拉取的私有线上评测集，已忽略，不提交
+    .gitkeep
 ```
 
 `benchmark/runs/` 用于保存本地评测结果，已被 `.gitignore` 忽略，运行产物不会进入提交。每个 run 目录固定命名为 `YYYYMMDD-HHMMSS-<dataset>-<suite>`，例如 `20260829-150405-validation-planner`；全量评测使用 `all`。即使显式传入 `-o`，也必须使用这个格式，二阶段评分复用完全相同的目录。
@@ -236,6 +238,37 @@ go run ./cmd/pptbench --dataset validation -s all -p all -o ../benchmark/runs/20
 ```
 
 验证失败时，先按输出归因到 Agent、case、Judge 或环境。若确认是 Agent 缺陷，在既有 test 集中新增一个与验证 case 不同的回归 case 后修复，再重新运行整个 validation 集；不要修改已经执行过的 validation case 来抬高分数。需要扩大覆盖面时只追加新的 validation case，并在评测记录中注明版本和新增原因。
+
+## 线上阶段快照与私有数据集
+
+线上任务不会被整库复制到开发环境。生产服务在 Planner、Reviewer、PlannerRefiner、Fixer 边界保存私有的结构化输入/输出快照；快照默认处于待脱敏状态。管理员审核候选、填写明确的 case `input`、`expected`、`judge_focus` 后，才能冻结为数据集并导出。用户评分只用于候选优先级，不能替代 case 的预期结果。
+
+数据集角色如下：
+
+- `core`：固定回归集，不轮换。
+- `validation`：当前隐藏 holdout，冻结后成员和 revision 不可修改。
+- `active-dev`：已结束评测期的 validation 可以晋升到此角色，用于后续 TDD；已暴露的 split group 不得重新进入 validation。
+
+Router 继续只使用仓库内 `test` / `validation` fixture；线上导入仅支持 Planner、Reviewer 和 Fixer。
+
+生产端管理员先通过 `/api/admin/evaluations/*` 审核、冻结并创建导出包，然后开发机下载导出包：
+
+```powershell
+cd ppt-agent/backend
+go run ./cmd/pptbench dataset pull `
+  --url "https://<server>/api/admin/evaluations/exports/<export-id>/download" `
+  --token "<短期管理员令牌>"
+```
+
+导入命令会校验服务端 SHA-256 和 bundle 内每个 case 的 SHA-256；任一校验失败都不会激活数据集。成功后 bundle 写入 `benchmark/imports/<dataset-name>/`，并可直接运行：
+
+```powershell
+go run ./cmd/pptbench --dataset active-dev-2026w40 -s planner -p model
+```
+
+线上输入、draft、review advice、修补前后 manifest 以及完整对话可能包含敏感内容。未审核、已撤回或已删除的候选不得导出；不要将 `benchmark/imports/`、生产导出 ZIP、原始 PPTX 或用户上传资料提交到 Git。
+
+服务端默认把私有 JSON 证据放在保留的 `weboutput/eval-data/`；生产环境可用 `PPT_EVAL_ARTIFACT_ROOT` 指向受控持久卷。该目录不是用户下载目录，也不应被部署时的服务端源码替换步骤删除。
 
 ## 常见问题
 

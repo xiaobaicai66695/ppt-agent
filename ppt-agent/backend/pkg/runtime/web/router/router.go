@@ -48,10 +48,18 @@ type Handlers struct {
 	DeleteUserAPIKey gin.HandlerFunc
 	ListLayouts      gin.HandlerFunc
 
-	AdminStats    gin.HandlerFunc
-	AdminUsers    gin.HandlerFunc
-	AdminTasks    gin.HandlerFunc
-	AdminFeedback gin.HandlerFunc
+	AdminStats                       gin.HandlerFunc
+	AdminUsers                       gin.HandlerFunc
+	AdminTasks                       gin.HandlerFunc
+	AdminFeedback                    gin.HandlerFunc
+	AdminEvaluationCandidates        gin.HandlerFunc
+	AdminEvaluationCandidateEvidence gin.HandlerFunc
+	AdminApproveEvaluationCandidate  gin.HandlerFunc
+	AdminWithdrawEvaluationCandidate gin.HandlerFunc
+	AdminCreateEvaluationCase        gin.HandlerFunc
+	AdminPublishEvaluationDataset    gin.HandlerFunc
+	AdminCreateEvaluationExport      gin.HandlerFunc
+	AdminDownloadEvaluationExport    gin.HandlerFunc
 
 	HealthCheck gin.HandlerFunc
 	Metrics     http.Handler
@@ -124,6 +132,14 @@ func Register(engine *gin.Engine, h Handlers) {
 		admin.GET("/users", handler(h.AdminUsers))
 		admin.GET("/tasks", handler(h.AdminTasks))
 		admin.GET("/feedback", handler(h.AdminFeedback))
+		admin.GET("/evaluations/candidates", handler(h.AdminEvaluationCandidates))
+		admin.GET("/evaluations/candidates/:id", handler(h.AdminEvaluationCandidateEvidence))
+		admin.POST("/evaluations/candidates/:id/approve", handler(h.AdminApproveEvaluationCandidate))
+		admin.POST("/evaluations/candidates/:id/withdraw", handler(h.AdminWithdrawEvaluationCandidate))
+		admin.POST("/evaluations/candidates/:id/cases", handler(h.AdminCreateEvaluationCase))
+		admin.POST("/evaluations/datasets", handler(h.AdminPublishEvaluationDataset))
+		admin.POST("/evaluations/datasets/:id/exports", handler(h.AdminCreateEvaluationExport))
+		admin.GET("/evaluations/exports/:id/download", handler(h.AdminDownloadEvaluationExport))
 	}
 
 	if h.Metrics != nil {

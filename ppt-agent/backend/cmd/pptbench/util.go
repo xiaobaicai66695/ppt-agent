@@ -37,10 +37,31 @@ func defaultOutPath(dataset, suite string) string {
 }
 
 func defaultCasesPath(dataset, suite string) string {
+	if dataset != "test" && dataset != "validation" {
+		if suite == "router" {
+			return filepath.Join(projectRoot(), "benchmark", "cases", suite)
+		}
+		return filepath.Join(importRoot(), dataset, "cases", suite)
+	}
 	if dataset == "validation" {
 		return filepath.Join(projectRoot(), "benchmark", "validation_cases", suite)
 	}
 	return filepath.Join(projectRoot(), "benchmark", "cases", suite)
+}
+
+func importRoot() string {
+	if root := strings.TrimSpace(os.Getenv("PPT_BENCH_IMPORT_ROOT")); root != "" {
+		return root
+	}
+	return filepath.Join(projectRoot(), "benchmark", "imports")
+}
+
+func validImportedDatasetName(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." || value == ".." || strings.ContainsAny(value, `/\\`) {
+		return false
+	}
+	return safePathName(value) == value
 }
 
 func readJSON(path string, target any) error {

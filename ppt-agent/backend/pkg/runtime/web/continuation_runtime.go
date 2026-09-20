@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
+	"github.com/cloudwego/ppt-agent/pkg/evaluation"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 	agentutils "github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/task"
@@ -70,13 +71,14 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			WorkDir: ts.Info.WorkDir, TaskID: taskID, Query: ts.Info.Query,
 			SkillsDir: s.skillDir, Operator: s.operator, UserID: ts.Info.UserID,
 			OnFixerTriggered: ts.RecordFixerRun, ModelAPIKey: credential.APIKey, ModelProvider: credential.Provider,
+			EvaluationCapture: evaluation.NewCapturer(""),
 		}
 		fixerCtx, cancelFixer := context.WithTimeout(s.runtimeContext(), 5*time.Minute)
 		defer cancelFixer()
 		fixer, fixerErr := ppt.NewPPTFixerAgentForTasks(fixerCtx, fixerCfg, []string{newTask.TaskID})
 		if fixerErr == nil {
 			fixerCfg.NotifyFixerTriggered()
-			fixerErr = ppt.RunPPTFixerWithCallback(fixerCtx, fixer,
+			fixerErr = ppt.RunPPTFixerWithEvaluationCallback(fixerCtx, fixer, fixerCfg,
 				fmt.Sprintf("用户要求新增第%d页：%s\n请将这张刚创建的页面直接规划为满足该要求的完整组件计划；只修改第%d页。", newTask.PageIndex, continueMessage, newTask.PageIndex),
 				func(event ppt.AgentEvent) {
 					switch event.Type {
@@ -119,15 +121,16 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 		if len(allowedTaskIDs) > 0 {
 			beforeFix, _ := manifest.MustMarshalJSON()
 			fixerCfg := &ppt.PPTTaskConfig{
-				WorkDir:          ts.Info.WorkDir,
-				TaskID:           taskID,
-				Query:            ts.Info.Query,
-				SkillsDir:        s.skillDir,
-				Operator:         s.operator,
-				UserID:           ts.Info.UserID,
-				OnFixerTriggered: ts.RecordFixerRun,
-				ModelAPIKey:      credential.APIKey,
-				ModelProvider:    credential.Provider,
+				WorkDir:           ts.Info.WorkDir,
+				TaskID:            taskID,
+				Query:             ts.Info.Query,
+				SkillsDir:         s.skillDir,
+				Operator:          s.operator,
+				UserID:            ts.Info.UserID,
+				OnFixerTriggered:  ts.RecordFixerRun,
+				ModelAPIKey:       credential.APIKey,
+				ModelProvider:     credential.Provider,
+				EvaluationCapture: evaluation.NewCapturer(""),
 			}
 			fixerCtx, cancelFixer := context.WithTimeout(s.runtimeContext(), 5*time.Minute)
 			defer cancelFixer()
@@ -135,7 +138,7 @@ func (s *Server) runWorkflowContinue(taskID string, ts *task.TaskState, route *R
 			if fixerErr == nil {
 				fixerInput := fmt.Sprintf("用户要求：%s\n允许修改的任务 ID：%v\n允许修改的页面：%v\n结构化修复提示：%s", continueMessage, allowedTaskIDs, allowedPageIndexes, instruction)
 				fixerCfg.NotifyFixerTriggered()
-				fixerErr = ppt.RunPPTFixerWithCallback(fixerCtx, fixer, fixerInput, func(event ppt.AgentEvent) {
+				fixerErr = ppt.RunPPTFixerWithEvaluationCallback(fixerCtx, fixer, fixerCfg, fixerInput, func(event ppt.AgentEvent) {
 					switch event.Type {
 					case ppt.AgentEventAnswer:
 						ch <- task.SSERichEvent{Type: "answer", Content: event.Content}

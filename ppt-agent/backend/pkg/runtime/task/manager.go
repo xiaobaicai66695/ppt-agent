@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudwego/ppt-agent/pkg/agent/ppt"
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/evaluation"
 	"github.com/cloudwego/ppt-agent/pkg/retry"
 	"github.com/cloudwego/ppt-agent/pkg/runtime/model"
 	"github.com/cloudwego/ppt-agent/pkg/session"
@@ -960,6 +961,9 @@ func (tm *TaskManager) CreateTask(ctx context.Context, query string, userID int,
 	agentCtx, cancel := context.WithCancel(agentCtx)
 	cfg.CompressorTracker = tokenTracker
 	cfg.RuntimeMeta = runtimeMeta
+	if cfg.EvaluationCapture == nil {
+		cfg.EvaluationCapture = evaluation.NewCapturer("")
+	}
 
 	// outline 只作为 Planner 输入草稿。无论是否有大纲，都必须经过
 	// Planner 补全、Task Reviewer 审查和 Go commit 后才能发布 tasks.json。
@@ -1471,6 +1475,15 @@ func (tm *TaskManager) runAgent(ctx context.Context, ts *TaskState, agent adk.Ag
 			Content: completionFinalAnswer(ts.Info),
 		})
 	}
+	if outcome, marshalErr := json.Marshal(map[string]any{
+		"status": ts.Info.Status, "error": ts.Info.Error, "done_count": ts.Info.DoneCount,
+		"total_count": ts.Info.TotalCount, "duration_ms": ts.Info.GenerationDurationMS,
+		"fixer_run_count": ts.Info.FixerRunCount,
+	}); marshalErr == nil {
+		if err := db.UpdateEvaluationSessionOutcome(ts.Info.ID, string(outcome)); err != nil {
+			logger.Warn("evaluation_outcome_update_failed", "task_id", ts.Info.ID, "error", err.Error())
+		}
+	}
 
 	ts.finishGeneration()
 
@@ -1960,6 +1973,9 @@ func (tm *TaskManager) DeleteTask(id string) error {
 
 	// 删除数据库记录。
 	if db.DB != nil {
+		if err := db.WithdrawEvaluationSession(id); err != nil {
+			logger.Warn("evaluation_session_withdraw_failed", "task_id", id, "error", err.Error())
+		}
 		if err := db.DeleteTaskRecord(id); err != nil {
 			logger.Error("db_delete_task_failed", "task_id", id, "error", err.Error())
 		}

@@ -22,6 +22,14 @@ func Migrate(db *gorm.DB) error {
 		&model.ConversationTraceEvent{},
 		&model.RuntimeEventRecord{},
 		&model.TaskErrorAnalysis{},
+		&model.EvaluationSession{},
+		&model.EvaluationArtifact{},
+		&model.EvaluationStageRun{},
+		&model.EvaluationCandidate{},
+		&model.EvaluationCaseRevision{},
+		&model.EvaluationDatasetVersion{},
+		&model.EvaluationDatasetMember{},
+		&model.EvaluationExport{},
 	); err != nil {
 		return err
 	}

@@ -1,11 +1,13 @@
 package task
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/cloudwego/ppt-agent/pkg/db"
+	"github.com/cloudwego/ppt-agent/pkg/utils/logger"
 )
 
 const MaxDeliveryFeedbackSuggestionRunes = 1000
@@ -47,6 +49,13 @@ func (tm *TaskManager) SaveDeliveryFeedback(taskID string, userID, rating int, s
 	record, err := db.UpsertTaskFeedback(taskID, uint(userID), rating, suggestion)
 	if err != nil {
 		return nil, err
+	}
+	if outcome, marshalErr := json.Marshal(map[string]any{
+		"feedback": map[string]any{"rating": record.Rating, "suggestion": record.Suggestion, "updated_at": record.UpdatedAt},
+	}); marshalErr == nil {
+		if err := db.UpdateEvaluationSessionOutcome(taskID, string(outcome)); err != nil {
+			logger.Warn("evaluation_feedback_outcome_update_failed", "task_id", taskID, "error", err.Error())
+		}
 	}
 	return &DeliveryFeedback{Rating: record.Rating, Suggestion: record.Suggestion, UpdatedAt: record.UpdatedAt}, nil
 }
