@@ -10,8 +10,9 @@
 
 - 提交：`54c5a1c fix: improve credential and task feedback states`。
 - 部署目标：`remote-dev:/ppt/ppt-agent`；服务端代码、`skills` 和前端静态资源均替换为该提交内容，保留 `backend/.env` 与 `weboutput`。
-- 部署时间：2026-09-20 14:34 CST。
-- 新进程：`/ppt/ppt-agent-linux -mode web -addr :8080`，PID `3663197`。
+- 部署时间：2026-09-20 14:38 CST。
+- 新进程：`/ppt/ppt-agent-linux -mode web -addr :8080`，PID `3664592`。
+- 服务治理：已创建并启用持久化 `ppt-agent.service`，工作目录为 `/ppt/ppt-agent/backend`，设置 `Restart=on-failure`。
 
 ## 验证
 
@@ -21,4 +22,3 @@
 ## 遗留风险
 
 - 服务器未安装 Go，远端源码替换后无法执行远端构建；本次使用本地交叉编译的 Linux 二进制启动服务。
-- 原有 `ppt-agent` 为 transient systemd 单元，停止后单元定义消失，无法用 `systemctl start` 恢复；当前新进程已存活并通过健康检查，但仍需单独治理为持久化启动单元，以覆盖机器重启和进程崩溃后的自动恢复。
