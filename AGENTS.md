@@ -144,6 +144,7 @@ python skills/ppt-planner/generators/generator.py
 ```text
 实现
 → 本地聚焦验证
+→ 每次必须提交代码
 → 构建 Linux 交付物
 → 部署到服务器
 → 重启并确认新进程
