@@ -38,7 +38,7 @@ type RuntimeEventRecord struct {
 // withdrawal handling inside the production database.
 type EvaluationSession struct {
 	ID            string     `gorm:"size:64;primaryKey" json:"id"`
-	SourceTaskID  string     `gorm:"size:64;uniqueIndex;index;not null" json:"source_task_id"`
+	SourceTaskID  string     `gorm:"size:64;uniqueIndex;not null" json:"source_task_id"`
 	UserID        uint       `gorm:"index;not null" json:"user_id"`
 	PrivacyStatus string     `gorm:"size:32;index;not null;default:'pending_redaction'" json:"privacy_status"`
 	OutcomeJSON   string     `gorm:"type:longtext" json:"outcome_json"`
